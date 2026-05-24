@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Optane中古DIMMで“ほぼRAM級”に近づけたローカルLLM推論</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+
+    .meta{
+      position:absolute;
+      top: 28px;
+      left: 40px;
+      right: 40px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-style: italic;
+      font-size: 16px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 28px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 24px;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-style: italic;
+      font-size: 22px;
+      margin-top: 8px;
+    }
+
+    .title{
+      margin: 14px 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.6;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 14px;
+    }
+
+    .rule{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 84px;
+      height: 1px;
+      background: var(--rule);
+    }
+
+    .grid{
+      margin-top: 18px;
+      display:grid;
+      gap: 14px;
+    }
+
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.05);
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+
+    .card .text{
+      font-size: 20px;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.6;
+    }
+
+    .mono-accent{ color: var(--rust); font-style: italic; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Optane / LLM</div>
+        <div class="slide-num">01 / 17</div>
+      </div>
+      <div class="eyebrow">ほぼRAM級への寄り道</div>
+      <div class="title">中古<span class="em">Optane</span>で動かす</div>
+      <div class="lead">
+        Intel Optane PMem（DCPMM）を大量に積み、llama.cppと組み合わせて“近い体験”を狙う実験が紹介されています。
+        成功はあるが、普遍性は限定的です。
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 2 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="eyebrow">DRAM/SSDのギャップ</div>
+      <div class="title">速度とコストの<em class="em">間</em></div>
+      <div class="lead">
+        DRAMは速いが高価、SSD/NVMeは安いが遅い—その中間（低遅延・大容量）がローカルLLMで効いてきます。
+        重要なのは「計算」だけでなく「必要データの供給」です。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">DRAM</div>
+          <div class="text">高価 / 低遅延</div>
+        </div>
+        <div class="card">
+          <div class="label">SSD / NVMe</div>
+          <div class="text">安価 / 高遅延</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 3 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="eyebrow">中継ポイント</div>
+      <div class="title">“配達”の<em class="em">遅れ</em></div>
+      <div class="lead">
+        LLM推論は、GPUが“計算中”でも、メモリ側からの到着が遅いと止まります（渋滞）。
+        Optaneは、その渋滞をSSDよりは小さくする設計思想です。
+      </div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">DRAM</div>
+          <div class="text">即配達（理想）</div>
+        </div>
+        <div class="card">
+          <div class="label">Optane</div>
+          <div class="text">準即配達（中継）</div>
+        </div>
+        <div class="card">
+          <div class="label">NVMe</div>
+          <div class="text">遅配達（ボトルネック）</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 4 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="eyebrow">構成の要点</div>
+      <div class="title">Optane×6枚で<span class="em">768GB</span></div>
+      <div class="lead">
+        Redditの事例では Intel Optane PMem DIMM（DCPMM）を中古で6枚（合計768GB）集め、Xeonワークステーションに搭載しました。
+        そこで llama.cpp を組み合わせ、超大規模モデルのローカル推論に挑戦しています。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">ハード</div>
+          <div class="text">Optane PMem DIMM（DCPMM）<br><span class="mono">6枚 / 768GB</span></div>
+        </div>
+        <div class="card">
+          <div class="label">ソフト</div>
+          <div class="text">llama.cpp（CPU/GPUの配置最適化）</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 5 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="eyebrow">数字が出た</div>
+      <div class="title">約<span class="em">4 tokens/秒</span></div>
+      <div class="lead">
+        紹介記事では、例として Kimi K2.5（約1トリリオン・パラメータ級）を“単一GPU環境に近い形”で動かし、推論速度として約4 tokens/秒を得たとされています。
+        条件が揃うと、メモリ階層の価値が見える結果です。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">モデル例</div>
+          <div class="text">Kimi K2.5<br><span class="mono">~1T params</span></div>
+        </div>
+        <div class="card">
+          <div class="label">結果</div>
+          <div class="text">推論速度<br><span class="mono"><span class="mono-accent">~4</span> tokens/s</span></div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 6 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="eyebrow">なぜ効く？</div>
+      <div class="title">低遅延の“供給力”</div>
+      <div class="lead">
+        OptaneはDRAMより遅い（例：2〜3倍遅いとされる）が、NVMe SSDよりは低遅延です。
+        LLMのボトルネックが「必要データ供給」である範囲では、改善が起き得ます。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">遅延の位置</div>
+          <div class="text">DRAM &gt; Optane &gt; NVMe</div>
+        </div>
+        <div class="card">
+          <div class="label">推論での意味</div>
+          <div class="text">待ち（stall）を減らす可能性</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 7 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="eyebrow">勝ち筋は最適化</div>
+      <div class="title">メモリモード＋<span class="em">キャッシュ</span></div>
+      <div class="lead">
+        記事の成功は「特殊な最適化」と「構成の偶然性」に依存する可能性が高いです。
+        Optaneをメモリモードで扱い、DDR4をキャッシュとして使うなど、ハード/ソフト連携が前提になります。
+      </div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">(i) Optane</div>
+          <div class="text">メモリモード運用（<span class="mono">PMem</span>）</div>
+        </div>
+        <div class="card">
+          <div class="label">(ii) DDR4</div>
+          <div class="text">キャッシュとして寄与</div>
+        </div>
+        <div class="card">
+          <div class="label">(iii) llama.cpp</div>
+          <div class="text">GPU側へ寄せる“ルーティング”要素</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 8 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="eyebrow">再現性の壁</div>
+      <div class="title">同じ結果は保証しない</div>
+      <div class="lead">
+        同じ台数・同じモデルでも、設定やモデル性質（例：MoE）で性能が振れるかもしれません。
+        llama.cppの設定（例：<span class="mono">override-tensor</span>等）も効く可能性があります。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">効きうる要素</div>
+          <div class="text">MoE構造 / llama.cpp設定 / コンテキスト長</div>
+        </div>
+        <div class="card">
+          <div class="label">注意点</div>
+          <div class="text">“数字だけ”で横展開は危険</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 9 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="eyebrow">置き換えとしての限界</div>
+      <div class="title">これは“市場勝ち”ではない</div>
+      <div class="lead">
+        記事は Optane がすでに生産終了（“dead”）である点を明確に述べています。
+        したがって、これは普遍解というより「入手できる部品での実験的成功」と捉えるのが安全です。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">現在の状況</div>
+          <div class="text">Optaneは生産終了（調達性が低い）</div>
+        </div>
+        <div class="card">
+          <div class="label">解釈</div>
+          <div class="text">普遍的な最適解より、方向性のサンプル</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 10 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="eyebrow">コストの前提</div>
+      <div class="title">中古価格が“成立”を作る</div>
+      <div class="lead">
+        コメント欄の趣旨としても「新品ならGB/$が劇的に良くなかった」「中古で安かったから成立した」ことが示唆されています。
+        つまり結果の費用対効果は市場性に強く依存します（再現可能性とは別問題）。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">成立条件</div>
+          <div class="text">中古調達で単価が下がる</div>
+        </div>
+        <div class="card">
+          <div class="label">解釈の注意</div>
+          <div class="text">同じ構成＝同じコスパ、ではない</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 11 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="eyebrow">FAQ ①/③</div>
+      <div class="title">なぜ“RAM代わり”？</div>
+      <div class="lead">
+        Optane PMemは永続メモリで、DRAMとSSDの中間の遅延特性を狙う設計思想です。
+        NVMeより低遅延なら、LLM推論で“必要データの到着”が速くなり得ます（ただしDRAMほど速くはありません）。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">設計思想</div>
+          <div class="text">DRAM↔SSDの中間（低遅延化）</div>
+        </div>
+        <div class="card">
+          <div class="label">結論</div>
+          <div class="text">万能ではないが、条件次第で効く</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 12 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="eyebrow">FAQ ②/③</div>
+      <div class="title">“単一GPU”は何を意味？</div>
+      <div class="lead">
+        記事ではハイブリッド推論として、GPU/CPUを組み合わせllama.cppで処理を行った旨が書かれています。
+        つまりGPUだけで完結せず、Optane/CPU側も含めた配置・計算が成立に関わります。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">推論の形</div>
+          <div class="text">ハイブリッド（GPU＋CPU）</div>
+        </div>
+        <div class="card">
+          <div class="label">ポイント</div>
+          <div class="text">Optane/CPU側の役割が前提</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 13 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="eyebrow">FAQ ③/③</div>
+      <div class="title">4 tokens/sは再現できる？</div>
+      <div class="lead">
+        記事は再現性の条件を十分に一般化していません。
+        モデル特性（MoEなど）や、llama.cpp設定、Optaneのメモリ/キャッシュ扱いが揃わないと、同等性能は保証されない可能性があります。
+      </div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">モデル</div>
+          <div class="text">MoE等の性質</div>
+        </div>
+        <div class="card">
+          <div class="label">設定</div>
+          <div class="text">llama.cpp（例：override）</div>
+        </div>
+        <div class="card">
+          <div class="label">構成</div>
+          <div class="text">Optane運用（メモリ/キャッシュ）</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 14 / 14 -->
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">14 / 17</div>
+      </div>
+      <div class="eyebrow">次の標準へ</div>
+      <div class="title">CXLで<em class="em">一般化</em></div>
+      <div class="lead">
+        将来像としては、CXLが普及すれば「バイトアドレス可能なメモリプール」をより汎用的に構築できるかもしれません。
+        今回のOptane事例は、その方向性（階層化メモリの必要性）を具体化したサンプルとして捉えるのがよい結論です。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">期待</div>
+          <div class="text">CXL（Compute Express Link）で<br>低遅延・大容量をプール化可能</div>
+        </div>
+        <div class="card">
+          <div class="label">安全な見方</div>
+          <div class="text">普遍解ではなく“方向性の証拠”</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.msn.com/en-us/news/technology/enthusiast-runs-1-trillion-parameter-llm-from-768gb-of-intel-optane-dimm-memory-sticks/ar-AA23SSti" target="_blank" rel="noreferrer noopener">Enthusiast runs 1-trillion parameter LLM from 768GB of Intel Optane ...</a></h2>
+<p class="reference-note">Enthusiast runs 1-trillion parameter LLM from 768GB of Intel Optane DIMM memory sticks ... 1 trillion parameter model (i…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/LocalLLaMA/comments/1taeg8h/computer_build_using_intel_optane_persistent" target="_blank" rel="noreferrer noopener">Computer build using Intel Optane Persistent Memory - Can run 1 ...</a></h2>
+<p class="reference-note">As the title states, my build is indeed able to run a 1 trillion parameter model (in this case Kimi K2.5) locally at ~4 …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://startupfortune.com/an-optane-home-server-makes-trillion-parameter-ai-feel-almost-practical" target="_blank" rel="noreferrer noopener">An Optane home server makes trillion parameter AI feel almost ...</a></h2>
+<p class="reference-note">A hobbyist computer build using Intel Optane Persistent Memory has managed to run Kimi K2.5, a 1 trillion parameter mode…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://semiwiki.com/forum/threads/would-optane-have-been-good-for-ai-inference.22002" target="_blank" rel="noreferrer noopener">Would Optane have been good for AI inference? | SemiWiki</a></h2>
+<p class="reference-note">Semiwiki on LinkedIn Semiwiki on Facebook Semiwiki on X.com Semiwiki RSS Feed. Semiwiki on LinkedIn Semiwiki on Facebook…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://lingfenghsiang.github.io/docs/eurosys_2022_slides.pdf" target="_blank" rel="noreferrer noopener">[PDF] Characterizing the Performance of Intel Optane Persistent Memory</a></h2>
+<p class="reference-note">Periodic writeback is disabled in G2 Optane The Relationship between Read and Write Buffers 1 3 5 7 1 3 5 7 2 4 6 2 4 6 …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
