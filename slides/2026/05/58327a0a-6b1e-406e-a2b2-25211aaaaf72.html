@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM planner — 運用コスト視点のリグ選定</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: "Noto Serif JP", serif; }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 0 40px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 18px;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute; inset:18px;
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px; left: 22px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+    }
+    .slide-tag:before{
+      content:"";
+      display:inline-block;
+      width: 10px; height: 10px;
+      border-top: 2px solid var(--rust);
+      border-left: 2px solid var(--rust);
+      transform: translateY(1px) rotate(45deg);
+      margin-right: 10px;
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 18px; right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      line-height: 1.05;
+      max-width: 90%;
+    }
+
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 64px;
+      line-height: 0.96;
+      letter-spacing: 0.01em;
+      font-style: italic;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      color: var(--ink);
+      font-size: 54px;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+    }
+
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+    }
+
+    .grid{
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr 1fr;
+      max-width: 760px;
+    }
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+      max-width: 900px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      background: rgba(240,232,216,0.03);
+    }
+    .cell .h{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin-top: 16px;
+      max-width: 760px;
+    }
+
+    .tiny{
+      font-size: 14px;
+      color: var(--ink-3);
+      line-height: 1.35;
+    }
+
+    @media (max-width: 840px){
+      .slide{ padding: 46px 34px; border-radius: 14px; }
+      .slide:before{ inset: 14px; border-radius: 10px; }
+      .title{ font-size: 48px; }
+      .title.jp{ font-size: 42px; }
+      .lead{ font-size: 18px; }
+      .grid{ max-width: 100%; }
+      .grid3{ max-width: 100%; }
+    }
+
+    .centerOnly { text-align: center; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">01 / 15</div>
+      <p class="eyebrow">LLMの選定を</p>
+      <h2 class="title">運用コストで</h2>
+      <p class="lead">Reddit r/LocalLLaMA の「LLM planner」議論を材料に、性能（t/s）だけでは足りない理由と、評価の着眼点を整理します。</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">02 / 15</div>
+      <p class="eyebrow">速度だけでは</p>
+      <h2 class="title">決まらない</h2>
+      <p class="lead">ローカルLLM選びは「速さ＝正義」になりやすい一方、消費電力・電気料金・稼働時間で逆転が起きます。 </p>
+      <div class="grid">
+        <div class="cell">
+          <div class="h">Example / 例</div>
+          <div class="v">安いリグでも「1日8時間」運用でコスト逆転</div>
+        </div>
+        <div class="cell">
+          <div class="h">Core claim / 主張</div>
+          <div class="v">総コスト（電力×時間×地域価格）で構成を決める</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">Purpose</div>
+      <div class="slide-num">03 / 15</div>
+      <p class="eyebrow">用途と予算</p>
+      <h2 class="title">見積もり</h2>
+      <p class="lead">LLM planner は、用途・モデル・予算に合わせて「リグ（ハード構成）」やモデルを比較・見積もりする情報集約を狙います。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="h">Data / データ</div>
+          <div class="v">60+ builds / 50+ models</div>
+        </div>
+        <div class="cell">
+          <div class="h">Sources / 出典</div>
+          <div class="v">130+ cited t/s sources</div>
+        </div>
+        <div class="cell">
+          <div class="h">Review / 共有</div>
+          <div class="v">150+ reviewer YouTube videos</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">Metrics</div>
+      <div class="slide-num">04 / 15</div>
+      <p class="eyebrow">t/s &amp; TTFT</p>
+      <h2 class="title">指標の</h2>
+      <p class="lead">t/s や TTFT は重要ですが、前提（コンテキスト長・RAM帯域など）が欠けると数字が誤解を招きます。信頼性は「条件の明示」で上がります。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="h">What fails / 崩れる点</div>
+          <div class="v">t/s単体だと「嘘っぽく」見える</div>
+        </div>
+        <div class="cell">
+          <div class="h">What helps / 有効な条件</div>
+          <div class="v">RAM帯域・TTFT@100kなどの前提</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">CostModel</div>
+      <div class="slide-num">05 / 15</div>
+      <p class="eyebrow">電気代は</p>
+      <h2 class="title">半分正しい</h2>
+      <p class="lead">電力（アイドル/アクティブ）から概算はできる一方、プロンプト処理の寄与が含まれない可能性が指摘されています。よって厳密原価ではなく「範囲付きの概算」として扱うべきです。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="h">Inputs / 入力</div>
+          <div class="v">idle + active watts</div>
+        </div>
+        <div class="cell">
+          <div class="h">Need / 必要</div>
+          <div class="v">推定稼働時間</div>
+        </div>
+        <div class="cell">
+          <div class="h">Risk / リスク</div>
+          <div class="v">プロンプト処理未考慮の恐れ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">RealityGap</div>
+      <div class="slide-num">06 / 15</div>
+      <p class="eyebrow">データセンター</p>
+      <h2 class="title">前提</h2>
+      <p class="lead">参照値がデータセンター前提だと、個人のGPUワークステーションで再現できるかが不明になります。適用条件（現実環境との距離）を注記する必要があります。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="h">Concern / 危惧</div>
+          <div class="v">一般ユーザーの稼働に合わない可能性</div>
+        </div>
+        <div class="cell">
+          <div class="h">Response / 対応</div>
+          <div class="v">データセンターは参照として提示</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">UI</div>
+      <div class="slide-num">07 / 15</div>
+      <p class="eyebrow">良いデータも</p>
+      <h2 class="title">使えない</h2>
+      <p class="lead">データベース型ツールは「探せる・入力できる」導線が価値になります。追加ボタンやベンチ提出フォームが見つからないと、データが増えず改善も止まります。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="h">UX issue / 問題</div>
+          <div class="v">追加が見つけにくい</div>
+        </div>
+        <div class="cell">
+          <div class="h">Data growth / 伸びない点</div>
+          <div class="v">提出フォームが見当たらない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">Quality</div>
+      <div class="slide-num">08 / 15</div>
+      <p class="eyebrow">数字の</p>
+      <h2 class="title">前提管理</h2>
+      <p class="lead">t/s・TTFT・RAM帯域・コンテキスト長・量子化など、前提が揃わないと意思決定が崩れます。信頼性の核は「条件のセット」へのアクセスです。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="h">Latency / レイテンシ</div>
+          <div class="v">TTFT</div>
+        </div>
+        <div class="cell">
+          <div class="h">Throughput / 通過性能</div>
+          <div class="v">t/s</div>
+        </div>
+        <div class="cell">
+          <div class="h">Capacity / 容量</div>
+          <div class="v">コンテキスト長・RAM帯域</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">DecisionAid</div>
+      <div class="slide-num">09 / 15</div>
+      <p class="eyebrow">意思決定を</p>
+      <h2 class="title">支える</h2>
+      <p class="lead">この議論の方向性は「性能ベンチ中心」から「運用コストと前提条件の可視化」へ寄せることです。ユーザーが“自分の環境”に翻訳できるかが鍵になります。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="h">What’s improved / 改善点</div>
+          <div class="v">総コスト軸の導入（電力・地域価格）</div>
+        </div>
+        <div class="cell">
+          <div class="v">What still needs / 未整備</div>
+          <div class="v">計算範囲・誤差レンジ・適用条件の明確化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">Checklist</div>
+      <div class="slide-num">10 / 15</div>
+      <p class="eyebrow">使う前に</p>
+      <h2 class="title">確認</h2>
+      <p class="lead">LLM planner 的なツールを“意思決定に使う”なら、少なくとも次の4点をチェックしましょう。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="h">i. 計算範囲</div>
+          <div class="v">プロンプト処理が含まれるか／含まれないなら注記されているか（誤差）</div>
+        </div>
+        <div class="cell">
+          <div class="h">ii. 電気代</div>
+          <div class="v">地域別価格の入力方法と前提稼働時間</div>
+        </div>
+        <div class="cell">
+          <div class="h">iii. 指標前提</div>
+          <div class="v">t/s・TTFT・RAM帯域・コンテキスト長のセットが見えるか</div>
+        </div>
+        <div class="cell">
+          <div class="h">iv. 適用可能性</div>
+          <div class="v">データセンター前提か、個人GPUに近いか（条件付きで理解する）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">Risk</div>
+      <div class="slide-num">11 / 15</div>
+      <p class="eyebrow">鵜呑みは</p>
+      <h2 class="title">危険</h2>
+      <p class="lead">投稿が削除されているため、仕様・現状・更新方法を外部から追跡できない可能性があります。さらに前提ズレ（ハード/量子化/運用頻度）があると結論の精度が落ちます。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="h">Governance / 運用</div>
+          <div class="v">更新と仕様の追跡性</div>
+        </div>
+        <div class="cell">
+          <div class="h">Assumptions / 前提</div>
+          <div class="v">量子化・モデルサイズ・運用頻度</div>
+        </div>
+        <div class="cell">
+          <div class="h">Outcome / 結果</div>
+          <div class="v">誤差が拡大（結論の依存先が見えない）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">12 / 15</div>
+      <p class="eyebrow">結論は</p>
+      <h2 class="title">総コスト×前提</h2>
+      <p class="lead">ローカルLLMは「速さ」だけでなく「電力と電気代」「稼働時間」「指標の前提条件」で構成を選ぶべきです。UI導線とデータ適用範囲の明確化が、実用性を決めます。</p>
+      <div class="rule"></div>
+      <p class="tiny">Key terms / 用語メモ：<span style="color:var(--ink-2)">t/s</span>(throughput), <span style="color:var(--ink-2)">TTFT</span>(time to first token), <span style="color:var(--ink-2)">idle/active watts</span>(待機/稼働電力)。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2512.03024v1" target="_blank" rel="noreferrer noopener">Benchmarking the Power Consumption of LLM Inference - arXiv</a></h2>
+<p class="reference-note"># TokenPowerBench: Benchmarking the Power Consumption of LLM Inference. Large language model (LLM) services now answer b…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ojs.aaai.org/index.php/AAAI/article/view/40535/44496" target="_blank" rel="noreferrer noopener">[PDF] Benchmarking the Power Consumption of LLM Inference</a></h2>
+<p class="reference-note">However, existing benchmarks focus on either training/fine-tuning or performance of inference and provide little support…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.runpod.io/blog/benchmark-local-llm-inference-performance" target="_blank" rel="noreferrer noopener">How to Benchmark Local LLM Inference for Speed and Cost Efficiency</a></h2>
+<p class="reference-note">Explore how to deploy and benchmark LLMs locally using tools like Ollama and NVIDIA NIMs. This deep dive covers performa…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://pooya.blog/blog/local-ai-ollama-benchmarks-cost-2026" target="_blank" rel="noreferrer noopener">Ollama Pricing 2026: Benchmarks, Cloud Costs, and Hardware Requirements - Pooya Golchian</a></h2>
+<p class="reference-note"># Local AI in 2026: Ollama Benchmarks, $0 Inference, and the End of Per-Token Pricing. That is a 520x increase from 100K…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.sitepoint.com/definitive-guide-local-llms-2026-privacy-tools-hardware" target="_blank" rel="noreferrer noopener">Guide to Local LLMs in 2026: Privacy, Tools &amp; Hardware - SitePoint</a></h2>
+<p class="reference-note"># The Definitive Guide to Local LLMs in 2026: Privacy, Tools, &amp; Hardware. This guide covers everything you need to make …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
