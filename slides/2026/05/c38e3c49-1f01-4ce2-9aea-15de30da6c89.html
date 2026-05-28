@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>エージェントのオーケストレーション：最小モデルの境界</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0; background: var(--cream); color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height:1.45;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display:flex; flex-direction:column; gap:24px;
+      align-items:stretch;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position:relative;
+      overflow:hidden;
+      padding: 56px 72px;
+      border-radius: 2px;
+      border-left: 20px solid var(--rule);
+      border-right: 20px solid var(--rule);
+    }
+    .inset{
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius:2px;
+    }
+    .topbar{
+      position:absolute; left:72px; right:72px; top:22px;
+      display:flex; align-items:flex-start; justify-content:space-between;
+      gap:16px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.16em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap:12px;
+      pointer-events:none;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 42px; height:1px;
+      background: var(--rust);
+      opacity: 0.9;
+      transform: translateY(1px);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      opacity:0.95;
+      pointer-events:none;
+      white-space:nowrap;
+    }
+
+    .content{ position:relative; z-index:2; height:100%; display:flex; flex-direction:column; gap:14px; }
+    .eyebrow{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 12px;
+    }
+    .title{
+      font-family:"Cormorant Garamond", serif;
+      font-size: 68px;
+      font-weight: 500;
+      margin: 0;
+      line-height:1.02;
+      letter-spacing:0.01em;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      margin-top: 2px;
+      color: var(--ink);
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 10px;
+      max-width: 980px;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .kicker{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .value{
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .rule-h{
+      width:100%;
+      height:1px;
+      background: var(--rule);
+      margin-top: 10px;
+    }
+    .code-like{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      background: rgba(240,232,216,0.05);
+      border: 1px solid var(--rule);
+      padding: 10px 12px;
+      border-radius: 10px;
+      overflow:auto;
+      white-space:nowrap;
+      max-width: 980px;
+    }
+
+    .refs{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 6px;
+      max-width: 860px;
+    }
+    .ref{
+      padding: 12px 14px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      background: rgba(240,232,216,0.03);
+    }
+    .ref .rtitle{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      color: var(--ink-2);
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+    .ref .rmeta{
+      color: var(--ink-3);
+      font-size: 16px;
+      font-weight: 300;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 48px 48px; }
+      .topbar{ left:48px; right:48px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .slide-num{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">AGENT ORCHESTRATION</div>
+        <div class="slide-num">01 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">どこまで小さくできる？</div>
+        <h1 class="title"><i>最小</i>オーケストレーション</h1>
+        <div class="lead">エージェントの「考える→ツール選ぶ→実行→観測→再計画」を回すモデルは、能力ではなく<b>ツール呼び出し規律</b>が先に崩れやすい。</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">DESIGN QUESTION</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">分けるべき責務</div>
+        <h1 class="title">生成と <i>制御</i></h1>
+        <div class="lead">エージェントは大きく、①重い一発生成（コード生成）と、②オーケストレーション（ReActループ）に分けられる。投稿は②だけを対象に、モデルを小さくする限界を探る。</div>
+        <div class="grid" style="margin-top:18px;">
+          <div class="card">
+            <div class="kicker">① heavy generation / 重生成（a）</div>
+            <div class="value">400行モジュール、巨大リファクタ等</div>
+            <div class="small">専用で大きめモデルへ</div>
+          </div>
+          <div class="card">
+            <div class="kicker">② orchestration / 制御（b）</div>
+            <div class="value">意図→ツール→実行→観測→再計画</div>
+            <div class="small">小さくできる余地を検討</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">LOOP MINDSET</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">折れやすい関所</div>
+        <h1 class="title">賢さより <i>規律</i></h1>
+        <div class="lead">ループが破綻する瞬間は「推論が外れる」より先に、ツール呼び出しの<b>引数・パラメータ規約</b>が守れないことになりがち。</div>
+        <div class="grid">
+          <div class="card">
+            <div class="kicker">ReAct loop / 反復</div>
+            <div class="value">考える → ツール選ぶ → 実行 → 観測 → 再び考える</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Tool-call discipline / 規律</div>
+            <div class="value">存在しない引数、誤型、結論をツール扱い 等</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide enumeration">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">WHAT FAILS</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">劣化ポイント（例）</div>
+        <h1 class="title"><i>誤呼び出し</i>が先</h1>
+        <div class="lead">小さなモデルで起きやすいのは、タスク意図は近いのに「ツール呼び出し規約」が崩れる誤り。</div>
+
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="card">
+            <div class="kicker">i</div>
+            <div class="value">存在しないパラメータを渡す</div>
+            <div class="small">例：overwrite=true、output_mode など</div>
+          </div>
+          <div class="card">
+            <div class="kicker">ii</div>
+            <div class="value">ツールでない“結論”を呼ぶ</div>
+            <div class="small">「ツールとして出力」してしまう</div>
+          </div>
+          <div class="card">
+            <div class="kicker">iii</div>
+            <div class="value">失敗から学習しない / 逆に反復</div>
+            <div class="small">別ツールにも同じ誤引数を適用</div>
+          </div>
+          <div class="card">
+            <div class="kicker">iv</div>
+            <div class="value">状態遷移が不安定</div>
+            <div class="small">観測が取れずループが収束しない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide evidence">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">LOCAL CONSTRAINT</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">大きくできない現実</div>
+        <h1 class="title">“最小構成”を探る</h1>
+        <div class="lead">llama.cpp のようなローカル推論環境では、VRAMや速度の制約が強い。だから「大きいモデルで解決」ではなく、<b>最小のボトルネック</b>を特定したい。</div>
+        <div class="rule-h"></div>
+        <div class="grid" style="margin-top:14px;">
+          <div class="card">
+            <div class="kicker">観点</div>
+            <div class="value">モデル能力ではなく“仕様遵守”</div>
+            <div class="small">tool-call discipline を主対象に</div>
+          </div>
+          <div class="card">
+            <div class="kicker">目標</div>
+            <div class="value">ループ制御として実用性を確保</div>
+            <div class="small">信頼できる最小モデルを絞る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide architecture">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">COUNTERMEASURE</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">まず“署名”で止める</div>
+        <h1 class="title">ツール <i>署名</i>提示</h1>
+        <div class="lead">システムプロンプトにツールの正確な引数リスト（ツール名と引数・デフォルト）を提示すると、存在しないパラメータを避ける方向に効き得る。</div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="kicker">例（イメージ） / English + Japanese</div>
+          <div class="code-like">tool_name(arg1, arg2, opt=default) // 引数スキーマ（引数一覧）</div>
+          <div class="small" style="margin-top:10px;">Non-existent parameters / 存在しないパラメータを“暗に学習”しないよう、情報として扱わせる。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide process">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">RECOVERY LOOP</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">失敗の反復を断つ</div>
+        <h1 class="title">ウォッチドッグ</h1>
+        <div class="lead">同じ（tool, args）の失敗が繰り返されるのを監視し、戦略転換を促すことで応急処置としてループを守れる。ただし根本解決ではない。</div>
+
+        <div class="grid">
+          <div class="card">
+            <div class="kicker">detect / 検知</div>
+            <div class="value">(tool, args)の反復失敗</div>
+          </div>
+          <div class="card">
+            <div class="kicker">switch / 切替</div>
+            <div class="value">ツール変更、手順の再設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide comparison">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">CORE CLAIM</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">サイズより設計</div>
+        <h1 class="title">“小さくする”より <i>制御を堅牢化</i></h1>
+        <div class="lead">結論の仮説は「モデルを増やす前に、制御の正確さ（規律）を支える仕組みを先に作る」こと。そうすれば想像より小さくできる可能性がある。</div>
+
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="card">
+            <div class="kicker">Model scaling / モデル増</div>
+            <div class="value">確実性は上がるが高コスト</div>
+            <div class="small">ローカル制約では難しい</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Control robustness / 制御強化</div>
+            <div class="value">スキーマ提示・検証・回復</div>
+            <div class="small">規律を上げて破綻を減らす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide evidence">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">BOUNDARY EXAMPLE</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">境界の例</div>
+        <h1 class="title">Qwen3.6-35B-A3B</h1>
+        <div class="lead">軽量でまだループが成立する境界として、Qwen3.6-35B-A3B（MoE、約3B active）が挙げられている。ここでは“何ができたか”より“どこから崩れるか”に注目している。</div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="kicker">Given / 前提（投稿の例）</div>
+          <div class="value">MoE、~3B active（見積り）</div>
+          <div class="small">オーケストレーション（b）の最小成立点の目安</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide distinction">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">EVALUATION</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">でも測定が必要</div>
+        <h1 class="title">定量データの <i>不足</i></h1>
+        <div class="lead">ツール署名提示の効果は主観的で、統計的裏付けが未実施。さらに「最小信頼点」の判定条件（タスク集合・指標）が読み取れない。</div>
+
+        <div class="grid">
+          <div class="card">
+            <div class="kicker">Missing / 欠けているもの</div>
+            <div class="value">成功率・誤り率の集計</div>
+            <div class="small">署名でどれだけ改善したか不明</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Needed / 必要なもの</div>
+            <div class="value">タスク多様性と境界条件</div>
+            <div class="small">“35B-A3Bが境界”の根拠</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide process">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">RISK SAFETY</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">安全は別レイヤ</div>
+        <h1 class="title">実行前バリデーション</h1>
+        <div class="lead">ツール呼び出しの誤りは、誤操作や意図しないファイル変更につながり得る。モデルを小さくする前に、ツール実行前の引数検証（スキーマ検証）が重要になりうる。</div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="kicker">Stronger than watchdog / 応急処置より</div>
+          <div class="value">不正パラメータを“自動修復”ではなく“明確なエラー”として扱う</div>
+          <div class="small">ループに正しい形式へ戻す誘導を組み込む</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide comparison">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">FAILURE MODES</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">誤りの切り分け不足</div>
+        <h1 class="title">“引数だけ”か？</h1>
+        <div class="lead">誤りがツール引数の捏造・過剰一般化に限定されるのか、ツール選択ミス、状態管理ドリフト、停止条件の設計など他の失敗モードが混在するのかが読み取れない。</div>
+
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="card">
+            <div class="kicker">Maybe / 可能性</div>
+            <div class="value">ツール選択の誤り</div>
+            <div class="small">“正しい呼び出し”に到達しない</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Maybe / 可能性</div>
+            <div class="value">状態ドリフト / 停止条件</div>
+            <div class="small">収束・安全停止が崩れる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide enumeration">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">WHAT TO MEASURE</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">最小信頼点の指標</div>
+        <h1 class="title">評価軸を揃える</h1>
+        <div class="lead">投稿者の問題意識（tool-call discipline）を評価するには、少なくともツール呼び出し成功率、引数の妥当性、収束までのステップ数、失敗時回復性能が重要。</div>
+
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="card">
+            <div class="kicker">i</div>
+            <div class="value">ツール呼び出し成功率</div>
+            <div class="small">実行に到達できた割合</div>
+          </div>
+          <div class="card">
+            <div class="kicker">ii</div>
+            <div class="value">引数の妥当性</div>
+            <div class="small">存在しないパラメータ率、型ミスマッチ率</div>
+          </div>
+          <div class="card">
+            <div class="kicker">iii</div>
+            <div class="value">収束までのステップ数</div>
+            <div class="small">ループの長さ・打ち切り</div>
+          </div>
+          <div class="card">
+            <div class="kicker">iv</div>
+            <div class="value">失敗時の回復性能</div>
+            <div class="small">別手段に切替できるか</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide closing">
+      <div class="inset"></div>
+      <div class="topbar">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">14 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">要点まとめ</div>
+        <h1 class="title">小さくする鍵は <i>規律設計</i></h1>
+        <div class="lead">オーケストレーションモデルの限界は「推論力」より「ツール呼び出し規律」で先に出やすい。ツール署名提示や検知・回復に加え、実行前のスキーマ検証まで入れると、より小さい構成が成立しやすい。</div>
+
+        <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top:18px;">
+          <div class="card">
+            <div class="kicker">核心 / Core</div>
+            <div class="value">モデルより制御：tool-call discipline</div>
+          </div>
+          <div class="card">
+            <div class="kicker">次の一手 / Next</div>
+            <div class="value">評価指標と実行前検証の整備</div>
+          </div>
+        </div>
+
+        <div class="refs" style="margin-top:16px;">
+          <div class="ref">
+            <div class="rtitle">References / 参考</div>
+            <div class="rmeta">ReAct（Reason + Act） / ツール利用の反復制御の基礎概念</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/LocalLLaMA/comments/1tkqal0/how_small_can_the_orchestration_model_in_an_agent" target="_blank" rel="noreferrer noopener">How small can the orchestration model in an agent be? (separating ...</a></h2>
+<p class="reference-note">Qwen3.6-35B-A3B does a good job at orchestrating things for me too. What small models did you test exactly? Qwen 4b migh…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2412.04141v1" target="_blank" rel="noreferrer noopener">Reducing Tool Hallucination via Reliability Alignment - arXiv</a></h2>
+<p class="reference-note">This paper investigates the concept of reliable tool calling and highlights the necessity of addressing tool hallucinati…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.jdhodges.com/blog/local-llms-on-tool-calling-2026-pt1-local-lm" target="_blank" rel="noreferrer noopener">I Tested 13 Local LLMs on Tool Calling | 2026 Eval Results</a></h2>
+<p class="reference-note">I built a deterministic eval harness and tested 13 local LLMs on tool calling (function calling) to find out which model…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/data-science-in-your-pocket/qwen3-6-35b-a3b-the-best-mid-sized-llm-is-here-dbdbe1c1d347" target="_blank" rel="noreferrer noopener">Qwen3.6-35B-A3B : The best Mid Sized LLM is here - Medium</a></h2>
+<p class="reference-note">But in practice, Qwen3.6 doesn&#39;t behave like a small model at all. Press enter or click to view image in full size. It c…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://artificialanalysis.ai/articles/qwen3-5-small-models" target="_blank" rel="noreferrer noopener">Qwen3.5 small models: Everything you need to know</a></h2>
+<p class="reference-note">The 9B (Reasoning, 32 on the Intelligence Index) is the most intelligent model under 10B parameters, and the 4B (Reasoni…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
