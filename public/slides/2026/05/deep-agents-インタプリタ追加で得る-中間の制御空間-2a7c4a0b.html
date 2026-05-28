@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deep Agents：インタプリタ追加で得る“中間の制御空間”</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide-inner{
+      height:100%;
+      padding: 56px 72px;
+      border: 20px solid var(--rule);
+      position: relative;
+    }
+    .top-row{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, sans-serif;
+      letter-spacing: 0.16em;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1.1;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin: 0 0 10px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+    }
+    .title{
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .hr{
+      height:1px;
+      background: var(--rule-strong);
+      margin: 20px 0;
+      opacity: 0.55;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+      max-width: 900px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(240,232,216,0.02);
+      min-height: 88px;
+    }
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .cell .text{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      margin-top: 18px;
+      max-width: 980px;
+    }
+    .code{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.02);
+      border-radius: 12px;
+      padding: 14px 16px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin-top: 16px;
+      max-width: 900px;
+    }
+    .micro{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      line-height: 1.4;
+      margin-top: 10px;
+      max-width: 900px;
+    }
+    .closing-center{
+      position:absolute;
+      left:50%;
+      top:50%;
+      transform: translate(-50%, -40%);
+      text-align: center;
+      width: calc(100% - 80px);
+    }
+    .closing-center .lead{
+      margin-left:auto;
+      margin-right:auto;
+      max-width: 820px;
+      font-size: 22px;
+    }
+    @media (max-width: 900px){
+      .slide-inner{ padding: 40px 28px; border-width: 10px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Deep Agents</div>
+          <div class="slide-num">01 / 17</div>
+        </div>
+        <p class="eyebrow">中間の実行ランタイム</p>
+        <h2 class="title"><em>インタプリタ</em>を追加</h2>
+        <p class="lead">逐次ツール呼び出しとフル・サンドボックスの間に“実装自由度”を作る。エージェントがツール呼び出しの合間にコードを書き、状態を再利用できる。</p>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">02 / 17</div>
+        </div>
+        <p class="eyebrow">二択で詰まる</p>
+        <h2 class="title">既存ループ問題</h2>
+        <p class="lead">従来は「ツール1つ→結果→次を判断」の逐次ループか、「サンドボックスのように環境丸ごと」へ寄りがちだ。どちらも“複数ステップの作業をまとめる”のが難しい。</p>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">03 / 17</div>
+        </div>
+        <p class="eyebrow">REPLの感覚</p>
+        <h2 class="title">小型ランタイム</h2>
+        <p class="lead">インタプリタは、エージェント処理のループ内でコードを書き、変数・配列・ヘルパ関数を定義し、状態を使い回す“組み込み実行ランタイム”だ（Python/NodeのREPLに近い）。</p>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">04 / 17</div>
+        </div>
+        <p class="eyebrow">外界はブリッジ</p>
+        <h2 class="title">できること/できないこと</h2>
+        <p class="lead">インタプリタは何でもできる環境ではない。デフォルトでファイルシステム・ネットワーク・シェル・パッケージ導入・壁時計時間アクセスを持たず、外部はホスト側の明示的なブリッジで追加する。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">内側（デフォルト）</div>
+            <div class="text">言語ランタイム中心。コードと作業状態に集中。</div>
+          </div>
+          <div class="cell">
+            <div class="label">外側（追加）</div>
+            <div class="text">filesystem/network/shell等は“許可されたブリッジ”経由。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">05 / 17</div>
+        </div>
+        <p class="eyebrow">予測可能性</p>
+        <h2 class="title">評価しやすさ</h2>
+        <p class="lead">自由度を抑えると、攻撃面・実行の予測可能性が下がりにくい。さらに、テスト・評価での観測ポイントが整理されやすくなる。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="text">アクション面（攻撃/自由度）を小さく保つ。</div>
+          </div>
+          <div class="cell">
+            <div class="label">結果</div>
+            <div class="text">実行可能な挙動がより予測しやすくなる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">CONTEXT</div>
+          <div class="slide-num">06 / 17</div>
+        </div>
+        <p class="eyebrow">第三の文脈</p>
+        <h2 class="title">インタプリタ状態</h2>
+        <p class="lead">インタプリタ状態は“第三の文脈面”。message historyが材料、filesystemが永続アーティファクトなら、インタプリタ状態は“作業中に生きた値”を保持する。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">i. message history</div>
+            <div class="text">モデルが入力として使う材料（その瞬間の文脈）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. filesystem</div>
+            <div class="text">永続的な書き出し（復元の手間が増えやすい）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. interpreter state（状態）</div>
+            <div class="text">毎回プロンプトに押し込まない“中間の作業値”。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">IMPLEMENTATION</div>
+          <div class="slide-num">07 / 17</div>
+        </div>
+        <p class="eyebrow">PTCでコードから呼ぶ</p>
+        <h2 class="title">Programmatic Tool Calling</h2>
+        <p class="lead">PTC（programmatic tool calling）をミドルウェアとして実装する。許可されたツールがインタプリタ内の <span style="color:var(--ink-2); font-style:italic;">tools</span> 名前空間に非同期関数として現れ、コードから <span style="color:var(--ink-2); font-style:italic;">await tools.xxx()</span> で呼べる。</p>
+        <div class="code"># interpreter 内のイメージ（概念）
+result = await tools.search(query)
+score  = await tools.rank(result)</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">08 / 17</div>
+        </div>
+        <p class="eyebrow">往復回数を削る</p>
+        <h2 class="title">トークン削減の可能性</h2>
+        <p class="lead">モデルがツール呼び出しごとに往復して観測結果を都度コンテキストへ載せるとコストが増える。PTCでは複数ステップをコード側で制御し、モデルへ返すのは最終結果や選別エビデンスにできる。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">示唆</div>
+            <div class="text">早期テストで最大35%トークンが少なくなる可能性。</div>
+          </div>
+          <div class="cell">
+            <div class="label">理由</div>
+            <div class="text">観測結果を毎回“そのまま”返さない設計にできる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">09 / 17</div>
+        </div>
+        <p class="eyebrow">大規模で効く</p>
+        <h2 class="title">10,000文書の設計</h2>
+        <p class="lead">10,000文書のようなケースでは、逐次ループで中間結果を毎回モデルに返すと、検証困難・遅延・コンテキスト過多になる。インタプリタで検索空間の制御と候補絞り込み、スコアリングを回せる。</p>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">10 / 17</div>
+        </div>
+        <p class="eyebrow">“必要な証拠だけ”</p>
+        <h2 class="title">サブエージェントへ圧縮</h2>
+        <p class="lead">インタプリタ側で状態やスコアリング、候補の絞り込みを行い、サブエージェントには“必要な証拠だけ”を返す設計が可能になる。結果として、モデル側の負荷と情報量を抑えられる。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">インタプリタ側</div>
+            <div class="text">状態・スコア・候補絞り込み（プログラム的に）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">モデル/サブ側</div>
+            <div class="text">最終判断に必要なエビデンスのみ受け取る。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">11 / 17</div>
+        </div>
+        <p class="eyebrow">サンドボックスではない</p>
+        <h2 class="title">中間という立ち位置</h2>
+        <p class="lead">インタプリタはサンドボックスの代わりではなく“中間”。サンドボックスは環境レベルを扱いやすい一方、多様な挙動が出やすい。インタプリタは言語ランタイム中心で、外部操作はブリッジで明示的に許可する。</p>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">FAQ</div>
+          <div class="slide-num">12 / 17</div>
+        </div>
+        <p class="eyebrow">要点だけ</p>
+        <h2 class="title">5つの疑問</h2>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">Q1</div>
+            <div class="text">Q: インタプリタはサンドボックスの代わり？A: 中間（代わりというより“中間層”）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">Q2</div>
+            <div class="text">Q: 状態はどこ？A: 会話/実行の範囲で QuickJSコンテキスト保持（シリアライズ可能な作業データ用途）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">Q3</div>
+            <div class="text">Q: どうしてトークンが減る？A: ツール往復と観測結果の再投入を減らし、返すのは最終/選別に寄せる。</div>
+          </div>
+          <div class="cell">
+            <div class="label">Q4</div>
+            <div class="text">Q: 制限はセキュリティだけ？A: 予測可能性と評価容易性も主に狙う。</div>
+          </div>
+          <div class="cell" style="grid-column: 1 / -1;">
+            <div class="label">Q5</div>
+            <div class="text">Q: どんなツールでも呼べる？A: 許可リスト（allowlist）指定のツールだけが <span style="color:var(--ink-2); font-style:italic;">tools</span> 名前空間に現れる。</div>
+          </div>
+        </div>
+        <div class="micro">用語メモ：allowlist（許可リスト）= インタプリタが見える“呼べるツールの範囲”。（許可されないツールは不可）</div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">EVALUATION</div>
+          <div class="slide-num">13 / 17</div>
+        </div>
+        <p class="eyebrow">強みと境界</p>
+        <h2 class="title">設計思想は筋が良い</h2>
+        <p class="lead">この資料は“実装・評価・運用の現場課題”に合うよう、中間処理をインタプリタで体系化しようとしている。特に、(1) 状態を第三の文脈に分離、(2) PTCでモデル依存を減らす、(3) 外部アクセスをブリッジに限定、の一貫性がある。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">ただし</div>
+            <div class="text">トークン削減（最大35%）の条件は詳細不在で、一般化には慎重さが必要。</div>
+          </div>
+          <div class="cell">
+            <div class="label">また</div>
+            <div class="text">メモリ上限/タイムアウト/スナップショット挙動などの直感的検証は追加情報が必要。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">14 / 17</div>
+        </div>
+        <div class="closing-center">
+          <p class="eyebrow" style="margin-bottom:6px;">結論</p>
+          <h2 class="title" style="font-size:74px; margin-bottom:14px;">“中間の制御空間”</h2>
+          <p class="lead">インタプリタで、エージェントは作業ロジックをコードにまとめつつ、外部アクセスは許可されたブリッジに限定できる。結果として、予測可能性・評価容易性・大規模処理の実用性を同時に狙える。</p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/madhur-prashant-781548179_interpreters-in-deep-agents-code-between-activity-7463009368800804865-BVWx" target="_blank" rel="noreferrer noopener">Madhur Prashant&#39;s Post - Interpreters in Deep Agents</a></h2>
+<p class="reference-note">... QuickJS runtime that sits between serial tool loops and full sandboxes. Flip on ptc: [&quot;task&quot;, ...] and allowlisted t…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/langchain-ai/deepagents" target="_blank" rel="noreferrer noopener">langchain-ai/deepagents: The batteries-included agent harness.</a></h2>
+<p class="reference-note">*   [Code](https://github.com/langchain-ai/deepagents). *   [Issues 135](https://github.com/langchain-ai/deepagents/issu…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.langchain.com/oss/javascript/deepagents/interpreters" target="_blank" rel="noreferrer noopener">Interpreters - Docs by LangChain</a></h2>
+<p class="reference-note">Programmatic tool calling (PTC) exposes selected agent tools inside the interpreter under the global tools namespace. In…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.langchain.com/blog/give-your-agents-an-interpreter" target="_blank" rel="noreferrer noopener">Interpreters in Deep Agents: Code Between Tool Calls and Sandboxes</a></h2>
+<p class="reference-note">**TL;DR** We’re adding interpreters to Deep Agents: small embedded runtimes where agents can write and execute code insi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=433SmtTc0TA" target="_blank" rel="noreferrer noopener">What are Deep Agents? - YouTube</a></h2>
+<p class="reference-note">Using an LLM to call tools in a loop is the simplest form of an agent. This architecture, however, can yield agents that…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
