@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BEAM 100K: CSM vs Hindsight を科学的に強くする論点</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: block;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      margin: 18px 0;
+      border-radius: 10px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      border-radius:8px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top:22px;
+      left:26px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .18em;
+      font-size: 12px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width:34px;
+      height:2px;
+      background: var(--rust);
+      opacity:.95;
+      border-radius: 2px;
+    }
+
+    .slide-num{
+      position:absolute;
+      top:22px;
+      right:26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      letter-spacing: .02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 8px 0 10px;
+      letter-spacing: .01em;
+    }
+
+    .title{
+      margin: 0 0 16px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 70px;
+      line-height: 1.0;
+      font-style: italic;
+      color: var(--ink);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .rule{
+      border-top: 1px solid var(--rule-strong);
+      margin: 18px 0 16px;
+      max-width: 760px;
+    }
+
+    .grid2, .grid3{
+      display: grid;
+      gap: 14px;
+      width: 100%;
+      margin-top: 16px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      background: rgba(240,232,216,0.03);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .tight{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .01em;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 28px 22px; }
+      .slide-tag{ top:16px; left:18px; }
+      .slide-num{ top:16px; right:18px; }
+      .eyebrow{ font-size: 18px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-tag">BEAM 100K</div>
+      <div class="slide-num">01 / 16</div>
+      <div class="eyebrow">CSM 科学性の論点</div>
+      <div class="title">Stronger</div>
+      <p class="lead">BEAM 100Kで Context Swarm Memory（CSM）を Hindsight artifact と比較する話を、「科学的に強くする」ための不足点と追加実験を整理します。</p>
+    </section>
+
+    <section class="slide" aria-label="Problem framing slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">本質</div>
+      <div class="title">Evidence</div>
+      <p class="lead">数値（AMB・正答・トークン削減）だけでは因果が分からず、再現性情報が欠けると「比較としての妥当性」が弱くなります。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">主張の形</div>
+          <div class="v">性能向上＋（遅延という）制約の同時提示</div>
+        </div>
+        <div class="cell">
+          <div class="k">最大の弱点</div>
+          <div class="v">reproducibility と要素分解の不足</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Results snapshot slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">結果</div>
+      <div class="title">Scores</div>
+      <p class="lead">ローカル設定ではCSMが Hindsight を上回り、AMBスコアと正答数、さらに「見えるコンテキスト・トークン」の削減が示されています。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">CSM</div>
+          <div class="v"><span class="mono">AMB 0.757573</span>（342/400 correct）</div>
+          <div class="v" style="margin-top:10px;"><span class="tight">トークン削減</span> 38.2%</div>
+        </div>
+        <div class="cell">
+          <div class="k">Hindsight</div>
+          <div class="v"><span class="mono">AMB 0.733658</span>（326/400 correct）</div>
+          <div class="v" style="margin-top:10px;"><span class="tight">同条件比較</span> トークンはCSMより多い</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Latency slide">
+      <div class="slide-tag">CONSTRAINT</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">代償</div>
+      <div class="title">Latency</div>
+      <p class="lead">CSMは性能が良い一方、平均リトリーバル遅延が大きく、低レイテンシ用途では本番投入が難しいと結論づけられています。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">CSM 遅延</div>
+          <div class="v"><span class="mono">29.23 s</span>（平均リトリーバル）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Hindsight 遅延</div>
+          <div class="v"><span class="mono">6.38 s</span>（平均リトリーバル）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Causality slide">
+      <div class="slide-tag">CAUSALITY</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">因果</div>
+      <div class="title">Ablate</div>
+      <p class="lead">probe / recall / synthesis、ルーティング、Committer gatingなど要素が多いほど、エンドツーエンド勝利だけでは「何が効いたか」を説明できません。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">必要</div>
+          <div class="v">要素別アブレーションで寄与を切り分ける</div>
+        </div>
+        <div class="cell">
+          <div class="k">欠けている</div>
+          <div class="v">現状は「勝ち」の総合結果が中心</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Ablation list slide">
+      <div class="slide-tag">PLAN</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">アブレーション候補</div>
+      <div class="title">Elements</div>
+      <p class="lead">投稿者が整理したアブレーション案は、書き込み・読み出し双方の失敗モードを検査するための要点になっています。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">read-path</div>
+          <div class="v">probe gateなし / トップルータシャードの安全リコールなし</div>
+        </div>
+        <div class="cell">
+          <div class="k">synthesis</div>
+          <div class="v">合成ステップなし / context窓のキャップ変更</div>
+        </div>
+        <div class="cell">
+          <div class="k">write-path</div>
+          <div class="v">event-IDヒントなし / embeddingリコール床なし / return-K変更</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Threshold sensitivity slide">
+      <div class="slide-tag">SENSITIVITY</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">頑健性</div>
+      <div class="title">Thresholds</div>
+      <p class="lead">Committer thresholdsの微妙な違いで結果が変わるなら、再現性と一般化性が弱くなります。感度曲線（スイープ）が必要です。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">懸念</div>
+          <div class="v">AMBが gate閾値への依存度を持つ可能性</div>
+        </div>
+        <div class="cell">
+          <div class="k">追加</div>
+          <div class="v">「書き込み側のドリフト」別ベンチマークで閾値スイープ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Reproducibility slide">
+      <div class="slide-tag">REPRODUCIBILITY</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">検証可能性</div>
+      <div class="title">Notes</div>
+      <p class="lead">比較の公平性は、accepted artifact同士で始めても、分割・実行回数・乱数・ハード条件・文脈キャップ等の情報が揃わないと担保できません。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">不十分</div>
+          <div class="v">Evidence and reproducibility notesが [MASKED]</div>
+        </div>
+        <div class="cell">
+          <div class="k">必要</div>
+          <div class="v">計測手順・固定条件・プロンプト長・context capを明示</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Fairness and metrics slide">
+      <div class="slide-tag">METRICS</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">指標の読み方</div>
+      <div class="title">AMB</div>
+      <p class="lead">AMBスコアと正答数は回答品質を示しますが、定義（誤りの扱い）と失敗モード分類がないと過度な一般化はできません。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">併記</div>
+          <div class="v">AMB + correct/400</div>
+        </div>
+        <div class="cell">
+          <div class="k">追加すべき</div>
+          <div class="v">誤りタイプ別の内訳</div>
+        </div>
+        <div class="cell">
+          <div class="k">併せて見る</div>
+          <div class="v">トークン削減が見落としに繋がっていないか</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Context window slide">
+      <div class="slide-tag">GENERALIZE</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">外挿</div>
+      <div class="title">Window</div>
+      <p class="lead">context窓分布やキャップを変えるテストは、メモリ効率（削減）と品質維持（正答率）が本当に両立しているかを確認します。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">提案</div>
+          <div class="v">context窓分布の変更テスト</div>
+        </div>
+        <div class="cell">
+          <div class="k">見るべき</div>
+          <div class="v">AMB・正答・トークン削減・失敗モードの同時変化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Latency breakdown slide">
+      <div class="slide-tag">SYSTEM</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">ボトルネック</div>
+      <div class="title">Breakdown</div>
+      <p class="lead">遅延が4.5倍規模で悪化しているのに内訳がないため、どこを最適化すべきかが読めません。段階別の計測が必要です。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">計測</div>
+          <div class="v">probe / recall / synthesis それぞれの時間</div>
+        </div>
+        <div class="cell">
+          <div class="k">比較</div>
+          <div class="v">read-path vs write-path の遅延分離</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">並列化・キャッシュ・ルーティング改善の優先度決定</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Closing slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">結論</div>
+      <div class="title">Next</div>
+      <p class="lead">CSMの優位は「有望な兆候」です。科学的に確かにするには、アブレーション・閾値感度・再現性情報・段階別遅延と外挿テストを追加して、因果と頑健性を固める必要があります。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/jonathan-h-chen_how-realistic-is-needed-to-evaluate-medical-activity-7445208801827512320-rcWD" target="_blank" rel="noreferrer noopener">Stanford Experts Discuss Medical AI Evaluation Challenges | Jonathan H. Chen posted on the topic | LinkedIn</a></h2>
+<p class="reference-note">[Like](https://www.linkedin.com/signup/cold-join?session_redirect=https%3A%2F%2Fwww%2Elinkedin%2Ecom%2Fposts%2Fjonathan-…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/MemPalace/mempalace/issues/125" target="_blank" rel="noreferrer noopener">BEAM 100K benchmark results - first end-to-end answer quality evaluation · Issue #125 · MemPalace/mempalace · GitHub</a></h2>
+<p class="reference-note">As part of that work I run standardized benchmarks across memory systems. MemPalace&#39;s retrieval numbers on LongMemEval c…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://hindsight.vectorize.io/blog/2026/04/02/beam-sota" target="_blank" rel="noreferrer noopener">Hindsight Is #1 on BEAM — the Benchmark That Tests Memory at 10 Million Tokens</a></h2>
+<p class="reference-note">[Resources](https://hindsight.vectorize.io/blog/2026/04/02/beam-sota#). *   [Which Model Should I Use?](https://benchmar…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://agentmemorybenchmark.ai" target="_blank" rel="noreferrer noopener">Agent Memory Benchmark — AMB</a></h2>
+<p class="reference-note">An open, reproducible leaderboard for evaluating AI agent memory and retrieval systems on real-world long-context tasks.</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/Rag/comments/1sal619/beam_the_benchmark_that_tests_memory_at_10" target="_blank" rel="noreferrer noopener">BEAM: the Benchmark That Tests Memory at 10 Million Tokens has ...</a></h2>
+<p class="reference-note">The BEAM paper shows that at this scale, systems with a proper memory architecture achieve over +155% improvement versus…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
