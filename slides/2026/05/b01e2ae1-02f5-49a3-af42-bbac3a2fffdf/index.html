@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLMエージェント最小モデル：ReActオーケストレーションの信頼性</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 20px 0 40px;
+      display: block;
+    }
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      margin: 18px 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset: 0;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .topline {
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 0;
+      position: relative;
+      padding-top: 2px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left: -10px;
+      top: 5px;
+      height: 18px;
+      width: 3px;
+      background: var(--rule-strong);
+    }
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-3);
+      margin-top: -4px;
+      white-space: nowrap;
+    }
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+      letter-spacing: 0.01em;
+    }
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 1.02;
+      margin: 0 0 14px 0;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 64px;
+      letter-spacing: 0.01em;
+    }
+    .lead {
+      font-size: 22px;
+      color: var(--ink);
+      margin: 0;
+      max-width: 760px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+    .rule {
+      border-top: 1px solid var(--rule);
+      margin: 18px 0 12px;
+    }
+    .grid {
+      width: 100%;
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px 16px;
+      margin-top: 18px;
+    }
+    .grid2 {
+      width: 100%;
+      display:grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px 16px;
+      margin-top: 18px;
+    }
+    .cell {
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 10px;
+      background: rgba(240, 232, 216, 0.02);
+      min-height: 78px;
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v {
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 400;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small {
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+    .center-hero{
+      position:absolute;
+      left: 72px; right: 72px;
+      top: 50%;
+      transform: translateY(-55%);
+      text-align: left;
+    }
+    .footnote{
+      position:absolute;
+      bottom: 24px;
+      left: 72px;
+      right: 72px;
+      color: var(--ink-3);
+      font-size: 16px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", Arial, sans-serif;
+      display:flex;
+      justify-content:space-between;
+      gap: 14px;
+    }
+    @media (max-width: 900px){
+      .slide { padding: 40px 40px; border-width: 12px; }
+      .title { font-size: 56px; }
+      .title.jp{ font-size: 48px; }
+      .lead { font-size: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      .grid2 { grid-template-columns: 1fr; }
+      .center-hero{ left: 40px; right: 40px; }
+      .footnote{ left: 40px; right: 40px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">LLM / Agents</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="center-hero">
+        <p class="eyebrow" style="margin-bottom:12px;">最小モデルの境目</p>
+        <h1 class="title" style="margin-bottom:14px;">ReAct <em>オーケストレーション</em></h1>
+        <p class="lead">
+          「考える→ツール選択→呼び出し→観測」を回すエージェントで、<br/>
+          推論力より<strong>ツール呼び出しの規律（契約遵守）</strong>が先に壊れる。
+        </p>
+      </div>
+      <div class="footnote">
+        <div>読み物（16:9）</div>
+        <div>ReActループ / tool discipline</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <p class="eyebrow">何が信頼性を落とす？</p>
+      <h2 class="title jp">壊れるのは「推論」より先</h2>
+      <p class="lead">
+        オーケストレーション役の出力は文章ではなく「ツール名・引数・JSON形式」で検証される。<br/>
+        小型化で落ちるのは、意味より<strong>API契約（スキーマ）</strong>の遵守率。
+      </p>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">FAILURE MODES</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <p class="eyebrow">典型的な破綻例</p>
+      <h2 class="title jp">引数の“創作”が致命傷</h2>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">未知パラメータ</div>
+          <div class="v">存在しない引数を付与：例 <span class="mono">overwrite=true</span>（署名に無い）</div>
+        </div>
+        <div class="cell">
+          <div class="k">形式逸脱</div>
+          <div class="v">宣言されない <span class="mono">output_mode</span> や出力フォーマット違反でツールコール不能</div>
+        </div>
+        <div class="cell">
+          <div class="k">ツール名の誤り</div>
+          <div class="v">“あるはずのツール”を呼ぼうとして <span class="mono">tool not found</span> 方向に崩れる</div>
+        </div>
+        <div class="cell">
+          <div class="k">結論用ツール</div>
+          <div class="v">宣言されていない <span class="mono">conclusion tool</span> を発明的に呼ぶ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">MINIMUM MODEL</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <p class="eyebrow">下限の目安</p>
+      <h2 class="title jp">Qwen3.6-35Bが近い</h2>
+      <p class="lead">
+        投稿者は、ループ部分だけに小型モデルを割り当てる運用で、<strong>Qwen3.6-35B-A3B</strong>（MoEで約3B active）が下限に近いと述べる。<br/>
+        ただしタスク・ツール設計・評価条件次第で前後する。
+      </p>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PRINCIPLE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <p class="eyebrow">設計で勝つ</p>
+      <h2 class="title jp">「作ってはいけない」を潰す</h2>
+      <p class="lead">
+        小型モデルでも成立させる鍵は、自由生成の余地を減らし、<strong>出力空間を物理的に制約</strong>して“捏造”を出にくくすること。<br/>
+        プロンプトより<strong>デコーディング制約・検証</strong>が効きやすい。
+      </p>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROMPTING</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <p class="eyebrow">ツール署名を明示</p>
+      <h2 class="title jp">改善するが万能ではない</h2>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">システムプロンプトにツールの引数一覧（署名）を載せて選択と整合を促す</div>
+        </div>
+        <div class="cell">
+          <div class="k">限界</div>
+          <div class="v">プロンプトだけでは「宣言されていないtoolを呼ぶ」や完全な形式逸脱は止まりきらない</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <p class="small">
+        つまり、署名提示は<strong>主観的には効く</strong>が、構造的破綻まで封じる手段ではない。
+        （制約デコード／スキーマ検証が本命になりやすい）
+      </p>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">CONSTRAINED DECODING</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <p class="eyebrow">文法制約デコード</p>
+      <h2 class="title jp">JSONスキーマ/BNFで抑止</h2>
+      <p class="lead">
+        JSONスキーマやBNF（llama.cppのgrammar等）で、<strong>スキーマに反する引数の追加</strong>をデコーダ段階で抑える。<br/>
+        その結果、未知パラメータ（例 <span class="mono">overwrite=true</span>）が「生成されても通らない」になる。
+      </p>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">CLASSIFICATION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <p class="eyebrow">生成→分類へ</p>
+      <h2 class="title jp">自由度を捨てて正確性を上げる</h2>
+      <p class="lead">
+        オーケストレーションでは、自由記述ではなく <strong>テンプレ選択（分類）</strong>に寄せる。<br/>
+        例：次に呼ぶ（tool,args）をN個のテンプレから1つ選ぶ形にする（/テンプレ選択：テンプレ選択〈分類〉）。
+      </p>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">TOOL COUNT</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <p class="eyebrow">ツール数を絞る</p>
+      <h2 class="title jp">混乱源を減らす</h2>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">ルール</div>
+          <div class="v">小型モデルは選択肢が多いほど混乱しやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">設計</div>
+          <div class="v">ツールルーターやスキル分割で、メインが見て決める選択肢を最小化</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <p class="small">
+        “何を呼ぶか”の自由度を構造的に圧縮すると、壊れ方（捏造）が起きにくくなる。
+      </p>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">GUARDRAILS</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <p class="eyebrow">ウォッチドッグ</p>
+      <h2 class="title jp">失敗反復を検知して戦略変更</h2>
+      <p class="lead">
+        ツールコール失敗の繰り返しを検知して、戦略変更を促す“周辺ガードレール”も提案される。<br/>
+        ただし位置付けは応急処置で、根本は<strong>生成空間の制約</strong>にある。
+      </p>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVALUATION</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <p class="eyebrow">断言が難しい</p>
+      <h2 class="title jp">最小モデルは一般解にできない</h2>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">左右する要因</div>
+          <div class="v">ツール数 / 引数の複雑さ / タスク分布（ファイル操作・コード検索比率）</div>
+        </div>
+        <div class="cell">
+          <div class="k">評価設計</div>
+          <div class="v">成功判定（何ステップまで許容？）/ 最大手数 / 致命失敗の扱い / ガードレール有無</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <p class="small">
+        そのため「このスレッドだけで何Bまで」とは言えない。
+      </p>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <p class="eyebrow">結論</p>
+      <h2 class="title jp">最小モデルより、契約設計</h2>
+      <p class="lead">
+        最も確からしい戦略は「小型モデルを無理に選ぶ」より、<strong>(tool,args)をスキーマ制約・選択肢削減・テンプレ化</strong>で誤りの形を限定すること。<br/>
+        結果として、モデルサイズより“設計の強さ”が小型化耐性を決めやすい。
+      </p>
+      <div class="rule"></div>
+      <div class="small" style="max-width:760px;">
+        次の実務ステップ例：JSON/BNF制約 → ツール数圧縮（ルーター/分割） → 失敗時の戦略変更（ただし本命は制約）。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.latent.space/p/ainews-top-local-models-list-april" target="_blank" rel="noreferrer noopener">[AINews] Top Local Models List - April 2026 - Latent.Space</a></h2>
+<p class="reference-note"># [AINews] Top Local Models List - April 2026 - Latent.Space. [![Image 1: Latent.Space](https://substackcdn.com/image/fe…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=vlo5cxH5CXM" target="_blank" rel="noreferrer noopener">Qwen3.6 35B A3B is THE ONE! The Local LLM Champ on opencode benchmark dashboard</a></h2>
+<p class="reference-note">[31:44 Gemma 4 vs Qwen 3.6 Local Ai Benchmarking Digital Spaceport 71K views • 1 month ago Live Playlist ()Mix (50+)](ht…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=SLtKGhOXamQ" target="_blank" rel="noreferrer noopener">I Tested 11 Best Local LLMs (April 2026) - YouTube</a></h2>
+<p class="reference-note">5-27b qwen3-30b-a3b-instruct-2507 qwen3.5-35b-a3b. I didn&#39;t like the output of GPT-OSS 20B and the smaller Qwen/Gemma mo…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/61568751478861/posts/-you-can-now-run-a-35b-ai-model-locally-without-a-data-centerand-yes-its-actuall/122173985168625049" target="_blank" rel="noreferrer noopener">it&#39;s actually competitive. Meet Qwen3.6-35B-A3B: • Agent-level ...</a></h2>
+<p class="reference-note">A smaller local model inside a well-built harness, with good tool ... Beats Gemma 3 1B and Llama 3.1 1B on benchmarks wh…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pricepertoken.com/leaderboards/local-models" target="_blank" rel="noreferrer noopener">Best Local LLM 2026 — Open-Source Model Rankings for Coding, Math &amp; More | Price Per Token</a></h2>
+<p class="reference-note"># Best Local LLMs &amp; Local Models (2026). ## Community-voted rankings for the best local models — open-source LLMs for co…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
