@@ -28,6 +28,41 @@ test("archive Open links use a safe new tab target", () => {
   assert.match(page, /<a class="open" href=\{entry\.slideUrl\} target="_blank" rel="noopener noreferrer">Open<\/a>/);
 });
 
+test("archive applies the KUN-381 Gallery Wall identity", () => {
+  const page = readFileSync("src/pages/index.astro", "utf8");
+  assert.match(page, /<title>Tech info slides<\/title>/);
+  assert.match(page, /<h1>Tech info slides<\/h1>/);
+  assert.match(page, /rel="icon"/);
+  assert.match(page, /import\.meta\.env\.BASE_URL/);
+  assert.match(page, /const basePath = import\.meta\.env\.BASE_URL\.replace/);
+  assert.match(page, /favicon\.svg/);
+  assert.doesNotMatch(page, /href="\/favicon\.svg"/);
+  assert.match(page, /--bg:\s*#1c1814/);
+  assert.match(page, /--accent:\s*#d6a05f/);
+  assert.match(page, /font-family:\s*"Times New Roman"/);
+});
+
+test("archive cards render as poster-first Gallery Wall items", () => {
+  const page = readFileSync("src/pages/index.astro", "utf8");
+  assert.match(page, /data-archive-card/);
+  assert.match(page, /class="poster"/);
+  assert.match(page, /entry\.thumbnailUrl/);
+  assert.match(page, /class="poster placeholder"/);
+  assert.match(page, /article\[data-archive-card\]/);
+});
+
+test("archive favicon is an original documented SVG", () => {
+  assert.ok(existsSync("public/favicon.svg"), "favicon SVG must exist");
+  const favicon = readFileSync("public/favicon.svg", "utf8");
+  assert.match(favicon, /<svg\b/);
+  assert.match(favicon, /Tech info slides favicon/);
+
+  const readme = readFileSync("README.md", "utf8");
+  assert.match(readme, /Tech info slides/);
+  assert.match(readme, /public\/favicon\.svg/);
+  assert.match(readme, /Original SVG/);
+});
+
 test("archive derives month filters from generatedAt with pubDate fallback", () => {
   const page = readFileSync("src/pages/index.astro", "utf8");
   assert.match(page, /generatedAt\s*\?\?\s*entry\.data\.pubDate/);

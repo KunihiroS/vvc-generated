@@ -19,9 +19,11 @@ Public URLs:
 
 - `public/slides/`: generated slide HTML and Visual Summary decks.
 - `public/images/`: generated image files.
+- `public/favicon.svg`: original SVG favicon for `Tech info slides`.
 - `src/content/slides/`: Astro Content Collection entries for the archive UI.
 - `src/pages/index.astro`: archive page.
 - `src/content.config.ts`: slide entry schema.
+- `docs/mockups/kun-377-archive-designs/`: KUN-377 design mockups used for KUN-381.
 - `.github/workflows/pages.yml`: GitHub Pages build and deploy workflow.
 
 The public URL paths do not include `public/`. For example, `public/slides/2026/05/example.html` is served as `/vvc-generated/slides/2026/05/example.html`.
@@ -49,14 +51,17 @@ Image-only publishing does not create a slide entry.
 
 ## Archive UI Contract
 
-The archive page derives its visible controls from entry dates, not from `tags`.
+The archive page is titled `Tech info slides` and uses the KUN-377 `05 Warm Charcoal` Gallery Wall direction as the KUN-381 implementation baseline. The page derives its visible controls from entry dates, not from `tags`.
 
 - Month filters show `All months` plus each `YYYY-MM` derived from the archive date.
 - The archive date is `generatedAt` when present, otherwise `pubDate`.
 - Initial order is `Newest`; users can switch to `Oldest`.
 - `tags` remain readable in the Content Collection schema for compatibility, but are not exposed as filter buttons.
 - `kind` can be displayed on cards, but is not exposed as a filter in the minimum UI.
+- Cards use a poster-first Gallery Wall layout: `thumbnailUrl` is shown as the poster image, and entries without a thumbnail use a stable HTML placeholder.
 - `Open` links use `target="_blank"` and `rel="noopener noreferrer"` so slide pages open in a separate tab safely.
+- The favicon is `public/favicon.svg`. It is an Original SVG created for this site, so there is no third-party icon license requirement.
+- The design source is `docs/mockups/kun-377-archive-designs/index.html`, especially the `05 Warm Charcoal` pattern.
 
 ## Local Development
 
