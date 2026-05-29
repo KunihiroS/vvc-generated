@@ -7,7 +7,7 @@ Generated files published from voicevox-calling and served as an Astro static si
 This repository has two roles:
 
 - Store generated slide HTML and image assets pushed from voicevox-calling.
-- Build a lightweight archive UI where generated slides can be browsed by tag.
+- Build a lightweight archive UI where generated slides can be browsed by month and sorted by date.
 
 Public URLs:
 
@@ -33,9 +33,9 @@ voicevox-calling creates one Markdown entry per archived slide under `src/conten
 Expected frontmatter fields:
 
 - `title`: display title.
-- `pubDate`: publication date used for sorting.
-- `generatedAt`: generation timestamp.
-- `tags`: list of tags shown in the archive filter.
+- `pubDate`: publication date used as the fallback archive date when `generatedAt` is missing.
+- `generatedAt`: optional generation timestamp. The archive uses this for month grouping and sorting when present.
+- `tags`: compatibility metadata retained for existing entries. Tags are not shown as archive filters.
 - `slideUrl`: public URL path to the generated slide.
 - `kind`: `slide-html` or `visual-summary-deck`.
 - `summary`: optional short description.
@@ -46,6 +46,17 @@ Expected frontmatter fields:
 If an entry with the same id already exists, voicevox-calling leaves it unchanged. This keeps republishing the same generated slide close to a no-op and avoids rewriting archive metadata unexpectedly.
 
 Image-only publishing does not create a slide entry.
+
+## Archive UI Contract
+
+The archive page derives its visible controls from entry dates, not from `tags`.
+
+- Month filters show `All months` plus each `YYYY-MM` derived from the archive date.
+- The archive date is `generatedAt` when present, otherwise `pubDate`.
+- Initial order is `Newest`; users can switch to `Oldest`.
+- `tags` remain readable in the Content Collection schema for compatibility, but are not exposed as filter buttons.
+- `kind` can be displayed on cards, but is not exposed as a filter in the minimum UI.
+- `Open` links use `target="_blank"` and `rel="noopener noreferrer"` so slide pages open in a separate tab safely.
 
 ## Local Development
 
@@ -83,7 +94,7 @@ The expected `build_type` is `workflow`.
 1. Generate a slide from voicevox-calling.
 2. Open the publish result URL shown in voicevox-calling.
 3. Open `https://kunihiros.github.io/vvc-generated/`.
-4. Confirm the generated slide appears in the archive and can be filtered by tag.
+4. Confirm the generated slide appears in the archive, can be filtered by its generated month, can be sorted Newest/Oldest, and opens from `Open` in a separate tab.
 5. If GitHub Pages appears stale, wait for the workflow to finish and retry with a cache-busting query such as `?v=<timestamp>`.
 
 If a push that changes `.github/workflows/pages.yml` is rejected with a missing `workflow` scope, update the workflow through an authenticated GitHub UI/app/connector or use a token that has the `workflow` scope.
