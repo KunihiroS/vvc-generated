@@ -7,7 +7,7 @@ const slides = defineCollection({
   schema: z.object({
     title: z.string(),
     pubDate: z.coerce.date(),
-    generatedAt: z.coerce.date(),
+    generatedAt: z.coerce.date().optional(),
     tags: z.array(z.string()),
     slideUrl: z.string(),
     kind: z.enum(["slide-html", "visual-summary-deck"]),

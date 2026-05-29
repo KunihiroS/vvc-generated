@@ -2,9 +2,18 @@
 import { getCollection } from "astro:content";
 
 const entries = (await getCollection("slides"))
-  .map((entry) => ({ id: entry.id, ...entry.data }))
-  .sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime() || a.title.localeCompare(b.title));
-const tags = Array.from(new Set(entries.flatMap((entry) => entry.tags))).sort((a, b) => a.localeCompare(b));
+  .map((entry) => {
+    const archiveDate = entry.data.generatedAt ?? entry.data.pubDate;
+    return {
+      id: entry.id,
+      ...entry.data,
+      archiveDate,
+      month: archiveDate.toISOString().slice(0, 7),
+      archiveTime: archiveDate.getTime(),
+    };
+  })
+  .sort((a, b) => b.archiveTime - a.archiveTime || a.title.localeCompare(b.title));
+const months = Array.from(new Set(entries.map((entry) => entry.month))).sort((a, b) => b.localeCompare(a));
 const totalDecks = entries.filter((entry) => entry.kind === "visual-summary-deck").length;
 const totalSlides = entries.length - totalDecks;
 ---
@@ -22,9 +31,10 @@ const totalSlides = entries.length - totalDecks;
       header { display: grid; gap: 14px; padding: 8px 0 24px; border-bottom: 1px solid var(--line); }
       h1 { margin: 0; font-size: clamp(2rem, 6vw, 4.4rem); line-height: .94; letter-spacing: 0; }
       .summary { display: flex; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: .95rem; }
-      .tagbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 26px; }
-      button[data-tag-filter] { min-height: 36px; border: 1px solid var(--line); border-radius: 999px; padding: 0 14px; background: white; color: var(--ink); cursor: pointer; font: inherit; }
-      button[data-tag-filter][aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: white; }
+      .controls { display: grid; gap: 12px; margin: 22px 0 26px; }
+      .control-group { display: flex; flex-wrap: wrap; gap: 8px; }
+      button[data-month-filter], button[data-sort] { min-height: 36px; border: 1px solid var(--line); border-radius: 999px; padding: 0 14px; background: white; color: var(--ink); cursor: pointer; font: inherit; }
+      button[data-month-filter][aria-pressed="true"], button[data-sort][aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: white; }
       .archive-list { display: grid; gap: 12px; }
       article { display: grid; grid-template-columns: minmax(0, 1fr) 172px; gap: 18px; align-items: stretch; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: white; }
       article[hidden] { display: none; }
@@ -51,21 +61,27 @@ const totalSlides = entries.length - totalDecks;
         </div>
       </header>
 
-      <nav class="tagbar" aria-label="タグ">
-        <button data-tag-filter="all" aria-pressed="true">All</button>
-        {tags.map((tag) => <button data-tag-filter={tag} aria-pressed="false">{tag}</button>)}
-      </nav>
+      <div class="controls" aria-label="Archive controls">
+        <nav class="control-group" aria-label="Months">
+          <button data-month-filter="all" aria-pressed="true">All months</button>
+          {months.map((month) => <button data-month-filter={month} aria-pressed="false">{month}</button>)}
+        </nav>
+        <div class="control-group" aria-label="Sort order">
+          <button data-sort="newest" aria-pressed="true">Newest</button>
+          <button data-sort="oldest" aria-pressed="false">Oldest</button>
+        </div>
+      </div>
 
       <section class="archive-list" aria-live="polite">
         {entries.length === 0 && <p class="empty">No slides published yet.</p>}
         {entries.map((entry) => (
-          <article data-tags={entry.tags.join("|")}> 
+          <article data-month={entry.month} data-archive-time={entry.archiveTime}>
             <div>
               <h2>{entry.title}</h2>
               <div class="meta">
-                <time datetime={entry.generatedAt.toISOString()}>{entry.generatedAt.toISOString().slice(0, 10)}</time>
+                <time datetime={entry.archiveDate.toISOString()}>{entry.archiveDate.toISOString().slice(0, 10)}</time>
                 <span class="kind">{entry.kind === "visual-summary-deck" ? "Visual Summary" : "Slide"}</span>
-                {entry.tags.map((tag) => <span class="chip">{tag}</span>)}
+                <span class="chip">{entry.month}</span>
               </div>
               {entry.summary && <p>{entry.summary}</p>}
               <div class="actions"><a class="open" href={entry.slideUrl}>Open</a></div>
@@ -76,16 +92,38 @@ const totalSlides = entries.length - totalDecks;
       </section>
     </main>
     <script>
-      const buttons = Array.from(document.querySelectorAll("[data-tag-filter]"));
-      const entries = Array.from(document.querySelectorAll("article[data-tags]"));
-      for (const button of buttons) {
+      const monthButtons = Array.from(document.querySelectorAll("[data-month-filter]"));
+      const sortButtons = Array.from(document.querySelectorAll("[data-sort]"));
+      const list = document.querySelector(".archive-list");
+      const entries = Array.from(document.querySelectorAll("article[data-month]"));
+      let activeMonth = "all";
+      let activeSort = "newest";
+
+      function updateArchive() {
+        const direction = activeSort === "oldest" ? 1 : -1;
+        const sortedEntries = [...entries].sort((a, b) => {
+          const aTime = Number(a.getAttribute("data-archive-time") || "0");
+          const bTime = Number(b.getAttribute("data-archive-time") || "0");
+          return direction * (aTime - bTime) || a.textContent.localeCompare(b.textContent);
+        });
+        for (const entry of sortedEntries) list?.append(entry);
+        for (const entry of entries) {
+          entry.hidden = activeMonth !== "all" && entry.getAttribute("data-month") !== activeMonth;
+        }
+      }
+
+      for (const button of monthButtons) {
         button.addEventListener("click", () => {
-          const tag = button.getAttribute("data-tag-filter");
-          for (const item of buttons) item.setAttribute("aria-pressed", String(item === button));
-          for (const entry of entries) {
-            const tags = (entry.getAttribute("data-tags") || "").split("|");
-            entry.hidden = tag !== "all" && !tags.includes(tag || "");
-          }
+          activeMonth = button.getAttribute("data-month-filter") || "all";
+          for (const item of monthButtons) item.setAttribute("aria-pressed", String(item === button));
+          updateArchive();
+        });
+      }
+      for (const button of sortButtons) {
+        button.addEventListener("click", () => {
+          activeSort = button.getAttribute("data-sort") || "newest";
+          for (const item of sortButtons) item.setAttribute("aria-pressed", String(item === button));
+          updateArchive();
         });
       }
     </script>
