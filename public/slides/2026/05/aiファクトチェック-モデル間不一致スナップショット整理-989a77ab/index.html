@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AIファクトチェック：モデル間不一致スナップショット整理</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      margin-top: 2px;
+      padding-left: 0;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 10px;
+      height: 1px;
+      background: var(--rust);
+      margin-right: 10px;
+      vertical-align: middle;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      letter-spacing: 0.03em;
+      margin-top: 0px;
+    }
+    .eyebrow{
+      margin-top: 8px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      line-height: 1.05;
+      max-width: 760px;
+    }
+    .title{
+      margin-top: 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      color: var(--ink);
+      max-width: 900px;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      margin-top: 14px;
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .content{
+      margin-top: 20px;
+      max-width: 980px;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 6px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 6px;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      padding: 14px 14px;
+      min-height: 64px;
+    }
+    .card h4{
+      margin:0 0 6px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+    }
+    .card p{
+      margin:0;
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0;
+      width: min(760px, 100%);
+    }
+    .fine{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .closing-center{
+      height:100%;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:flex-start;
+    }
+
+    /* responsive: keep 16:9; just scale width */
+    @media (max-width: 720px){
+      .slide{padding: 28px 26px;}
+      .slide::after{inset: 12px;}
+      .title{font-size: 44px;}
+      .lead{font-size: 18px;}
+      .grid2{grid-template-columns:1fr;}
+      .grid3{grid-template-columns:1fr;}
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-top">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 13</div>
+      </div>
+      <div class="eyebrow">最先端LLMでも割れる</div>
+      <div class="title">事実確認と <span class="em">不一致</span></div>
+      <div class="lead">5つの最先端LLMに同一の4段階判定（True / Mostly True / Misleading / False）をさせたスナップショットを、要点だけで読める形に整理します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>対象データ</h4>
+            <p>事実確認プラットフォームの<br/>ユーザー投稿主張 1,000件</p>
+          </div>
+          <div class="card">
+            <h4>判定設計</h4>
+            <p>公開の正解ラベルなし<br/>“モデル間ズレ”を測定</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">as-of: 2026-05-21 / v1.0（提示本文に基づく要約）</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-top">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 13</div>
+      </div>
+      <div class="eyebrow">多数決は無傷か？</div>
+      <div class="title">“同じ結論”に <span class="em">収束するか</span></div>
+      <div class="lead">ファクトチェックは「正しさ」に収束するはず、という期待がある一方、現実の主張に対して最先端LLMでも判定が割れることが示されています。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>前提</h4>
+            <p>4区分のうち<br/>1つだけが正しいと仮定</p>
+          </div>
+          <div class="card">
+            <h4>測りたいこと</h4>
+            <p>正解ラベルなしで<br/>“モデル間不一致”を定量化</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">含意：モデルが食い違うなら、少なくとも一部は「ラベル整合性」が保てていない可能性が高い。</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-top">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">04 / 13</div>
+      </div>
+      <div class="eyebrow">不一致は多数派</div>
+      <div class="title">67%で <span class="em">多数決が崩れる</span></div>
+      <div class="lead">1,000件中672件（67%）で、5モデルの厳密多数（3対2以上）が成立しない、または多数に反対（dissent）が少なくとも1つ存在しました。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>不一致（多数決なし）</h4>
+            <p>672 / 1,000 = <br/><span style="font-family:'Inter Tight',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; font-weight:700; color:var(--ink)">67%</span></p>
+          </div>
+          <div class="card">
+            <h4>意味すること</h4>
+            <p>単一モデル出力を<br/>そのまま“判定”にできない頻度が高い</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-top">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">05 / 13</div>
+      </div>
+      <div class="eyebrow">微差じゃない</div>
+      <div class="title">34%は <span class="em">実質的不一致</span></div>
+      <div class="lead">343件（34%）では、最も割れた2モデル間で「2区分以上」のギャップがあり、単なるキャリブレーション差では説明しにくい隔たりが示唆されます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>2区分以上ギャップ</h4>
+            <p>343 / 1,000 = <br/><span style="font-family:'Inter Tight',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; font-weight:700; color:var(--ink)">34%</span></p>
+          </div>
+          <div class="card">
+            <h4>含意</h4>
+            <p>解釈・根拠・時間条件付け（as-of）などが<br/>絡む可能性</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">True ↔ Mostly Trueのような“序数の揺れ”を超えた差として扱う。</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-top">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">06 / 13</div>
+      </div>
+      <div class="eyebrow">数値で見る合意度</div>
+      <div class="title">Krippendorff α = <span class="em">0.639</span></div>
+      <div class="lead">パネル全体の一致度はKrippendorffのα（序数）で0.639。無作為に近い雑音ほどではない一方で、強い収束（同じ事件を同じ結論に到達）とも言えません。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <h4>値</h4>
+            <p>α（序数）<br/><span style="font-family:'Inter Tight',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; font-weight:700; color:var(--ink)">0.639</span></p>
+          </div>
+          <div class="card">
+            <h4>解釈</h4>
+            <p>“全くの雑音”ではない</p>
+          </div>
+          <div class="card">
+            <h4>ただし</h4>
+            <p>“同じ結論に収束”とも言えない</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">本文の主張：多数決を正解とみなさず、不一致の測定基準として扱っている。</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-top">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">07 / 13</div>
+      </div>
+      <div class="eyebrow">全員一致でも中間が揺れる</div>
+      <div class="title">“中間区分”は <span class="em">壊れやすい</span></div>
+      <div class="lead">全員一致（5/5）の328件でも、unanimous-Misleadingが4件で、中心の中間ラベル（本文ではMostly True）が“収束しやすい”とは言えない形になっています。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>全員一致</h4>
+            <p>5 / 5<br/>328 / 1,000</p>
+          </div>
+          <div class="card">
+            <h4>示唆</h4>
+            <p>同じ方向でも、最終区分が<br/>中心で収束しにくい可能性</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">読みにくさポイント：多数の方向が合っても、ラベル境界（中間）が揺れる。</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-top">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">08 / 13</div>
+      </div>
+      <div class="eyebrow">モデルの癖が出る</div>
+      <div class="title">極端 vs 中間の <span class="em">振る舞い差</span></div>
+      <div class="lead">個別モデルでは、True/Falseへ極端に寄るものと、Mostly TrueやMisleadingに広く分散しやすいものが観測されています。検索強化は必ずしも一致を増やしません。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <h4>極端に寄る</h4>
+            <p>GPT-5.4 / Claudeなどが<br/>True/False側へ寄りがち</p>
+          </div>
+          <div class="card">
+            <h4>中間に分散</h4>
+            <p>Gemini系が<br/>中間・極端への出方が異なる</p>
+          </div>
+          <div class="card">
+            <h4>検索強化</h4>
+            <p>Gemini + Search / Sonar Proでも<br/>合意が常に強まるとは限らない</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">可能な要因：参照情報の取得差、解釈、時間条件付け、ラベル適用段階の差。</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-top">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">09 / 13</div>
+      </div>
+      <div class="eyebrow">“正解”が見えない地図</div>
+      <div class="title">多数決は <span class="em">正解ではない</span></div>
+      <div class="lead">この研究では、モデル間不一致を測るための基準として多数決を使っています。どのモデルが事実的に間違っているか（正解ラベル）は、このスナップショット内では確定しません。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>できること</h4>
+            <p>“食い違い”の大きさ・頻度を測る</p>
+          </div>
+          <div class="card">
+            <h4>できないこと</h4>
+            <p>“誰が正しいか”を断定する</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">意思決定への注意：多数派が同じ誤りを共有している可能性も排除できない。</div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-top">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">10 / 13</div>
+      </div>
+      <div class="eyebrow">運用設計の論点</div>
+      <div class="title">“採用ルール”が <span class="em">要る</span></div>
+      <div class="lead">67%が割れるなら、単一モデルの出力をそのまま採用する設計はリスクが高い。複数合議・中間区分の扱い・不確実性の提示が重要になります。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <h4>合議</h4>
+            <p>複数モデル出力を<br/>“同一質問”で比較</p>
+          </div>
+          <div class="card">
+            <h4>中間</h4>
+            <p>Mostly True等の<br/>境界域を軽視しない</p>
+          </div>
+          <div class="card">
+            <h4>UI/説明</h4>
+            <p>不一致を前提に<br/>説明可能な出し方にする</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">本文の意見：フォローアップ（人間ラベル）と根拠・参照ログ分解が次段階。</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-top">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">11 / 13</div>
+      </div>
+      <div class="eyebrow">限界と次の一手</div>
+      <div class="title">“正解検証”へ <span class="em">進む</span></div>
+      <div class="lead">最大の制約は正解ラベルがないこと。2区分ギャップを序数的に扱う単純化や、検索強化の参照監査がない点も残ります。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>限界（本スナップショット）</h4>
+            <p>正解ラベルなし<br/>→「誤り特定」ができない</p>
+          </div>
+          <div class="card">
+            <h4>次に必要</h4>
+            <p>人間ラベルによるフォローアップ<br/>＋根拠・参照ログの分解</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="fine">研究の位置づけ：CIは“母集団精度の上限”ではなく、提示フレーム内の精度下限として読む。</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-top">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">12 / 13</div>
+      </div>
+
+      <div class="closing-center">
+        <div class="eyebrow">結論：不一致は日常</div>
+        <div class="title">読みどころは <span class="em">“割れる前提”</span></div>
+        <div class="lead">最先端LLMでも67%で多数決が成立せず、34%では区分間の実質的ギャップが見えるため、現実の事実確認では単一モデル依存が危険です。次は人間正解ラベルと参照監査で、「誰がなぜ違うか」を分解する段階へ進むべきです。</div>
+
+        <div class="content">
+          <div class="grid2" style="margin-top:22px;">
+            <div class="card">
+              <h4>One-liner（要点）</h4>
+              <p>不一致は例外ではなく多数派</p>
+            </div>
+            <div class="card">
+              <h4>実務アクション</h4>
+              <p>合議・中間扱い・不確実性UIを設計</p>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="fine">※本デッキはユーザー提示本文（要約・意見）に基づく整理です。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 13</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
