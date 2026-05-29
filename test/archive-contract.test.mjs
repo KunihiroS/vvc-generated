@@ -23,6 +23,11 @@ test("archive UI uses month filters and sort controls instead of tag filters", (
   assert.doesNotMatch(page, /type=["']search["']/i);
 });
 
+test("archive Open links use a safe new tab target", () => {
+  const page = readFileSync("src/pages/index.astro", "utf8");
+  assert.match(page, /<a class="open" href=\{entry\.slideUrl\} target="_blank" rel="noopener noreferrer">Open<\/a>/);
+});
+
 test("archive derives month filters from generatedAt with pubDate fallback", () => {
   const page = readFileSync("src/pages/index.astro", "utf8");
   assert.match(page, /generatedAt\s*\?\?\s*entry\.data\.pubDate/);
