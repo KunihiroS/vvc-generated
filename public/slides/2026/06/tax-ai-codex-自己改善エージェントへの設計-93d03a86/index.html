@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tax AI × Codex：自己改善エージェントへの設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: block;
+      overflow: visible;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.08);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      padding: 56px 72px;
+      margin: 0 0 22px 0;
+      position: relative;
+      overflow: hidden;
+
+      /* required: 16:9 landscape card behavior */
+      aspect-ratio: 16 / 9;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      pointer-events: none;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 26px;
+      left: 34px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-style: italic;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-right: 10px;
+    }
+
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left: -14px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 10px;
+      height: 16px;
+      border-left: 3px solid var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 26px;
+      right: 34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-3);
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+    }
+
+    .title {
+      margin: 0 0 16px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: -0.01em;
+      line-height: 1.02;
+      color: var(--ink);
+    }
+
+    .title em {
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 600;
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .hr {
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 0 0;
+      max-width: 820px;
+    }
+
+    .grid {
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+      grid-template-columns: 1fr;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 14px 14px 16px;
+      background: rgba(255,255,255,0.01);
+    }
+
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v {
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink);
+    }
+
+    .bigrule{
+      margin-top: 16px;
+      height: 1px;
+      background: var(--rule);
+      width: min(860px, 100%);
+    }
+
+    .jp-inline {
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .list-grid{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .tagline{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 14px;
+      line-height: 1.5;
+      max-width: 760px;
+    }
+
+    @media (max-width: 900px) {
+      .slide { padding: 42px 28px; }
+      .title { font-size: 52px; }
+      .lead { font-size: 18px; }
+      .slide-tag, .slide-num { font-size: 12px; top: 18px; }
+      .slide-tag { left: 22px; }
+      .slide-num { right: 22px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">Tax AI · Codex</div>
+      <div class="slide-num">02 / 14</div>
+
+      <p class="eyebrow">自己改善エージェント</p>
+      <h1 class="title">“<em>現場</em>”を回す設計</h1>
+      <p class="lead">
+        Tax AI を Codex で「自己改善」に近づける鍵は、モデルを良くするだけでなく、
+        現場の失敗を <span class="mono">trace</span>→<span class="mono">eval</span>→開発タスクへ変換する改善ループです。
+      </p>
+      <div class="bigrule"></div>
+      <p class="tagline">現場の修正（会計士）を“学習信号”として工程に組み込み、検証可能な形で反復します。</p>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">なぜ難しい</div>
+      <div class="slide-num">03 / 14</div>
+
+      <p class="eyebrow">失敗は想定外</p>
+      <h2 class="title"><em>現場</em>で崩れる</h2>
+      <p class="lead">
+        実運用では AI が想定しない入力・差分・ルール解釈が起き、性能が一時的に悪化することがあります。
+        従来はエンジニアが手作業で直しがちで、改善が遅くなります。
+      </p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Failure</div>
+          <div class="v">入力の揺れ、抽出のズレ、マッピング不一致、エッジケース</div>
+        </div>
+        <div class="cell">
+          <div class="k">Latency</div>
+          <div class="v">修正→反映までが属人的で、学びがプロダクトに戻りにくい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">核心アイデア</div>
+      <div class="slide-num">04 / 14</div>
+
+      <p class="eyebrow">手直し→回路</p>
+      <h2 class="title">“<em>学習</em>”を運用に</h2>
+      <p class="lead">
+        自己改善の中心は「モデル改善」ではなく「改善ループの設計」です。
+        失敗を証拠（<span class="mono">trace</span>）として構造化し、評価（<span class="mono">eval</span>）と開発タスクへ落とし込みます。
+      </p>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Trace</div>
+          <div class="v">入力→抽出→根拠（provenance）→提出→会計士の修正</div>
+        </div>
+        <div class="cell">
+          <div class="k">Eval</div>
+          <div class="v">何が間違い（or ノイズ）かを切り分け、ターゲット評価へ</div>
+        </div>
+        <div class="cell">
+          <div class="k">Codex</div>
+          <div class="v">原因調査・修正案・回帰評価を回して安全に前進</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: evidence -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">結果</div>
+      <div class="slide-num">05 / 14</div>
+
+      <p class="eyebrow">実運用で検証</p>
+      <h2 class="title">7,000件規模</h2>
+      <p class="lead">
+        Crete のネットワーク参加 30社超でパイロットを行い、シーズン中に約 7,000件の申告処理を実施しました。
+        1040/1041 の作成を多くの時間で自動化し、数か月で性能向上が示されています。
+      </p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Scale</div>
+          <div class="v">参加 30社超 · 約 7,000件 · シーズン運用</div>
+        </div>
+        <div class="cell">
+          <div class="k">Scope</div>
+          <div class="v">1040/1041 を中心に、複雑領域へ拡大</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: evidence -->
+    <section class="slide" aria-label="metrics">
+      <div class="slide-tag">精度指標</div>
+      <div class="slide-num">06 / 14</div>
+
+      <p class="eyebrow">“改善”が見える</p>
+      <h2 class="title">6週間で伸長</h2>
+      <p class="lead">
+        申告書フィールドの正しさを「75%/90%/100%が正しい割合」で測ると、ローンチ直後は75%達成が約4分の1でした。
+        その後、<span class="mono">6週間で 86%</span>が「75%達成」を満たし、成長は継続したと説明されています。
+      </p>
+
+      <div class="list-grid">
+        <div class="cell">
+          <div class="k">Day 0</div>
+          <div class="v">75%達成：<span class="mono">約25%</span>（約4分の1）</div>
+        </div>
+        <div class="cell">
+          <div class="k">After 6 weeks</div>
+          <div class="v">75%達成：<span class="mono">86%</span>が達成条件を満たす</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: architecture -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">三本柱</div>
+      <div class="slide-num">07 / 14</div>
+
+      <p class="eyebrow">改善の骨格</p>
+      <h2 class="title"><em>設計</em>で勝つ</h2>
+      <p class="lead">
+        改善を可能にした中核は3本柱です。実務者の直感、プロダクトトレース、Codex 主導の改善ループがセットで機能します。
+      </p>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">i. 実務密着</div>
+          <div class="v">何が重要エラーか／ノイズかを会計士が見極める</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 証拠トレース</div>
+          <div class="v">provenance を含め工程を保持し、原因を特定しやすく</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. Codexループ</div>
+          <div class="v">findings→eval→スコープ付きタスクへ変換し検証</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: distinction -->
+    <section class="slide" aria-label="distinction-noise">
+      <div class="slide-tag">区別する</div>
+      <div class="slide-num">08 / 14</div>
+
+      <p class="eyebrow">直すべき／直さない</p>
+      <h2 class="title">差分＝失敗ではない</h2>
+      <p class="lead">
+        差分があっても、それが抽出ミスなのか、マッピング問題なのか、ルールや前年度引き継ぎの差なのかは自動では判断しにくいです。
+        会計士が「直すべき失敗」だけを学習対象に昇格させます。
+      </p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">直すべき</div>
+          <div class="v">モデル/ロジックの欠陥（抽出・選択・マッパーのギャップ等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">想定ノイズ</div>
+          <div class="v">会計判断、年度引き継ぎ、別工程での値変化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: evidence -->
+    <section class="slide" aria-label="provenance">
+      <div class="slide-tag">原因を追える</div>
+      <div class="slide-num">09 / 14</div>
+
+      <p class="eyebrow">根拠つき調査</p>
+      <h2 class="title">provenanceで特定</h2>
+      <p class="lead">
+        抽出・分類・マッピング・提出までの道筋を保持すると、どこで失敗が起きたかを特定できます。
+        賃貸不動産の例では、フィールド差分を作り関連失敗をグルーピングし、evalターゲットへ変換すると説明されています。
+      </p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">追跡できる工程</div>
+          <div class="v">抽出→根拠（provenance）→マッピング→提出→修正</div>
+        </div>
+        <div class="cell">
+          <div class="k">出力</div>
+          <div class="v">失敗パターンをevalターゲット（反復改善の単位）へ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: process -->
+    <section class="slide" aria-label="codex-loop">
+      <div class="slide-tag">Codexループ</div>
+      <div class="slide-num">10 / 14</div>
+
+      <p class="eyebrow">検証ゲート</p>
+      <h2 class="title">“直す前に試す”</h2>
+      <p class="lead">
+        Codex は trace と eval、リポジトリや skills を参照し、原因候補を切り分けて修正案を作り、ターゲット評価と回帰評価で検証します。
+        その後 PR で提示する流れが示されています。
+      </p>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">i. 切り分け</div>
+          <div class="v">未対応フィールド、抽出パターン欠落、ソース選択、マッパー差</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 実装案</div>
+          <div class="v">修正コード/設定を提案し、変更の範囲を明確化</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. 検証</div>
+          <div class="v">ターゲット評価＋回帰評価で安全に進める（regression抑制）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: comparison -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">従来と対比</div>
+      <div class="slide-num">11 / 14</div>
+
+      <p class="eyebrow">属人改善を排除</p>
+      <h2 class="title">“再現可能”にする</h2>
+      <p class="lead">
+        この設計では、改善が「感覚的な対応」ではなく、成功条件が明確で検証可能な開発タスクへ落ちます。
+        そのため改善の速度と安全性を両立しやすいと説明されています。
+      </p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">従来</div>
+          <div class="v">修正が手作業中心 · 何が効いたか追いにくい · 後退検知が遅れがち</div>
+        </div>
+        <div class="cell">
+          <div class="k">Tax AI</div>
+          <div class="v">trace/ eval/回帰で検証 · 開発タスク化 · 成果が追跡可能</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11: distinction -->
+    <section class="slide" aria-label="limits">
+      <div class="slide-tag">読み取り注意</div>
+      <div class="slide-num">12 / 14</div>
+
+      <p class="eyebrow">詳細は未提示</p>
+      <h2 class="title">“魔法”ではない</h2>
+      <p class="lead">
+        記事は設計思想とプロセスを中心に説明しており、失敗モードの内訳、各数値の粒度、安全策やコンプライアンス検証の詳細は十分に提示されていません。
+        再現には trace の粒度、eval の合格基準、セーフティと責任分界が同程度に必要です。
+      </p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">不足しがち</div>
+          <div class="v">失敗内訳、昇格率、監査ログ/責任分界（誰が最終承認か等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">再現条件</div>
+          <div class="v">a) 構造化されたフィードバック  b) trace粒度  c) eval合格条件  d) セーフティ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: closing (closing) -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">13 / 14</div>
+
+      <p class="eyebrow">要点まとめ</p>
+      <h2 class="title"><em>現場</em>×評価×Codex</h2>
+      <p class="lead">
+        Tax AI は「会計士の修正・運用ログ・評価基盤」を結び、Codex 主導の反復ループで継続的に精度を高めることで、
+        自己改善する税務エージェントに近づけます。
+      </p>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">鍵①</div>
+          <div class="v">モデルではなく改善ループ設計（自己改善運用）</div>
+        </div>
+        <div class="cell">
+          <div class="k">鍵②</div>
+          <div class="v">trace（provenance）で原因調査を根拠化</div>
+        </div>
+        <div class="cell">
+          <div class="k">鍵③</div>
+          <div class="v">eval＋回帰で安全に前進（検証ゲート）</div>
+        </div>
+      </div>
+      <div class="tagline">English term（日本語）: trace（証拠）／eval（評価）／provenance（根拠）／regression（後退）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
