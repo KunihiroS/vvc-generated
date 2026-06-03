@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLMエージェントEvals要約</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream:#14110d;
+      --paper:#1c1813;
+      --ink:#f0e8d8;
+      --ink-2:#d4ccbc;
+      --ink-3:#948b7c;
+      --ink-4:#645c50;
+      --rust:#e8814a;
+      --rust-deep:#c9683a;
+      --rule:rgba(240, 232, 216, 0.10);
+      --rule-strong:rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--paper);
+      color:var(--ink);
+      font-family:"Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display:flex;
+      flex-direction:column;
+      gap:20px;
+      padding: 24px 0 40px;
+    }
+    .slide{
+      width:100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      position: relative;
+      border-radius: 14px;
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow:hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 28px;
+      font-family:"Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-weight:600;
+      letter-spacing:0.14em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 28px;
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 18px;
+      color: var(--ink-3);
+    }
+    .eyebrow{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      line-height:1.05;
+    }
+    .title{
+      font-family:"Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height:1.02;
+      margin: 0 0 18px 0;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin: 0;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0 16px;
+    }
+    .grid{
+      display:grid;
+      gap: 14px 18px;
+      margin-top: 8px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.02);
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-weight: 600;
+      letter-spacing:0.02em;
+      color: var(--ink-3);
+      font-size: 13px;
+      text-transform: none;
+      margin-bottom: 8px;
+      display:flex;
+      gap:10px;
+      align-items:baseline;
+    }
+    .cell .k span.jp{
+      font-family:"Noto Serif JP", serif;
+      font-weight: 500;
+      letter-spacing:0;
+      text-transform:none;
+      color: var(--ink-4);
+      font-size: 12.5px;
+    }
+    .cell .v{
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height:1.35;
+    }
+    .code{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink);
+      background: rgba(0,0,0,0.18);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 10px 12px;
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height:1.45;
+      margin:0;
+      max-width: 760px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-tag">Evals</div>
+      <div class="slide-num">02 / 15</div>
+      <p class="eyebrow">数値で育てる</p>
+      <h1 class="title"><em>AI</em>品質</h1>
+      <p class="lead">LLMエージェントの応答品質は、感覚ではなくEvals（評価）でスコア化し、分析→改善→再計測することで継続的に上げます。</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 15</div>
+      <p class="eyebrow">一致テストが不利</p>
+      <h1 class="title">なぜ<em>テスト</em>が難しい</h1>
+      <p class="lead">LLMは確率的で出力が揺れ、正解が一意でないうえ、プロンプトやモデル変更の影響が大きいため「期待出力と一致」で測れません。</p>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">Core Idea</div>
+      <div class="slide-num">04 / 15</div>
+      <p class="eyebrow">ジャッジを作る</p>
+      <h1 class="title">Scorerで<em>0〜1</em></h1>
+      <p class="lead">入力と出力からスコア（例：0〜1 / 0〜100）を返す評価関数 <span class="code">Scorer / Evaluator</span> を用意し、品質を観測します。</p>
+      <div class="rule"></div>
+      <p class="small">スコアは「改善の効果」を比較可能にします（再現可能な数値）。</p>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">Types</div>
+      <div class="slide-num">05 / 15</div>
+      <p class="eyebrow">2方式を併用</p>
+      <h1 class="title"><em>コード</em>×LLM</h1>
+      <p class="lead">判定を全部LLMに任せず、コードベース（低コスト・決定論的）で広く網を張り、意味判断が必要な観点だけLLMベースで補うのが定石です。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Code-based <span class="jp">コード判定</span></div>
+          <div class="v">決定論的で安価。文字数・網羅性など“決めやすい”観点向き。</div>
+        </div>
+        <div class="cell">
+          <div class="k">LLM-based <span class="jp">LLM判定</span></div>
+          <div class="v">文脈や意味の評価に強いが、コストが高くなりがち。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">Timing</div>
+      <div class="slide-num">06 / 15</div>
+      <p class="eyebrow">目的別に使い分け</p>
+      <h1 class="title">Live / CI / Batch</h1>
+      <p class="lead">評価は実行タイミングで目的が違います。単一方式に寄せるとコストと有効性がズレやすいです。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Live <span class="jp">本番監視</span></div>
+          <div class="v">運用中にサンプリングして継続監視（デグレ早期検知）。</div>
+        </div>
+        <div class="cell">
+          <div class="k">CI <span class="jp">マージ前</span></div>
+          <div class="v">PR・設定変更の前に高速ゲートで品質低下を止める。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Batch <span class="jp">改善比較</span></div>
+          <div class="v">多数データで前後比較し、改善効果を定量確認・永続化。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">Mastra</div>
+      <div class="slide-num">07 / 15</div>
+      <p class="eyebrow">実装を固める</p>
+      <h1 class="title">Scorer実例</h1>
+      <p class="lead">Mastraでは組み込みスコアラーと自作スコアラーを組み合わせ、観点ごとに“測れるもの”を増やしていきます。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">completenessScorer <span class="jp">網羅性</span></div>
+          <div class="v">（例）返信が要件を満たす側面をスコア化。</div>
+        </div>
+        <div class="cell">
+          <div class="k">replyLengthScorer <span class="jp">文字数</span></div>
+          <div class="v">文字数を測る（例：指示遵守や体裁の検査）。</div>
+        </div>
+        <div class="cell">
+          <div class="k">requirementCoverageScorer <span class="jp">要望カバレッジ</span></div>
+          <div class="v">LLMで要望を拾えているかを測る（意味的観点）。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Datasets / Experiments <span class="jp">データ・実験</span></div>
+          <div class="v">変更履歴と比較を残し、改善サイクルを回す。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">Loop</div>
+      <div class="slide-num">08 / 15</div>
+      <p class="eyebrow">回す手順</p>
+      <h1 class="title"><em>baseline</em>→改善</h1>
+      <p class="lead">まずbaselineを計測し、低スコアのケースを分析して、プロンプトやルールを追加し、再計測で改善を確認します。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">① Baseline計測 <span class="jp">現状把握</span></div>
+          <div class="v">平均スコア・低評価の傾向を掴む。</div>
+        </div>
+        <div class="cell">
+          <div class="k">② 分析 <span class="jp">原因特定</span></div>
+          <div class="v">“何が足りないか”をスコアの内訳で見る。</div>
+        </div>
+        <div class="cell">
+          <div class="k">③ 改善 <span class="jp">ルール追加</span></div>
+          <div class="v">例：返信を200〜400字に収めるなど。</div>
+        </div>
+        <div class="cell">
+          <div class="k">④ 再計測 <span class="jp">効果確認</span></div>
+          <div class="v">スコア改善が再現されるかを比較。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">09 / 15</div>
+      <p class="eyebrow">評価観点は分解</p>
+      <h1 class="title">単一スコアは<em>危険</em></h1>
+      <p class="lead">文字数のようなスコアは体裁や指示遵守を反映しますが、本質品質（要望の正確性）とは別になり得るため、複数スコアラーで多面的に測ります。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Surface <span class="jp">表層</span></div>
+          <div class="v">replyLength（例：指定文字数の遵守）など。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Meaning <span class="jp">意味</span></div>
+          <div class="v">requirementCoverage（要望を汲み取れているか）。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">10 / 15</div>
+      <p class="eyebrow">CIの役割</p>
+      <h1 class="title">品質ゲート</h1>
+      <p class="lead">CI評価はPR前に“品質低下”を止める目的です。閾値でスコアを扱うことで、チーム内の品質を共通言語化できます。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Gate <span class="jp">合否</span></div>
+          <div class="v">スコア閾値によりマージ可否を判断。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Definition <span class="jp">定義</span></div>
+          <div class="v">評価軸（何を良しとするか）が誤解の鍵。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">Risk</div>
+      <div class="slide-num">11 / 15</div>
+      <p class="eyebrow">落とし穴</p>
+      <h1 class="title">評価器も<em>ブレる</em></h1>
+      <p class="lead">LLMベース評価は“評価する側のモデル”に依存し得ます。評価のブレ・バイアス・頑健性担保の観点は、本文の範囲では深掘り不足です。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Evaluator drift <span class="jp">評価器依存</span></div>
+          <div class="v">ジャッジ自体が確率的で、スコアが揺れる可能性。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Correlation gap <span class="jp">成果接続</span></div>
+          <div class="v">ユーザー満足や業務指標との相関検証は別途必要。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">12 / 15</div>
+      <p class="eyebrow">導入の結論</p>
+      <h1 class="title">“感覚”を<em>測定</em>へ</h1>
+      <p class="lead">Evalsは、コードベースとLLMベースの併用、目的別（Live/CI/Batch）の運用、baseline→分析→改善→再計測の循環で、AIエージェントを育てる基盤になります。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Design <span class="jp">設計</span></div>
+          <div class="v">Scorerで品質をスコア化し、観点を分解。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Operate <span class="jp">運用</span></div>
+          <div class="v">タイミング別に評価し、比較で改善効果を確認。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">13 / 15</div>
+      <p class="eyebrow">参考の扱い</p>
+      <h1 class="title"><em>注</em>と範囲</h1>
+      <p class="lead">本スライドは、ユーザー提示文（Mastra Evalsの実装例：メール返信エージェント）に含まれる情報のみを根拠に要約しています。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Not included <span class="jp">未記載</span></div>
+          <div class="v">統計検証（信頼区間、スコア分布、評価器の安定性）やユーザー満足との相関は本文で明示されていません。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Next step <span class="jp">次の確認</span></div>
+          <div class="v">LLMベース評価の頑健性と、最終KPIとの接続を追加で確かめる必要があります。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://zenn.dev/neoai/articles/llm_agent_evaluation_20250424" target="_blank" rel="noreferrer noopener">AI Agentの評価指標まとめ</a></h2>
+<p class="reference-note">LLM Agentの評価指標のサーベイに関する先行の取り組みとして，Yehudaiらの&quot;Survey on Evaluation of LLM-based Agents&quot;が挙げられます．こちらはよくまとまっていたので参考にさせていただきまし…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://qiita.com/syukan3/items/f5bc8c25a4bf2913f199" target="_blank" rel="noreferrer noopener">【徹底解説】Mastra：TypeScript製AIエージェントフレームワーク</a></h2>
+<p class="reference-note">Go to list of users who liked. More than 1 year has passed since last update. # 【徹底解説】Mastra：TypeScript製AIエージェントフレームワーク.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://jp.linkedin.com/pulse/testing-evaluating-llm-based-ai-agent-responses-poonam-chhabra-srhce?tl=ja" target="_blank" rel="noreferrer noopener">LLMベースのAIエージェント応答のテストと評価</a></h2>
+<p class="reference-note">LLMシステムにおける評価は一度きりのQA作業ではなく、 連続ライフサイクルディシプリン.エージェントがより有能で、文脈に敏感で自律的になるにつれて、</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://swallow-llm.github.io/evaluation/about.ja.html" target="_blank" rel="noreferrer noopener">日本語LLM評価 - 評価について</a></h2>
+<p class="reference-note">* **出典**: (Ishii et al., 2024). * **出典**: (Hasan et al., 2021). ##### LLM-jp 評価スクリプト (1.3.0). | Llama 2 13B | 13 | base …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://techblog.lycorp.co.jp/ja/20241217b" target="_blank" rel="noreferrer noopener">Harnessを利用してLLMアプリケーション評価を自動化する</a></h2>
+<p class="reference-note">ドメインに特化したLLMアプリケーションは、特定の分野の複雑で細かな要件を満たす必要があるため、正確に評価するには、ドメイン専門家による定性評価が</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
