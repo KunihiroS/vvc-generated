@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLMによる脆弱性再現実験：コスト・拒否・探索戦略</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-topline{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 36px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      font-size: 18px;
+      font-style: italic;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events:none;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 34px;
+      height: 1px;
+      background: var(--rust);
+      display: inline-block;
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink);
+      font-style: italic;
+      font-size: 20px;
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+    }
+
+    .title{
+      margin: 0 0 18px 0;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: clamp(54px, 5.0vw, 84px);
+      line-height: 1.0;
+      letter-spacing: 0.01em;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 22px 0;
+      width: min(820px, 85%);
+    }
+
+    .content{
+      position: relative;
+      margin-top: 8px;
+    }
+
+    .grid{
+      width: min(920px, 100%);
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 2px;
+      background: rgba(0,0,0,0.06);
+    }
+
+    .cell .label{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      font-size: 14px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .cell .value{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .bilingual{
+      color: var(--ink-3);
+      font-size: 18px;
+      margin-left: 6px;
+      font-weight: 300;
+    }
+
+    .closing-center{
+      position:absolute;
+      inset: 0;
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      padding-left: 72px;
+      padding-right: 72px;
+      pointer-events:none;
+    }
+
+    .closing-center .hero{
+      max-width: 920px;
+    }
+
+    @media (max-width: 820px){
+      .slide{ padding: 46px 28px; }
+      .slide::after{ inset: 14px; }
+      .slide-topline{ left: 28px; right: 28px; top: 26px; }
+      .grid-3{ grid-template-columns: 1fr; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .lead{ font-size: 18px; }
+      .cell .value{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" data-type="cover">
+      <div class="slide-topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">LLMで脆弱性再現は可能か</div>
+        <h1 class="title" style="font-style: italic; color: var(--rust);">実験記録</h1>
+        <p class="lead">LLMが模擬チャレンジ（脆弱な書評アプリ）でフラグを取れるかを、コスト・拒否・探索の作法まで含めて整理します。</p>
+        <div class="rule"></div>
+        <p class="small">対象は実サービス侵入ではなく、研究用に作られた環境で「解ける経路を探索できるか」を測る設計です。</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" data-type="problem">
+      <div class="slide-topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">勝敗の外側にある鍵</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">3つの軸</h2>
+        <p class="lead">本実験の成否は「コード/挙動から攻撃経路を組めるか」「拒否（refusal）やガードレールで止まるか」「予算上限で探索が途切れるか」の相互作用で変わります。</p>
+        <div class="grid grid-3" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">経路構築</div>
+            <div class="value">攻撃手順を“どこへアクセスするか”まで成立させる</div>
+          </div>
+          <div class="cell">
+            <div class="label">拒否・ガード</div>
+            <div class="value">即時/遅延の拒否で探索が完了しない</div>
+          </div>
+          <div class="cell">
+            <div class="label">資源制約</div>
+            <div class="value">トークン/費用/試行上限で“解ける手前”で打ち切り</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" data-type="architecture">
+      <div class="slide-topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">チャレンジの形</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">書評アプリ</h2>
+        <p class="lead">LLMには「偽のReact Native（Expo）アプリ＋Pythonバックエンド」とチャレンジ説明（Markdown、APK相当）が渡され、成功すればフラグ取得です。</p>
+        <div class="grid grid-2" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">入力</div>
+            <div class="value">APK（模擬）/チャレンジ説明（Markdown）/挙動・コード断片</div>
+          </div>
+          <div class="cell">
+            <div class="label">ゴール</div>
+            <div class="value">Firebaseに到達し、正しい操作経路でフラグ条件を満たす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" data-type="evidence">
+      <div class="slide-topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">成功はモデルに偏る</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">solve</h2>
+        <p class="lead">成功（solve）は一部モデルに偏り、失敗は「主戦場に辿り着けない／辿り着いても手順がズレる／拒否で停止／予算で打ち切り」が中心でした。</p>
+        <div class="grid grid-3" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">GPT-5.5</div>
+            <div class="value">10回中 7/10（最も高い傾向）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Deepseek系</div>
+            <div class="value">拒否・探索停止で 0/10 の例（報告）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Claude</div>
+            <div class="value">成功率は高くないが停止が少ない設定で進行（報告）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" data-type="distinction">
+      <div class="slide-topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">中心はFirebase到達</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">到達×正解経路</h2>
+        <p class="lead">多くのモデルはAPIやRNアプリ側に固執し、Firebaseへ切り替えられないか、Firebaseに着地しても誤った使い方を選んで失敗しました。</p>
+        <div class="grid grid-2" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">失敗パターン</div>
+            <div class="value">Firebaseに“行かない”</div>
+          </div>
+          <div class="cell">
+            <div class="label">失敗パターン</div>
+            <div class="value">Firebaseに“行くが”経路選択ミス（例：Firebase AuthをAPI経由で使う等）</div>
+          </div>
+        </div>
+        <p class="small" style="margin-top:18px;">つまり「脆弱性発見」だけでなく「攻撃の座標系（どこからどう進むか）」の一致が必要です。</p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" data-type="enumeration">
+      <div class="slide-topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">拒否が探索を削る</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">refusal</h2>
+        <p class="lead">拒否（refusal）が即時だと探索が止まり、遅延拒否でも“肝心の手順が終わる前”に打ち切られます。</p>
+        <div class="grid grid-3" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">即時拒否</div>
+            <div class="value">Gemini 3.1 Pro Previewの例：早期停止</div>
+          </div>
+          <div class="cell">
+            <div class="label">遅延拒否</div>
+            <div class="value">Claude Opusの例：成功直前で効いた可能性</div>
+          </div>
+          <div class="cell">
+            <div class="label">実務含意</div>
+            <div class="value">安全制御は“攻撃可能性”だけでなく探索完了率そのものを下げる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" data-type="process">
+      <div class="slide-topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">探索は途中で終わる</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">予算上限</h2>
+        <p class="lead">試行回数や上限（費用・時間）があるため、LLMが“まだ届いていない”局面で打ち切られ、結果が変わります。</p>
+        <div class="grid grid-2" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">例</div>
+            <div class="value">10回走らせようとして $1,500 かかった（投稿者）</div>
+          </div>
+          <div class="cell">
+            <div class="label">観測</div>
+            <div class="value">Claude Sonnet/Opusで上限予算による途中停止が記載</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" data-type="architecture">
+      <div class="slide-topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">モデル差だけではない</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">運用方式</h2>
+        <p class="lead">エージェント/ハーネス/再試行（継続）など“推論フロー制御”が、到達可否や停止のされ方に影響し、結果差を作ります。</p>
+        <div class="grid grid-3" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">pi-goal-x</div>
+            <div class="value">探索継続の試み（ハーネス差が出る）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Claude Code -p</div>
+            <div class="value">中断が少なく計算途中で進みやすい可能性</div>
+          </div>
+          <div class="cell">
+            <div class="label">含意</div>
+            <div class="value">同じモデルでも“やり方”で成功率が変わり得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" data-type="comparison">
+      <div class="slide-topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">失敗の理由は複合</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">なぜ負ける</h2>
+        <p class="lead">失敗は能力不足に限らず、(i) Firebaseに到達しない、(ii) 到達後に正しい操作経路を選べない、(iii) ガードレールで拒否される、(iv) 予算/時間で止まる、の組合せで起きます。</p>
+        <div class="grid grid-2" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">探索失敗</div>
+            <div class="value">座標系のズレ：Firebaseへ寄らない</div>
+          </div>
+          <div class="cell">
+            <div class="label">完了失敗</div>
+            <div class="value">拒否・上限：解ける前に停止する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" data-type="distinction">
+      <div class="slide-topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">万能ハッカーではない</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">注意</h2>
+        <p class="lead">成功しても“攻撃手順を自動で常に再現できる”わけではなく、探索対象（Firebase）への寄せ方を誤ると、費用だけ増えて成果が出にくいという限界が示唆されます。</p>
+        <div class="grid grid-3" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">誤経路</div>
+            <div class="value">それっぽい別経路を選ぶ</div>
+          </div>
+          <div class="cell">
+            <div class="label">打ち切り</div>
+            <div class="value">“解ける局面”で上限に当たる</div>
+          </div>
+          <div class="cell">
+            <div class="label">一般化</div>
+            <div class="value">制約付き実験のため結論は限定的</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" data-type="evidence">
+      <div class="slide-topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">読んで得る実務示唆</div>
+        <h2 class="title" style="font-style: italic; color: var(--rust);">設計ポイント</h2>
+        <p class="lead">セキュリティ研究/レッドチーミング文脈では、(a)探索継続、(b)誤経路への吸い込み防止、(c)コスト上限を前提にした段階評価が重要だと分かります。</p>
+        <div class="grid grid-3" style="margin-top:22px;">
+          <div class="cell">
+            <div class="label">i. 継続</div>
+            <div class="value">探索を止めずに最後まで到達させる（探索戦略）<span class="bilingual">継続/continuous</span></div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. 回避</div>
+            <div class="value">誤経路に迷い込む評価・導線を抑える<span class="bilingual">回避/avoid</span></div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. 段階</div>
+            <div class="value">予算/時間で区切り、到達度を段階評価する<span class="bilingual">段階/phase</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" data-type="closing">
+      <div class="slide-topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+
+      <div class="closing-center">
+        <div class="hero">
+          <div class="eyebrow">結論</div>
+          <h2 class="title" style="font-style: italic; color: var(--rust);">性能より探索</h2>
+          <p class="lead">この記録は、LLMの賢さより「到達までの探索設計（場所の正解・手順の正解）」「拒否挙動」「コスト上限」が結果を決めることを示します。</p>
+          <div class="rule"></div>
+          <p class="small">“解けるか”はモデル単体ではなく、探索の運用方式と制約条件の束として現れる——それが最大の示唆です。</p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://kasra.blog/blog/i-spent-1500-seeing-if-llms-could-hack-my-app" target="_blank" rel="noreferrer noopener">I built a vulnerable app and spent $1,500 seeing if LLMs could hack it</a></h2>
+<p class="reference-note">| deepseek-v4-flash | 0/10 | 0%–28% | $0.08 | — | 191k |. *   5 of the runs never touched Firebase, focused only on the …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/isaacevans_in-the-first-three-weeks-of-2026-a-lot-has-activity-7419759451949256704-Ak8a" target="_blank" rel="noreferrer noopener">LLM Vulnerabilities: Agents to Run 99% of Security Testing - LinkedIn</a></h2>
+<p class="reference-note">In the first three weeks of 2026, a lot has already happened in the LLM + vulnerability space. Here are my predictions f…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aclanthology.org/2026.eacl-long.2.pdf" target="_blank" rel="noreferrer noopener">[PDF] Teams of LLM Agents can Exploit Zero-Day Vulnerabilities</a></h2>
+<p class="reference-note">As such, recent work has explored the ability of AI agents to exploit cybersecurity vulnerabilities (Fang et al., 2024b,…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://sombrainc.com/blog/llm-security-risks-2026" target="_blank" rel="noreferrer noopener">LLM Security Risks in 2026: Prompt Injection, RAG, and Shadow AI</a></h2>
+<p class="reference-note">Home Blog LLM Security Risks in 2026. # LLM Security Risks in 2026. By 2026, LLMs are no longer experimental tools — the…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.uscsinstitute.org/cybersecurity-insights/blog/what-are-llm-security-risks-and-mitigation-plan-for-2026" target="_blank" rel="noreferrer noopener">What are LLM Security Risks and Mitigation Plan for 2026</a></h2>
+<p class="reference-note">### What are LLM Security Risks and Mitigation Plan for 2026. Today, **Large Language Models (LLMs)** are a highly cruci…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
