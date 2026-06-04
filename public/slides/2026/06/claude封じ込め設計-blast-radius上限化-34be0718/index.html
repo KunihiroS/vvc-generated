@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude封じ込め設計：blast radius上限化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 28px;
+      left: 34px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-weight: 600;
+      background: rgba(0,0,0,0.0);
+    }
+    .slide-num{
+      position:absolute;
+      top: 24px;
+      right: 34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+    .eyebrow{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+    .title{
+      margin: 10px 0 10px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      line-height: 0.98;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .rule-line{
+      margin: 18px 0 18px 0;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+    }
+    .grid2, .grid3{
+      display: grid;
+      gap: 14px;
+      margin-top: 8px;
+      align-items: start;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      padding: 14px 14px;
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.00);
+      border-radius: 10px;
+      min-height: 66px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--rust);
+      font-weight: 700;
+      margin-bottom: 6px;
+      text-transform: none;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .jp{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink-3);
+      margin-top: 6px;
+      line-height: 1.35;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .cap{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 650;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+      text-transform: none;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.4;
+    }
+    .quote{
+      margin-top: 10px;
+      padding: 16px 16px;
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.00);
+      border-radius: 12px;
+      max-width: 820px;
+    }
+    .quote .q{
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .quote .s{
+      margin-top: 10px;
+      font-size: 16px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", system-ui, sans-serif;
+    }
+    .btnlike{
+      display:block;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      background: rgba(0,0,0,0.00);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 48px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .grid2, .grid3{ gap: 10px; }
+      .cell{ padding: 12px; }
+      .cell .v{ font-size: 16px; }
+      .slide-tag{ top: 22px; left: 22px; }
+      .slide-num{ top: 18px; right: 22px; font-size: 24px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide">
+      <div class="slide-tag">containment / 封じ込め</div>
+      <div class="slide-num">02 / 16</div>
+      <p class="eyebrow">事故の“上限”を設計</p>
+      <h1 class="title"><span class="em">blast radius</span>制御</h1>
+      <p class="lead">生成AIエージェントが実行環境へアクセスできるほど、失敗時の被害範囲（blast radius）が拡大します。だから重要なのは「当たらない確率」だけでなく「外れたときの被害を固定」する設計です。</p>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <p class="eyebrow">3つの事故源</p>
+      <h1 class="title">リスク分解</h1>
+      <p class="lead">事故は主に、<span class="em">ユーザーの誤用/悪用</span>、<span class="em">モデルの誤動作</span>、<span class="em">外部攻撃</span>の3系統で起きます。防御も分解して配置すると、効く場所が見えます。</p>
+      <div class="rule-line"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i. User</div>
+          <div class="v">誤用・悪用（人）</div>
+          <div class="jp">誤った指示 / 攻撃意図</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. Model</div>
+          <div class="v">誤動作（AI）</div>
+          <div class="jp">意図せぬ実行</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. External</div>
+          <div class="v">外部攻撃（経路）</div>
+          <div class="jp">侵入・迂回</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide">
+      <div class="slide-tag">principle</div>
+      <div class="slide-num">04 / 16</div>
+      <p class="eyebrow">確率より境界</p>
+      <h1 class="title">封じ込め</h1>
+      <p class="lead">モデル層の防御（分類器・監視）は100%になりません。一方、環境層の境界（サンドボックス/VM/ファイル/通信制御）は、より決定論的に“通さない”力があります。</p>
+      <div class="quote">
+        <div class="q"><span class="em">ルール：モデルは補助、環境が本命。</span></div>
+        <div class="s">model layer ≠万能 / environment boundary =事故の遮断</div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <p class="eyebrow">防御を3層へ</p>
+      <h1 class="title">配置換え</h1>
+      <p class="lead">防御は「モデル層・環境層・外部コンテンツ層」に分けて考えるのが要点です。特に、環境層では“egress（外向き通信）”が事故の通り道になります。</p>
+      <div class="rule-line"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Model</div>
+          <div class="v">分類/プロンプト防御</div>
+          <div class="jp">確率的（ゼロにできない）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Environment</div>
+          <div class="v">sandbox / VM / egress</div>
+          <div class="jp">境界が決定論的に効く</div>
+        </div>
+        <div class="cell">
+          <div class="k">External</div>
+          <div class="v">ツール/MCP等の入力</div>
+          <div class="jp">変化が多い・迂回しやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">06 / 16</div>
+      <p class="eyebrow">プロダクト差が封じ込めを変える</p>
+      <h1 class="title">3形態</h1>
+      <p class="lead">claude.ai / Claude Code / Claude Coworkは対象ユーザーと実行条件が異なるため、封じ込め設計も変わります。重要なのは「監督の現実性」に合わせて境界を強くすることです。</p>
+      <div class="rule-line"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">claude.ai</div>
+          <div class="v">サーバ側実行</div>
+          <div class="jp">ローカル到達を極小化</div>
+        </div>
+        <div class="cell">
+          <div class="k">Claude Code</div>
+          <div class="v">端末操作前提</div>
+          <div class="jp">承認疲れ → サンドボックスへ</div>
+        </div>
+        <div class="cell">
+          <div class="k">Claude Cowork</div>
+          <div class="v">一般知識労働者</div>
+          <div class="jp">VMで“常時効く”境界を志向</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">07 / 16</div>
+      <p class="eyebrow">claude.ai：極小化</p>
+      <h1 class="title">ローカル遮断</h1>
+      <p class="lead">claude.aiではサーバ側のエフェメラルコンテナ（<span class="mono">gVisor</span>）で実行し、ユーザーのローカル領域にほぼ触れられないようにします。結果としてblast radiusを最小化します。</p>
+      <div class="rule-line"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">工夫</div>
+          <div class="v">サーバ側 &amp; エフェメラル</div>
+          <div class="jp">実行の到達範囲を圧縮</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">ローカル接触を遮断</div>
+          <div class="jp">blast radiusを極小化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">08 / 16</div>
+      <p class="eyebrow">Claude Code：承認疲れ</p>
+      <h1 class="title">HITL限界</h1>
+      <p class="lead">Claude Codeは当初、ステップごとの承認で制御していましたが、テレメトリで承認が約<span class="em">93%</span>に到達し、ユーザーの監督が薄れる問題が起きました。そこでOSレベルのサンドボックス（例：ネットワークデフォルト拒否）へ進化しました。</p>
+      <div class="rule-line"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">初期</div>
+          <div class="v">ステップ承認（HITL）</div>
+          <div class="jp">ただし監督は消耗する</div>
+        </div>
+        <div class="cell">
+          <div class="k">進化</div>
+          <div class="v">OSサンドボックス</div>
+          <div class="jp">egressを境界で拒否</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">09 / 16</div>
+      <p class="eyebrow">Claude Cowork：常時効く境界</p>
+      <h1 class="title">シールド化VM</h1>
+      <p class="lead">Claude Coworkでは、bash等の判断をユーザーに依存しにくい前提から、ローカルVM（シールド化VM）を使います。ホストの資格情報はゲストに入れないなど、「絶対に常時効く境界」を志向します。</p>
+      <div class="rule-line"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">前提</div>
+          <div class="v">一般ユーザー（監督前提にしない）</div>
+          <div class="jp">リテラシーで脅威が変わる</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">VM分離 &amp; 資格情報遮断</div>
+          <div class="jp">ホストから切り離す</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">10 / 16</div>
+      <p class="eyebrow">通り道＝egress</p>
+      <h1 class="title">宛先は“能力”</h1>
+      <p class="lead">重大な漏えいは、プロンプトインジェクションのようにモデル層が不審を見抜けないケースや、許可経路経由の外部送信で起きます。特にegress allowlistは「宛先フィルタ」ではなく、その先でできる機能の<span class="em">能力付与（capability）</span>になります。</p>
+      <div class="rule-line"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">モデル層の弱点</div>
+          <div class="v">ユーザー起点の意図が紛れる</div>
+          <div class="jp">検知が働きにくい</div>
+        </div>
+        <div class="cell">
+          <div class="k">環境層の要点</div>
+          <div class="v">egressで事故が伸びる</div>
+          <div class="jp">許可＝攻撃面が増える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">11 / 16</div>
+      <p class="eyebrow">副作用も出る</p>
+      <h1 class="title">運用トレード</h1>
+      <p class="lead">VM隔離を強めるほど、ホスト側からゲスト内部が見えにくくなりEDR可視性が下がることがあります。封じ込めはセキュリティだけでなく、ガバナンス/監査/ログ設計にも波及します。</p>
+      <div class="rule-line"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">利点</div>
+          <div class="v">到達範囲を削減</div>
+          <div class="jp">blast radius縮小</div>
+        </div>
+        <div class="cell">
+          <div class="k">副作用</div>
+          <div class="v">EDR視認性が低下</div>
+          <div class="jp">ライブ検査が困難</div>
+        </div>
+        <div class="cell">
+          <div class="k">要請</div>
+          <div class="v">ログ/事後解析の補完</div>
+          <div class="jp">運用SLAの整備</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">12 / 16</div>
+      <p class="eyebrow">強さの調整</p>
+      <h1 class="title">人に合わせる</h1>
+      <p class="lead">封じ込めの強さは、ユーザーが監督できるかに合わせて設計すべきです。開発者向け（Claude Code）は監督に余地がありますが、知識労働者向け（Claude Cowork）はVMで“常時効く”境界へ寄せます。</p>
+      <div class="rule-line"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Claude Code</div>
+          <div class="v">監督を前提にしつつ境界強化</div>
+          <div class="jp">承認疲れ → サンドボックス</div>
+        </div>
+        <div class="cell">
+          <div class="k">Claude Cowork</div>
+          <div class="v">監督を前提にしない</div>
+          <div class="jp">シールド化VMで隔離</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <p class="eyebrow">結論：環境で上限化</p>
+      <h1 class="title"><span class="em">containment</span>が要点</h1>
+      <p class="lead">この稿が示す核心は「封じ込めは環境層から」であり、「許可経路は能力付与で攻撃面になる」という失敗パターンです。自社のユーザ能力・外部連携・監査要件に合わせて、防御配置と監視設計まで再設計してください。</p>
+      <div class="rule-line"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v">blast radiusを“上限”化</div>
+          <div class="jp">当てるより外れた時</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">モデルは万能でない</div>
+          <div class="jp">確率的防御の限界</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">環境境界が最重要</div>
+          <div class="jp">egress/資格/隔離</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.ox.security/blog/the-mother-of-all-ai-supply-chains-critical-systemic-vulnerability-at-the-core-of-the-mcp" target="_blank" rel="noreferrer noopener">The Architectural Flaw at the Core of Anthropic&#39;s MCP - OX Security</a></h2>
+<p class="reference-note">ox.security logo with light gray background and subtle blue border. Property 1=Software supply chain security 1. Lessons…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/engineering/how-we-contain-claude" target="_blank" rel="noreferrer noopener">How we contain Claude across products</a></h2>
+<p class="reference-note">We recently built Claude Code auto mode, which [automates safer approvals](https://www.anthropic.com/engineering/claude-…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.cyberdesserts.com/ai-agent-security-risks" target="_blank" rel="noreferrer noopener">AI Agent Security Risks 2026: MCP, OpenClaw &amp; Supply Chain</a></h2>
+<p class="reference-note"># AI Agent Security Risks 2026: MCP, OpenClaw &amp; Supply Chain. If your organisation is deploying AI agents or has Claude …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.mintmcp.com/blog/claude-code-cve" target="_blank" rel="noreferrer noopener">Claude Code CVE-2025-59536 &amp; CVE-2026-21852 - MintMCP</a></h2>
+<p class="reference-note"># Claude Code CVE-2025-59536 &amp; CVE-2026-21852: What Enterprise Teams Must Know. Two serious vulnerabilities in Anthropic…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/news/claude-code-security" target="_blank" rel="noreferrer noopener">Making frontier cybersecurity capabilities available to defenders</a></h2>
+<p class="reference-note">[Skip to main content](https://www.anthropic.com/news/claude-code-security#main-content)[Skip to footer](https://www.ant…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
