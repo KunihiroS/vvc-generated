@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Expanse: GPU資源の過剰見積もりを減らす予測・診断レイヤ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 52px;
+      display: block;
+      min-height: 100vh;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 0 0 16px 0;
+      border-radius: 10px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: stretch;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+    .content{
+      width: 100%;
+      padding: 26px 26px 22px;
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .topline{
+      display:flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: .18em;
+      font-size: 14px;
+      font-style: italic;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-left: 14px;
+      position: relative;
+      margin-top: 4px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top: 1px;
+      width: 7px; height: 26px;
+      border-radius: 99px;
+      background: var(--rule-strong);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 18px;
+      font-style: italic;
+      color: var(--ink-2);
+      padding-right: 6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 14px 0 10px;
+      letter-spacing: .01em;
+      line-height: 1.05;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 74px;
+      font-weight: 500;
+      margin: 0 0 10px;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      font-style: italic;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 64px;
+      letter-spacing: -0.02em;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.35;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 6px;
+    }
+    .hr{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 14px 0 12px;
+      border-radius: 99px;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 18px;
+      width: 100%;
+      margin-top: 12px;
+      align-content: start;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px 14px;
+      width: 100%;
+      margin-top: 12px;
+      align-content: start;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 12px 12px;
+      background: rgba(240,232,216,0.03);
+      min-height: 74px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+      white-space: nowrap;
+    }
+    .card .txt{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+    .muted{
+      color: var(--ink-3);
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+    .bottomline{
+      margin-top: auto;
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+      display:flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .source{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      color: var(--ink-4);
+      letter-spacing: .02em;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    @media (max-width: 860px){
+      .slide{ padding: 14px; }
+      .content{ padding: 20px 18px 18px; }
+      .title{ font-size: 58px; }
+      .lead{ font-size: 20px; }
+      .grid3{ grid-template-columns: 1fr; }
+      .grid2{ grid-template-columns: 1fr; }
+      .slide-tag{ font-size: 12px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">HPC / GPU クラスタ</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">予測 × 計測 × 診断</div>
+        <div class="title">Expanse</div>
+        <div class="lead">Expanseは、GPUクラスターで起きる「過剰見積もりによる浪費」を減らすための、投入前の推定と実行中の可視化・失敗解析を一体化したレイヤです。<span style="color:var(--rust); font-style: italic;">（Prediction / 観測 / Diagnosis）</span></div>
+        <div class="bottomline">
+          <div class="source">元投稿：HN「Launch HN: Expanse (YC P26) – Unlock Wasted GPU Capacity」</div>
+          <div class="source">本資料：要点圧縮（日本語 / English用語併記）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">問題</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">30–40% しか回らない</div>
+        <div class="title">過剰見積もり</div>
+        <div class="lead">HPCのジョブ投入では、GPU枚数・CPU数・メモリ・ウォールタイムを先に申告します。ところが実運用ではクラッシュ回避のために多めに申請され、クラスターの実効稼働率が30〜40%に留まります。</div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">原因（リスク非対称）</div>
+            <div class="txt">足りない→途中で死んで損失大／余る→損失小で、ユーザーは保守的になる。</div>
+          </div>
+          <div class="card">
+            <div class="label">観測される浪費</div>
+            <div class="txt">余剰分が「予約されたアイドル」ではなく「割当の中で実際に使われない部分」に寄る。</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">例：申請が2〜3倍になる傾向（投稿・コメント要約）</div>
+          <div class="source">浪費→機会損失（自社/クラウド双方）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">根拠</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">数字で見る損失</div>
+        <div class="title">浪費の規模</div>
+        <div class="lead">投稿では、実効稼働が伸びない背景として浪費割合を具体化しています。ある国規模HPCで122kジョブ中59%の計算が浪費された可能性、オンデマンド相当では月あたり約8.5Mドル規模の浪費になりうると述べられています。</div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">実効稼働</div>
+            <div class="txt">30〜40%</div>
+          </div>
+          <div class="card">
+            <div class="label">浪費割合</div>
+            <div class="txt">122kジョブ中 59%</div>
+          </div>
+          <div class="card">
+            <div class="label">金額換算</div>
+            <div class="txt">約 $8.5M / 月（オンデマンド相当）</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">定義：予約アイドルより「使われない割当内部」を重視</div>
+          <div class="source">目的：コストと機会損失を圧縮</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">直感</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">見積もりを賢くする</div>
+        <div class="title">Trip planner</div>
+        <div class="lead">Expanseは「出発前の所要時間推定」だけでなく「走行中の計測」と「失敗した理由の特定」まで行う旅程プランナーに近い発想です。<span style="font-style: italic; color: var(--rust);">（Prediction / Observation / Diagnosis）</span></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">予測（前）</div>
+            <div class="txt">必要資源と失敗リスクを推定</div>
+          </div>
+          <div class="card">
+            <div class="label">観測（中）</div>
+            <div class="txt">低オーバーヘッドでプロファイル蓄積</div>
+          </div>
+          <div class="card">
+            <div class="label">診断（後）</div>
+            <div class="txt">失敗原因を相関で絞り、修正提案</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">投下→実行→学習のループ</div>
+          <div class="source">手作りルール/単純平均から脱却</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">中核</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">モデルはLLMじゃない</div>
+        <div class="title">多様入力</div>
+        <div class="lead">Expanseはジョブのソースコード・投入スクリプト・クラスタのトポロジ等を“マルチモーダル入力”として扱い、DCGM/CUPTI/cgroups/ネットワーク/IOのテレメトリからクラスタ固有の振る舞いを学習して推定します。</div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">入力（Job side）</div>
+            <div class="txt">コード / 投入スクリプト / ワークロード特徴</div>
+          </div>
+          <div class="card">
+            <div class="label">入力（Cluster side）</div>
+            <div class="txt">DCGM, CUPTI, cgroups, ネットワーク, IO など</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">LLMは比較基準として言及（コアは独自モデル）</div>
+          <div class="source">狙い：性能予測に効く特徴設計</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">フロー</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">投入前に推奨</div>
+        <div class="title">Predict → Recommend</div>
+        <div class="lead">Expanseはスケジューラを置き換えず、SLURM/K8sのライフサイクルにフックして基本は「予測・推奨」層として動作します。ジョブが必要とするGPU/CPU/メモリ/ウォールタイムを、失敗リスクとセットで提示します。</div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">1. 予測（前）</div>
+            <div class="txt">必要量（量）とOOM等の失敗確率</div>
+          </div>
+          <div class="card">
+            <div class="label">2. 推奨（前）</div>
+            <div class="txt">申請値の調整案（過剰を抑える）</div>
+          </div>
+          <div class="card">
+            <div class="label">3. 学習（後）</div>
+            <div class="txt">実行プロファイルでクラスタ固有に更新</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">導入障壁：制御不能な置換を避ける方針</div>
+          <div class="source">運用：ユーザーの申請見直しが鍵</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">違い</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">予測と診断</div>
+        <div class="title">After-fact</div>
+        <div class="lead">Expanseの“失敗診断”は、投入時の予測（failure risk推定）と別物です。失敗後にテレメトリとプロファイルの相関を取り、“なぜ落ちたか／どう直すか”をライン単位の修正提案として提示します。</div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">予測（Prediction）</div>
+            <div class="txt">投入時点：OOMなどの失敗リスクと必要量</div>
+          </div>
+          <div class="card">
+            <div class="label">診断（Diagnosis）</div>
+            <div class="txt">失敗後：相関から原因を絞り、修正提案</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">目的：手戻り削減と学習ループ促進</div>
+          <div class="source">価値：精度だけでなく実務改善</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">学習</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">クラスタごとに適応</div>
+        <div class="title">Cluster-specific</div>
+        <div class="lead">平均値ベース（例：sacctの過去平均との差）では、新しいジョブ種別やコード変更で精度が崩れます。Expanseはクラスタごとに学習・ファインチューニングし、実行データが増えるほど“より当たる”方向へ更新します。</div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">課題</div>
+            <div class="txt">世代更新・設定変更・ワークロード変化が頻繁</div>
+          </div>
+          <div class="card">
+            <div class="label">限界（平均）</div>
+            <div class="txt">過去平均との差分は新規で崩れる</div>
+          </div>
+          <div class="card">
+            <div class="label">解決（適応）</div>
+            <div class="txt">クラスタ固有にファインチューニング</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">ここが成否：モデル更新の仕組み</div>
+          <div class="source">投稿の意図：精度を運用で維持</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">比較</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">LLM頼みではない</div>
+        <div class="title">Not-LLM core</div>
+        <div class="lead">ExpanseのコアはLLMではなく独自の機械学習モデルです。LLMはベンチマーク比較の基準として使われ、クラスタごとに微調整する“性能予測”の設計思想が強調されています。</div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">コアモデル</div>
+            <div class="txt">独自アーキテクチャ（マルチモーダル＋テレメトリ）</div>
+          </div>
+          <div class="card">
+            <div class="label">LLMの位置</div>
+            <div class="txt">比較基準／参照（「LLMで推論」そのものではない）</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">投稿：LLMに対し8倍改善を主張（条件の読み取りは別途）</div>
+          <div class="source">論点：測定条件の透明性が重要</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">セキュリティ</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">エグレスなし</div>
+        <div class="title">VPC / Air-gap</div>
+        <div class="lead">HNコメントで“テレメトリ漏洩”への懸念が出たのに対し、Expanse側はデータを外部SaaSへ送らずエグレスがない（エアギャップやVPC運用）と明言しています。HPC/金融/バイオでは推論可能性自体がリスクになり得るため、導入判断に直結する論点です。</div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">対外送信</div>
+            <div class="txt">外部SaaSへ送信しない（エグレスなし）</div>
+          </div>
+          <div class="card">
+            <div class="label">運用形態</div>
+            <div class="txt">顧客VPC / エアギャップ / 監査ログ</div>
+          </div>
+          <div class="card">
+            <div class="label">未確定（本文不足）</div>
+            <div class="txt">保存期間・暗号化・最小化など詳細は要確認</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">導入前確認ポイント：監査範囲とデータ保全</div>
+          <div class="source">攻める前に統制設計</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">注意点</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">精度の測り方が鍵</div>
+        <div class="title">Pilot required</div>
+        <div class="lead">投稿文だけでは、推定誤差（VRAM/ウォールタイム）、OOM回避率、オーバーヘッド条件などの定量が十分に見えません。また推奨が申請に反映されなければ効果は出ず、段階適用やガードレールが重要になります。</div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">技術リスク</div>
+            <div class="txt">予測が外れるとOOM/中断増 → 信頼区間と閾値設計が必要</div>
+          </div>
+          <div class="card">
+            <div class="label">運用リスク</div>
+            <div class="txt">ユーザーが“推奨を採用”する文化・承認プロセスがボトルネック</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">追加で欲しい情報：対象クラスター構成・失敗ケース偏り</div>
+          <div class="source">追加で欲しい情報：セキュリティ実装詳細</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">結論</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">実務を変えるか</div>
+        <div class="title">Takeaway</div>
+        <div class="lead">Expanseは「予測→実行中計測→失敗診断→クラスタ固有に更新」というループで、GPU資源の過剰見積もり由来の浪費を減らすことを狙っています。スケジューラ置換を避けた設計と、マルチモーダル＋テレメトリ中心の学習が強みで、導入効果はパイロットで確かめるのが筋です。</div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">強み</div>
+            <div class="txt">コード/スクリプト/トポロジ＋DCGM等で推定</div>
+          </div>
+          <div class="card">
+            <div class="label">価値</div>
+            <div class="txt">精度だけでなく、失敗ログで修正まで導く</div>
+          </div>
+          <div class="card">
+            <div class="label">次の確認</div>
+            <div class="txt">誤差・失敗削減・オーバーヘッド・セキュリティ詳細</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="source">Bilingual：予測（Prediction）/ 推奨（Recommend）/ 診断（Diagnosis）</div>
+          <div class="source">読後：導入判断は“定量パイロット”で</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.sc-asia.org/2026/data/poster/post212.pdf" target="_blank" rel="noreferrer noopener">[PDF] Adaptive MARL for Real-Time GPU Job Scheduling and Resource ...</a></h2>
+<p class="reference-note">GPU scheduling in modern HPC systems involves two tightly coupled decisions under dynamic and heterogeneous workloads: ▪…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://slurm.schedmd.com/SLUG23/LLSC-SLUG23.pdf" target="_blank" rel="noreferrer noopener">[PDF] Optimizing Diverse Workloads and System Resource Usage with ...</a></h2>
+<p class="reference-note">Reference: Scalable system scheduling for HPC and big data, https://www ... • Cluster-level privacy enforcement. – Contr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://datacouch.io/on-prem-gpu-cluster-consulting" target="_blank" rel="noreferrer noopener">On-Prem GPU Cluster Consulting | Private AI Infrastructure Services</a></h2>
+<p class="reference-note">Expert on-prem GPU cluster consulting services for enterprise AI infrastructure. We optimize GPU utilization, sizing, an…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.osti.gov/pages/servlets/purl/3030636" target="_blank" rel="noreferrer noopener">[PDF] Predicting runtime and resource utilization of jobs on integrated ...</a></h2>
+<p class="reference-note">Additionally, we predicted CPU utilization on the cloud system with 2.4–2.7%. MAE and an R2 score of 0.95, and GPU utili…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8932944" target="_blank" rel="noreferrer noopener">Improving HPC System Performance by Predicting Job Resources ...</a></h2>
+<p class="reference-note">The purpose of our work is to increase the performance of the Slurm by predicting the amount of require jobs memory reso…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
