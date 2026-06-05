@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>eBPFでカーネル境界を観測する：ユーザ空間監視の構造的弱点を埋める</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid transparent;
+      border-image: linear-gradient(to bottom, transparent, transparent) 1;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+      outline: 1px solid var(--rule);
+      outline-offset: -1px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 2px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .header{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .12em;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 12px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform: translateY(-50%);
+      width:3px;
+      height: 18px;
+      background: var(--rust);
+      opacity: .9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 28px;
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 2px 0 10px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 14px;
+      color: var(--ink);
+      font-style: italic;
+    }
+
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: italic;
+      letter-spacing: .01em;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 16px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+      position: relative;
+      overflow:hidden;
+    }
+    .card::after{
+      content:"";
+      position:absolute;
+      left:0; top:0; bottom:0;
+      width: 3px;
+      background: var(--rust);
+      opacity: .75;
+    }
+    .card > .card-title{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: .06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      font-weight: 600;
+      margin: 0 0 8px;
+      padding-left: 8px;
+      position: relative;
+    }
+    .card > .card-body{
+      margin:0;
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink);
+      font-weight: 300;
+      padding-left: 8px;
+      position: relative;
+    }
+
+    .bulks{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.6;
+    }
+
+    .kv{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .kv .row{
+      display:flex;
+      gap: 12px;
+      align-items:flex-start;
+      padding: 10px 12px;
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.02);
+      border-radius: 10px;
+    }
+    .kv .k{
+      width: 120px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      flex: 0 0 auto;
+      padding-top: 2px;
+    }
+    .kv .v{
+      margin:0;
+      font-size: 18px;
+      line-height: 1.55;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    .note{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 300;
+      line-height: 1.55;
+      margin-top: 14px;
+      max-width: 760px;
+    }
+
+    /* Responsive: keep 16:9 */
+    @media (max-width: 860px){
+      .slide{ padding: 40px 28px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Security Observability</div>
+        <div class="slide-num">01 / 17</div>
+      </div>
+      <div class="eyebrow">監視の“層”を変える</div>
+      <h2 class="title jp">eBPF</h2>
+      <p class="lead">ユーザ空間のサイドカー型監視は、攻撃者が同じ特権境界を奪うと壊されやすい。<br>eBPFでカーネルのシステムコール境界を観測すると、その構造的弱点を埋められる。</p>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="eyebrow">観測が“消える”</div>
+      <h2 class="title jp">同じ境界</h2>
+      <p class="lead">コンテナ内rootが取れれば、監視エージェントを <span style="font-style: italic; color: var(--rust)">kill</span> したり、ログを切り詰めたり、送信前に痕跡を消せる。<br>検知ロジック以前に「見えていない時間」が生まれ、侵害が成立する可能性が上がる。</p>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="eyebrow">見張りの場所</div>
+      <h2 class="title jp">カーネル側</h2>
+      <p class="lead">ユーザ空間監視（user space agent）は“建物の中”で見張る。<br>eBPFは“出入口（syscall boundary）”で見張り、アプリやサイドカーが都合よく隠しても事実を拾いに行ける。</p>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Core Idea</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="eyebrow">境界に寄生する</div>
+      <h2 class="title jp">syscall観測</h2>
+      <p class="lead">プローブ（probe）を Linux カーネルのシステムコール（例: open/connect/execve）に接続し、プロセスの行為を直接観測する。<br>アプリやログ出力が省略されても、「ネットワーク接続」「ファイル操作」「子プロセス生成」などの事実が残りやすい。</p>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="eyebrow">守りやすさが変わる</div>
+      <h2 class="title jp">rootでも壊しにくい</h2>
+      <p class="lead">観測がカーネル側にあるため、コンテナ内rootだけでプローブを“壊す”難易度が上がる可能性が高い。<br>攻撃者が必要とする能力（例: ホストカーネルへの脱出等）が一段重くなるため、リスクモデルが変化する。</p>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Performance</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="eyebrow">効率化の余地</div>
+      <h2 class="title jp">CPU/費用</h2>
+      <p class="lead">複数ユーザ空間エージェントの代替として eBPF に寄せると、セキュリティ関連CPUを <span style="font-style: italic; color: var(--rust)">60〜80%</span> 削減できた例が挙げられている。<br>またSIEM投入前にカーネル側でフィルタし、テレメトリ量（GB課金）を抑えられる可能性も示唆される。</p>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="eyebrow">observe→alert→enforce</div>
+      <h2 class="title jp">段階導入</h2>
+      <p class="lead">いきなり遮断（enforce）せず、まず観測（observe）し、ベースラインで異常をアラート（alert）し、高い確度でだけ強制する。<br>誤検知が本番停止に直結するため、この順序が運用上の要点になる。</p>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="eyebrow">運用の3段</div>
+      <h2 class="title jp">不確実性を管理</h2>
+      <div class="grid two" style="margin-top: 10px;">
+        <div class="card">
+          <div class="card-title"><span style="font-style: italic; font-family: Cormorant Garamond, serif; color: var(--rust)">i</span> observe / 観測</div>
+          <p class="card-body">通常のプロセス実行・ネットワーク先・ファイルアクセス・プロセストリーを記録する。</p>
+        </div>
+        <div class="card">
+          <div class="card-title"><span style="font-style: italic; font-family: Cormorant Garamond, serif; color: var(--rust)">ii</span> alert / 通知</div>
+          <p class="card-body">ベースラインからのズレを“異常”として検知し、誤検知を潰す。</p>
+        </div>
+        <div class="card">
+          <div class="card-title"><span style="font-style: italic; font-family: Cormorant Garamond, serif; color: var(--rust)">iii</span> enforce / 強制</div>
+          <p class="card-body">十分な確度が得られてから SIGKILL 等で遮断し、影響を最小化する。</p>
+        </div>
+        <div class="card">
+          <div class="card-title">失敗の形</div>
+          <p class="card-body">誤検知→即停止になり得るため、強制は不可逆に近い。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Tools</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="eyebrow">すぐ始める選択肢</div>
+      <h2 class="title jp">Falco / Tetragon</h2>
+      <p class="lead">今すぐの入口として Falco と Tetragon が挙げられる。<br>観測中心か、どこまで遮断が必要かと、既存スタックに合わせて選ぶ。</p>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="eyebrow">目的の違い</div>
+      <h2 class="title jp">評価軸</h2>
+      <div class="grid two" style="margin-top: 10px;">
+        <div class="card">
+          <div class="card-title">Falco</div>
+          <p class="card-body">コミュニティ/運用実績が大きく、Kubernetes文脈のイベント評価に強み。</p>
+        </div>
+        <div class="card">
+          <div class="card-title">Tetragon</div>
+          <p class="card-body">能動的な強制に焦点があり、カーネル内で同期的にポリシー適用しやすい性格。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="eyebrow">安全は“別軸”</div>
+      <h2 class="title jp">デプロイ統制</h2>
+      <p class="lead">eBPFは verifier により危険なコードがロードされにくい一方、ロード自体には CAP_BPF などの権限が要る。<br>特権コンテナの乱用や admission controller の欠如は、重大事故につながり得る。</p>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="eyebrow">“eBPF運用”を固める</div>
+      <h2 class="title jp">ガバナンス</h2>
+      <div class="grid three" style="margin-top: 10px;">
+        <div class="card">
+          <div class="card-title">権限</div>
+          <p class="card-body">誰がデプロイできるかを限定し、特権を濫用させない。</p>
+        </div>
+        <div class="card">
+          <div class="card-title">制御</div>
+          <p class="card-body">admission controller で特権ワークロードを閉じる。</p>
+        </div>
+        <div class="card">
+          <div class="card-title">整合</div>
+          <p class="card-body">イメージ固定などで、実行内容をガバナンス下に置く。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">Conclusion</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="eyebrow">要点</div>
+      <h2 class="title jp">結論</h2>
+      <p class="lead">監視は「攻撃者に奪われにくい層」に置くべきで、その答えの一つが eBPF。<br>ただし効果は条件依存なので、ステージングでの観測・誤検知評価・性能測定を前提に計画する。</p>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="header">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">14 / 17</div>
+      </div>
+      <div class="eyebrow">参照の道筋</div>
+      <h2 class="title jp">次に読む</h2>
+      <div class="kv">
+        <div class="row">
+          <div class="k">原典</div>
+          <p class="v">InfoQ の開発者向け記事（eBPFによるカーネルレベル観測／Falco・Tetragon／段階導入）。</p>
+        </div>
+        <div class="row">
+          <div class="k">概念</div>
+          <p class="v">eBPF verifier（安全なコードロード）、syscall プローブ、observe→alert→enforce。</p>
+        </div>
+        <div class="row">
+          <div class="k">実装</div>
+          <p class="v">Falco / Tetragon のKubernetesデプロイ方針、CAP_BPF 等の権限設計、admission controller での制限。</p>
+        </div>
+        <div class="row">
+          <div class="k">検証</div>
+          <p class="v">ステージ環境でベースライン作成→誤検知率→性能（CPU/イベント量）を測る。</p>
+        </div>
+      </div>
+      <p class="note">用語（bilingual）：enforce（強制・遮断）/ observe（観測）/ alert（通知）/ verifier（検証）。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://oneuptime.com/blog/post/2026-01-07-ebpf-security-monitoring-falco-tetragon/view" target="_blank" rel="noreferrer noopener">How to Implement Security Monitoring with eBPF (Falco, Tetragon)</a></h2>
+<p class="reference-note"># How to Implement Security Monitoring with eBPF (Falco, Tetragon). A guide to using eBPF-based security tools like Falc…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.armosec.io/blog/best-ebpf-security-solutions-runtime-protection" target="_blank" rel="noreferrer noopener">Best eBPF Security Solutions for Kubernetes &amp; Runtime Protection - ARMO</a></h2>
+<p class="reference-note">* Best eBPF Solutions for Security: A Practitioner’s Guide to Runtime Protection. **What is the best eBPF security tool …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/linou518/ebpf-in-2026-the-kernel-revolution-powering-cloud-native-security-and-observability-22jd" target="_blank" rel="noreferrer noopener">eBPF in 2026: The Kernel Revolution Powering Cloud-Native ...</a></h2>
+<p class="reference-note">## DEV Community. # eBPF in 2026: The Kernel Revolution Powering Cloud-Native Security and Observability. References: Cl…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://falco.org/blog/tracing-syscalls-using-ebpf-part-1" target="_blank" rel="noreferrer noopener">Tracing System Calls Using eBPF - Part 1 | Falco</a></h2>
+<p class="reference-note">In this article, we will delve into the details of eBPF (extended Berkeley Packet Filter) and explore its significance i…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=YkDRzMsiMfA" target="_blank" rel="noreferrer noopener">Resolving Performance and Security Issues with eBPF - YouTube</a></h2>
+<p class="reference-note">we approach Linux kernel tooling, offering unprecedented access to ... info/devconf-in-2026/schedule/</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
