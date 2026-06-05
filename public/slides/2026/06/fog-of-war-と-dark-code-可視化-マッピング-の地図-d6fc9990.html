@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fog of War と dark code：可視化（マッピング）の地図</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight","Noto Serif JP",serif;
+      letter-spacing: 0.2px;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 14px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 26px;
+      left: 36px;
+      font-family: "Cormorant Garamond",serif;
+      font-style: italic;
+      font-size: 13px;
+      letter-spacing: 2.2px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 1px solid rgba(232,129,74,0.35);
+      padding-top: 10px;
+      width: calc(100% - 72px);
+      max-width: 520px;
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 34px;
+      font-family: "Cormorant Garamond",serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond",serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 22px;
+    }
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      letter-spacing: 0.2px;
+      margin-bottom: 18px;
+      max-width: 900px;
+      color: var(--ink);
+    }
+    .title .rust-em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 6px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 18px;
+      align-content:start;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.10);
+      min-height: 92px;
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      letter-spacing: 1.6px;
+      margin-bottom: 8px;
+    }
+    .value{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .muted{
+      color: var(--ink-3);
+      font-weight: 300;
+    }
+    .hr{
+      height:1px;
+      width:100%;
+      background: var(--rule-strong);
+      margin: 20px 0 14px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 38px 26px; }
+      .slide-tag{ left: 20px; top: 18px; }
+      .slide-num{ right: 18px; top: 12px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 16.5px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1: cover -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">01 / 15</div>
+      <div class="eyebrow">霧の中で迷う</div>
+      <div class="title">Fog of War で見る <span class="rust-em">暗黙</span> のコード</div>
+      <div class="lead">
+        ソフトウェア組織では、見えている間は速く進むのに、離れると霧に戻る。  
+        その“見えない領域”が dark code を増やし、意思決定と復旧を壊します。
+      </div>
+    </section>
+
+    <!-- 2: problem -->
+    <section class="slide" aria-label="Problem framing">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">02 / 15</div>
+      <div class="eyebrow">状況認識の喪失</div>
+      <div class="title">Fog が増える <span class="rust-em">理由</span></div>
+      <div class="lead">
+        戦場では偵察が止まれば霧に戻り、敵の動きは推測になります。  
+        組織でもコードベース、依存関係、技術負債、知識の属人化が“見えない霧”として残ります。
+      </div>
+      <div class="grid two">
+        <div class="card" style="margin-top:18px;">
+          <div class="label">見えている間</div>
+          <div class="value">変更の理由・影響・復旧手順が理解可能</div>
+        </div>
+        <div class="card" style="margin-top:18px;">
+          <div class="label">離れた後</div>
+          <div class="value">全体像が消え、説明と修正が難しくなる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3: architecture -->
+    <section class="slide" aria-label="Dark code definition">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">03 / 15</div>
+      <div class="eyebrow">定義から</div>
+      <div class="title"><span class="rust-em">dark code</span> とは</div>
+      <div class="lead">
+        人間が読んだ・レビューしたことがないコード、またはレガシーで全体像が把握できない“灰色の箱”です。  
+        AIで加速しやすいだけで、本質は理解可能性（epistemic control）の低下です。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">AI以前から</div>
+          <div class="value">レガシーで追えない領域＝不可視の領域</div>
+        </div>
+        <div class="card">
+          <div class="label">AIで顕在化</div>
+          <div class="value">速度上昇が“理解の追いつき”を物理的に破る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4: evidence -->
+    <section class="slide" aria-label="Why AI speed breaks reviewability">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">04 / 15</div>
+      <div class="eyebrow">レビュー可能性が崩れる</div>
+      <div class="title">大量PRが作る <span class="rust-em">霧</span></div>
+      <div class="lead">
+        例：フロントエンド改修で 211ファイル、7000行超が 1つのPRとして出ると、差分追跡が成立しにくくなります。  
+        これは“面倒”ではなく、後から説明・修正できる状態を壊します。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">従来の前提</div>
+          <div class="value">人間が差分を追い、行単位で理解する</div>
+        </div>
+        <div class="card">
+          <div class="label">崩れる結果</div>
+          <div class="value">復旧時に判断できず、epistemic debt が増える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5: comparison -->
+    <section class="slide" aria-label="Fog of war internal and external">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">05 / 15</div>
+      <div class="eyebrow">外と内で違う</div>
+      <div class="title">Fog は武器にも <span class="rust-em">毒にも</span></div>
+      <div class="lead">
+        外側では交渉力になりますが、内側では危険です。  
+        CEO/CPO/VPが同じ技術スタックに別の前提を置くと、制約を理解しない方針変更や統合が起きます。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">外部</div>
+          <div class="value">見えないことで有利に交渉できる</div>
+        </div>
+        <div class="card">
+          <div class="label">内部</div>
+          <div class="value">可視性不足が技術失敗だけでなく損失・政治にも連鎖</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6: enumeration -->
+    <section class="slide" aria-label="What visibility needs">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">06 / 15</div>
+      <div class="eyebrow">必要な観点</div>
+      <div class="title">“見る”ための軸 <span class="rust-em">5つ</span></div>
+      <div class="lead">
+        単なるダッシュボードではなく、意思決定に使える可視化へ落とす必要があります。  
+        見るべき観点を 2層で整理します。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">コード健全性</div>
+          <div class="value">複雑さ／健康状態／変更頻度（生きている場所）</div>
+        </div>
+        <div class="card">
+          <div class="label">組織リスク</div>
+          <div class="value">バスファクター（属人化）／どこが復旧不能になり得るか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7: metaphor -->
+    <section class="slide" aria-label="Watchtowers and scouting">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">07 / 15</div>
+      <div class="eyebrow">見張り（watchtowers）</div>
+      <div class="title">Scouting と <span class="rust-em">地図化</span></div>
+      <div class="lead">
+        トップ企業が“速さ・主導権・効率”を両立するには、内部のフィードバックループに加え調査（scouting）と見張りが要ります。  
+        その比喩が、コミットと依存関係を統合して“地図”にする発想です。
+      </div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">Scouting</div>
+          <div class="value">Gitデータから全体を再構成する</div>
+        </div>
+        <div class="card">
+          <div class="label">Map</div>
+          <div class="value">複雑さ・属人化・変更偏りを重ね表示</div>
+        </div>
+        <div class="card">
+          <div class="label">Action</div>
+          <div class="value">意思決定の言語へ翻訳して実行へ接続</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8: process -->
+    <section class="slide" aria-label="How mapping works">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">08 / 15</div>
+      <div class="eyebrow">地図ができるまで</div>
+      <div class="title">統合 → 重ねる → <span class="rust-em">翻訳</span></div>
+      <div class="lead">
+        Comperは Git データからソフトウェア全体を統合し、複雑さ・健康状態・バスファクター・変更頻度などを地図として可視化します。  
+        その上で CEO に届く形へ翻訳します。
+      </div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">i. 統合</div>
+          <div class="value">リポジトリや情報を“全体”として接続</div>
+        </div>
+        <div class="card">
+          <div class="label">ii. 重ね表示</div>
+          <div class="value">リスク地帯と変更の偏りを同時に見る</div>
+        </div>
+        <div class="card">
+          <div class="label">iii. 翻訳</div>
+          <div class="value">ロードマップと依存関係に結びつけ説明する</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9: evidence -->
+    <section class="slide" aria-label="Red zone decision">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">09 / 15</div>
+      <div class="eyebrow">赤い領域（Red zone）</div>
+      <div class="title">“なぜ遅いか”を <span class="rust-em">実証</span></div>
+      <div class="lead">
+        赤い技術的リスク地帯を、機能開発のロードマップや依存関係と結びつけます。  
+        例：どこを切り抜ける必要があり、時間とコストがなぜ増えるのかを示します。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">Before</div>
+          <div class="value">「難しい」で終わり、説明責任が曖昧</div>
+        </div>
+        <div class="card">
+          <div class="label">After</div>
+          <div class="value">機能単位に紐づく負債と依存で根拠を作る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10: distinction -->
+    <section class="slide" aria-label="Feature cycle time vs LOC">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">10 / 15</div>
+      <div class="eyebrow">KPIの組み替え</div>
+      <div class="title">LOC より <span class="rust-em">サイクルタイム</span></div>
+      <div class="lead">
+        LLMが瞬時に大量コードを生成すると、LOCや“生産時間”は Goodhart の法則で崩れます。  
+        視覚的システムマップ上でフィーチャーの実行サイクルを追い、実効的な効率を捉えます。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">危険な指標</div>
+          <div class="value">LOC（コード量）＝生成が増えるだけで改善を反映しない</div>
+        </div>
+        <div class="card">
+          <div class="label">効く指標</div>
+          <div class="value">フィーチャーのサイクルタイム（Feature execution loop）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11: closing -->
+    <section class="slide" aria-label="Critical views and constraints">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">11 / 15</div>
+      <div class="eyebrow">万能ではない</div>
+      <div class="title">地図は真実を <span class="rust-em">置換しない</span></div>
+      <div class="lead">
+        Git 可視化は強い一方、実行時設定・インフラ状態・外部依存・手動運用・非Git管理の変更までは完全に追えません。  
+        だから「地図を前提に、運用とガバナンスも設計する」必要があります。
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">前提</div>
+          <div class="value">地図が“正確な真実”にならない可能性を織り込む（誤検知・欠落）</div>
+        </div>
+        <div class="card">
+          <div class="label">必須</div>
+          <div class="value">レビュー権限・承認プロセス・障害時責任範囲・教育とKPIを一体化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12: references -->
+    <section class="slide" aria-label="References">
+      <div class="slide-tag">references</div>
+      <div class="slide-num">12 / 15</div>
+      <div class="eyebrow">参照</div>
+      <div class="title">この講演での <span class="rust-em">要点</span></div>
+      <div class="lead">
+        下記は、今回の要約で扱った概念と論点です（出典詳細は原講演資料に従ってください）。  
+        AI時代の可視化は、dark code（理解の喪失）とepistemic debt（説明不能の負債）を抑えるための“地図”です。
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="label">Key terms</div>
+          <div class="value">
+            fog of war（戦場の霧）／dark code（暗黙のブラックボックス）<br/>
+            epistemic debt（説明不能の負債）／bus factor（属人化）
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">Concrete ideas</div>
+          <div class="value">
+            Git統合マップ化（Comper）／Red zone をロードマップへ接続／<br/>
+            LOCではなくFeature cycle time（サイクル）で評価
+          </div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="lead" style="max-width: 760px;">
+        CEO/役員向けには、リスク地帯を“機能開発のために切り抜けるべき領域”へ翻訳し、時間と費用の増加理由を実証する。  
+        それが可視化の価値（マップの役割）です。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://kluster.ai/blog/best-code-review-practices" target="_blank" rel="noreferrer noopener">10 Best Code Review Practices for Teams Using AI in 2026 - kluster.ai</a></h2>
+<p class="reference-note"># 10 Best Code Review Practices for Teams Using AI in 2026. In an era where AI coding assistants like GitHub Copilot and…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ryan-zheng.medium.com/architecture-design-and-code-review-agents-are-the-core-of-end-to-end-ai-software-engineering-fb122ec14808" target="_blank" rel="noreferrer noopener">Architecture Design And Code Review Agents Are The Core Of End ...</a></h2>
+<p class="reference-note">AI code is not reviewable when it is generated without strong enough architecture and without strong enough review crite…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=Z4MUDojhihQ&amp;vl=en" target="_blank" rel="noreferrer noopener">Don&#39;t Let Complexity Kill Your Codebase (Hands-On Coding Architect)</a></h2>
+<p class="reference-note">Don&#39;t Let Complexity Kill Your Codebase (Hands-On Coding Architect)
+Beyond Coding
+61900 subscribers
+106 likes
+5456 views…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://graphite.com/guides/ai-code-review-implementation-best-practices" target="_blank" rel="noreferrer noopener">AI code review implementation and best practices</a></h2>
+<p class="reference-note"># AI code review implementation and best practices. As artificial intelligence becomes increasingly integrated into soft…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://open.spotify.com/episode/3C6DCbgQkBILBJasS9AmPt" target="_blank" rel="noreferrer noopener">AI Is Writing Code Faster Than You Can Review It - Spotify</a></h2>
+<p class="reference-note">AI is writing code faster than most teams can review it. That&#39;s the tension.Recorded live at NVIDIA GTC with Nate McKie,…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
