@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mac mini×Ollama モデル・ルーティング（Gemma4 12B / Qwen3.5 4B）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display:flex;
+      align-items: stretch;
+      justify-content: flex-start;
+      background: var(--paper);
+    }
+
+    .card{
+      background: var(--paper);
+      border: 20px solid transparent;
+      outline: 1px solid var(--rule);
+      outline-offset: -20px;
+      border-radius: 0px;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      padding: 56px 72px;
+    }
+
+    .slide-inner{
+      position: absolute;
+      inset: 0;
+      padding: 56px 72px;
+      background: transparent;
+    }
+
+    .slide-inner::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, "Noto Serif JP", serif;
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-top: 2px;
+      padding-right: 10px;
+      border-top: 2px solid rgba(232, 129, 74, 0.35);
+      padding-top: 10px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 18px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .title{
+      margin-top: 10px;
+      font-size: 64px;
+      line-height: 1.0;
+      font-weight: 500;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 54px;
+    }
+
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .content{
+      margin-top: 18px;
+      position: relative;
+      z-index: 2;
+      width: 100%;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 14px;
+      max-width: 900px;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Noto Serif JP", serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+
+    .grid3{
+      display:grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 14px;
+      max-width: 980px;
+    }
+
+    .small-note{
+      margin-top: 14px;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.4;
+      max-width: 760px;
+    }
+
+    .divider{
+      height:1px;
+      background: var(--rule-strong);
+      margin-top: 18px;
+      max-width: 960px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .refs{
+      margin-top: 14px;
+      max-width: 980px;
+    }
+
+    .refitem{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      margin-top: 12px;
+    }
+    .refitem .t{
+      font-family: "Inter Tight", system-ui, -apple-system, "Noto Serif JP", serif;
+      color: var(--ink-2);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .refitem .d{
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 1.35;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">cover</div>
+          <div class="slide-num">01 / 19</div>
+        </div>
+        <div class="eyebrow">Mac mini×Ollama / 実測ルーティング</div>
+        <div class="title">routing</div>
+        <div class="lead">Gemma4 12B と Qwen3.5 4B を、用途別にどちらへ流すべきか。速度・メモリ・挙動（no-think）を軸に判断します。</div>
+      </div>
+    </section>
+
+    <!-- 2 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">02 / 19</div>
+        </div>
+        <div class="eyebrow">決め手は 体感速度</div>
+        <div class="title">no-think</div>
+        <div class="lead">cron/watcher/query生成のように呼び出し回数が増えるほど、単発の品質差より“待ち時間”が支配的になります。さらにメモリ余裕も運用リスクになります。</div>
+        <div class="divider"></div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Goal</div>
+              <div class="v">用途→モデル割当</div>
+            </div>
+            <div class="cell">
+              <div class="k">Constraints</div>
+              <div class="v">速度 / メモリ / 挙動</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">03 / 19</div>
+        </div>
+        <div class="eyebrow">役割を分ける</div>
+        <div class="title">two-model</div>
+        <div class="lead">日常運用は Qwen3.5 4B を主軸にし、Gemma4 12B は“必要時”に切り替える設計が合理的です。</div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Qwen3.5 4B</div>
+              <div class="v">query生成 / 軽量CRON</div>
+            </div>
+            <div class="cell">
+              <div class="k">Gemma4 12B</div>
+              <div class="v">限定一次分析 / fallback</div>
+            </div>
+          </div>
+          <div class="small-note">JP補足：routing（ルーティング）= リクエスト種別に応じてモデルを割り当てる方針。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">04 / 19</div>
+        </div>
+        <div class="eyebrow">速度は約2.4倍差</div>
+        <div class="title">latency</div>
+        <div class="lead">512 tokens の no-think 実測：Qwen は 18.00s（28.44 tok/s）、Gemma は 43.48s（11.78 tok/s）でした。待ち時間は回数に比例して効きます。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">Qwen3.5 4B</div>
+              <div class="v">18.00s / 28.44 tok/s</div>
+            </div>
+            <div class="cell">
+              <div class="k">Gemma4 12B</div>
+              <div class="v">43.48s / 11.78 tok/s</div>
+            </div>
+            <div class="cell">
+              <div class="k">Impact</div>
+              <div class="v">約2.4倍遅い</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">05 / 19</div>
+        </div>
+        <div class="eyebrow">メモリも Qwen 優勢</div>
+        <div class="title">rss</div>
+        <div class="lead">total Ollama RSS：Gemma4 12B が約 8.266 GiB、Qwen3.5 4B が約 5.295 GiB。将来の同時処理増でも、軽い方が運用リスクを下げます。</div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Gemma4 12B</div>
+              <div class="v">約 8.266 GiB</div>
+            </div>
+            <div class="cell">
+              <div class="k">Qwen3.5 4B</div>
+              <div class="v">約 5.295 GiB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">06 / 19</div>
+        </div>
+        <div class="eyebrow">hard test / 完走性</div>
+        <div class="title">coding</div>
+        <div class="lead">async event ingester のコードレビュー（num_predict 1800、think:false）では、Qwen が中盤以降で途切れ、Gemma は issue list と patch direction まで到達しました。</div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Qwen</div>
+              <div class="v">要求中に停止（途切れ）</div>
+            </div>
+            <div class="cell">
+              <div class="k">Gemma</div>
+              <div class="v">要求完走 / 安定しやすい</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">07 / 19</div>
+        </div>
+        <div class="eyebrow">どこで差が出る</div>
+        <div class="title">stability</div>
+        <div class="lead">Gemma 側の示唆：取引/DBユニーク制約やエラーハンドリングなど、“文脈を保ったまま最後まで”扱う場面で優位が出る可能性があります。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">DB制約</div>
+              <div class="v">ユニーク /整合</div>
+            </div>
+            <div class="cell">
+              <div class="k">Errors</div>
+              <div class="v">エラーハンドリング</div>
+            </div>
+            <div class="cell">
+              <div class="k">Outcome</div>
+              <div class="v">完走性が要所</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">08 / 19</div>
+        </div>
+        <div class="eyebrow">画像（簡易）では互角</div>
+        <div class="title">multimodal</div>
+        <div class="lead">スクリーンショット理解のプローブでは Qwen が 25.23s、Gemma が 31.41s。今回の範囲では Gemma の独自優位は明確ではありません。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">Qwen</div>
+              <div class="v">25.23s</div>
+            </div>
+            <div class="cell">
+              <div class="k">Gemma</div>
+              <div class="v">31.41s</div>
+            </div>
+            <div class="cell">
+              <div class="k">Rule</div>
+              <div class="v">まず速度優先</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">09 / 19</div>
+        </div>
+        <div class="eyebrow">音声は“別アーキ”</div>
+        <div class="title">audio</div>
+        <div class="lead">Gemma4 の audio capability をリアルタイムSTTの代替と見なすのは危険です。VAD/チャンク/重畳/部分転記/遅延調整などの設計が別問題になります。</div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">避ける</div>
+              <div class="v">リアルタイムSTT置換</div>
+            </div>
+            <div class="cell">
+              <div class="k">寄せる</div>
+              <div class="v">録音済みの要約・意味理解</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">enumeration</div>
+          <div class="slide-num">10 / 19</div>
+        </div>
+        <div class="eyebrow">用途別ルール</div>
+        <div class="title">routes</div>
+        <div class="lead">意思決定の暫定ルールは次の通りです：Query生成は Qwen、軽量CRONも Qwen、Gemma は限定的な一次分析に寄せます。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">i. Query生成</div>
+              <div class="v">Qwen3.5 4B</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii. 軽量CRON</div>
+              <div class="v">Qwen3.5 4B</div>
+            </div>
+            <div class="cell">
+              <div class="k">iii. 一次分析</div>
+              <div class="v">Gemma4 12B（限定）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">11 / 19</div>
+        </div>
+        <div class="eyebrow">Gemmaを使う条件</div>
+        <div class="title">when</div>
+        <div class="lead">Gemma4 12B を“常用”しない積極理由は薄い一方、外部LLMに出したくない中難度レビュー等では価値が出ます。</div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">守る</div>
+              <div class="v">外部に出したくないレビュー</div>
+            </div>
+            <div class="cell">
+              <div class="k">強化</div>
+              <div class="v">長文＋画像/音声を含む一次分析</div>
+            </div>
+            <div class="cell">
+              <div class="k">保険</div>
+              <div class="v">非常用 fallback</div>
+            </div>
+            <div class="cell">
+              <div class="k">設計</div>
+              <div class="v">速度不要・完走重視</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">12 / 19</div>
+        </div>
+        <div class="eyebrow">実装は別主戦場</div>
+        <div class="title">codex</div>
+        <div class="lead">“本格実装・高リスクコード変更”は Codex CLI（現行主戦場）へ寄せる方針。Gemmaはその手前の一次分析/レビュー側に限定します。</div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Gemma</div>
+              <div class="v">レビュー/一次分析（限定）</div>
+            </div>
+            <div class="cell">
+              <div class="k">Codex CLI</div>
+              <div class="v">実装（本番寄り）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">13 / 19</div>
+        </div>
+        <div class="eyebrow">品質と体感の両立</div>
+        <div class="title">tradeoff</div>
+        <div class="lead">Qwenは速いが途切れやすい可能性があり、Gemmaは遅いが要求完走に粘る可能性があります。したがって“速さが正義の場面”は Qwen、“完走が重要なら Gemma”が筋です。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">Qwen</div>
+              <div class="v">速度・回転数</div>
+            </div>
+            <div class="cell">
+              <div class="k">Gemma</div>
+              <div class="v">完走・粘り</div>
+            </div>
+            <div class="cell">
+              <div class="k">Decision</div>
+              <div class="v">用途で切替</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">14 / 19</div>
+        </div>
+        <div class="eyebrow">結論の範囲</div>
+        <div class="title">limits</div>
+        <div class="lead">速度差は同一環境・同一設定での一度の計測に依存し、統計的な分散（複数回平均、ウォームアップ、同時負荷）は未確定です。追加検証が必要な領域もあります。</div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Unclear</div>
+              <div class="v">分散・統計</div>
+            </div>
+            <div class="cell">
+              <div class="k">Needs</div>
+              <div class="v">think mode 長時間</div>
+            </div>
+            <div class="cell">
+              <div class="k">Needs</div>
+              <div class="v">リアルワールド複数サンプル</div>
+            </div>
+            <div class="cell">
+              <div class="k">Audio</div>
+              <div class="v">録音済み評価</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 15 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">15 / 19</div>
+        </div>
+        <div class="eyebrow">最終判断（暫定）</div>
+        <div class="title">action</div>
+        <div class="lead">将来の agent/LLM routing では、Query生成と軽量処理は Qwen3.5 4B、本格実装は Codex CLI、Gemma4 12B は限定的な一次分析/オフライン一次保険に寄せます。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">Query</div>
+              <div class="v">Qwen3.5 4B</div>
+            </div>
+            <div class="cell">
+              <div class="k">Implement</div>
+              <div class="v">Codex CLI</div>
+            </div>
+            <div class="cell">
+              <div class="k">Fallback</div>
+              <div class="v">Gemma4 12B</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 16 / 16 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">references</div>
+          <div class="slide-num">16 / 19</div>
+        </div>
+        <div class="eyebrow">参照（本記録内）</div>
+        <div class="title">sources</div>
+        <div class="lead">このスライドは、ユーザー提供のレポート本文に含まれる実測値・一次情報要約のみで構成しています。</div>
+        <div class="content refs">
+          <div class="refitem">
+            <div class="t">実測指標</div>
+            <div class="d">no-think：512 tokens（Qwen 18.00s / 28.44 tok/s、Gemma 43.48s / 11.78 tok/s）／画像プローブ（Qwen 25.23s、Gemma 31.41s）／RSS（Gemma 約 8.266 GiB、Qwen 約 5.295 GiB）</div>
+          </div>
+          <div class="refitem">
+            <div class="t">一次情報（挙動）</div>
+            <div class="d">coding hard test（num_predict 1800、think:false）での完走性差：Qwen 途中停止、Gemma は issue list と patch direction まで到達</div>
+          </div>
+          <div class="refitem">
+            <div class="t">前提・注意</div>
+            <div class="d">Gemma の audio capability はリアルタイムSTT代替ではなく、VAD等の別設計が必要／routingメモは開発指示ではなく方針記録（cron/ STT 実装はアウトオブスコープ）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b" target="_blank" rel="noreferrer noopener">Introducing Gemma 4 12B: a unified, encoder-free multimodal model</a></h2>
+<p class="reference-note">[Skip to main content](https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b#jump-co…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://forums.developer.nvidia.com/t/newb-alert-qwen-3-5-3-6-gemma-4-26b-35b-downloading-and-speed-help/369087" target="_blank" rel="noreferrer noopener">Newb alert! Qwen 3.5/3.6 Gemma 4 26B / 35B downloading and ...</a></h2>
+<p class="reference-note">[Skip to last reply](https://forums.developer.nvidia.com/t/newb-alert-qwen-3-5-3-6-gemma-4-26b-35b-downloading-and-speed…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=48385906" target="_blank" rel="noreferrer noopener">Gemma 4 12B: A unified, encoder-free multimodal model</a></h2>
+<p class="reference-note">| |  | | --- | | Gemma 4 12B: A unified, encoder-free multimodal model (blog.google) | | 1047 points by rvz 2 days ago |…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ollama.com/library/gemma4:12b" target="_blank" rel="noreferrer noopener">gemma4:12b</a></h2>
+<p class="reference-note">## Gemma 4 models are designed to deliver frontier-level performance at each size. They are well-suited for reasoning, a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.mindstudio.ai/blog/gemma-4-vs-qwen-3-5-open-weight-comparison" target="_blank" rel="noreferrer noopener">Gemma 4 vs Qwen 3.5: Which Open-Weight Model Should You Use ...</a></h2>
+<p class="reference-note">[Blog](https://www.mindstudio.ai/blog)/Gemma 4 vs Qwen 3.5: Which Open-Weight Model Should You Use for Local AI Workflow…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
