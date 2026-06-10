@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Claude Fable 5 / Mythos 5：性能と安全を両立する設計</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); font-family: "Noto Serif JP", serif; }
+    .deck { width: 100%; display: block; padding: 24px 0 56px; }
+    .slide {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto 22px auto;
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      border: 20px solid var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+    }
+    .card {
+      position: absolute; inset: 0;
+      background: var(--paper);
+    }
+    .frame {
+      position: absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      box-sizing: border-box;
+      background: transparent;
+      pointer-events: none;
+    }
+    .slide-tag {
+      position: absolute; top: 28px; left: 36px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .slide-tag::before {
+      content: "";
+      width: 26px; height: 10px;
+      border-top: 2px solid var(--rust);
+      margin-top: 8px;
+      opacity: 0.95;
+    }
+    .slide-num {
+      position: absolute; top: 28px; right: 36px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+    }
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 8px;
+      white-space: nowrap;
+    }
+    .title {
+      margin-top: 8px;
+      font-size: 72px;
+      line-height: 1.0;
+      font-weight: 500;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.005em;
+    }
+    .title .jp {
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 62px;
+      display: block;
+      margin-top: 6px;
+      letter-spacing: 0.01em;
+    }
+    .lead {
+      margin-top: 14px;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .rule-line {
+      position: absolute; left: 56px; right: 56px; top: 118px;
+      border-top: 1px solid var(--rule);
+      pointer-events: none;
+    }
+    .content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+    }
+    .grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      max-width: 980px;
+    }
+    .cell {
+      border: 1px solid var(--rule);
+      padding: 16px 16px;
+      box-sizing: border-box;
+      background: rgba(28,24,19,0.35);
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      letter-spacing: 0.08em;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+    .cell .v {
+      margin-top: 10px;
+      color: var(--ink-2);
+      font-size: 19px;
+      line-height: 1.45;
+    }
+    .small { font-size: 18px; color: var(--ink-2); line-height: 1.55; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .emph { color: var(--ink); }
+    .nowrap { white-space: nowrap; }
+    .list-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 14px;
+      max-width: 980px;
+    }
+    .tagline {
+      margin-top: 12px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    @media (max-width: 900px){
+      .slide { padding: 48px 44px; width: calc(100vw - 28px); }
+      .frame { inset: 14px; }
+      .slide-tag { left: 18px; top: 18px; }
+      .slide-num { right: 18px; top: 18px; }
+      .title { font-size: 54px; }
+      .title .jp { font-size: 46px; }
+      .lead { font-size: 19px; }
+      .list-grid { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .rule-line { left: 44px; right: 44px; top: 96px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Overview</div>
+      <div class="slide-num">02 / 19</div>
+      <div class="content">
+        <div class="eyebrow">能力を広げる／安全を絞る</div>
+        <div class="title">Fable 5 × Mythos 5
+          <span class="jp">性能と安全の同時設計</span>
+        </div>
+        <div class="lead">Claude Fable 5 と Claude Mythos 5 は「最先端能力を一般提供に近づける」一方で、デュアルユース領域の悪用リスクをセーフガードで抑える方針を示します。</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 19</div>
+      <div class="content">
+        <div class="eyebrow">高性能＝高リスク</div>
+        <div class="title">Dual-use
+          <span class="jp">善にも悪にも転用される</span>
+        </div>
+        <div class="lead">AIの能力が上がるほど、研究・開発に役立つ一方で、サイバーや生命科学などの悪用にも転用され得ます。だから「性能向上」と「安全対策」を別々ではなくセットで設計します。</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Key Idea</div>
+      <div class="slide-num">04 / 19</div>
+      <div class="content">
+        <div class="eyebrow">セーフガードは切替中心</div>
+        <div class="title">Fallback
+          <span class="jp">拒否ではなく別モデルへ</span>
+        </div>
+        <div class="lead">危険らしい要求には「検知→別モデル（より安全寄り）へフォールバック」という形を採用します。完全拒否より体験を落としにくく、同時に危険領域では能力を抑える狙いです。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 19</div>
+      <div class="content">
+        <div class="eyebrow">Fable 5 の位置づけ</div>
+        <div class="title">Fable 5
+          <span class="jp">安全調整で一般提供向け</span>
+        </div>
+        <div class="lead">記事では Fable 5 を「幅広い利用に向けて安全調整済み」の Mythos-class 系モデルとして説明し、実務向け性能（長文・長時間・推論・画像・科学領域）で優位性を示します。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">強み</div>
+            <div class="v">ソフトウェア工学、分析・推論、画像タスク、長い記憶/集中</div>
+          </div>
+          <div class="cell">
+            <div class="k">分野</div>
+            <div class="v">科学研究でも優位（記事の主張）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Performance</div>
+      <div class="slide-num">06 / 19</div>
+      <div class="content">
+        <div class="eyebrow">勝ち筋は長期・複雑</div>
+        <div class="title">Long tasks
+          <span class="jp">設計→実装→検証</span>
+        </div>
+        <div class="lead">Fable 5 は「単発回答」よりも、時間軸の長いライフサイクル作業でリードが大きいと述べられます。実務では開発期間圧縮や運用コスト削減につながる可能性があります。</div>
+        <div class="list-grid">
+          <div class="cell">
+            <div class="k">例 i</div>
+            <div class="v">要件化→設計</div>
+          </div>
+          <div class="cell">
+            <div class="k">例 ii</div>
+            <div class="v">実装→レビュー</div>
+          </div>
+          <div class="cell">
+            <div class="k">例 iii</div>
+            <div class="v">検証→改善</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Performance</div>
+      <div class="slide-num">07 / 19</div>
+      <div class="content">
+        <div class="eyebrow">エージェント的に進む</div>
+        <div class="title">Autonomy
+          <span class="jp">自律実行が強い</span>
+        </div>
+        <div class="lead">記事では、Fable 5 の自律的な進行（エージェント的にタスクを進める力）が強調されています。長く複雑な作業ほど、この性質が効果として表れやすいという読みです。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">価値</div>
+            <div class="v">チェック・反復を含む作業を先へ進める</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">権限・テスト設計で成果は変動し得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Safeguards</div>
+      <div class="slide-num">08 / 19</div>
+      <div class="content">
+        <div class="eyebrow">危険領域は Opus へ</div>
+        <div class="title">Opus 4.8
+          <span class="jp">自動フォールバック</span>
+        </div>
+        <div class="lead">疑わしい要求（サイバー、生命科学・化学、蒸留＝模倣目的を含む）では Fable 5 をそのまま解放せず、より安全寄りの Claude Opus 4.8 に切り替えるとされています。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">切替条件</div>
+            <div class="v">サイバー／生物・化学／蒸留（模倣）</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">危険領域では能力を下げ、同時に体験を維持</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Tradeoff</div>
+      <div class="slide-num">09 / 19</div>
+      <div class="content">
+        <div class="eyebrow">誤検知も起こり得る</div>
+        <div class="title">False alarms
+          <span class="jp">無害でも切り替わる</span>
+        </div>
+        <div class="lead">セーフガードは保守的であるため、無害な依頼でも誤検知によりフォールバックが発生し得ます。発動率は平均で「5%未満」とされ、今後さらに精度向上を進める方針です。</div>
+        <div class="list-grid">
+          <div class="cell">
+            <div class="k">現状</div>
+            <div class="v">発動率：平均 5%未満</div>
+          </div>
+          <div class="cell">
+            <div class="k">課題</div>
+            <div class="v">実務で流れを止める影響が論点</div>
+          </div>
+          <div class="cell">
+            <div class="k">方向</div>
+            <div class="v">検知精度の改善を継続</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Mythos</div>
+      <div class="slide-num">10 / 19</div>
+      <div class="content">
+        <div class="eyebrow">同一基盤、提供統制が違う</div>
+        <div class="title">Mythos 5
+          <span class="jp">サイバーではセーフガード緩め</span>
+        </div>
+        <div class="lead">Mythos 5 は同一基盤モデルだが、主にサイバー領域ではセーフガードを緩めた版として説明されています。最初は「信頼できるアクセス」を通じて提供されます。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">提供開始</div>
+            <div class="v">Project Glasswing（米政府と連携）</div>
+          </div>
+          <div class="cell">
+            <div class="k">特徴</div>
+            <div class="v">能力提供とガバナンスをセットにする</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Governance</div>
+      <div class="slide-num">11 / 19</div>
+      <div class="content">
+        <div class="eyebrow">生命科学も将来は制度化</div>
+        <div class="title">Trusted access
+          <span class="jp">研究を加速しつつ安全担保</span>
+        </div>
+        <div class="lead">生命科学についても、将来的にサイバーと同様の trusted access 制度を拡大する方向性が示されています。研究を進めやすくしつつ、安全を制度側で担保する設計です。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">研究加速（善用）を止めない</div>
+          </div>
+          <div class="cell">
+            <div class="k">仕組み</div>
+            <div class="v">提供経路（アクセス統制）でリスクを下げる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Privacy</div>
+      <div class="slide-num">12 / 19</div>
+      <div class="content">
+        <div class="eyebrow">データ運用ルール追加</div>
+        <div class="title">30 days
+          <span class="jp">保持・学習利用しない</span>
+        </div>
+        <div class="lead">Mythos-class モデルでは、30日間のデータ保持や学習利用しない方針などのプライバシー・防御目的の運用ルールが追加されると説明されています。</div>
+        <div class="list-grid">
+          <div class="cell">
+            <div class="k">保持</div>
+            <div class="v">30日</div>
+          </div>
+          <div class="cell">
+            <div class="k">学習利用</div>
+            <div class="v">新しいClaudeモデルの学習に使わない</div>
+          </div>
+          <div class="cell">
+            <div class="k">目的</div>
+            <div class="v">プライバシー保護・防御</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Pricing</div>
+      <div class="slide-num">13 / 19</div>
+      <div class="content">
+        <div class="eyebrow">提供条件も明示</div>
+        <div class="title">Tokens &amp; price
+          <span class="jp">入力10／出力50（百万トークンあたり）</span>
+        </div>
+        <div class="lead">価格は入力 $10／出力 $50（百万トークンあたり）とされています。能力を「できるだけ速く、できるだけ安全に」広げる姿勢が前面に出ています。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">単価（入力）</div>
+            <div class="v mono">$10 / 1M tokens</div>
+          </div>
+          <div class="cell">
+            <div class="k">単価（出力）</div>
+            <div class="v mono">$50 / 1M tokens</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Evaluation</div>
+      <div class="slide-num">14 / 19</div>
+      <div class="content">
+        <div class="eyebrow">評価は“運用観測”が要る</div>
+        <div class="title">My take
+          <span class="jp">強みと未確定ポイント</span>
+        </div>
+        <div class="lead">この発表は、能力前倒し・フォールバック・提供統制・データ運用の三点セットで緊張関係を扱っている点が強みです。一方で、誤検知の実務影響など定量面や第三者検証の情報は不足しがちです。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">強み</div>
+            <div class="v">研究・開発を止めにくい代替設計（拒否より切替）</div>
+          </div>
+          <div class="cell">
+            <div class="k">未確定</div>
+            <div class="v">誤検知が業務フローに与える影響の定量、監査の深さ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide">
+      <div class="card"></div>
+      <div class="frame"></div>
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">15 / 19</div>
+      <div class="content">
+        <div class="eyebrow">次に見るべき指標</div>
+        <div class="title">Conclusion
+          <span class="jp">安全は完成ではなく継続</span>
+        </div>
+        <div class="lead">安全は一度作って終わりではなく、誤検知率・フォールバック常態化・攻撃者適応への追随を運用と検証で更新する必要があります。今後はシステムカード／リスクレポート／外部監査の内容まで追うのが有効です。</div>
+        <div class="list-grid">
+          <div class="cell">
+            <div class="k">見る i</div>
+            <div class="v">誤検知の実測（業務影響の定量）</div>
+          </div>
+          <div class="cell">
+            <div class="k">見る ii</div>
+            <div class="v">フォールバック頻度とユーザー体験</div>
+          </div>
+          <div class="cell">
+            <div class="k">見る iii</div>
+            <div class="v">第三者検証（再現性・長期運用）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=jpZuVCbGVL8" target="_blank" rel="noreferrer noopener">Claude Mythos (Fable 5) Is Here - YouTube</a></h2>
+<p class="reference-note">Claude Fable 5 (Mythos) Is Here: Claude’s Most Capable AI Model Explained
+Code And Create
+28100 subscribers
+1 likes
+22 v…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/artificial/comments/1u1fpdg/anthropic_just_released_claude_fable_5_a" target="_blank" rel="noreferrer noopener">Anthropic just released Claude Fable 5 a Mythos-class model for general use, with safety classifiers that fall back to Opus 4.8 on ~5% of sessions : r/artificial</a></h2>
+<p class="reference-note"># Anthropic just released Claude Fable 5 a Mythos-class model for general use, with safety classifiers that fall back to…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://platform.claude.com/docs/en/about-claude/models/overview" target="_blank" rel="noreferrer noopener">Models overview - Claude API Docs</a></h2>
+<p class="reference-note">[](https://platform.claude.com/docs/en/home). For workloads that need the highest available capability, see [Claude Fabl…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://believemy.com/en/r/claude-fable-5-anthropic" target="_blank" rel="noreferrer noopener">Claude Fable 5: Anthropic&#39;s Most Powerful AI Model - Believemy</a></h2>
+<p class="reference-note"># Claude Fable 5: Anthropic&#39;s Most Powerful AI Model. Claude Fable 5 is the most powerful artificial intelligence model …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.helpnetsecurity.com/2026/05/29/anthropic-claude-opus-4-8" target="_blank" rel="noreferrer noopener">Anthropic launches Claude Opus 4.8, prepares Mythos-class ...</a></h2>
+<p class="reference-note">[](https://www.helpnetsecurity.com/ &quot;Help Net Security - Daily information security news with a focus on enterprise secu…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
