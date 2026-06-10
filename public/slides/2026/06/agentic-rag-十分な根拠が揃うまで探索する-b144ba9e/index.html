@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agentic RAG：十分な根拠が揃うまで探索する</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .wrap{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      padding: 56px 72px;
+      margin: 0 0 24px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      border-radius: 2px;
+      pointer-events:none;
+      background:
+        linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.10) 100%);
+      opacity:.6;
+    }
+    .slide-inner{
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+    }
+    .topbar{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: .18em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-right: 12px;
+      line-height: 1.1;
+      border-left: 4px solid var(--rust);
+      padding-left: 14px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: .02em;
+    }
+    .title{
+      margin-top: 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: .95;
+      letter-spacing: .01em;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink-2);
+    }
+    .rule{
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 22px;
+    }
+    .content{
+      margin-top: 18px;
+      flex: 1;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .grid2, .grid3{
+      width: 100%;
+      display:grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .grid2{grid-template-columns: 1fr 1fr;}
+    .grid3{grid-template-columns: 1fr 1fr 1fr;}
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 16px 16px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.01);
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: .04em;
+      font-size: 14px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .cell .txt{
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.35;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+    .bul{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .itemline{
+      display:flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--rule);
+    }
+    .dot{
+      width: 10px; height: 10px;
+      border-radius: 2px;
+      background: var(--rust);
+      margin-top: 8px;
+      flex: 0 0 auto;
+    }
+    .itemtext{
+      flex: 1;
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 760px){
+      .slide{padding: 34px 22px; border-width: 12px;}
+      .title{font-size: 48px;}
+      .lead{font-size: 18px;}
+      .grid2{grid-template-columns: 1fr;}
+      .grid3{grid-template-columns: 1fr;}
+      .cell .txt{font-size: 18px;}
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+  <div class="wrap">
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 18</div>
+        </div>
+        <div class="eyebrow">探索が止まる条件を設計する</div>
+        <div class="title"><em>Agentic</em> RAG</div>
+        <div class="lead">
+          Gemini Enterprise Agent Platform の Agentic RAG は、「答える前に十分な根拠が揃うまで探索」を組み込み、依頼に沿った回答を目指します。
+          <span style="color:var(--ink-3);">（agentic RAG：エージェント型RAG）</span>
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="要点">
+            <div class="cell">
+              <div class="label">One message</div>
+              <div class="txt">単発検索で終わらず、欠けを検出して反復する。</div>
+            </div>
+            <div class="cell">
+              <div class="label">Target scenario</div>
+              <div class="txt">複数のデータ源（マルチホップ）で根拠が分散する業務。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 18</div>
+        </div>
+        <div class="eyebrow">単発RAGの“取りこぼし”</div>
+        <div class="title">マルチホップが苦手</div>
+        <div class="lead">
+          従来型RAGは「一度検索 → コンテキストを集める → 回答生成」になりがちで、情報が複数ソースに分散すると不完全になりやすいとされます。
+          <span style="color:var(--ink-3);">（マルチソース／マルチホップ）</span>
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid3" aria-label="失敗例">
+            <div class="cell">
+              <div class="label">例 i</div>
+              <div class="txt">Project X：最初は「サーバID」だけ</div>
+            </div>
+            <div class="cell">
+              <div class="label">例 ii</div>
+              <div class="txt">仕様は別データベースに存在</div>
+            </div>
+            <div class="cell">
+              <div class="label">結果</div>
+              <div class="txt">見落とし→不完全回答／「不明」</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 18</div>
+        </div>
+        <div class="eyebrow">調査してから断言する</div>
+        <div class="title">根拠が揃うまで</div>
+        <div class="lead">
+          Agentic RAGは、依頼を「調査部門」のように分解し、探索計画・クエリ生成・検索ファンアウトを反復して、回答前に点検します。
+          <span style="color:var(--ink-3);">（十分性確認＝Sufficient Context）</span>
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="bul" role="list">
+            <div class="itemline" role="listitem">
+              <div class="dot" aria-hidden="true"></div>
+              <div class="itemtext"><span class="mono">Plan</span>：何を調べるかを設計する</div>
+            </div>
+            <div class="itemline" role="listitem">
+              <div class="dot" aria-hidden="true"></div>
+              <div class="itemtext"><span class="mono">Search</span>：複数コーパスへ探索を広げる</div>
+            </div>
+            <div class="itemline" role="listitem" style="border-bottom:none; padding-bottom:0;">
+              <div class="dot" aria-hidden="true"></div>
+              <div class="itemtext"><span class="mono">Sufficient</span>：欠けを検出し、次の検索へ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 18</div>
+        </div>
+        <div class="eyebrow">多段の“役割分担”</div>
+        <div class="title">Agentic RAGの流れ</div>
+        <div class="lead">
+          オーケストレータ、プランナ、クエリ書き換え、検索ファンアウト、統合LLMなどの役割を分け、最後に統合して回答します。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="構成要素">
+            <div class="cell">
+              <div class="label">前工程（探索）</div>
+              <div class="txt">計画→クエリ作成／書き換え→複数コーパス検索</div>
+            </div>
+            <div class="cell">
+              <div class="label">後工程（品質点検）</div>
+              <div class="txt">Sufficient Context Agent が根拠の十分性を検査</div>
+            </div>
+          </div>
+          <div class="grid2" aria-label="統合">
+            <div class="cell">
+              <div class="label">統合</div>
+              <div class="txt">暫定ドラフトや抜粋を統合LLMへ渡す</div>
+            </div>
+            <div class="cell">
+              <div class="label">反復</div>
+              <div class="txt">不足なら欠損論点を特定し、次の検索クエリへ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide enumeration">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">ENUMERATION</div>
+          <div class="slide-num">06 / 18</div>
+        </div>
+        <div class="eyebrow">“十分”の判定ループ</div>
+        <div class="title">Sufficient Context Agent</div>
+        <div class="lead">
+          Sufficient Context Agent は、検索で得た抜粋や暫定ドラフトが要件の論点を満たすかを検査し、不足なら「何が欠けるか」を具体化します。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="ループ">
+            <div class="cell">
+              <div class="label">i. 点検（Reason）</div>
+              <div class="txt">論点（例：薬・食事・アレルギー）が揃っているか</div>
+            </div>
+            <div class="cell">
+              <div class="label">ii. フィードバック（Feedback）</div>
+              <div class="txt">欠けている論点を特定し、次の検索へ接続</div>
+            </div>
+          </div>
+          <div class="grid2" aria-label="クエリ例">
+            <div class="cell">
+              <div class="label">例：次の検索</div>
+              <div class="txt">「発疹」「有害事象」などにクエリを更新</div>
+            </div>
+            <div class="cell">
+              <div class="label">狙い</div>
+              <div class="txt">都合よく推測で埋めるのを抑え、根拠性を上げる</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide evidence">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">07 / 18</div>
+        </div>
+        <div class="eyebrow">評価セットと比較条件</div>
+        <div class="title">FramesQAで検証</div>
+        <div class="lead">
+          FramesQA（824問、PDF文書2,676本）を用い、単一コーパスとクロスコーパス（注意をそらすデータ含む）で比較しています。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="条件">
+            <div class="cell">
+              <div class="label">単一コーパス</div>
+              <div class="txt">必要情報が1つのデータ集合に寄る想定</div>
+            </div>
+            <div class="cell">
+              <div class="label">クロスコーパス</div>
+              <div class="txt">正しいコーパス選択が難しい状況を模す</div>
+            </div>
+          </div>
+          <div class="cell" style="margin-top:14px;">
+            <div class="label">補足</div>
+            <div class="txt">クロスコーパスは「探す先を選べない」現実に近い設計です。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide evidence">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">08 / 18</div>
+        </div>
+        <div class="eyebrow">精度：クロスでも維持</div>
+        <div class="title">90.1%を達成</div>
+        <div class="lead">
+          クロスコーパスで、4候補のうち正しいコーパス選択が必要な条件でも 90.1% の質問で正しく回答できたと報告されています。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="数値">
+            <div class="cell">
+              <div class="label">正答率</div>
+              <div class="txt"><span class="mono">90.1%</span>（クロスコーパス）</div>
+            </div>
+            <div class="cell">
+              <div class="label">精度傾向</div>
+              <div class="txt">単一コーパスに近い精度を維持</div>
+            </div>
+          </div>
+          <div class="grid2" aria-label="比較">
+            <div class="cell">
+              <div class="label">ファクト性</div>
+              <div class="txt">標準RAG比で最大<span class="mono">34%</span>向上</div>
+            </div>
+            <div class="cell">
+              <div class="label">意図</div>
+              <div class="txt">根拠に基づく、説明可能な回答を狙う</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide distinction">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">09 / 18</div>
+        </div>
+        <div class="eyebrow">遅延を抑えた設計</div>
+        <div class="title">レイテンシ±3%</div>
+        <div class="lead">
+          複数回の探索を行っても、単一コーパスとクロスコーパスでレイテンシ差が平均±3%程度に収まったとされています。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="レイテンシ">
+            <div class="cell">
+              <div class="label">観測値</div>
+              <div class="txt">レイテンシ差：平均 <span class="mono">±3%</span> 程度</div>
+            </div>
+            <div class="cell">
+              <div class="label">読み取り</div>
+              <div class="txt">“理想”だけでなく、探索増に配慮した方向性</div>
+            </div>
+          </div>
+          <div class="cell" style="margin-top:14px;">
+            <div class="label">注意</div>
+            <div class="txt">実運用の増分は、エージェント数・検索先・データ量・制限に依存します。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide comparison">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">10 / 18</div>
+        </div>
+        <div class="eyebrow">何が“違う”のか</div>
+        <div class="title">単発RAG vs Agentic RAG</div>
+        <div class="lead">
+          重要な差分は「十分性の点検」と「不足があれば次の検索へ」つなぐ反復ループにあります。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="比較表">
+            <div class="cell">
+              <div class="label">単発RAG</div>
+              <div class="txt">
+                <span class="mono">1回検索</span>でコンテキストを集め、後は回答生成へ進む
+              </div>
+            </div>
+            <div class="cell">
+              <div class="label">Agentic RAG</div>
+              <div class="txt">
+                分解→探索→<span class="mono">Sufficient Context</span>点検→不足なら反復する
+              </div>
+            </div>
+          </div>
+          <div class="grid3" aria-label="狙い">
+            <div class="cell">
+              <div class="label">狙い i</div>
+              <div class="txt">マルチホップの取りこぼしを構造的に回避</div>
+            </div>
+            <div class="cell">
+              <div class="label">狙い ii</div>
+              <div class="txt">推測で埋めるリスクを抑える</div>
+            </div>
+            <div class="cell">
+              <div class="label">狙い iii</div>
+              <div class="txt">根拠に基づく、監査可能を目指す</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide process">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">11 / 18</div>
+        </div>
+        <div class="eyebrow">複雑依頼の扱い方</div>
+        <div class="title">“探す先”を改善する</div>
+        <div class="lead">
+          複雑な依頼では、最初の検索で得る断片が不十分になりやすいので、欠損論点を明確化して次のクエリへ接続します。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="フロー">
+            <div class="cell">
+              <div class="label">Step i</div>
+              <div class="txt">初回：関連抜粋（snippets）と暫定ドラフトを集める</div>
+            </div>
+            <div class="cell">
+              <div class="label">Step ii</div>
+              <div class="txt">点検：必要な論点が揃っているか確認</div>
+            </div>
+          </div>
+          <div class="grid2" aria-label="フロー2" style="margin-top:14px;">
+            <div class="cell">
+              <div class="label">Step iii</div>
+              <div class="txt">欠け：Reason/Feedbackで不足論点を特定</div>
+            </div>
+            <div class="cell">
+              <div class="label">Step iv</div>
+              <div class="txt">更新：次の検索クエリで探索を継続</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide distinction">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">12 / 18</div>
+        </div>
+        <div class="eyebrow">評価の前提に注意</div>
+        <div class="title">LLM-as-a-judge</div>
+        <div class="lead">
+          精度比較は、評価役LLMによる判定（LLM-as-a-judge）を含むため、解釈では評価者の基準・バイアスを考慮する必要があります。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="評価">
+            <div class="cell">
+              <div class="label">良い点</div>
+              <div class="txt">ground truth との比較という文脈で一定の妥当性</div>
+            </div>
+            <div class="cell">
+              <div class="label">注意点</div>
+              <div class="txt">評価者LLMの“正誤基準”でスコアが変動し得る</div>
+            </div>
+          </div>
+          <div class="cell" style="margin-top:14px;">
+            <div class="label">示唆</div>
+            <div class="txt">導入判断では、自社データでのベンチマークが重要になります。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide comparison">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">DECISIONS</div>
+          <div class="slide-num">13 / 18</div>
+        </div>
+        <div class="eyebrow">導入時に見るべき点</div>
+        <div class="title">運用チェック</div>
+        <div class="lead">
+          探索反復は精度向上に寄与し得ますが、コスト・遅延、失敗時の挙動、監査ログ粒度を事前に確認するのが現実的です。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid3" aria-label="観点">
+            <div class="cell">
+              <div class="label">i 実務適用</div>
+              <div class="txt">ID→仕様、契約→支払条件など分散知識で効く</div>
+            </div>
+            <div class="cell">
+              <div class="label">ii 反復コスト</div>
+              <div class="txt">探索回数・検索先数で上振れの可能性</div>
+            </div>
+            <div class="cell">
+              <div class="label">iii 監査</div>
+              <div class="txt">引用・ログ保存・権限管理の実装要件を別途設計</div>
+            </div>
+          </div>
+          <div class="cell" style="margin-top:14px;">
+            <div class="label">結論（要点）</div>
+            <div class="txt">「性能」だけでなく、自社での“停止条件・制御・失敗分析”を確認して判断する。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide closing">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">14 / 18</div>
+        </div>
+        <div class="eyebrow">結局、何が価値か</div>
+        <div class="title">推測を抑え、探索を統制</div>
+        <div class="lead">
+          Agentic RAGの核は「根拠の十分性を点検し、欠けを特定して次の探索へ進む」ことにあります。これにより、複数データ源の依頼でも、監査可能な回答を目指す方向性が示されます。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="まとめ">
+            <div class="cell">
+              <div class="label">Takeaway</div>
+              <div class="txt">“探して終わり”ではなく、“十分なら回答”へ</div>
+            </div>
+            <div class="cell">
+              <div class="label">Next step</div>
+              <div class="txt">自社データで：精度・レイテンシ上振れ・監査ログを評価</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 References -->
+    <section class="slide closing">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">15 / 18</div>
+        </div>
+        <div class="eyebrow">参照（記事抜粋ベース）</div>
+        <div class="title">Sources</div>
+        <div class="lead">
+          下記は、ユーザー提供テキスト内で言及された内容に基づく参照先です（原文リンクは提示されていません）。
+        </div>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid2" aria-label="参照先">
+            <div class="cell">
+              <div class="label">Platform</div>
+              <div class="txt">Gemini Enterprise Agent Platform：Agentic RAG（パブリックプレビュー）</div>
+            </div>
+            <div class="cell">
+              <div class="label">Research / Docs</div>
+              <div class="txt">Google Research／Google Cloud：Agentic RAG と Cross-Corpus Retrieval の説明</div>
+            </div>
+          </div>
+          <div class="grid2" aria-label="評価">
+            <div class="cell">
+              <div class="label">Dataset</div>
+              <div class="txt">FramesQA：824問、PDF文書2,676本</div>
+            </div>
+            <div class="cell">
+              <div class="label">Metric (as described)</div>
+              <div class="txt">LLM-as-a-judge 評価／ファクト性（factuality）データセットで最大34%向上</div>
+            </div>
+          </div>
+          <div class="cell" style="margin-top:14px;">
+            <div class="label">Note</div>
+            <div class="txt">本スライドは提供文の要約圧縮のため、細部の実装（引用ログ形式・権限設計など）は原文確認が必要です。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/ai_for_success/status/2062984524968218690" target="_blank" rel="noreferrer noopener">AshutoshShrivastava on X: &quot;🚨 Google introduced a new Agentic RAG framework for Gemini Enterprise Agent Platform that makes AI systems much better at retrieving and reasoning over enterprise data. Most traditional RAG systems work in a very simple way: they search once, grab a few documents, and generate https://t.co/IWBWeNMJBz&quot; / X</a></h2>
+<p class="reference-note">🚨 Google introduced a new Agentic RAG framework for Gemini Enterprise Agent Platform that makes AI systems much better a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.marktechpost.com/2026/06/08/google-research-adds-agentic-rag-to-gemini-enterprise-agent-platform-with-a-sufficient-context-agent-for-multi-hop-queries" target="_blank" rel="noreferrer noopener">Google Research Adds Agentic RAG to Gemini Enterprise Agent ...</a></h2>
+<p class="reference-note"># Google Research Adds Agentic RAG to Gemini Enterprise Agent Platform with a Sufficient Context Agent for multi-hop que…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/AIGuild/comments/1tztxz6/google_is_making_enterprise_rag_more_agentic" target="_blank" rel="noreferrer noopener">Google Is Making Enterprise RAG More Agentic : r/AIGuild</a></h2>
+<p class="reference-note"># Google Is Making Enterprise RAG More Agentic : r/AIGuild. Skip to main contentGoogle Is Making Enterprise RAG More Age…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/jean-pierre-palomba-marin-14508b162_google-research-adds-agentic-rag-to-gemini-activity-7469809423931039744-PS1o" target="_blank" rel="noreferrer noopener">Jean-Pierre Palomba-Marin&#39;s Post - LinkedIn</a></h2>
+<p class="reference-note">Google Research Adds Agentic RAG to Gemini Enterprise: Multi-Hop Queries, +34% Factuality, 90.1% Cross-Corpus Accuracy —…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://research.google/blog/unlocking-dependable-responses-with-gemini-enterprise-agent-platforms-agentic-rag" target="_blank" rel="noreferrer noopener">Unlocking dependable responses with Gemini Enterprise Agent ...</a></h2>
+<p class="reference-note">We introduce our new agentic RAG framework. Based on a collaboration between Google Research and Google Cloud, our multi…</p>
+</article>
+</div>
+</section>
+</body>
+</html>
