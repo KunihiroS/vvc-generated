@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmbuffer — プロンプトキャッシュを壊さない会話バッファ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 24px auto 56px auto;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+    }
+
+    .slide-inner{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide-tag{
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 18px;
+      height: 0;
+      border-top: 2px solid var(--rust);
+    }
+
+    .slide-num{
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 24px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      margin: 0;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 6px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin-top: 2px;
+    }
+
+    .grid2{
+      width: 100%;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 4px;
+    }
+    .grid3{
+      width: 100%;
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 4px;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 10px;
+    }
+
+    .cell h4{
+      margin: 0 0 8px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--rust-deep);
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .cell p{
+      margin:0;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink);
+    }
+
+    .footnote{
+      margin-top: auto;
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.4;
+      max-width: 900px;
+    }
+
+    @media (max-width: 920px){
+      .slide{ padding: 44px 52px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 20px; }
+      .slide-inner{ gap: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">キャッシュ最適化を設計する</div>
+        <h1 class="title">llmbuffer <em>要約</em></h1>
+        <div class="lead">
+          llmbufferは、LLMへ送る会話履歴を「キャッシュしやすい境界」で組み立て、プロンプトキャッシュ（prefix）の無効化を抑える会話バッファ管理ライブラリです。
+        </div>
+        <div class="rule"></div>
+        <div class="footnote">
+          キーワード：プロンプトキャッシュ / prefix（プレフィックス）／volatile / durable／transition_mode / transition_hook／compaction
+          <br>（プロンプトキャッシュ：同一先頭なら後段だけ追加計算で節約）
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">毎ターン作り直しが敵</div>
+        <h1 class="title">prefixが <em>壊れる</em></h1>
+        <div class="lead">
+          多くの実装では毎ターン「システムプロンプト」「会話履歴」「RAG等の動的コンテキスト」を先頭から作り直し、クラウド側のprefixキャッシュを無効化しやすくなります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>何が変わる</h4>
+            <p>タイムスタンプ・RAG結果などの“後ろ側”要素を、先頭側に混ぜてしまう。</p>
+          </div>
+          <div class="cell">
+            <h4>何が起きる</h4>
+            <p>先頭プレフィックスがバイト単位で一致せず、計算節約が効きにくくなる。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">境界を固定する</div>
+        <h1 class="title">静的→長期→<em>動的</em></h1>
+        <div class="lead">
+          llmbufferは、(1)変えない静的システムプロンプト、(2)長期化していく会話履歴、(3)毎回変わるRAGやタイムスタンプ等、(4)直近の短期メッセージの順序を固定します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>キャッシュ対象</h4>
+            <p>先頭に置いた「同一プレフィックス（バイト安定）」を維持する。</p>
+          </div>
+          <div class="cell">
+            <h4>揺れる部分</h4>
+            <p>変化する情報は後段に置き、先頭一致へ波及しないようにする。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Two channels">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">2チャネルで分離</div>
+        <h1 class="title">volatile / durable</h1>
+        <div class="lead">
+          RAG結果やタイムスタンプなどの揺れは <em>volatile</em>、ユーザプロファイルやセッション目標など比較的効く情報は <em>durable</em> として扱います（要約ではなく置き方が鍵）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>volatile（揺れ）</h4>
+            <p>末尾に寄せる。prefixへ影響させにくい。</p>
+          </div>
+          <div class="cell">
+            <h4>durable（固定）</h4>
+            <p>鍵付きメッセージとして遷移経路に乗る。</p>
+          </div>
+          <div class="cell">
+            <h4>効果</h4>
+            <p>キャッシュ利益＋必要な文脈保持の両立を狙う。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Transition control">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">長期へ移す瞬間</div>
+        <h1 class="title">transition<em>制御</em></h1>
+        <div class="lead">
+          transition_modeは「短期→長期へ移るタイミング」を指定し、transition_hookは移行直前にツール出力をトリム／要約／不要情報の削除などを行えます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>transition_mode</h4>
+            <p>none / manual / agent_cycle 等で移行タイミングを決める。</p>
+          </div>
+          <div class="cell">
+            <h4>transition_hook</h4>
+            <p>「キャッシュプレフィックスに残してよい情報」へ選別する。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Compaction budgets">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">2つの予算で圧縮</div>
+        <h1 class="title">compaction（圧縮）</h1>
+        <div class="lead">
+          compactionは「履歴単体」と「リクエスト全体」の2種類の予算管理があり、compact_for_requestで全体のコンテキストウィンドウも考慮します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>履歴単体</h4>
+            <p>max_tokensベースで古い情報を削る（または圧縮）。</p>
+          </div>
+          <div class="cell">
+            <h4>リクエスト全体</h4>
+            <p>静的＋長期＋短期＋動的の合算上限で判断。</p>
+          </div>
+          <div class="cell">
+            <h4>reserved_tokens</h4>
+            <p>変動分の最悪ケースを固定し、compactionの揺れを抑える。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Why ordering works">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">順序が効く理由</div>
+        <h1 class="title">プレフィックス一致</h1>
+        <div class="lead">
+          プロバイダのキャッシュは主に入力の先頭（プレフィックス）が一致するときに機能します。llmbufferは静的システム＋長期履歴を先頭に置き、RAG等は後段に回します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>悪い例（ナイーブ）</h4>
+            <p>毎回「システム＋動的」を先頭で統合し、上限で古い履歴を落とす。</p>
+          </div>
+          <div class="cell">
+            <h4>良い例（llmbuffer）</h4>
+            <p>変化する要素を後段へ。先頭のバイト列をできるだけ維持する。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Bench results">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">ベンチ：推定入力コスト</div>
+        <h1 class="title">約43%低下</h1>
+        <div class="lead">
+          READMEのベンチでは、Anthropicの模擬条件下でキャッシュヒット比率と推定入力コストが改善し、ナイーブ実装より約43%低い推定入力コストと報告されています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>改善の核</h4>
+            <p>prefix一致が増えるほど、再計算コストが下がりやすい。</p>
+          </div>
+          <div class="cell">
+            <h4>注意</h4>
+            <p>“模擬”のため、実プロバイダ仕様で数値が揺れる可能性がある。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Distinctions">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">要約より“置く”</div>
+        <h1 class="title">削る/要約より <em>配置</em></h1>
+        <div class="lead">
+          llmbufferが重視するのは、情報を「削るかどうか」だけでなく、volatile/durableや境界の置き方でprefixを壊さないことです。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>transition_hook</h4>
+            <p>削る/要約する用途も可能。</p>
+          </div>
+          <div class="cell">
+            <h4>リスク</h4>
+            <p>重要情報まで落とすと品質が下がり得る。</p>
+          </div>
+          <div class="cell">
+            <h4>導入姿勢</h4>
+            <p>圧縮方針は評価（AB）で検証する。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Risks and fit">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">導入の不確実性</div>
+        <h1 class="title">成功条件は <em>依存</em></h1>
+        <div class="lead">
+          模擬結果がそのまま再現されるとは限りません。特に、キャッシュの判定粒度・長期的な挙動・圧縮（transition_hook/compaction）が品質へ与える影響はケース依存です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>検証ポイント</h4>
+            <p>実プロバイダのキャッシュヒットが本当に増えるか。</p>
+          </div>
+          <div class="cell">
+            <h4>設計ポイント</h4>
+            <p>volatile/durableの切り分けと圧縮方針を慎重に。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="My opinion">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">私の結論</div>
+        <h1 class="title">キャッシュは <em>構造</em></h1>
+        <div class="lead">
+          llmbufferは「キャッシュ最適化はテクニックではなくデータ構造と境界の設計」という点で筋が良いです。導入後の検証（品質＋キャッシュヒット）を前提にすべきだと考えます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>Technological</h4>
+            <p>メッセージ順序やtransition/compactionが再利用しやすく整理。</p>
+          </div>
+          <div class="cell">
+            <h4>Operational / Risk</h4>
+            <p>state復元の正しさ、圧縮での品質低下、reserved_tokens設計ミスが論点。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="Closing and checklist">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">やること（最小）</div>
+        <h1 class="title">設計→AB→確認</h1>
+        <div class="lead">
+          導入時は、(1)volatile/durableを更新頻度に合わせて設計、(2)transition_hookとcompactionをABテスト、(3)メタデータで実際のキャッシュヒット増加を確認、が必須です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>i 設計</h4>
+            <p>どれをキャッシュに残すかを境界で決める。</p>
+          </div>
+          <div class="cell">
+            <h4>ii 検証</h4>
+            <p>圧縮で品質が落ちないかを評価する。</p>
+          </div>
+          <div class="cell">
+            <h4>iii 確認</h4>
+            <p>実プロバイダでキャッシュヒットが増えたかを見る。</p>
+          </div>
+        </div>
+        <div class="footnote">
+          参考：安全・セキュリティ観点では、RAG結果やstate/ログのPII・機密情報取り扱いに注意が必要。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/BerriAI/litellm/issues/19984" target="_blank" rel="noreferrer noopener">[Bug]: VertexAI Anthropic passthrough fails with prompt-caching-scope-2026-01-05 beta header · Issue #19984 · BerriAI/litellm · GitHub</a></h2>
+<p class="reference-note">## Navigation Menu. # Search code, repositories, users, issues, pull requests... # Provide feedback. We read every piece…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://letsdatascience.com/news/anthropic-confirms-and-fixes-claude-performance-issues-57e98a0b" target="_blank" rel="noreferrer noopener">Anthropic Confirms and Fixes Claude Performance Issues | Let&#39;s Data Science</a></h2>
+<p class="reference-note">Anthropic wrote in a detailed postmortem that three product-layer changes and a caching bug caused a broad decline in Cl…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2601.06007v2" target="_blank" rel="noreferrer noopener">An Evaluation of Prompt Caching for Long-Horizon Agentic Tasks</a></h2>
+<p class="reference-note">Figure[3](https://arxiv.org/html/2601.06007v2#S4.F3 &quot;Figure 3 ‣ 4.2 Cost Reduction ‣ 4 Results ‣ Don’t Break the Cache: …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://developers.llamaindex.ai/python/framework/integrations/llm/anthropic_prompt_caching" target="_blank" rel="noreferrer noopener">Anthropic Prompt Caching | Developer Documentation</a></h2>
+<p class="reference-note"># Anthropic Prompt Caching. In this Notebook, we will demonstrate the usage of Anthropic Prompt Caching with LlamaIndex …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://reference.langchain.com/javascript/langchain/index/anthropicPromptCachingMiddleware" target="_blank" rel="noreferrer noopener">anthropicPromptCachingMiddle...</a></h2>
+<p class="reference-note">Creates a prompt caching middleware for Anthropic models to optimize API usage. This middleware automatically adds cache…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
