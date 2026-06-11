@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DiffusionGemma: 逐次生成を“並列ブロック”へ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: 100%;
+      padding: 24px 0 64px;
+    }
+
+    .slide {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto 24px auto;
+      background: var(--paper);
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events: none;
+    }
+
+    .tag {
+      position: absolute;
+      top: 26px;
+      left: 26px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .tag::before{
+      content:"";
+      width: 34px;
+      height: 0;
+      border-top: 1px solid var(--rust);
+      opacity: 0.55;
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 22px;
+      right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .eyebrow {
+      margin-top: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+    }
+
+    .title {
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.02;
+      color: var(--ink);
+    }
+    .title .em {
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 6px;
+      max-width: 860px;
+    }
+    .cell {
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+      font-weight: 600;
+      font-size: 14px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v {
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .grid3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      margin-top: 6px;
+      max-width: 980px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink);
+    }
+
+    .jpSmall {
+      font-size: 16px;
+      color: var(--ink-3);
+      margin-top: 6px;
+      line-height: 1.35;
+    }
+
+    .hr {
+      margin-top: 10px;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      max-width: 900px;
+    }
+
+    .tight {
+      margin-top: 6px;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    @media (max-width: 720px) {
+      .slide {
+        padding: 40px 24px;
+      }
+      .title { font-size: 48px; }
+      .lead { font-size: 18px; }
+      .grid2, .grid3 { max-width: 100%; }
+      .tag { top: 18px; left: 18px; font-size: 12px; }
+      .slide-num { top: 16px; right: 18px; font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="tag">cover</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="content">
+        <div class="eyebrow">拡散×文章生成</div>
+        <h1 class="title">Diffusion<span class="em">Gemma</span></h1>
+        <p class="lead">逐次（1トークンずつ）をやめ、256トークン分を並列に生成し反復で整える――“速さのための生成方式転換”を狙う実験モデルです。</p>
+        <div class="hr"></div>
+        <div class="tight">Japanese gloss / 日本語の要点：拡散モデルの「反復で整える発想」を、LLMのテキスト生成に持ち込みます。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">problem</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="content">
+        <div class="eyebrow">待ち時間が支配</div>
+        <h1 class="title">逐次デコード</h1>
+        <p class="lead">多くのLLMは左から右へ“1トークンずつ”出力します。そのためGPUは計算だけでなく、次の一手を待つ時間がボトルネックになりやすいです。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Self-regressive（逐次）</div>
+            <div class="v">次トークンを出す → その結果で次を決める<br><span class="jpSmall">一手ずつ確定するため、遅延が積み上がる</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">Goal（狙い）</div>
+            <div class="v">待ち時間を減らし、推論を速くする<br><span class="jpSmall">並列化で体感速度を上げる発想</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">metaphor</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="content">
+        <div class="eyebrow">塊を直す</div>
+        <h1 class="title">256トークン</h1>
+        <p class="lead">DiffusionGemmaは文章生成を“塊（ブロック）”単位に切り、最大256トークンを同時にドラフトします。その後、複数回の反復で整合性を高めます。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Step A</div>
+            <div class="v">ブロックを並列生成（例：256 tokens）<br><span class="jpSmall">塊でまず候補を作る</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">Step B</div>
+            <div class="v">反復セルフコレクション（整える）<br><span class="jpSmall">拡散（diffusion）的な“収束”の発想</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">architecture</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="content">
+        <div class="eyebrow">非線形編集向け</div>
+        <h1 class="title">双方向注意</h1>
+        <p class="lead">並列化された各トークンが互いを参照できる（双方向アテンション）。その結果、コード補完や infilling、数理構造などの“編集しながら作る”作業で強みが出るとされています。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Infilling</div>
+            <div class="v">空所を埋める補完<br><span class="jpSmall">部分修正がしやすい</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">Code（例）</div>
+            <div class="v">Markdown閉じ忘れ等の整形<br><span class="jpSmall">形式の崩れを減らす方向</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">Structure</div>
+            <div class="v">埋め込み・数理・配列<br><span class="jpSmall">構造維持に寄せた設計</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">enumeration</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="content">
+        <div class="eyebrow">差別化の核</div>
+        <h1 class="title">4つの要点</h1>
+        <p class="lead">記事が強調する設計意図を、速度・編集・品質リスク・メモリ面に分けて整理します。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">i. 速度</div>
+            <div class="v">逐次 → 並列（256 tokens同時）で推論を高速化<br><span class="jpSmall">低〜中バッチで効きやすい</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. 編集</div>
+            <div class="v">双方向注意＋反復で“塊の整形”を得意化<br><span class="jpSmall">インライン編集に適合</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. リスク</div>
+            <div class="v">速度最適化のため品質は下がり得る<br><span class="jpSmall">Gemma 4標準より劣る可能性</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">iv. 実行性</div>
+            <div class="v">MoE活性化3.8B＋量子化でVRAMを抑える<br><span class="jpSmall">18GB VRAM級を想定</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">evidence</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="content">
+        <div class="eyebrow">速度の目標</div>
+        <h1 class="title">Tokens / s</h1>
+        <p class="lead">並列デコードが計算へ効率的に寄ることで、専用GPUでトークン出力が伸びることを狙っています。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">NVIDIA H100</div>
+            <div class="v">1000+ tokens/s（目標）<br><span class="jpSmall">専用環境の前提で提示</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">GeForce RTX 5090</div>
+            <div class="v">700+ tokens/s（目標）<br><span class="jpSmall">“家庭用寄り”の例として提示</span></div>
+          </div>
+        </div>
+        <div class="jpSmall">Japanese gloss：ここでの“+”は上限保証ではなく、記事の狙い（目標値）として理解するのが安全です。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">distinction</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="content">
+        <div class="eyebrow">何を選ぶべき？</div>
+        <h1 class="title">品質 vs 速度</h1>
+        <p class="lead">記事は明確に、DiffusionGemmaは標準のGemma 4の“本番品質”に劣る可能性があると注意しています。用途で選び分ける必要があります。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">向く</div>
+            <div class="v">研究・開発の試行錯誤、ローカル対話、インライン編集、非線形な生成<br><span class="jpSmall">“待ち”が小さいほど価値が出る</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">広告文や最終納品など、品質最優先の本番用途<br><span class="jpSmall">同コストで常に上回るとは限らない</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">comparison</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="content">
+        <div class="eyebrow">クラウドでは弱点も</div>
+        <h1 class="title">“一律4倍”ではない</h1>
+        <p class="lead">クラウドで高QPS提供をする場合、自己回帰モデル側も大量バッチで効率化できるため、DiffusionGemmaの並列化優位は逓減し得ます。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">低〜ローカル</div>
+            <div class="v">並列デコードの利点が体感に出やすい<br><span class="jpSmall">低同時実行でも効く設計を狙う</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">高QPSクラウド</div>
+            <div class="v">他方式も最適化され、差が縮む可能性<br><span class="jpSmall">提供コストが上がる恐れ</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">process</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="content">
+        <div class="eyebrow">導入の現実</div>
+        <h1 class="title">MoE＋量子化</h1>
+        <p class="lead">26Bという総パラメータでも、推論時に活性化するのは3.8B。さらに量子化でVRAM負荷を下げ、18GB級のGPUで動かしやすい方針が示されています。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">総パラメータ</div>
+            <div class="v">26B<br><span class="jpSmall">モデル規模の指標</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">活性化（推論）</div>
+            <div class="v">3.8B<br><span class="jpSmall">MoEの効きどころ</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">VRAM目安</div>
+            <div class="v">18GB（量子化）<br><span class="jpSmall">家庭用向けの敷居低下</span></div>
+          </div>
+        </div>
+        <div class="jpSmall">Japanese gloss：実際の必要量は、実装（量子化方式・コンテキスト長・バッチサイズ）に依存します。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">closing</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="content">
+        <div class="eyebrow">結論：体験を変える</div>
+        <h1 class="title">使い分け</h1>
+        <p class="lead">DiffusionGemmaの意義は、速度を“最適化”だけでなく“生成アルゴリズム（逐次→並列）”から変え、ローカルの待ち時間や編集体験を改善しようとする点にあります。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">あなたが得るもの</div>
+            <div class="v">速い試行・編集に強い体験（インライン、infilling、構造化）<br><span class="jpSmall">“反復で整える”が効く場面</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">あなたが注意すべきこと</div>
+            <div class="v">品質はGemma 4標準より下がり得る／クラウドでは差が縮む可能性<br><span class="jpSmall">目的に合わせて比較・検証</span></div>
+          </div>
+        </div>
+        <div class="jpSmall">Japanese gloss：研究・開発の速度が重要なら候補。最終品質が最優先なら標準モデルを優先。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.google/innovation-and-ai/technology/developers-tools/diffusion-gemma-faster-text-generation" target="_blank" rel="noreferrer noopener">DiffusionGemma: 4x faster text generation - Google Blog</a></h2>
+<p class="reference-note">DiffusionGemma: 4x faster text generation. [&quot;What is the Fitbit Air?&quot;, &quot;How can I learn new AI skills?&quot;, &quot;What&#39;s the lat…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://gregrobison.medium.com/a-comparative-analysis-of-diffusion-and-autoregressive-models-for-text-generation-architectures-99fb24fa390c" target="_blank" rel="noreferrer noopener">A Comparative Analysis of Diffusion and Autoregressive Models for ...</a></h2>
+<p class="reference-note">[Sign in](https://medium.com/m/signin?operation=login&amp;redirect=https%3A%2F%2Fgregrobison.medium.com%2Fa-comparative-anal…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.seangoedecke.com/limitations-of-text-diffusion-models" target="_blank" rel="noreferrer noopener">Strengths and limitations of diffusion language models</a></h2>
+<p class="reference-note">1. Unlike normal autoregressive models, diffusion models can generate correct parts of the final token sequence in paral…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://huggingface.co/blog/ProCreations/diffusion-language-model" target="_blank" rel="noreferrer noopener">Diffusion Language Models: The New Paradigm - Hugging Face</a></h2>
+<p class="reference-note"># Diffusion Language Models: The New Paradigm. Diffusion Language Models represent the most significant architectural in…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/bansky-cl/diffusion-nlp-paper-arxiv" target="_blank" rel="noreferrer noopener">bansky-cl/diffusion-nlp-paper-arxiv - GitHub</a></h2>
+<p class="reference-note">| **2026-06-03** | **SAID: Accelerating Diffusion-Based Language Models via Scaffold-Aware Iterative Decoding** | cs.CL …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
