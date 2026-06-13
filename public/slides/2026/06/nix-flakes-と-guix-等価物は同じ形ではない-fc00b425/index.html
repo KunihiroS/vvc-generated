@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nix Flakes と Guix：等価物は同じ形ではない</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: 0.35;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 26px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+      letter-spacing: .14em;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 10px;
+      height: 2px;
+      background: var(--rust);
+      margin-right: 10px;
+      transform: translateY(-5px);
+      opacity: .95;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 16px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+    }
+
+    .title{
+      margin: 8px 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      font-size: clamp(54px, 5.6vw, 84px);
+      color: var(--rust);
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 6px;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.55;
+    }
+
+    .grid2, .grid3{
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px 12px;
+      background: rgba(0,0,0,0.04);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+      font-size: 12px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .divider{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 14px;
+      width: 100%;
+      opacity: .55;
+    }
+
+    .no-center-except{
+      text-align: left;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">02 / 17</div>
+
+      <div class="eyebrow">“等価物”の誤解を解く</div>
+      <div class="title">同じ形ではない</div>
+      <div class="lead">Nix flake は複数の機能を一体化して提供しますが、Guix はそれを部品として組み合わせる設計です。そのため「flak e の Guix 等価物」は1つに対応しません。</div>
+      <div class="small" style="margin-top:16px; max-width:760px;">
+        <span style="color:var(--ink-2); font-weight:500;">Bilingual：</span>
+        “等価物” <span style="color:var(--ink-3);">equivalent</span>（英：同等のもの）/ “部品” <span style="color:var(--ink-3);">parts</span>（英：構成要素）
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 17</div>
+
+      <div class="eyebrow">1対1の罠</div>
+      <div class="title">対応は分散する</div>
+      <div class="lead">flake は入口・固定・純粋評価・出力形式などを“巨大な機能”としてまとめます。一方 Guix は、それ以前から個別に用意された部品で同じ到達点へ進みます。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Nix flake</div>
+          <div class="v">monolithic feature（一体化）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Guix</div>
+          <div class="v">orthogonal tools（直交部品）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 17</div>
+
+      <div class="eyebrow">分解すると見える</div>
+      <div class="title">地図を読む</div>
+      <div class="lead">“flake → 何か一つ”ではなく、“flake の役割 → Guix 側の複数要素”として対応を読むと理解が進みます。Nix の統合を Guix の部品合成として捉え直すのが要点です。</div>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">役割</div>
+          <div class="v">依存の宣言</div>
+        </div>
+        <div class="cell">
+          <div class="k">役割</div>
+          <div class="v">固定（バージョン）</div>
+        </div>
+        <div class="cell">
+          <div class="k">役割</div>
+          <div class="v">再現可能な共有/実行</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 17</div>
+
+      <div class="eyebrow">対応は“役割×部品”</div>
+      <div class="title">合成で等価へ</div>
+      <div class="lead">flake の各要素に対応する Guix 側の部品は一つではなく複数です。文章の例では、channels / manifest / guix describe / guix shell / operating-system / time-machine を組み合わせます。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">依存・基盤</div>
+          <div class="v">channels（チャネル）/ manifest</div>
+        </div>
+        <div class="cell">
+          <div class="k">環境・出力</div>
+          <div class="v">guix shell / operating-system</div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">固定の確認</div>
+          <div class="v">guix describe（記録・生成情報）</div>
+        </div>
+        <div class="cell">
+          <div class="k">時間旅行</div>
+          <div class="v">guix time-machine（Guix過去状態）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">06 / 17</div>
+
+      <div class="eyebrow">固定の置き場所</div>
+      <div class="title">どこに情報が住む</div>
+      <div class="lead">Nix は flake.lock をリポジトリにコミットしやすく、機械可読な JSON のグラフとして扱えます。Guix は describe の生成記録に寄り、共有には time-machine や pins（例：channels.scmの固定）を組み合わせます。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Nix</div>
+          <div class="v mono">flake.lock（リポジトリ内）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Guix</div>
+          <div class="v">describe の記録（例：~/.config/guix/current）＋ time-machine</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">07 / 17</div>
+
+      <div class="eyebrow">純粋性の“実装場所”</div>
+      <div class="title">思想が先に入る</div>
+      <div class="lead">Nix flake は純粋評価の制限で事故を減らし、例外は --impure のように扱われます。Guix は Scheme モジュールの枠組み等により、暗黙入力に依存しにくい形を設計段階から志向します。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Nix</div>
+          <div class="v">pure mode（強制モード）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Guix</div>
+          <div class="v">思想としての純粋性（自然に混ざる）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">08 / 17</div>
+
+      <div class="eyebrow">“過去へ戻る”</div>
+      <div class="title">time-machine</div>
+      <div class="lead">guix time-machine は依存固定だけでなく、Guix パッケージ定義の過去状態そのものを指定して実行できます。対照的に nix では nixpkgs の過去合わせが運用上手作業になりがちだと述べられます。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">replay（当時の実行結果へ近づく）</div>
+        </div>
+        <div class="cell">
+          <div class="k">鍵</div>
+          <div class="v">Guix 自身の過去状態指定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">09 / 17</div>
+
+      <div class="eyebrow">部品の合成手順</div>
+      <div class="title">“flake体験”を組む</div>
+      <div class="lead">Guix 側で flake 相当の体験を目指すなら、依存宣言・環境定義・再現記録・時間旅行を分担させます。つまり「1コマンド」ではなく、目的ごとに道具を使い分けます。</div>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i. 宣言</div>
+          <div class="v">manifest / module 組み合わせ</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 構成</div>
+          <div class="v">guix shell / operating-system</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. 共有</div>
+          <div class="v">guix describe ＋ time-machine（必要に応じて pins）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">10 / 17</div>
+
+      <div class="eyebrow">更新と改変のしやすさ</div>
+      <div class="title">grafting</div>
+      <div class="lead">grafting は、全再ビルドを避けつつセキュリティ更新を反映する発想として挙げられています。加えてパッケージ表現が透明なレコードであるため、グラフ書き換え（改変）の扱いがしやすい点が強調されます。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">grafting（英）</div>
+          <div class="v">全再ビルド回避の更新戦略</div>
+        </div>
+        <div class="cell">
+          <div class="k">透明性</div>
+          <div class="v">パッケージが“レコード”として扱える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">11 / 17</div>
+
+      <div class="eyebrow">共通点と“差”</div>
+      <div class="title">同じ問題領域</div>
+      <div class="lead">両者は再現性・依存管理・システム宣言という到達点を共有します。違いは「統合の仕方」—Nix flake は純粋評価などを入口としてまとめ、Guix は部品と設計思想に分散している点です。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">共通</div>
+          <div class="v">declarative（宣言的）/ reproducible（再現可能）</div>
+        </div>
+        <div class="cell">
+          <div class="k">差</div>
+          <div class="v">integration（統合度） vs composition（合成）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Critical</div>
+      <div class="slide-num">12 / 17</div>
+
+      <div class="eyebrow">意思決定に足りない点</div>
+      <div class="title">トレードオフ薄め</div>
+      <div class="lead">批判的には、等価物の“概念整理”は正しい一方、運用上の互換性（同じ粒度で同じ体験になるか）を過小評価し得ます。導入・標準化・CI/CD・学習経路のコストなど、定量や具体例が弱い点が挙げられます。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">channels/manifest/OS/describe の粒度合わせが必要</div>
+        </div>
+        <div class="cell">
+          <div class="k">評価</div>
+          <div class="v">脅威モデル・前提を揃えないと安全性比較が難しい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">13 / 17</div>
+
+      <div class="eyebrow">結論</div>
+      <div class="title">選び方が変わる</div>
+      <div class="lead">最適解は優劣ではなく要件次第です。「単一標準（flake）を好む」なら Nix、「部品合成・データ操作・時間旅行を好む」なら Guix が合いやすい、という整理になります。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Nix が合う</div>
+          <div class="v">標準入口＋スキーマの一体化</div>
+        </div>
+        <div class="cell">
+          <div class="k">Guix が合う</div>
+          <div class="v">部品合成＋ Schemeデータとして改変</div>
+        </div>
+      </div>
+
+      <div class="small" style="margin-top:16px; max-width:760px;">
+        Bilingual： “時間旅行” <span style="color:var(--ink-3);">time travel</span> / “合成” <span style="color:var(--ink-3);">composition</span>（英：組み合わせ）
+      </div>
+    </section>
+
+    <!-- References (still a slide card, same layout rules) -->
+    <section class="slide" aria-label="references">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">14 / 17</div>
+
+      <div class="eyebrow">参考（用語の核）</div>
+      <div class="title">キーワード</div>
+      <div class="lead">この要約内で中心に扱った用語です（出典詳細は元記事参照）。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Nix 側</div>
+          <div class="v">flake / flake.lock / --impure</div>
+        </div>
+        <div class="cell">
+          <div class="k">Guix 側</div>
+          <div class="v">channels / manifest / operating-system</div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">再現性</div>
+          <div class="v">guix describe / pins（channels.scm固定など）</div>
+        </div>
+        <div class="cell">
+          <div class="k">時間旅行・更新</div>
+          <div class="v">guix time-machine / grafting</div>
+        </div>
+      </div>
+      <div class="small" style="margin-top:14px;">
+        注意：本HTMLはユーザ提示文からの圧縮要約であり、厳密な引用ではありません。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://discourse.nixos.org/t/nix-flakes-explained-what-they-solve-why-they-matter-and-the-future/72302" target="_blank" rel="noreferrer noopener">Nix flakes explained: what they solve, why they matter, and ...</a></h2>
+<p class="reference-note"># Nix flakes explained: what they solve, why they matter, and the future. Nix flakes are a powerful way to manage inputs…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=S9V-pcTrdL8" target="_blank" rel="noreferrer noopener">Nix vs Guix - YouTube</a></h2>
+<p class="reference-note">Nix vs Guix. 12K views · Streamed 5 years ago. #gnu #linux #rde ... Go to channel NixCon · Peering into the Land of Pare…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://lists.gnu.org/r/guix-devel/2023-03/msg00022.html" target="_blank" rel="noreferrer noopener">Re: Guix, Nix flakes, and object capabilities - GNU mailing lists</a></h2>
+<p class="reference-note">From: Simon Tournier ; Subject: Re: Guix, Nix flakes, and object capabilities ; Date: Fri, 03 Mar 2023 02:12:48 +0100</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/NixOS/comments/1khm101/flakes_continue_to_remain_completely_illusive_and" target="_blank" rel="noreferrer noopener">Flakes continue to remain completely illusive and incomprehensible ...</a></h2>
+<p class="reference-note">Flakes solve the issue of nix being partially imperative &amp; non-reproducible in terms of where it&#39;s getting its sources.</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://zero-to-nix.com/concepts/flakes" target="_blank" rel="noreferrer noopener">Nix flakes</a></h2>
+<p class="reference-note">Check out **FlakeHub**, the best place to discover and publish Nix flakes, brought to you by **Determinate Systems**. # …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
