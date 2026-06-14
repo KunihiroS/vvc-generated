@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>efficient-SID: training-free 単一画像拡散（読み物スライド）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1.5px solid var(--rule);
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      left: 34px;
+      top: 26px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.20em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-right: 10px;
+      border-top: 2px solid rgba(232,129,74,0);
+    }
+
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 14px;
+      height: 2px;
+      background: var(--rust);
+      margin-right: 10px;
+      transform: translateY(-4px);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      position:absolute;
+      right: 34px;
+      top: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 10px;
+      position: relative;
+      padding-left: 14px;
+    }
+    .eyebrow::before{
+      content:"";
+      position:absolute;
+      left: 0;
+      top: 50%;
+      width: 6px;
+      height: 6px;
+      background: var(--rust);
+      transform: translateY(-50%);
+      border-radius: 50%;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 72px;
+      font-weight: 500;
+      line-height: 1.0;
+      margin: 0 0 18px;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.55;
+      margin: 0;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 20px 0 0;
+    }
+
+    .grid{
+      width: 100%;
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      padding: 16px 16px;
+      background: rgba(240,232,216,0.02);
+      min-height: 90px;
+    }
+    .card .h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .card .t{
+      font-size: 19px;
+      line-height: 1.45;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    table{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 18px;
+      border: 1px solid var(--rule);
+    }
+    th, td{
+      border-bottom: 1px solid var(--rule);
+      border-right: 1px solid var(--rule);
+      padding: 14px 14px;
+      vertical-align: top;
+      text-align: left;
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    tr:last-child td{ border-bottom: none; }
+    th{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink-2);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 600;
+      background: rgba(240,232,216,0.03);
+    }
+    td:last-child, th:last-child{ border-right: none; }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    .jp{
+      font-family: "Noto Serif JP", serif;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 36px 22px; }
+      .slide-tag{ left: 18px; top: 18px; }
+      .slide-num{ right: 18px; top: 14px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+      table th, table td{ font-size: 15px; padding: 12px; }
+      .grid{ margin-top: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+
+      <div class="eyebrow">Single-Image Diffusion</div>
+      <div class="title">efficient-SID <span class="em">学習不要</span></div>
+      <p class="lead">参照画像の「質感・構造の統計（パッチ分布）」を、<span style="color:var(--rust); font-style:italic;">training-free</span>で拡散生成に再現します。</p>
+      <div class="rule"></div>
+      <p class="lead" style="margin-top:18px;">
+        さらにメガピクセル級を秒未満、ギガピクセル級を数分に近づけるため、計算ボトルネックを複数方向で抑えます。
+      </p>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+
+      <div class="eyebrow">従来の壁</div>
+      <div class="title"><span class="em">学習</span>と最適化</div>
+      <p class="lead">単一画像拡散は通常、拡散ネットのニューラル学習を回す必要があり、最適化に数時間級のコストがかかります。</p>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="h">通常の流れ</div>
+          <div class="t">ノイズ除去用ネットを学習 → 生成</div>
+        </div>
+        <div class="card">
+          <div class="h">現場の困りごと</div>
+          <div class="t">1枚ごとに“学習待ち”が発生</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+
+      <div class="eyebrow">発想転換</div>
+      <div class="title">パッチ統計を <span class="em">解く</span></div>
+      <p class="lead">画像全体を作るのではなく、参照画像を重なりパッチ群として扱い、その有限データから必要なスコアを“閉形式”で計算します。</p>
+
+      <div class="grid three">
+        <div class="card">
+          <div class="h">入力</div>
+          <div class="t">参照画像 → 多スケール重なりパッチ</div>
+        </div>
+        <div class="card">
+          <div class="h">鍵</div>
+          <div class="t">パッチは低次元・有限で扱える</div>
+        </div>
+        <div class="card">
+          <div class="h">出力</div>
+          <div class="t">学習なしでデノイザ（denoiser）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+
+      <div class="eyebrow">training-free</div>
+      <div class="title">閉形式デノイザ</div>
+      <p class="lead">パッチ集合から、拡散で必要な“スコア（ノイズからクリーンを推定する量）”を閉形式デノイザとして導出し、ニューラルネット学習を排除します。</p>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="h">狙い</div>
+          <div class="t">最適なデノイザを“計算”で得る</div>
+        </div>
+        <div class="card">
+          <div class="h">結果</div>
+          <div class="t">ネットのトレーニング・勾配最適化なし</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">06 / 16</div>
+
+      <div class="eyebrow">二乗級の壁</div>
+      <div class="title">計算量の支配項</div>
+      <p class="lead">高速化の中心は、パッチ間の相互作用が生む二乗級の計算を、近似ではなく“実装上の工夫”で抑えることです。</p>
+
+      <div class="grid three">
+        <div class="card">
+          <div class="h">狙い(i)</div>
+          <div class="t">attention等価変形 → FlashAttention活用</div>
+        </div>
+        <div class="card">
+          <div class="h">狙い(ii)</div>
+          <div class="t">VAEで空間解像度↓ → パッチ数↓</div>
+        </div>
+        <div class="card">
+          <div class="h">狙い(iii)</div>
+          <div class="t">クラスタ近傍のみ参照 → 疎化して改善</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+
+      <div class="eyebrow">attention最適化</div>
+      <div class="title">FlashAttentionで<span class="em">約2倍</span></div>
+      <p class="lead">閉形式デノイザを scaled dot-product attention に等価変形し、FlashAttention を使って高速化します（約2倍）。</p>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="h">同値変形</div>
+          <div class="t">“カーネルなしで厳密に同値”の性質を活用</div>
+        </div>
+        <div class="card">
+          <div class="h">効果</div>
+          <div class="t">attention計算の実行時間を短縮</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">08 / 16</div>
+
+      <div class="eyebrow">潜在化で軽くする</div>
+      <div class="title">VAEでパッチ<span class="em">削減</span></div>
+      <p class="lead">事前学習済み VAE を利用し空間解像度を落としてパッチ数を減らすことで、二乗項の計算を激減させます。</p>
+
+      <table aria-label="VAEによる差">
+        <thead>
+          <tr>
+            <th>要素</th>
+            <th>効果</th>
+            <th>なぜ速い</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>解像度ダウン（潜在空間）</td>
+            <td>パッチ数を大幅に減少</td>
+            <td>相互作用計算（約二乗）の対象が減る</td>
+          </tr>
+          <tr>
+            <td>事前学習済みVAE</td>
+            <td>追加学習なしで導入</td>
+            <td>training-freeの主張を維持しつつ軽量化</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">09 / 16</div>
+
+      <div class="eyebrow">疎な参照</div>
+      <div class="title">クラスタ近傍だけ</div>
+      <p class="lead">パッチをクラスタリングし、近傍クラスタのみを参照することで、遠いパッチ寄与を無視して計算量を O(N²)から改善します。</p>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="h">手順(i)</div>
+          <div class="t">パッチをクラスタ化</div>
+        </div>
+        <div class="card">
+          <div class="h">手順(ii)</div>
+          <div class="t">各クラスタの近傍のみ参照</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">10 / 16</div>
+
+      <div class="eyebrow">コピーしない</div>
+      <div class="title">分布の整合へ</div>
+      <p class="lead">参照画像をそのまま参照するのではなく、ノイズからデノイズして重なりパッチを再構成し、統計として整合する生成を狙います。</p>
+
+      <div class="grid three">
+        <div class="card">
+          <div class="h">入力</div>
+          <div class="t">参照パッチの有限集合</div>
+        </div>
+        <div class="card">
+          <div class="h">生成</div>
+          <div class="t">確率的にデノイズ・再構成</div>
+        </div>
+        <div class="card">
+          <div class="h">効果</div>
+          <div class="t">“複製”よりも多様性が出やすい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">11 / 16</div>
+
+      <div class="eyebrow">下流タスク</div>
+      <div class="title">アーキテクチャ変更なし</div>
+      <p class="lead">無条件生成だけでなく、テキストガイド（text-guided stylization）、画像の対称化、リターゲティング（アスペクト比変更）などへ対応できるとされています。</p>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="h">リターゲティング</div>
+          <div class="t">単純リサイズより自然な比率を維持しやすい（パッチ統計ベース）</div>
+        </div>
+        <div class="card">
+          <div class="h">注意</div>
+          <div class="t">テキスト条件の具体的接続は入力情報では確定できない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">12 / 16</div>
+
+      <div class="eyebrow">私見：強みと不確実点</div>
+      <div class="title"><span class="em">有望</span>だが検証が必要</div>
+      <p class="lead">強みは、学習不要で拡散の“肝”を閉形式に置き換え、FlashAttention・VAE・疎化で実用速度を狙う設計です。</p>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="h">強み</div>
+          <div class="t">学習コスト消失 × 二乗ボトルネック対策 × 既存高速化思想の採用</div>
+        </div>
+        <div class="card">
+          <div class="h">不確実点</div>
+          <div class="t">閉形式導出条件や品質劣化量、クラスタ近傍/VAEの影響、条件付き生成の実装詳細が不足</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+
+      <div class="eyebrow">Takeaway</div>
+      <div class="title">training-free で<span class="em">拡散</span>を速く</div>
+      <p class="lead">efficient-SIDは、単一画像拡散を「パッチ空間の閉形式解」と「注意・潜在・疎化の高速化」で置き換え、品質と速度の両立を狙います。</p>
+
+      <div class="grid three">
+        <div class="card">
+          <div class="h">核心</div>
+          <div class="t">閉形式デノイザ（ニューラル学習なし）</div>
+        </div>
+        <div class="card">
+          <div class="h">高速化</div>
+          <div class="t">FlashAttention / VAE / クラスタ近傍</div>
+        </div>
+        <div class="card">
+          <div class="h">次の確認</div>
+          <div class="t">近似の品質影響、条件付き制御の具体</div>
+        </div>
+      </div>
+
+      <div class="small" style="margin-top:18px; max-width:760px;">
+        用語メモ：training-free（学習なし）、denoiser（デノイズ器）、score（スコア：ノイズからクリーン推定）／日本語補助: アーキテクチャ変更なし＝モデル構造そのものを大きく変えずに適用する方針。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openaccess.thecvf.com/content/CVPR2026/html/Qiu_Efficient_and_Training-Free_Single-Image_Diffusion_Models_CVPR_2026_paper.html" target="_blank" rel="noreferrer noopener">CVPR 2026 Open Access Repository</a></h2>
+<p class="reference-note">These CVPR 2026 papers are the Open Access versions, provided by the Computer Vision Foundation. Except for the watermar…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.paperdigest.org/2026/04/cvpr-2026-papers-highlights" target="_blank" rel="noreferrer noopener">Paper Digest: CVPR 2026 Papers &amp; Highlights</a></h2>
+<p class="reference-note">| 15 | [**Monet: Reasoning in Latent Visual Space Beyond Image and Language**](https://www.paperdigest.org/paper/?paper_…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cvpr.thecvf.com/virtual/2025/35554" target="_blank" rel="noreferrer noopener">Latent Patched Efficient Diffusion Model For High Resolution Image ...</a></h2>
+<p class="reference-note">In this paper, we propose a latent patch diffusion model for unconditional image generation that utilizes neighboring ov…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://cvpr.thecvf.com/virtual/2026/events/Oral" target="_blank" rel="noreferrer noopener">CVPR 2026 Orals</a></h2>
+<p class="reference-note">### A Style is Worth One Code: Unlocking Code-to-Style Image Generation with Discrete Style Space. ### Black-box Members…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://paperswithcode.co/conferences/cvpr-2026/best-paper-finalists" target="_blank" rel="noreferrer noopener">Best paper finalists - CVPR 2026 - Papers with Code</a></h2>
+<p class="reference-note">[Papers _With Code_](https://paperswithcode.co/)[Trending](https://paperswithcode.co/)[Browse state-of-the-art](https://…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
