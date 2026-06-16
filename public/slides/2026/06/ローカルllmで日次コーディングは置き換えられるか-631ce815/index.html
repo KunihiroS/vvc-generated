@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ローカルLLMで日次コーディングは置き換えられるか</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+      overflow: visible;
+    }
+
+    .slide{
+      background: var(--paper);
+      color: var(--ink);
+      border: 20px solid var(--rule);
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      margin: 24px 0;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      overflow: hidden;
+      border-radius: 6px;
+    }
+
+    .slide .tag{
+      position:absolute;
+      top: 18px;
+      left: 18px;
+      font-family: "Inter Tight", system-ui, -apple-system, sans-serif;
+      letter-spacing: 0.12em;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 10px;
+      border-left: 3px solid rgba(232,129,74,0.75);
+    }
+
+    .slide .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 400;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 14px;
+      line-height: 1.1;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      margin: 0 0 14px;
+      color: var(--ink);
+      font-style: italic;
+    }
+
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      font-weight: 300;
+      max-width: 760px;
+      line-height: 1.35;
+      margin-top: 6px;
+    }
+
+    .content{
+      margin-top: 18px;
+      width: 100%;
+      display: block;
+    }
+
+    .grid{
+      display: grid;
+      gap: 16px;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 12px;
+      min-height: 40px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.3;
+      font-weight: 300;
+    }
+
+    .divider{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 0;
+      width: 100%;
+    }
+
+    @media (max-width: 900px){
+      .slide{
+        padding: 40px 34px;
+        border-width: 12px;
+      }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 19px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">日次コーディング移行</div>
+      <div class="title">可能？</div>
+      <div class="lead">クラウドLLMの“日次コーディング”を、ローカルLLMで主に回せるか。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">短い答え</div>
+            <div class="v">置き換えは現実的</div>
+          </div>
+          <div class="cell">
+            <div class="k">条件</div>
+            <div class="v">ガイド前提 × ハーネス工夫</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">前提が違う</div>
+      <div class="title">クラウド差分</div>
+      <div class="lead">ローカルは通信せずに推論できる一方、速度（tok/s）、文脈長、ツール実行（編集/コマンド）の挙動がクラウドとズレやすい。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">速度</div>
+            <div class="v">tok/s と壁時計が一致しない</div>
+          </div>
+          <div class="cell">
+            <div class="k">文脈</div>
+            <div class="v">コンテキスト容量・挙動が差</div>
+          </div>
+          <div class="cell">
+            <div class="k">ツール</div>
+            <div class="v">編集ミス/リトライ設計が重要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">モデル単体ではない</div>
+      <div class="title">土台</div>
+      <div class="lead">“Pi / OpenCode / aider”のようなハーネスは、モデルだけでなくツール呼び出し・失敗時の復帰・コンテキスト管理で成果を左右する。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">モデル</div>
+            <div class="v">賢さの上限</div>
+          </div>
+          <div class="cell">
+            <div class="k">ハーネス</div>
+            <div class="v">成功率の本体</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">勝ち筋の構成</div>
+      <div class="title">ローカル運用</div>
+      <div class="lead">Qwen 3.6（35B-A3B / 27B）やGemma 4を、llama.cpp（Vulkan/ROCm）やPiと組み合わせ、オフライン＋サンドボックスで運用する事例が複数報告されている。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">モデル例</div>
+            <div class="v">Qwen 3.6 / Gemma 4</div>
+          </div>
+          <div class="cell">
+            <div class="k">推論例</div>
+            <div class="v">llama.cpp</div>
+          </div>
+          <div class="cell">
+            <div class="k">基盤例</div>
+            <div class="v">Pi / エージェント枠組み</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">comparison</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">同じ勝負ではない</div>
+      <div class="title">置き換え限界</div>
+      <div class="lead">クラウドの“設計と思考の肩代わり”の強さに比べ、ローカルは指定が曖昧だと雑な最短解へ寄りやすく、編集のやり直し等の失敗も起きやすい。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">曖昧さの結果</div>
+            <div class="v">雑な構成に寄る</div>
+          </div>
+          <div class="cell">
+            <div class="k">実務の結果</div>
+            <div class="v">ループ/編集失敗が増える</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">enumeration</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">改善の型</div>
+      <div class="title">分解と誘導</div>
+      <div class="lead">実用域に到達している説明は共通している：小さく分解、設計を明示、修正点をピンポイント、介入頻度を増やす。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">指示設計</div>
+            <div class="v">小さく分割 × 目的明示</div>
+          </div>
+          <div class="cell">
+            <div class="k">修正運用</div>
+            <div class="v">差分指示 × 介入で収束</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">evidence</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">速さは出る</div>
+      <div class="title">壁時計</div>
+      <div class="lead">速度（tok/s）は十分出せるという報告も多く、MoE（Qwen 3.6 35B-A3B等）、MTP、量子化、最新llama.cpp、preserve_thinking有効化などで“壁時計”の効用をクラウドに近づける声がある。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">モデル工夫</div>
+            <div class="v">MoE</div>
+          </div>
+          <div class="cell">
+            <div class="k">実装工夫</div>
+            <div class="v">MTP / preserve_thinking</div>
+          </div>
+          <div class="cell">
+            <div class="k">最適化</div>
+            <div class="v">量子化 / 最新llama.cpp</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">distinction</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">tok/sだけ見ない</div>
+      <div class="title">判断軸</div>
+      <div class="lead">tok/sより“実作業完了時間（Wall-clock）”で見るべき、という指摘がある。プリフェッチ(prompt processing)が重いと待ちが伸びることもある。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">推奨</div>
+            <div class="v">壁時計で評価</div>
+          </div>
+          <div class="cell">
+            <div class="k">落とし穴</div>
+            <div class="v">prompt処理の待ち</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">process</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">成功率は設定で変わる</div>
+      <div class="title">ハーネス論点</div>
+      <div class="lead">品質とループ/編集失敗は“モデル差だけでなく”ハーネス/パラメータ差が大きい。例：KVキャッシュ有効性、preserve_thinking、コンテキスト再処理の挙動。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">キャッシュ</div>
+            <div class="v">KVキャッシュが効くか</div>
+          </div>
+          <div class="cell">
+            <div class="k">推論状態</div>
+            <div class="v">preserve_thinking</div>
+          </div>
+          <div class="cell">
+            <div class="k">コンテキスト</div>
+            <div class="v">append-only等の前提</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">distinction</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">万能ではない</div>
+      <div class="title">Opus級</div>
+      <div class="lead">“Opus/GPT級の信頼性”を求めるとギャップが残る。設計・複雑修正の一発完了が難しく、結局Claude等に戻る評価もある。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">難所</div>
+            <div class="v">一発設計・複雑修正</div>
+          </div>
+          <div class="cell">
+            <div class="k">現実</div>
+            <div class="v">二段階運用に寄る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">comparison</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">私の着地</div>
+      <div class="title">階層運用</div>
+      <div class="lead">“100%置き換え”より、主作業はローカル化し、残りを上位モデルでレビューする階層運用が最も納得感が高い、という結論に収束している。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">ローカル</div>
+            <div class="v">作業の主担当（実装/反復）</div>
+          </div>
+          <div class="cell">
+            <div class="k">クラウド</div>
+            <div class="v">設計/検証（レビュー）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">最終チェック</div>
+      <div class="title">判断</div>
+      <div class="lead">ローカル移行は「AIに任せたときに失敗しやすい箇所（編集ツール、仕様解釈、テスト導線、コンテキスト容量）」を先に洗い出すべき。Venice等の代替は提示情報が不足しており“常に最適”は言い切れない。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">準備</div>
+            <div class="v">失敗点を列挙</div>
+          </div>
+          <div class="cell">
+            <div class="k">設計</div>
+            <div class="v">ハーネス/設定で勝つ</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">“目的と制約次第”</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.instagram.com/reel/DOJxix5jK9j" target="_blank" rel="noreferrer noopener">send this to your parents… and reply to that text - Instagram</a></h2>
+<p class="reference-note">FAU bound and still can&#39;t believe we made it here. From long nights to early mornings…Lennox did that. Next stop: Florid…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.weareteachers.com/parent-email-templates" target="_blank" rel="noreferrer noopener">9 Templates To Help You Respond to Parent Emails</a></h2>
+<p class="reference-note">I’ll be able to tell my grandchild, “You know, when I was a teacher, I had to spend a big part of my day emailing parent…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.fishbowlapp.com/post/how-quickly-do-you-reply-to-parent-emails-a-parent-called-the-school-because-i-had-not-replied-to-the-email-that-she-sent" target="_blank" rel="noreferrer noopener">How quickly do you reply to parent emails? A paren... - Fishbowl</a></h2>
+<p class="reference-note">I have told all of my parents I will respond within 24-48 hours. I don&#39;t think that expecting you to reply in less than …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://thesimpleclassroom.com/blog/2019/7/9/how-to-respond-to-parent-emails-pd-in-plain-english" target="_blank" rel="noreferrer noopener">Four Steps for Responding to Parent Emails as a Teacher — The Simple Classroom</a></h2>
+<p class="reference-note">I had to think on the fly at the time, but I have since been able to formulate a more clear answer to this question, and…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/Teachers/comments/1fmz5ci/how_do_you_feel_about_parent_emails_after_hours" target="_blank" rel="noreferrer noopener">How do you feel about parent emails after hours? : r/Teachers</a></h2>
+<p class="reference-note"># How do you feel about parent emails after hours? Skip to main contentHow do you feel about parent emails after hours? …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
