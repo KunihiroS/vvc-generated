@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ローカルLLM × エージェント的ループ：実用段階へ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 48px;
+      display: block;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset: 0;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(240,232,216,0.03),
+          rgba(240,232,216,0.03) 1px,
+          transparent 1px,
+          transparent 64px
+        );
+      opacity: .35;
+      pointer-events: none;
+    }
+    .topline{
+      position: absolute; left: 72px; right: 72px; top: 44px;
+      display:flex; align-items:center; justify-content:space-between;
+      z-index: 2;
+      border-top: 2px solid var(--rule-strong);
+      padding-top: 10px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 46px; height: 2px;
+      background: var(--rust);
+      display:inline-block;
+      opacity: .95;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+    }
+    .content{
+      position: relative;
+      z-index: 2;
+      margin-top: 46px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 78px;
+      margin: 0 0 14px;
+      line-height: 1;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      margin: 0;
+      max-width: 760px;
+      color: var(--ink);
+    }
+    .grid{
+      margin-top: 22px;
+      border-top: 1px solid var(--rule);
+      padding-top: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(28,24,19,0.35);
+      padding: 14px 16px;
+      border-radius: 12px;
+      min-height: 82px;
+    }
+    .cell .label{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      font-size: 12px;
+      text-transform: uppercase;
+      display:flex; align-items:baseline; gap: 10px;
+      margin-bottom: 8px;
+    }
+    .cell .label i{
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0;
+      text-transform: none;
+      font-weight: 400;
+      font-size: 16px;
+    }
+    .cell .text{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+      font-family: "Noto Serif JP", serif;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 14px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .codebox{
+      margin-top: 18px;
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.18);
+      border-radius: 12px;
+      padding: 14px 16px;
+      max-width: 880px;
+    }
+    .note{
+      margin-top: 16px;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.5;
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .refs{
+      margin-top: 18px;
+      border-top: 1px solid var(--rule);
+      padding-top: 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: var(--ink-2);
+      background: rgba(28,24,19,0.35);
+    }
+    a{ color: var(--ink); text-decoration: underline; text-decoration-color: rgba(232,129,74,0.65); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="topline">
+        <div class="slide-tag">LOCAL LLM / エージェント</div>
+        <div class="slide-num">01 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">ローカルで“回る”時代へ</p>
+        <h1 class="title">ローカルLLMは <em>実用</em>へ</h1>
+        <p class="lead">ローカルLLMは、単なるチャットから開発ワークフローへ入りつつあり、エージェント的な“ループ処理”も現実的になってきた。</p>
+        <p class="note">言葉の対応：ローカルLLM（Local LLM）／エージェント（Agent）／ループ（Plan→Act→Reflect→Fix）</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM / 懸念</div>
+        <div class="slide-num">02 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“できる”と“使える”</p>
+        <h2 class="title">課題は速度・精度・運用</h2>
+        <p class="lead">ローカルでは推論が遅くなりやすく、コンテキストも小さくなりがちで、さらにプロンプトやテンプレのズレが失敗の原因になる。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label"><i>i</i>速度 / speed</div>
+            <div class="text">推論が重いとループ（複数ステップ）が回りにくい。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>文脈長 / context</div>
+            <div class="text">入力が長いほど保持できず、途中で破綻しやすい。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iii</i>テンプレ / templates</div>
+            <div class="text">エージェント用の入力形式にズレがあると手戻りが増える。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iv</i>安全運用 / safety</div>
+            <div class="text">エージェントは実行・修正を含むため、権限制限が重要。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR / たとえ</div>
+        <div class="slide-num">03 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">チャット→作業員</p>
+        <h2 class="title">“単発”では <em>足りない</em></h2>
+        <p class="lead">エージェント的コーディングは、計画して実行し、失敗を見て修正する前提なので、精度不足が連鎖しやすい。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="label"><i>i</i>Plan</div>
+            <div class="text">方針（何をどう直すか）を立てる。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>Act</div>
+            <div class="text">コード生成・ツール実行を行う。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iii</i>Reflect</div>
+            <div class="text">結果を観測して修正点を決める。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iv</i>Fix</div>
+            <div class="text">直し直して、また次のループへ。</div>
+          </div>
+          <div class="cell" style="grid-column: span 2;">
+            <div class="label"><i> </i>結論</div>
+            <div class="text">“少しの誤り”が、ループでは“手戻り”として見える。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE / 構成</div>
+        <div class="slide-num">04 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">分離して繋ぐ</p>
+        <h2 class="title">LLM（推論）＋ハーネス＋制限</h2>
+        <p class="lead">ローカルでエージェントを回すには、推論エンジン（例：llama.cpp / Ollama / LM Studio）とモデル、そしてエージェントハーネス（例：Pi）を繋ぐ。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="label"><i>i</i>Inference</div>
+            <div class="text">LM Studio等で推論サーバを立てる。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>Model</div>
+            <div class="text">量子化モデル等のファイルを用意する。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iii</i>Harness</div>
+            <div class="text">Piが“ループ実行”を制御する。</div>
+          </div>
+          <div class="cell" style="grid-column: span 3;">
+            <div class="label"><i>iv</i>Security</div>
+            <div class="text">Dockerで権限を絞り、Python実行やWeb閲覧などを禁止（必要なら別方針）にする。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE / 指標</div>
+        <div class="slide-num">05 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">体感で“足切り”判定</p>
+        <h2 class="title">評価軸は手戻り</h2>
+        <p class="lead">理論ベンチより、著者は「APIモデルと照合するためにどれだけ手戻りが要るか」で、ローカルLLMの実務価値を見ている。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label"><i>i</i>観点</div>
+            <div class="text">開発で“二重確認”が増えるほど、導入コストが上がる。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>狙い</div>
+            <div class="text">「十分に使えるか」を、運用に近い形で判断する。</div>
+          </div>
+        </div>
+        <p class="note">この指標は厳密統計ではないが、「自分の用途に換算」しやすい。</p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE / 改善点</div>
+        <div class="slide-num">06 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">Gemma 4が転換点</p>
+        <h2 class="title">精度・速度が“届く”</h2>
+        <p class="lead">記事では、Gemma 4系の登場により、ローカルでのエージェント的コーディングが現実的な領域へ入ったと主張している。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="label"><i>i</i>変化</div>
+            <div class="text">単発生成から、ループ前提の作業へ。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>比較</div>
+            <div class="text">フロンティアモデルに対し“約75%”の場面がある。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iii</i>意味</div>
+            <div class="text">失敗→修正が続くワークフローに適用しやすい。</div>
+          </div>
+        </div>
+        <p class="note">※「約75%」は論文の統計測定ではなく、著者の運用体感のニュアンス。</p>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="comparison">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON / 位置づけ</div>
+        <div class="slide-num">07 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“社内検索”のように使う</p>
+        <h2 class="title">AIは相棒ではなく <em>作業道具</em></h2>
+        <p class="lead">著者はローカルモデルを、開発支援の「高速でパーソナライズされた社内検索」のように扱い、必要な手戻り量で採否を決めている。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label"><i>i</i>ローカルLLM</div>
+            <div class="text">手元条件で反復でき、調整と観測がしやすい。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>APIモデル</div>
+            <div class="text">照合の基準になり得るが、二重確認コストがある。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="process">
+      <div class="topline">
+        <div class="slide-tag">PROCESS / 運用ループ</div>
+        <div class="slide-num">08 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">計測して改善する</p>
+        <h2 class="title">観測可能性が“回る”理由</h2>
+        <p class="lead">tokenの推論進行や入力/出力、コンテキスト長、量子化やシステムプロンプトの変更で性能変化を確認できる。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="label"><i>i</i>観測</div>
+            <div class="text">推論の進み方・出力の変化を追える。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>調整</div>
+            <div class="text">量子化・コンテキスト・プロンプトを変更する。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iii</i>検証</div>
+            <div class="text">手戻り量や成功/失敗の傾向で判断する。</div>
+          </div>
+        </div>
+        <p class="note">“便利”より“エンジニアリング対象化”が進む。</p>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="topline">
+        <div class="slide-tag">SECURITY / 制限</div>
+        <div class="slide-num">09 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">サンドボックスで事故予防</p>
+        <h2 class="title">Dockerで権限を絞る</h2>
+        <p class="lead">エージェントは危険な操作をしがちなので、コンテナ化してPython実行やWeb閲覧などを禁止し、必要時だけ別イメージで許可する方針が示されている。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label"><i>i</i>禁止</div>
+            <div class="text">Python実行／Web閲覧などを基本的に止める。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>許可</div>
+            <div class="text">curl等は将来の方針として分離（例：別イメージで許可予定）。</div>
+          </div>
+          <div class="cell" style="grid-column: span 2;">
+            <div class="label"><i>iii</i>理由</div>
+            <div class="text">ループが回るほど誤動作の影響範囲が広がるため、先回りが効く。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="distinction">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION / 境界</div>
+        <div class="slide-num">10 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">本番はまだ慎重に</p>
+        <h2 class="title">“完全に到達”ではない</h2>
+        <p class="lead">著者は、推論速度、コンテキストウィンドウの小ささ、プロンプトテンプレ不一致などの運用課題が残るため、導入過信は危険だと明言している。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="label"><i>i</i>速度</div>
+            <div class="text">ループの回転数に影響する。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>コンテキスト</div>
+            <div class="text">タスクが大きいほどボトルネックになる。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>iii</i>テンプレズレ</div>
+            <div class="text">初期の設定ミスマッチが手戻りを生む。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="comparison">
+      <div class="topline">
+        <div class="slide-tag">TAKEAWAY / 要点</div>
+        <div class="slide-num">11 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">導入判断のコツ</p>
+        <h2 class="title">“用途＋安全＋検証手順”で決める</h2>
+        <p class="lead">ローカルLLMは改善しているが、責任は自分側に増えるので、用途と安全設計と検証手順まで含めて判断すべきだ。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label"><i>i</i>用途</div>
+            <div class="text">ループが必要な開発タスクほど、成功/失敗の再現性が重要。</div>
+          </div>
+          <div class="cell">
+            <div class="label"><i>ii</i>安全</div>
+            <div class="text">Docker等で権限制限し、生成コードの実行経路を管理する。</div>
+          </div>
+          <div class="cell" style="grid-column: span 2;">
+            <div class="label"><i>iii</i>検証</div>
+            <div class="text">速度・コンテキスト・手戻り量・生成コード品質を、自分の条件で測る。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="references">
+      <div class="topline">
+        <div class="slide-tag">REFERENCES / 参考</div>
+        <div class="slide-num">12 / 15</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">原典を当てに行く</p>
+        <h2 class="title">読むべき論点 <em>一覧</em></h2>
+        <p class="lead">このデッキはユーザー提供の要約を圧縮したものです。元記事では、構成・運用・Docker制限・観測方法・Gemma 4の位置づけが鍵になります。</p>
+        <div class="refs" role="list">
+          <div class="ref" role="listitem">
+            <div class="mono">ローカルLLMの構成（推論エンジン例：llama.cpp / Ollama / LM Studio、モデル、Pi等のエージェントハーネス）</div>
+          </div>
+          <div class="ref" role="listitem">
+            <div class="mono">Gemma 4系：ローカルでエージェント的コーディングが回る領域／“約75%”の比較ニュアンス</div>
+          </div>
+          <div class="ref" role="listitem">
+            <div class="mono">Dockerセキュリティ：権限を絞り、Python実行やWeb閲覧を禁止（必要なら分離して許可）</div>
+          </div>
+          <div class="ref" role="listitem">
+            <div class="mono">観測可能性：token進行、入出力追跡、コンテキスト長・量子化・システムプロンプト変更の比較</div>
+          </div>
+          <div class="ref" role="listitem">
+            <div class="mono">本番適用の注意点：速度、コンテキスト、プロンプトテンプレ不一致、検証の境界条件</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b" target="_blank" rel="noreferrer noopener">Introducing Gemma 4 12B: a unified, encoder-free multimodal model</a></h2>
+<p class="reference-note">[Skip to main content](https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b#jump-co…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://lmstudio.ai/models/google/gemma-4-12b-qat" target="_blank" rel="noreferrer noopener">google/gemma-4-12b-qat • LM Studio</a></h2>
+<p class="reference-note"># gemma-4-12b-qat. Gemma 4 12B optimized with Quantized Aware Training. Updated 2 hours agobylmmy&#39;s profile picture. Gem…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://developers.googleblog.com/gemma-4-12b-the-developer-guide" target="_blank" rel="noreferrer noopener">Gemma 4 12B: The Developer Guide</a></h2>
+<p class="reference-note">*   [](https://developers.googleblog.com/gemma-4-12b-the-developer-guide# &quot;Get shareable link&quot;). Following the announcem…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.labellerr.com/blog/gemma-4-12b-run-locally-and-fine-tune" target="_blank" rel="noreferrer noopener">Gemma 4 12B : Run Locally, Fine-Tune, Benchmark Performance</a></h2>
+<p class="reference-note"># Gemma 4 12B : Run Locally, Fine-Tune, Benchmark Performance. Google Gemma 4 12B introduces an encoder-free multimodal …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.kunalganglani.com/blog/gemma-4-12b-local-llm-vs-api" target="_blank" rel="noreferrer noopener">Gemma 4 12B vs GPT-4o Mini vs Claude Haiku [2026 Benchmark]</a></h2>
+<p class="reference-note">That&#39;s when I pulled the trigger on running Gemma&#39;s 12B model locally via Ollama and started benchmarking it against GPT…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
