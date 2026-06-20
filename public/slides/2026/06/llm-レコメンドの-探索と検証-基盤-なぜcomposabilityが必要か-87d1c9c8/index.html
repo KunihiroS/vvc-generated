@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM/レコメンドの“探索と検証”基盤：なぜcomposabilityが必要か</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.55;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+    .topline{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 10px;
+      line-height: 1;
+      margin-top: 0;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 28px;
+      line-height: 1;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+      margin-bottom: 6px;
+    }
+    .title{
+      font-size: 68px;
+      font-weight: 500;
+      line-height: 1.05;
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+    .title .rust{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      font-weight: 300;
+    }
+    .rule{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 122px;
+      height:1px;
+      background: var(--rule);
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      margin-top: 18px;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 2px;
+      background: rgba(240,232,216,0.03);
+      min-height: 62px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px 14px;
+      margin-top: 18px;
+      max-width: 1040px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .small{
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .footnote{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 56px;
+      color: var(--ink-3);
+      font-size: 16px;
+      font-weight: 300;
+      max-width: 980px;
+    }
+    .tagline-1{
+      position:absolute;
+      left: 72px;
+      bottom: 46px;
+      right: 72px;
+      color: var(--ink-3);
+      font-size: 16px;
+      font-weight: 300;
+    }
+    .no-center{
+      text-align:left;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- 1 / 12 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topline">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">LLM×recsysの反復課題</div>
+      <h1 class="title"><span class="rust">composability</span>が要る</h1>
+      <p class="lead">複雑なLLMの研究は「モデル定義を変えるだけ」では回りにくい。だから最初から“合成可能”な基盤と“検証できる”ベースラインが必要になる（合成可能性 composability）</p>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topline">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">変更→比較→改善が崩れる</div>
+      <h2 class="title"><span class="rust">探索</span>が成立しない</h2>
+      <p class="lead">attention変種、MoEルーティング、視覚/音声エンコーダ統合、複数GPU推論の通信コストなどで運用が重くなった。結果として「試す→比べる→改善」の反復が、性能差で途切れやすい。</p>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="topline">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">“遅い実験”は負担</div>
+      <h2 class="title"><span class="rust">性能</span>が必須化</h2>
+      <p class="lead">recsysでは性能（速度・効率）が“オプション”ではなく“成立条件”になりやすい。LLMでも同様に、Bが大幅に遅いと比較の前に研究が止まる。</p>
+      <div class="grid2" role="presentation" aria-label="Performance load">
+        <div class="cell">
+          <div class="k">昔の感覚</div>
+          <div class="v">少し遅い差し替えでも許容</div>
+        </div>
+        <div class="cell">
+          <div class="k">今の臨界</div>
+          <div class="v">Bが「十倍遅い」だけで探索不能</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topline">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">構造＋運用の複合体</div>
+      <h2 class="title"><span class="rust">モデル</span>はシステム化</h2>
+      <p class="lead">LLMはTransformer外の要素も増え、正しさ（実装）と速度（カーネル/通信）が結び付いた。研究対象は論文の数式だけでなく“実装・システム”まで広がる。</p>
+      <div class="grid3" role="presentation" aria-label="Complexity types">
+        <div class="cell">
+          <div class="k">構造の増加</div>
+          <div class="v">attention変種 / MoE</div>
+        </div>
+        <div class="cell">
+          <div class="k">モジュール統合</div>
+          <div class="v">音声・視覚エンコーダ</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用の増加</div>
+          <div class="v">複数GPU通信境界</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">自動化だけでは不足</div>
+      <h2 class="title"><span class="rust">自動最適化</span>の落とし穴</h2>
+      <p class="lead">PyTorch/JAX定義→最適fused kernelへの変換には、まず“正しさ”を確かめるベースラインが要る。さらに性能差が大きいと比較以前に破綻する。</p>
+      <div class="grid2" role="presentation" aria-label="Automation gaps">
+        <div class="cell">
+          <div class="k">必要条件(正しさ)</div>
+          <div class="v">等価性・バグ有無の検証</div>
+        </div>
+        <div class="cell">
+          <div class="k">必要条件(成立)</div>
+          <div class="v">比較できる速度で回ること</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">探索コストを下げる</div>
+      <h2 class="title"><span class="rust">FlexAttention</span>の狙い</h2>
+      <p class="lead">Tritonテンプレート等でattention系カーネル群を生成し、検証可能性と探索コスト低減を両立する。手作業のフル最適化に比べ、差し替え比較を先に進められる。</p>
+      <div class="grid2" role="presentation" aria-label="FlexAttention effects">
+        <div class="cell">
+          <div class="k">部品生成</div>
+          <div class="v"><span class="mono">attention</span>カーネルをテンプレートから</div>
+        </div>
+        <div class="cell">
+          <div class="k">検証ループ</div>
+          <div class="v">軽いコストで正しさを確認</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide" aria-label="Enumeration">
+      <div class="topline">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">必要な3つ</div>
+      <h2 class="title"><span class="rust">基盤</span>の条件</h2>
+      <p class="lead">解の要点は「合成可能性」「固定ベースライン」「探索段階からの軽い比較」。後から頑張って統合するだけでは追いつかない。</p>
+      <div class="grid3" role="presentation" aria-label="Three requirements">
+        <div class="cell">
+          <div class="k">i <span class="rust-deep" style="color:var(--rust-deep);font-style:italic;">合成可能</span></div>
+          <div class="v">composabilityを最初から</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii <span class="rust-deep" style="color:var(--rust-deep);font-style:italic;">検証土台</span></div>
+          <div class="v">固定のベースラインを保持</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii <span class="rust-deep" style="color:var(--rust-deep);font-style:italic;">軽い比較</span></div>
+          <div class="v">探索から“比較”コストを抑える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide" aria-label="Process">
+      <div class="topline">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">研究の反復ループ</div>
+      <h2 class="title"><span class="rust">探索</span>を設計する</h2>
+      <p class="lead">“オートリサーチ的ループ”を強くするには、賢い自動化より先に試せる研究基盤が要る。アーキテクチャを本質に切り出し、合成可能にする。</p>
+      <div class="grid2" role="presentation" aria-label="Research loop redesign">
+        <div class="cell">
+          <div class="k">before</div>
+          <div class="v">差し替えが重い / 検証が不確実</div>
+        </div>
+        <div class="cell">
+          <div class="k">after</div>
+          <div class="v">軽い比較 / 正しさ確認 / 探索が回る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="topline">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">“後から最適化” vs “前から設計”</div>
+      <h2 class="title"><span class="rust">時間</span>の使い方</h2>
+      <p class="lead">手作業でカーネルを融合・最適化しようとすると時間がかかり、投資価値の検証が難しくなる。だから“探索の段階から”軽い差し替えを成立させる必要がある。</p>
+      <div class="grid2" role="presentation" aria-label="Approach tradeoff">
+        <div class="cell">
+          <div class="k">後から作り込む</div>
+          <div class="v">比較前にコスト発生 / 検証が遅れる</div>
+        </div>
+        <div class="cell">
+          <div class="k">最初から合成可能</div>
+          <div class="v">探索で候補を絞れる / 破綻しにくい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide" aria-label="Conclusion">
+      <div class="topline">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">本質は“回るための条件”</div>
+      <h2 class="title"><span class="rust">結論</span></h2>
+      <p class="lead">LLMの複雑化で、性能と検証が研究ループを支配する。composability（合成可能性）と固定ベースラインが揃うほど、探索は現実に回り始める。</p>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide" aria-label="My opinion">
+      <div class="topline">
+        <div class="slide-tag">Opinion</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">納得できる強み／不足点</div>
+      <h2 class="title"><span class="rust">評価</span>の視点</h2>
+      <p class="lead">文章の強みは、アルゴリズムよりも探索と検証の基盤（実装・性能）に焦点を当てた点。弱点は、ベースライン定義や指標の具体が不足し、適用境界が読み取りにくい点。</p>
+      <div class="grid3" role="presentation" aria-label="Strength and risk">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">“探索の臨界”を実務で捉える</div>
+        </div>
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">FlexAttentionのような具体方向性</div>
+        </div>
+        <div class="cell">
+          <div class="k">不足</div>
+          <div class="v">許容劣化・評価手順の粒度</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide" aria-label="References">
+      <div class="topline">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">参照の手がかり</div>
+      <h2 class="title"><span class="rust">関連キーワード</span></h2>
+      <p class="lead">原文で触れられているテーマを、読む際の導線としてまとめます（詳細は原典で確認）。</p>
+      <div class="grid2" role="presentation" aria-label="Reference map">
+        <div class="cell">
+          <div class="k">LLM</div>
+          <div class="v">attention変種 / MoE（ルーティング）/ マルチモーダル統合 / 分散推論</div>
+        </div>
+        <div class="cell">
+          <div class="k">Systems</div>
+          <div class="v">GPU通信コスト / fused kernel / Triton / PyTorch（FlexAttention）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Method</div>
+          <div class="v">composability（合成可能性）/ base line（検証土台）/ 軽い比較</div>
+        </div>
+        <div class="cell">
+          <div class="k">Analogy</div>
+          <div class="v">recsys（2-tower, スパースNN）/ 性能が成立条件へ</div>
+        </div>
+      </div>
+      <div class="footnote">注：本スライドは、ユーザー提供の要約・ポイント・意見（数値欠如）に基づく再構成です。</div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://developer.nvidia.com/blog/nvidia-nemotron-3-ultra-powers-faster-more-efficient-reasoning-for-long-running-agents" target="_blank" rel="noreferrer noopener">NVIDIA Nemotron 3 Ultra Powers Faster, More Efficient Reasoning ...</a></h2>
+<p class="reference-note">[Related Resources](https://developer.nvidia.com/blog/nvidia-nemotron-3-ultra-powers-faster-more-efficient-reasoning-for…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://coderabbit.ai/blog/nemotron-3-ultra-release" target="_blank" rel="noreferrer noopener">Nemotron 3 Ultra makes the case for fast, open coding models</a></h2>
+<p class="reference-note">[Resources](https://www.coderabbit.ai/blog/nemotron-3-ultra-release?). *   [What is different this time](https://www.cod…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/LocalLLaMA/comments/1rqy3cx/nemotron_3_super_released" target="_blank" rel="noreferrer noopener">Nemotron 3 Super Released : r/LocalLLaMA - Reddit</a></h2>
+<p class="reference-note"># Nemotron 3 Super Released : r/LocalLLaMA. [Skip to main content](https://www.reddit.com/r/LocalLLaMA/comments/1rqy3cx/…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ollama.com/library/nemotron-3-ultra" target="_blank" rel="noreferrer noopener">nemotron-3-ultra</a></h2>
+<p class="reference-note">## NVIDIA Nemotron 3 Ultra is built for high-throughput reasoning and long-running agent workflows. ollama run nemotron-…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.latent.space/p/ainews-nvidia-cosmos-3-nemotron-3" target="_blank" rel="noreferrer noopener">[AINews] NVIDIA Cosmos 3, Nemotron 3 Ultra, and RTX Spark</a></h2>
+<p class="reference-note"># [AINews] NVIDIA Cosmos 3, Nemotron 3 Ultra, and RTX Spark. Fittingly, Cosmos 3 launched today, unifying language, imag…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
