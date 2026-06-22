@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Codex SQLite診断ログがTRACEで大量書き込み—SSD TBWリスク</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      box-sizing: border-box;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      left: 20px;
+      right: 20px;
+      top: 20px;
+      bottom: 20px;
+      border: 1px solid rgba(240, 232, 216, 0.14);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 34px;
+      left: 44px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-size: 13px;
+    }
+
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 12px;
+      height: 1px;
+      background: var(--rust);
+      margin-right: 10px;
+      transform: translateY(-5px);
+      opacity: 0.85;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 34px;
+      right: 44px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 12px 0;
+      line-height: 1.05;
+      max-width: 720px;
+      position: relative;
+      top: 6px;
+    }
+
+    .title{
+      font-size: 66px;
+      line-height: 1.0;
+      margin: 0 0 14px 0;
+      font-weight: 500;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .title em{
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      margin: 0;
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    .grid2{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+      margin-top: 20px;
+      max-width: 880px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      box-sizing: border-box;
+      background: rgba(28,24,19,0.35);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.03em;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 400;
+      font-size: 16px;
+      color: var(--ink);
+    }
+
+    .rule-line{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin-top: 18px;
+      margin-bottom: 18px;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 42px 28px; }
+      .slide-tag{ left: 22px; top: 26px; }
+      .slide-num{ right: 22px; top: 26px; }
+      .eyebrow{ font-size: 20px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">Codex / SQLite</div>
+      <div class="slide-num">02 / 14</div>
+      <p class="eyebrow">診断ログ × 書き込み</p>
+      <h2 class="title"><em>TRACE</em>で</h2>
+      <p class="lead">CodexのSQLiteフィードバック（診断）ログが、TRACEを含む詳細レベルで継続的に永続化され、SSDのTBW（書き込み耐久）を短期間で消費し得る—という懸念がGitHub issueで示されています。</p>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 14</div>
+      <p class="eyebrow">現象の核</p>
+      <h2 class="title">SSDが先に</h2>
+      <p class="lead">観測では約21日稼働でSSDに約37TB書き込み、年換算で約640TB/年規模という見立てもあり、一般的なTBW（例：600TBW級）に届く可能性が問題視されています。</p>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">mechanism</div>
+      <div class="slide-num">04 / 14</div>
+      <p class="eyebrow">なぜ増える？</p>
+      <h2 class="title">WALが膨らむ</h2>
+      <p class="lead">SQLiteはWALモードで高速化しますが、ログ量が多いと<em class="mono">-wal</em>ファイルが膨らみやすくなります。さらに、保持行数だけでは実書き込み量（書き込み増幅）を見誤り得ます。</p>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">05 / 14</div>
+      <p class="eyebrow">内訳が示唆</p>
+      <h2 class="title">TRACE比率</h2>
+      <p class="lead">保持データの約7割がTRACEで、対象はWebSocket/SSEやOpenTelemetry（<span class="mono">codex_otel.*</span>）のミラー系、加えて内部ライブラリ由来の低価値ログ（<span class="mono">hyper_util</span> / <span class="mono">toki-tungstenite</span>系、inotifyノイズなど）が多いと分析されています。</p>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">06 / 14</div>
+      <p class="eyebrow">“保持”と“書き込み”</p>
+      <h2 class="title">別物かも</h2>
+      <p class="lead">例として、短い時間窓で挿入行数が増えてもretained rowsが頭打ちになると、挿入→反映→プルーニングの過程で内部更新が発生し、結果としてWAL書き込みが増える可能性が示唆されます。</p>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">impact</div>
+      <div class="slide-num">07 / 14</div>
+      <p class="eyebrow">最悪の副作用</p>
+      <h2 class="title">データ損失へ</h2>
+      <p class="lead">ディスクが満杯になればログイン失敗などの深刻な副作用があり得ます。単なる遅さではなく、アプリの根幹動作を阻害する安全面の懸念として扱われています。</p>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">proposal</div>
+      <div class="slide-num">08 / 14</div>
+      <p class="eyebrow">方向性</p>
+      <h2 class="title">永続化フィルタ</h2>
+      <p class="lead">機能（フィードバックログ）自体は維持しつつ、SQLiteへ保存するデフォルトフィルタを狭めます。TRACEの全対象常時保存をやめ、INFO+中心へ落とす方針が議論されています。</p>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">controls</div>
+      <div class="slide-num">09 / 14</div>
+      <p class="eyebrow">抑える手</p>
+      <h2 class="title">書き込み予算</h2>
+      <p class="lead">WebSocket/SSEの生ペイロードをデフォルト保存せずサマリ化、ミラーイベントは必要時のみ保存、さらにグローバルなサイズ/書き込み上限（予算）を設ける案が挙げられています。</p>
+
+      <div class="grid2" aria-label="対策案">
+        <div class="cell">
+          <div class="k">保存の粒度</div>
+          <div class="v">TRACEの削減 / INFO+中心（デフォルト）</div>
+        </div>
+        <div class="cell">
+          <div class="k">生データ回避</div>
+          <div class="v">WebSocket/SSEの“生ペイロード”を抑制</div>
+        </div>
+        <div class="cell">
+          <div class="k">必要時だけ</div>
+          <div class="v">ミラー系は明示的に必要な場合のみ</div>
+        </div>
+        <div class="cell">
+          <div class="k">上限設計</div>
+          <div class="v">ログDBのサイズ/書き込み予算を固定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">tradeoff</div>
+      <div class="slide-num">10 / 14</div>
+      <p class="eyebrow">価値の落差</p>
+      <h2 class="title">診断の品質</h2>
+      <p class="lead">TRACEを常時落とすと、再現解析に必要な詳細が不足するトレードオフが起きます。理想は「常時TRACE停止」だけでなく、必要時に詳細へ切替できる設定（kill-switch/オン/サンプリング/サイズ予算）です。</p>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">operational</div>
+      <div class="slide-num">11 / 14</div>
+      <p class="eyebrow">応急処置</p>
+      <h2 class="title">WAL切り詰め</h2>
+      <p class="lead">暫定回避策として、WALの抑制・ログ/ファイル削除・Codexプロセス強制終了を組み合わせるスクリプトが提示されました。ただし停止中の損失や失敗リスクがあり、緊急回避の位置付けです。</p>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">limits</div>
+      <div class="slide-num">12 / 14</div>
+      <p class="eyebrow">疑うポイント</p>
+      <h2 class="title">年換算の不確実</h2>
+      <p class="lead">年換算（約640TB/年）は観測環境依存で、OSキャッシュや他プロセス、ログ以外のファイル操作の影響をどれだけ排除できたかは不明です。書き込み増幅の起点や最大サイズ/保持ルールが詳細化されるほど、優先度再評価できます。</p>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 14</div>
+      <p class="eyebrow">結論</p>
+      <h2 class="title">設計で止める</h2>
+      <p class="lead">本件は“ログが多い”だけでなく、TRACEの広すぎる永続化とSQLite/WALの挙動が、SSD耐久というハード制約へ直結し得る点が強い根拠です。優先度は高く、ログ圧縮・要約・上限・保持戦略まで含めた早期の被害最小化が望まれます。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
