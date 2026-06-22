@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LLM-as-a-judgeが“自己修正”を壊す</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 0 32px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px inset var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:before{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px inset rgba(240, 232, 216, 0.08);
+      pointer-events:none;
+    }
+    .slide-header{
+      display:flex; align-items: baseline; justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      font-size: 13px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-left: 4px solid rgba(232,129,74,0.0);
+      padding-left: 10px;
+      position: relative;
+      white-space: nowrap;
+    }
+    .slide-tag:before{
+      content:"";
+      position:absolute;
+      left:0; top: 50%;
+      transform: translateY(-50%);
+      width: 3px; height: 14px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.2);
+      border-radius: 2px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      font-weight: 500;
+      margin: 10px 0 12px;
+      color: var(--ink);
+      font-style: italic;
+      line-height: 0.95;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", "Noto Serif", serif;
+      font-style: normal;
+      font-size: 84px;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 0.96;
+      margin: 6px 0 12px;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+      line-height: 1.55;
+      margin-top: 10px;
+    }
+    .rule{
+      border-top: 1px solid var(--rule);
+      margin: 18px 0 18px;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      margin-top: 10px;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid rgba(240,232,216,0.10);
+      padding: 16px 18px;
+      border-radius: 12px;
+      background: rgba(240,232,216,0.02);
+    }
+    .cell .k{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 500;
+      font-size: 14px;
+      color: var(--ink-2);
+    }
+    .em{
+      color: var(--ink);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .small{
+      font-size: 16px !important;
+      font-weight: 350 !important;
+    }
+    .centerWrap{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 14px;
+    }
+    .bottom-note{
+      position:absolute;
+      left: 72px; right: 72px; bottom: 22px;
+      height: 1px;
+      background: transparent;
+    }
+    .bottombar{
+      position:absolute;
+      left: 72px; right: 72px; bottom: 34px;
+      border-top: 1px solid var(--rule-strong);
+      opacity: 0.9;
+    }
+    .slide .ref{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+    .listish{
+      display:flex; flex-direction: column; gap: 10px;
+      margin-top: 10px;
+      max-width: 980px;
+    }
+    .li{
+      display:flex; gap: 12px; align-items: flex-start;
+      padding: 14px 16px;
+      border: 1px solid rgba(240,232,216,0.10);
+      border-radius: 12px;
+      background: rgba(240,232,216,0.02);
+    }
+    .bullet{
+      width: 22px; height: 22px;
+      border-radius: 7px;
+      border: 1px solid rgba(232,129,74,0.45);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 16px;
+      display:flex; align-items:center; justify-content:center;
+      flex: 0 0 auto;
+      margin-top: 2px;
+    }
+    .li .t{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- 01 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="centerWrap">
+        <div class="eyebrow"><em>generate→judge→iterate</em> 崩壊</div>
+        <div class="title jp">LLM-as-a-judge</div>
+        <div class="title" style="font-size:72px; margin-top:-6px;">自己修正</div>
+        <div class="lead" style="max-width:820px;">
+          LLMが自分の成果を評価して反復改善する閉ループは、<span class="em">信頼境界</span>がズレると動かなくなります。形式仕様では見逃しが致命的になります。
+          <span style="display:block; margin-top:10px; color: var(--ink-3); font-weight:300; font-family: Noto Serif JP;">(閉ループ / Japanese: 閉ループ)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="eyebrow">Trust boundary 問題</div>
+      <div class="title jp" style="font-size:78px;">評価は地面にならない</div>
+      <div class="lead">
+        生成（コード/仕様）も評価（LLM-as-a-judge）も、同じ系統の推論に依存すると、<span class="em">同じ種類の見落とし</span>が相関します。すると合否判定が「正しさ」を保証せず、反復は同じ誤りを強化します。
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="eyebrow">砂の上の反復</div>
+      <div class="title jp" style="font-size:78px;">地面が移動する</div>
+      <div class="lead">
+        評価器が見逃す失敗は、生成器の失敗と同じ方向に偏ることがあり得ます。閉ループでは「直したつもり」が、<span class="em">地面が砂</span>のまま進み続けます。
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="eyebrow">Verus-SpecGym 26%</div>
+      <div class="title jp" style="font-size:78px;">見逃しは約26%</div>
+      <div class="lead">
+        Verus-SpecGymでは、非公式課題文をRustの形式仕様（Verus）へ落とし込むタスクで、LLMベース判定が実オラクル（exec_spec/公式テスト/アドバーサリアル）で見つかる失敗の<span class="em">約26%</span>を見逃しました。
+        <span style="display:block; margin-top:10px; color: var(--ink-3); font-weight:300;">(数値: 約26% / Japanese: 約26%)</span>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="eyebrow">誤差ではない</div>
+      <div class="title jp" style="font-size:78px;">失敗の“地理”</div>
+      <div class="lead">
+        重要なのは平均的性能ではなく、<span class="em">見逃す失敗モードの分布</span>が構造的にずれることです。閉ループではその偏りが修正方向を誤らせます。
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="eyebrow">同系統が相関する</div>
+      <div class="title jp" style="font-size:78px;">生成器×評価器</div>
+      <div class="lead">
+        生成側と評価側が同系統（同アーキテクチャ/同学習分布）だと、「それっぽさ」を正しさに変換する同じblind spotが起きやすくなります。賢い判定でも、同じ盲点を移動させるだけになり得ます。
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="eyebrow">内側評価 vs 外側検証</div>
+      <div class="title jp" style="font-size:78px;">プロンプト改善の限界</div>
+      <div class="lead">
+        「もっと賢いLLM判定」は、同系統のblind spotをより自信をもって通す危険があります。必要なのは評価原理の置換と、生成器と切り離された検証です。
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="eyebrow">外部オラクル原理</div>
+      <div class="title jp" style="font-size:78px;">exogenous witness</div>
+      <div class="lead">
+        森羅万象をLLMに任せず、コンパイラ/実行/機械検査のような外部に接続された根拠で合否を決めます。検証者＝被検証者ではない状態に寄せるほど、自己強化（confirmation bias）を抑えられます。
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="eyebrow">置換する判定原理</div>
+      <div class="title jp" style="font-size:78px;">硬い検証面</div>
+      <div class="lead" style="max-width:860px;">
+        次のように「言語的整合性」から「状態・証明・反例」へ接続を変えるほど、見落とし相関を壊しやすくなります。
+      </div>
+      <div class="grid" style="margin-top:18px;">
+        <div class="cell">
+          <div class="k"><span class="mono">i</span> 実行</div>
+          <div class="v">exec_spec/公式テストで失敗を再現し、評価を“状態”へ寄せる</div>
+        </div>
+        <div class="cell">
+          <div class="k"><span class="mono">ii</span> 形式</div>
+          <div class="v">形式証明/機械検査で、証明可能性（反例トレース含む）を確認する</div>
+        </div>
+        <div class="cell">
+          <div class="k"><span class="mono">iii</span> 反例</div>
+          <div class="v">アドバーサリアルテストで、生成器が回避しがちなケースを掘り当てる</div>
+        </div>
+        <div class="cell">
+          <div class="k"><span class="mono">iv</span> 監査</div>
+          <div class="v">合否を根拠（証拠）と結びつけ、観測可能性を確保する</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="eyebrow">形式検証の盲点</div>
+      <div class="title jp" style="font-size:78px;">constraint transfer</div>
+      <div class="lead">
+        形式検証器が正しいほど無条件に正しいわけではありません。仕様化が意図とずれていると、誤った前提（公理集合）を正しく証明してしまう「constraint transfer」が起き得ます。
+        <span style="display:block; margin-top:10px; color: var(--ink-3); font-weight:300;">(上流失敗 / Japanese: 上流失敗)</span>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="eyebrow">用途で優先順位</div>
+      <div class="title jp" style="font-size:78px;">何を“独立”にする？</div>
+      <div class="lead">
+        独立検証に「どの程度の独立性が必要か」「何を独立とみなすか」は運用上の具体化が不足しがちです。目的（誤検出/見逃しコスト）に合わせて、外部オラクルの種類と失敗面の多様性を設計する必要があります。
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="eyebrow">結論</div>
+      <div class="title jp" style="font-size:78px;">評価原理を外へ</div>
+      <div class="lead">
+        生成→LLM判定→反復の閉ループは、同系統のblind spot相関で自己修正にならないことがあります。対策はプロンプト改善ではなく、<span class="em">評価をコンパイラ/実行/機械検査</span>へ置換し、監査可能な根拠で信頼境界を作ることです。
+      </div>
+      <div class="bottombar"></div>
+      <div class="rule" style="margin: 18px 0 0;"></div>
+      <div class="ref" style="margin-top:14px;">
+        <span class="mono" style="color: var(--rust); font-weight:600;">Keywords:</span>
+        <span style="color: var(--ink-2);">閉ループ / trust boundary / LLM-as-a-judge / blind spot 相関 / exogenous witness / constraint transfer</span>
+      </div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
