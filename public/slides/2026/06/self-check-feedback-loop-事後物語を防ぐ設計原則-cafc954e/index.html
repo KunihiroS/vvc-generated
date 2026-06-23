@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Self-check feedback loop: 事後物語を防ぐ設計原則</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      color: var(--ink);
+      padding: 20px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      display:flex;
+      flex-direction: column;
+    }
+
+    .card{
+      width: 100%;
+      height: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      display:flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 24px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.22em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 16px;
+      right: 24px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 18px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 4px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: clamp(44px, 6vw, 84px);
+      line-height: 1.02;
+      margin-top: -6px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      text-decoration: none;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin-top: 2px;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 18px;
+      margin-top: 4px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.08);
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 8px;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.55;
+      margin-top: 6px;
+    }
+
+    .jp{
+      display:inline-block;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      color: var(--ink-3);
+      margin-left: 8px;
+      font-size: 0.92em;
+    }
+
+    .footer-note{
+      margin-top: auto;
+      font-size: 14px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 16</div>
+        <div class="eyebrow">自己点検の設計原則</div>
+        <div class="title"><em>検証</em>を物語にしない</div>
+        <div class="lead">
+          自己点検（self-check）が「頑健さ」ではなく「自己の失敗モード隠し」になってしまう条件を整理し、
+          それを避ける設計の芯を示します。
+        </div>
+        <div class="footer-note">English terms + 日本語（短い補助）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+        <div class="eyebrow">因果鎖が切れる</div>
+        <div class="title"><em>stale</em>採点</div>
+        <div class="lead">
+          行動→観測→修正の因果鎖が断たれると、検証は「事実」を見ずに“古い証拠”を裁きます（stale evidence／陳腐化した証拠）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">症状</div>
+            <div class="v">直したはずのものを自信高く修正</div>
+          </div>
+          <div class="cell">
+            <div class="k">根</div>
+            <div class="v">新しい状態に対して古いログ/要約を採点</div>
+          </div>
+        </div>
+        <div class="footer-note">post-hoc summary／事後要約</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 16</div>
+        <div class="eyebrow">timestamps付き</div>
+        <div class="title">ファンフィクション</div>
+        <div class="lead">
+          「timestamps付きのファンフィクション（真実とズレた証言の物語）」は、観測が現実の行動を表していないときに起きます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">誤り</div>
+            <div class="v">検証が“証拠”ではなく“表象”を裁く</div>
+          </div>
+          <div class="cell">
+            <div class="k">危険</div>
+            <div class="v">裁判ではなく証言の物語づくりになる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">05 / 16</div>
+        <div class="eyebrow">何がズレる？</div>
+        <div class="title"><em>観測</em>の距離</div>
+        <div class="lead">
+          検証が意味を持つかは「いつ・何を・誰が」見ているかで決まります。観測の媒介が増えるほど距離が伸びます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">いつ</div>
+            <div class="v">非同期で結果が遅延する（latency）</div>
+          </div>
+          <div class="cell">
+            <div class="k">何を</div>
+            <div class="v">ログテール/キャッシュ/要約を見る</div>
+          </div>
+          <div class="cell">
+            <div class="k">誰が</div>
+            <div class="v">別サービス/別担当が間に入る</div>
+          </div>
+        </div>
+        <div class="footer-note">action-observation distance／行動-観測距離</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">06 / 16</div>
+        <div class="eyebrow">過剰なインフラ</div>
+        <div class="title">エコー</div>
+        <div class="lead">
+          キュー・状態ストア・イベントバスが増えると、見かけの整備とは裏腹に「同じ失敗モードを増幅するエコー」が生まれます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">オーバー設計</div>
+            <div class="v">キュー / state store / retry policy / event bus</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">検証が歴史（post-hoc）に依存して虚構化</div>
+          </div>
+        </div>
+        <div class="small">“platform team”や“可用性の都合”が悪いのではなく、因果鎖の契約が失われるのが問題です。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">07 / 16</div>
+        <div class="eyebrow">小ささの意味</div>
+        <div class="title">small local</div>
+        <div class="lead">
+          「小さなローカルプログラムとして書けるか」は、自己点検の健全性テストとして強い必要条件です（small local program）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">満たすと</div>
+            <div class="v">行動→観測の因果を追える</div>
+          </div>
+          <div class="cell">
+            <div class="k">危険だと</div>
+            <div class="v">“どの証拠で判断したか”が確定しない</div>
+          </div>
+        </div>
+        <div class="footer-note">ただし十分条件ではない（自信高い誤再パッケージは起こり得る）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">08 / 16</div>
+        <div class="eyebrow">健全ループ</div>
+        <div class="title">証拠直結</div>
+        <div class="lead">
+          望ましい自己点検は「行動した直後に、同じアーティファクトを直接観測」する設計です（evidence/receipt）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">直接参照する例</div>
+            <div class="v">コンパイル実行結果、stderr、exit code、ファイル差分</div>
+          </div>
+          <div class="cell">
+            <div class="k">避ける例</div>
+            <div class="v">遅延ログ、キャッシュされた状態、要約だけの採点</div>
+          </div>
+        </div>
+        <div class="small">“同じバイト/同じ証拠”を検証器が参照できるかが核心です。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">09 / 16</div>
+        <div class="eyebrow">失敗の構造</div>
+        <div class="title"><em>検証</em> vs 語り</div>
+        <div class="lead">
+          本質的な差は「観測が現実の行動と一致しているか」です。一致しないと検証は“説明の事後正当化”になります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">検証（verification）</div>
+            <div class="v">証拠が行動と同期し、修正が証拠に連動する</div>
+          </div>
+          <div class="cell">
+            <div class="k">語り（narrative）</div>
+            <div class="v">ログ/要約が遅れて、誤りを事後で整形してしまう</div>
+          </div>
+        </div>
+        <div class="footer-note">veto-before-commit／コミット前拒否（安全寄り）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">10 / 16</div>
+        <div class="eyebrow">重要な反論</div>
+        <div class="title">“形式”だけでは</div>
+        <div class="lead">
+          因果鎖が綺麗でも、目的関数が現実と相関しなければ失敗は起きます（process integrity ≠ predictive validity）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">制約1</div>
+            <div class="v">観測の同一性・因果鎖を守る</div>
+          </div>
+          <div class="cell">
+            <div class="k">制約2</div>
+            <div class="v">改善が目的関数に反映される</div>
+          </div>
+          <div class="cell">
+            <div class="k">落とし穴</div>
+            <div class="v">正しく検証しても方向がズレる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">11 / 16</div>
+        <div class="eyebrow">実務への翻訳</div>
+        <div class="title">契約を作る</div>
+        <div class="lead">
+          設計の勝ち筋は「規模」ではなく、行動→観測→修正の証拠がズレない“契約”を作ることです。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">点検する観点</div>
+            <div class="v">証拠は同期しているか／同一アーティファクトか</div>
+          </div>
+          <div class="cell">
+            <div class="k">設計の狙い</div>
+            <div class="v">遅延・要約・外部化で物語化しない</div>
+          </div>
+        </div>
+        <div class="small">分散・スケールが必要でも、証拠の同一性（ID/ハッシュ/境界）と観測距離を担保できれば成立し得ます。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">12 / 16</div>
+        <div class="eyebrow">倫理・独立性</div>
+        <div class="title">鏡の選択</div>
+        <div class="lead">
+          検証を別エージェントに任えることは万能ではありません。同じ失敗モードや同じ“ズレた証拠”を映す鏡になり得ます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">リスク</div>
+            <div class="v">スポンサー都合の評価が正当化される</div>
+          </div>
+          <div class="cell">
+            <div class="k">問題</div>
+            <div class="v">独立性の代替が形式化して空洞化</div>
+          </div>
+          <div class="cell">
+            <div class="k">条件</div>
+            <div class="v">“誤りにくい証拠”へアクセスできるか</div>
+          </div>
+        </div>
+        <div class="footer-note">ethical gap／倫理ギャップ</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="card">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 16</div>
+        <div class="eyebrow">結論</div>
+        <div class="title"><em>検証</em>は証拠直結</div>
+        <div class="lead">
+          自己点検ループがローカルな因果鎖として説明できないなら、それは頑健さではなく自己の失敗モードを隠すバグです。
+          行動直後に同じアーティファクトを直接観測し続けましょう。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">守る</div>
+            <div class="v">因果鎖（action→observation→fix）の整合</div>
+          </div>
+          <div class="cell">
+            <div class="k">捨てる</div>
+            <div class="v">遅延ログ/要約だけの“物語”採点</div>
+          </div>
+        </div>
+        <div class="footer-note">References slide: omitted（要約のみ）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://open.spotify.com/track/6REfVJFCsJRstLyKnwDMPP" target="_blank" rel="noreferrer noopener">ABOUT YOU - song and lyrics by The LOOP</a></h2>
+<p class="reference-note">You Make me feel some type of way Yea it&#39;s you Thinking that you&#39;re better than me Yea it&#39;s you Acting like you&#39;re so sc…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://idioms.thefreedictionary.com/looping+you+in" target="_blank" rel="noreferrer noopener">Looping you in - Idioms by The Free Dictionary</a></h2>
+<p class="reference-note">loop in To make or keep one informed about something, such as a plan or project. A noun or pronoun can be used between &quot;…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.instagram.com/reel/DL36Wrzs2i-?hl=en" target="_blank" rel="noreferrer noopener">In the Loop #idiom #english #sayings #esl # ...</a></h2>
+<p class="reference-note">In the loop means to be kept informed or updated. you want to be kept informed you&#39;re standing around in a circle. , you…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ludwig.guru/s/keep+you+in+the+loop+with" target="_blank" rel="noreferrer noopener">keep you in the loop with | Meaning, Grammar Guide &amp; Usage ...</a></h2>
+<p class="reference-note">The phrase &quot;keep you in the loop with&quot; functions as a promise of continued communication. It indicates an intention to r…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/100063550862077/videos/the-saying-in-the-loop-english-esl-sayings-languagelearning/1132814938283493" target="_blank" rel="noreferrer noopener">In the Loop- #english #esl #sayings #languagelearning</a></h2>
+<p class="reference-note">In the loop means to be informed. Hey I&#39;m going to keep you in the loop about our plans for next summer. I&#39;m keep you in…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
