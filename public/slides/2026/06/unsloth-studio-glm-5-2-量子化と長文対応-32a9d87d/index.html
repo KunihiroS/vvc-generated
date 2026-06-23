@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unsloth Studio × GLM-5.2（量子化と長文対応）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .toprow{
+      display:flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      color: var(--rust);
+      border-left: 4px solid rgba(232, 129, 74, 0.65);
+      padding-left: 14px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      opacity: 0.95;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 8px 0 10px;
+      position: relative;
+      z-index: 2;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 14px;
+      color: var(--ink);
+      position: relative;
+      z-index: 2;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      font-weight: 500;
+      font-size: 64px;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+      margin-top: 4px;
+    }
+
+    .divider{
+      height: 1px;
+      background: var(--rule);
+      margin: 22px 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 18px;
+      margin-top: 12px;
+      position: relative;
+      z-index: 2;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      padding: 14px 14px 12px;
+      border-radius: 6px;
+      min-height: 76px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+
+    code.inline{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.95em;
+      color: var(--ink-2);
+      background: rgba(255,255,255,0.05);
+      padding: 2px 6px;
+      border-radius: 6px;
+      border: 1px solid var(--rule);
+      white-space: nowrap;
+    }
+
+    @media (max-width: 760px){
+      .slide{ padding: 40px 22px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 48px; }
+      .title .jp{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .slide-tag{ font-size: 14px; }
+      .slide-num{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover">
+      <div class="toprow">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="eyebrow">ローカルで“動く”LLM</div>
+      <h1 class="title"><em>Unsloth Studio</em><span class="jp"> × GLM-5.2</span></h1>
+      <div class="lead">Unsloth Studio（Web UI）でローカルLLMを回し、量子化（quantization）とKVキャッシュ量子化（KV cache quantization）でメモリと長文を両立します。</div>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="toprow">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="eyebrow">最大の壁はメモリ</div>
+      <h2 class="title"><em>VRAM</em>とRAM</h2>
+      <div class="lead">LLMは重みと中間状態が巨大で、計算そのものより先に“載るか”（メモリ制約）が問題になります。だから量子化で圧縮し、必要に応じてオフロードやキャッシュ制御が要点になります。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">言い換え（JP）</div>
+          <div class="v">重いモデル＝保存・計算が難しい</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策（英語＋JP）</div>
+          <div class="v">Quantization（量子化）＋KV cache（KVキャッシュ）運用</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="metaphor">
+      <div class="toprow">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="eyebrow">圧縮は“劣化の物語”</div>
+      <h2 class="title">量子化<span class="jp"><em>Quantize</em></span></h2>
+      <div class="lead">量子化は「小さくする＝賢さが同じ割合で落ちる」とは限りません。Dynamic量子化は層ごとにビットを変え、サイズ削減と精度低下のバランスを取りにいきます。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">モデル</div>
+          <div class="v">重み（weights）</div>
+        </div>
+        <div class="cell">
+          <div class="k">圧縮</div>
+          <div class="v">Dynamic 1/2/4/5-bit 等</div>
+        </div>
+        <div class="cell">
+          <div class="k">評価</div>
+          <div class="v">KLDや候補一致で解釈</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="toprow">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="eyebrow">UIが“実行基盤”を束ねる</div>
+      <h2 class="title"><em>Unsloth Studio</em>の役割</h2>
+      <div class="lead">Unsloth Studioは、モデル検索・ダウンロードから、推論パラメータ調整（temperature / top_p 等）、オフロード、マルチGPU検出、ツール呼び出し・コード実行までを一つに統合します。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">最初</div>
+          <div class="v">GGUF / safetensors を用意</div>
+        </div>
+        <div class="cell">
+          <div class="k">次</div>
+          <div class="v">推論設定を調整して回す</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="toprow">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="eyebrow">GLM-5.2を回す流れ</div>
+      <h2 class="title">ローカル手順</h2>
+      <div class="lead">本文の文脈では「UIで実行しやすくする」ことが中心です。モデル選択→量子化の選択→コンテキスト長/キャッシュ方針→推論設定、の順で詰めます。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">i. モデル準備</div>
+          <div class="v">GLM-5.2（例）を選ぶ</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 量子化選択</div>
+          <div class="v">Dynamic（例：1/2-bit等）</div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-top:14px;">
+        <div class="cell">
+          <div class="k">iii. 長文設計</div>
+          <div class="v">KVキャッシュ量子化</div>
+        </div>
+        <div class="cell">
+          <div class="k">iv. 推論調整</div>
+          <div class="v">temperature / top_p / etc.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="toprow">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="eyebrow">“76%”の意味を守る</div>
+      <h2 class="title">Dynamic 1-bit</h2>
+      <div class="lead">Dynamic 1-bitではトップ精度が約76.2%まで下がりつつ、サイズは約86%削減と説明されています。ただし「間違いが24%増える」と同一視しないのが重要です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">サイズ削減</div>
+          <div class="v">約86%（本文の目安）</div>
+        </div>
+        <div class="cell">
+          <div class="k">精度指標</div>
+          <div class="v">KLD / 分布一致 / 候補一致で評価</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="toprow">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="eyebrow">誤解を潰す解釈</div>
+      <h2 class="title">“トップ精度”≠“誤答率”</h2>
+      <div class="lead">本文の補足では、KLD（KL Divergence）やトップ候補の一致（argmaxの一致）に基づく評価として“76%”を捉えるよう注意しています。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">良くない解釈（誤解）</div>
+          <div class="v">「正解が76%で誤りが24%」</div>
+        </div>
+        <div class="cell">
+          <div class="k">本文の解釈（要点）</div>
+          <div class="v">分布の距離・候補一致の変化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="toprow">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="eyebrow">おすすめは2-bit dynamic</div>
+      <h2 class="title">UD-IQ2_M</h2>
+      <div class="lead">本文はUD-IQ2_M（2-bit dynamic）を「アクセスしやすさと精度の両面でベスト」と推しています。特にGPUよりRAMが多い環境では、オフロード前提の設計が現実的です。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">選ぶ理由</div>
+          <div class="v">サイズ/品質の妥協点</div>
+        </div>
+        <div class="cell">
+          <div class="k">量子化の幅</div>
+          <div class="v">1-bit〜（Dynamic）で調整</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用前提</div>
+          <div class="v">RAM優位ならオフロードが効く</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="toprow">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="eyebrow">長文はKVキャッシュが鍵</div>
+      <h2 class="title">KV cache quantization</h2>
+      <div class="lead">長い文脈を扱うにはKVキャッシュ量子化が必要で、llama.cpp側のcache-type-k / cache-type-v指定でメモリを抑えつつコンテキスト長を伸ばせます。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">指定の例</div>
+          <div class="v"><span style="font-size:18px;">`--cache-type-k q4_1 --cache-type-v q4_1`</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い（JP＋英）</div>
+          <div class="v">Memory（メモリ）削減で長文対応</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="toprow">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="eyebrow">ベンチ比較の限界も知る</div>
+      <h2 class="title">“同等”は条件次第</h2>
+      <div class="lead">本文の比較が強い一方、評価条件（推論設定、ツール使用、有無の思考設定、量子化影響、運用条件）が常に十分揃うとは限りません。数値は“保証”ではなく傾向として再検証するのが安全です。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">変わる要因</div>
+          <div class="v">temperature / top_p</div>
+        </div>
+        <div class="cell">
+          <div class="k">変わる要因</div>
+          <div class="v">量子化方式と設定</div>
+        </div>
+        <div class="cell">
+          <div class="k">変わる要因</div>
+          <div class="v">ツール/思考モード</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="risk">
+      <div class="toprow">
+        <div class="slide-tag">RISK</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="eyebrow">導入は“資源のゲーム”</div>
+      <h2 class="title">1-bitの壁</h2>
+      <div class="lead">量子化で可能になるとはいえ、特に1-bitはRAM要求が極端になり得ます。そのため「UIで簡単化」はあっても、ハードウェア制約の影響は強く残ります。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">運用リスク</div>
+          <div class="v">メモリ枯渇、性能劣化、長時間ダウンロード失敗</div>
+        </div>
+        <div class="cell">
+          <div class="k">現実の対処</div>
+          <div class="v">余裕のある資源計画＋段階的に量子化を試す</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="closing">
+      <div class="toprow">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="eyebrow">最短の行動指針</div>
+      <h2 class="title">まずは2-bit</h2>
+      <div class="lead">ローカルでGLM-5.2を回すなら、UD-IQ2_M（2-bit dynamic）→長文はKVキャッシュ量子化→“数値の意味”はKLD/候補一致として読む、の順が読み筋です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">推奨フロー</div>
+          <div class="v">UD-IQ2_M → KVキャッシュ指定 → 推論設定を調整</div>
+        </div>
+        <div class="cell">
+          <div class="k">解釈の注意（JP）</div>
+          <div class="v">“76%”を誤答24%と見なさない（KLD/一致で理解）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/topics/glm-5-2-download" target="_blank" rel="noreferrer noopener">glm-5-2-download · GitHub Topics · GitHub</a></h2>
+<p class="reference-note">## Footer. # Search code, repositories, users, issues, pull requests... # Provide feedback. We read every piece of feedb…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/zai-org/GLM-5" target="_blank" rel="noreferrer noopener">zai-org/GLM-5: GLM-5: From Vibe Coding to Agentic Engineering</a></h2>
+<p class="reference-note">[Skip to content](https://github.com/zai-org/GLM-5#start-of-content). [Reload](https://github.com/zai-org/GLM-5) to refr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/briliwar0/glm-5.2-free-desktop-app" target="_blank" rel="noreferrer noopener">GitHub - briliwar0/glm-5.2-free-desktop-app: glm 5.2 free z.ai  llm chatbot free api access local llm unsloth dynamic gguf llama.cpp ollama run coding assistant autonomous agent zcode opencode cloudflare workers ai hugging face model weights 1m context window long horizon tasks token bypass benchmark swe bench pro terminal bench setup installation windows macos linux · GitHub</a></h2>
+<p class="reference-note">## Navigation Menu. We read every piece of feedback, and take your input very seriously. ## Use saved searches to filter…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/2075" target="_blank" rel="noreferrer noopener">GLM 5.2 load success but fail to run (jinja template ??) · Issue #2075 · lmstudio-ai/lmstudio-bug-tracker</a></h2>
+<p class="reference-note">3 days ago - Which version of LM Studio? LM Studio 0.4.16 (Build 2 Which operating system? ubuntu 24.04 What is the bug?…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Z-ai-glm-5/GLM-5.2" target="_blank" rel="noreferrer noopener">GitHub - Z-ai-glm-5/GLM-5.2: Download the GLM-5.1 Lightweight Installer. Run the powerful 744B open-source AI locally on your GPU via llama.cpp or use our free Cloud-Hybrid API. Zero setup. · GitHub</a></h2>
+<p class="reference-note">We read every piece of feedback, and take your input very seriously. ## Use saved searches to filter your results more q…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
