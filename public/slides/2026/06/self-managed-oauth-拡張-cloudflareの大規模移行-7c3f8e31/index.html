@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Self-managed OAuth 拡張：Cloudflareの大規模移行</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.55;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+      overflow: visible;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0px;
+      padding: 56px 72px;
+      position: relative;
+      margin: 18px 0;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 28px;
+      left: 30px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding: 0 10px 2px 0;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 26px;
+      height: 1px;
+      background: var(--rule-strong);
+      transform: translateY(1px);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 28px;
+      right: 30px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      letter-spacing: .02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 18px 0 0;
+    }
+
+    .title{
+      margin: 14px 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 70px;
+      font-weight: 500;
+      line-height: 1.0;
+      color: var(--ink);
+      font-style: italic;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 600;
+      font-size: 62px;
+      font-style: normal;
+      letter-spacing: .01em;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 22px 0;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 14px;
+      margin-top: 18px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 0px;
+      background: rgba(0,0,0,0.06);
+      min-height: 76px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .nowrap{ white-space: nowrap; }
+    .left-align{ text-align:left; }
+    .center-only{
+      position:absolute;
+      left:72px;
+      right:72px;
+      top: 40%;
+      transform: translateY(-50%);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-tag">Report</div>
+      <div class="slide-num">02 / 17</div>
+      <div class="eyebrow">Cloudflare OAuth / self-managed</div>
+      <div class="title">全員が使うOAuth</div>
+      <p class="lead">
+        CloudflareのOAuthを、従来の一部連携から「すべての顧客が自分でOAuthクライアントを管理できる形（self-managed）」へ拡張した取り組みです。
+      </p>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 17</div>
+      <div class="eyebrow">なぜ“全員化”が難しい？</div>
+      <div class="title">同意と取り消し</div>
+      <p class="lead">
+        OAuthは「どのアプリが・どの範囲を・どう許可するか」を管理できる一方、同意（consent）や取り消し（revocation）の安全設計が要になります。
+      </p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">従来の課題</div>
+          <div class="v">第三者OAuthが手作業オンボード中心 / APIトークン依存が強い</div>
+        </div>
+        <div class="cell">
+          <div class="k">委任アクセス</div>
+          <div class="v">同意・取り消しの可視性が弱いと、誤認同意や運用事故につながる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-tag">Core Idea</div>
+      <div class="slide-num">04 / 17</div>
+      <div class="eyebrow">解決の中心</div>
+      <div class="title">self-managed開放</div>
+      <p class="lead">
+        self-managed OAuthを全顧客向けに開放し、標準フローでスコープ付きの委任同意、分かりやすい同意、容易な取り消しを実現します。
+      </p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">同意</div>
+          <div class="v">スコープ付き委任（ユーザーが理解可能）</div>
+        </div>
+        <div class="cell">
+          <div class="k">取り消し</div>
+          <div class="v">ダッシュボードから操作しやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">権限制御</div>
+          <div class="v">アプリ側で範囲を設計・制限できる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 17</div>
+      <div class="eyebrow">OAuth基盤の本丸</div>
+      <div class="title">Hydra大規模移行</div>
+      <p class="lead">
+        Cloudflareが内部で利用するOAuthエンジン（Hydra）を大規模アップグレードし、1.x→2.xの移行を安全に成立させました。
+      </p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">理由</div>
+          <div class="v">1.x→2.xはDBスキーマ変更が大きく、停止や長時間の影響を避ける必要</div>
+        </div>
+        <div class="cell">
+          <div class="k">前提</div>
+          <div class="v">OAuthはトークン発行/更新（refresh）/取り消しが絡むため、整合性が最重要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">06 / 17</div>
+      <div class="eyebrow">段階的に“切り替える”</div>
+      <div class="title">blue-green</div>
+      <p class="lead">
+        段階的アップグレード（1.x→評価→2.x）とblue-green戦略で、本番DBと新バージョンを段階的に切替しました。
+      </p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v">1.xを維持しつつ新経路を準備</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">評価→2.xへ移行を段階化</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">blue-greenで段階的に実切替</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-tag">Risk</div>
+      <div class="slide-num">07 / 17</div>
+      <div class="eyebrow">最大級の事故</div>
+      <div class="title">revocation復活</div>
+      <p class="lead">
+        移行中にrevocationが失われると、ユーザーが拒否したはずの権限が“復活”し得て、信頼性に直結する重大事故になります。
+      </p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">危険</div>
+          <div class="v">取り消し漏れ → 権限が復活 → ユーザー意思に反する挙動</div>
+        </div>
+        <div class="cell">
+          <div class="k">要求</div>
+          <div class="v">切替後に取り消しを必ず反映（drain→replay）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">08 / 17</div>
+      <div class="eyebrow">対策の核</div>
+      <div class="title">Queuesで再生</div>
+      <p class="lead">
+        Cloudflare Queuesを使い、取り消しイベントをキューイングして切替後にリプレイする設計で、取り消し漏れを防ぎます。
+      </p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">enqueue</div>
+          <div class="v">revocationイベントを記録</div>
+        </div>
+        <div class="cell">
+          <div class="k">drain</div>
+          <div class="v">切替前後で取りこぼしを抑制</div>
+        </div>
+        <div class="cell">
+          <div class="k">replay</div>
+          <div class="v">切替後に確実に反映</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-tag">Compatibility</div>
+      <div class="slide-num">09 / 17</div>
+      <div class="eyebrow">互換性の落とし穴</div>
+      <div class="title">refresh差分</div>
+      <p class="lead">
+        1.x移行後にrefresh tokenエラーが増え、refreshトークン再利用が鎖全体を無効化するように厳格化された点が原因とされています。
+      </p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">影響例</div>
+          <div class="v">Wrangler / MCPのようなリクエスト頻度の高いクライアントで再試行・再利用が起きやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">緩和</div>
+          <div class="v">Worker側で再利用検知、2.x側はgrace periodで調整</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-tag">Outcome</div>
+      <div class="slide-num">10 / 17</div>
+      <div class="eyebrow">良い結果と検証</div>
+      <div class="title">3時間で安定</div>
+      <p class="lead">
+        2.x移行は本番で約3時間、完了後はOAuthトラフィックが安定し、API p95が45%改善などの指標向上が報告されています。
+      </p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">移行時間</div>
+          <div class="v">約3時間</div>
+        </div>
+        <div class="cell">
+          <div class="k">性能</div>
+          <div class="v">API p95：45%改善</div>
+        </div>
+        <div class="cell">
+          <div class="k">資源</div>
+          <div class="v">メモリ・CPU使用を大幅削減</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-tag">Incident</div>
+      <div class="slide-num">11 / 17</div>
+      <div class="eyebrow">同時に起きた問題</div>
+      <div class="title">403増加</div>
+      <p class="lead">
+        切替後に認可サービス側のデータクリーンアップが過剰に動作し、有効セッションが無効扱いになって403が増加しました。
+      </p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">原因</div>
+          <div class="v">Hydra移行の一部の問題 → 認可サービス側との不整合</div>
+        </div>
+        <div class="cell">
+          <div class="k">対応</div>
+          <div class="v">復元対応を実施（“成功”に見えても検証が必要）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">12 / 17</div>
+      <div class="eyebrow">学びの要点</div>
+      <div class="title">安全に拡張</div>
+      <p class="lead">
+        self-managed OAuthは「可視化（同意）＋制御（取り消し）」を前に進める一方、大規模移行ではrevocation/refresh/整合性が最大論点になります。
+      </p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Security</div>
+          <div class="v">同意と取り消しの保証が設計の中心</div>
+        </div>
+        <div class="cell">
+          <div class="k">Reliability</div>
+          <div class="v">blue-green＋revocationリプレイが要</div>
+        </div>
+        <div class="cell">
+          <div class="k">Compatibility</div>
+          <div class="v">refresh運用の差分はクライアント相互作用が鍵</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">13 / 17</div>
+      <div class="eyebrow">本スライドの参照範囲</div>
+      <div class="title">参考情報</div>
+      <p class="lead">
+        本デッキは、ユーザー提供テキスト（概要・要点・FAQ・所感）に基づき、主要な主張・根拠・リスク・対策を圧縮して整理したものです。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">未確定/不足の可能性</div>
+          <div class="v">スコープ設計の具体差分、self-managed OAuthのUI/UX詳細、403恒久対策の具体仕様</div>
+        </div>
+        <div class="cell">
+          <div class="k">追加で確認したい点</div>
+          <div class="v">ユーザー影響の定量（403の規模/時間/範囲）、revocation反映の保証条件、影響クライアントの分類</div>
+        </div>
+      </div>
+
+      <div class="small" style="margin-top:16px;">
+        日本語用語（同意 consent / 取り消し revocation / 委任アクセス delegated access / self-managed OAuth）を併記しています。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.cloudflare.com/oauth-for-all" target="_blank" rel="noreferrer noopener">Unlocking the Cloudflare app ecosystem with OAuth for all</a></h2>
+<p class="reference-note">## [The Cloudflare Blog](https://blog.cloudflare.com/). [AI](https://blog.cloudflare.com/tag/ai/). [Developers](https://…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/Cloudflare/status/2069768764581683304" target="_blank" rel="noreferrer noopener">Cloudflare on X: &quot;Self-Managed OAuth is now available to all developers on Cloudflare. Here&#39;s how we executed a zero-downtime migration of our core OAuth engine to make it happen. https://t.co/toDIp6nQj4&quot; / X</a></h2>
+<p class="reference-note">## Post. Self-Managed OAuth is now available to all developers on Cloudflare. Here&#39;s how we executed a zero-downtime mig…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/guides/version-2-upgrade" target="_blank" rel="noreferrer noopener">Terraform Cloudflare Provider Version 2 Upgrade Guide</a></h2>
+<p class="reference-note">We highly recommend to review this guide, make necessary changes and move to 2.x branch, as further 1.x releases are unl…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/ory/hydra/blob/master/UPGRADE.md" target="_blank" rel="noreferrer noopener">hydra/UPGRADE.md at master · ory/hydra · GitHub</a></h2>
+<p class="reference-note">We read every piece of feedback, and take your input very seriously. The intent of this document is to make migration of…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://support.tripleseat.com/hc/en-us/articles/35211389645079-OAuth-1-0-to-OAuth-2-0-Migration-Guide-for-Tripleseat-API" target="_blank" rel="noreferrer noopener">OAuth 1.0 to OAuth 2.0 Migration Guide for Tripleseat API</a></h2>
+<p class="reference-note">OAuth 1.0 will be deprecated and discontinued on July 1, 2026. All integrations must migrate to OAuth 2.0 before this da…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
