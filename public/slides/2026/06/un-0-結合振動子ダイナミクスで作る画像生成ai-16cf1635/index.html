@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Un-0：結合振動子ダイナミクスで作る画像生成AI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: "Noto Serif JP", serif; }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute; left:20px; right:20px; top:20px; bottom:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute; top:22px; left:28px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap:10px;
+      opacity: 0.95;
+    }
+    .slide-tag::before{
+      content:"";
+      width:3px; height:18px;
+      background: var(--rust);
+      opacity:0.9;
+      border-radius: 2px;
+    }
+
+    .slide-num{
+      position:absolute; top:18px; right:26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      margin: 10px 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      font-size: 72px;
+      line-height: 0.95;
+      color: var(--rust);
+      text-align: left;
+      max-width: 900px;
+    }
+
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      font-size: 64px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 18px;
+      width: 100%;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 16px;
+      width: min(860px, 100%);
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 0px;
+      background: rgba(0,0,0,0.04);
+      min-height: 68px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.4;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 16px;
+      width: min(960px, 100%);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 400;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .nowrap{ white-space: nowrap; }
+
+    .footer-note{
+      position:absolute;
+      left:28px;
+      bottom:20px;
+      right:28px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      color: var(--ink-4);
+      letter-spacing: 0.02em;
+      display:flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .jp{ font-family: "Noto Serif JP", serif; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <p class="eyebrow">物理で描く</p>
+      <div class="title">Un-0</div>
+      <p class="lead">結合振動子（Kuramoto振動子）の時間発展（ODE）を計算基盤にして、画像を生成するUnconventional AIのモデルです。</p>
+      <div class="footer-note">
+        <span>読み物：概要→結果→仕組み→評価→見方</span>
+        <span>日本語（英語用語＋短い和訳）</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <p class="eyebrow">なぜ物理？</p>
+      <div class="title">挑戦</div>
+      <p class="lead">従来の画像生成はGPU上の「デジタル計算（多層ネットの順伝播）」が中心ですが、Un-0は「物理が時間方向に作る構造」を使いたい考えです。</p>
+      <div class="grid2" aria-label="対比">
+        <div class="cell">
+          <div class="k">従来</div>
+          <div class="v">拡散モデル／GAN／Transformerなど：<span class="nowrap">デジタル計算</span>が主役</div>
+        </div>
+        <div class="cell">
+          <div class="k">Un-0</div>
+          <div class="v">結合振動子ダイナミクス（ODE）→潜在表現→デコーダで画像へ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <p class="eyebrow">位相が答え</p>
+      <div class="title">位相</div>
+      <p class="lead">振動子の「位相角（phase）」が時間で結合し、クラス条件に沿った“まとまり”を形成してから画像へ変換されます。</p>
+      <div class="grid3" aria-label="流れ">
+        <div class="cell">
+          <div class="k">① 初期</div>
+          <div class="v">乱数の初期位相（initial phase）</div>
+        </div>
+        <div class="cell">
+          <div class="k">② 結合</div>
+          <div class="v">条件に応じた結合でバイアス</div>
+        </div>
+        <div class="cell">
+          <div class="k">③ 読み出し</div>
+          <div class="v">時刻Tで位相→sin/cosデコード</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <p class="eyebrow">学習するのは？</p>
+      <div class="title">パラメータ</div>
+      <p class="lead">学習可能な主要部分は、結合行列<span class="mono">K</span>・自然周波数<span class="mono">ω</span>、そして小さめのデコーダ側です。</p>
+      <div class="grid2" aria-label="主要部品">
+        <div class="cell">
+          <div class="k">Reservoir（物理層）</div>
+          <div class="v">Kuramoto振動子を結合：<span class="mono">K</span>, <span class="mono">ω</span> を最適化</div>
+        </div>
+        <div class="cell">
+          <div class="k">Decoder（変換）</div>
+          <div class="v">位相→潜在表現→画像ピクセルへ（学習は主にここ）</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>用語：Reservoir＝学習済みダイナミクス基盤</span>
+        <span>和訳：Decoder＝デコーダ（画像化）</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">06 / 16</div>
+      <p class="eyebrow">生成の手順</p>
+      <div class="title">推論</div>
+      <p class="lead">乱数初期位相を与え、ODEで時間発展させて時刻Tの位相を潜在表現に変換し、最後にデコーダで画像にします。</p>
+      <div class="grid3" aria-label="推論ステップ">
+        <div class="cell">
+          <div class="k"><span class="jp"><i>i</i></span> 初期化</div>
+          <div class="v">クラス条件（要求）＋乱数位相</div>
+        </div>
+        <div class="cell">
+          <div class="k"><span class="jp"><i>ii</i></span> 積分</div>
+          <div class="v">ODE（数値積分）で位相を更新</div>
+        </div>
+        <div class="cell">
+          <div class="k"><span class="jp"><i>iii</i></span> 読み出し</div>
+          <div class="v">時刻T：sin/cos→潜在→デコーダ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <p class="eyebrow">効いたのは？</p>
+      <div class="title">アブレーション</div>
+      <p class="lead">DecoderのみやReservoirのみの代替設定では厳しく、学習済みダイナミクスが性能に寄与すると示しています。</p>
+      <div class="grid2" aria-label="比較軸">
+        <div class="cell">
+          <div class="k">Decoder-only（デコーダのみ）</div>
+          <div class="v">ノイズ→目的分布への写像が難しい</div>
+        </div>
+        <div class="cell">
+          <div class="k">Reservoir-basis（Reservoir固定）</div>
+          <div class="v">結合を凍結すると改善はあるが、学習がより頑健</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">08 / 16</div>
+      <p class="eyebrow">多段が鍵</p>
+      <div class="title">積分</div>
+      <p class="lead">積分ステップ数が重要で、1ステップ近辺では不十分、ステップを増やすとクラスタ形成やFIDが改善する傾向があります。</p>
+      <div class="grid3" aria-label="示唆">
+        <div class="cell">
+          <div class="k">T≈1</div>
+          <div class="v">線形化に近く、表現が弱い可能性</div>
+        </div>
+        <div class="cell">
+          <div class="k">多ステップ</div>
+          <div class="v">非線形性・忠実度が増えて生成能力が向上</div>
+        </div>
+        <div class="cell">
+          <div class="k">結論</div>
+          <div class="v">単なる一次近似ではなく“本質のダイナミクス”が効く</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">09 / 16</div>
+      <p class="eyebrow">スコア</p>
+      <div class="title">FID</div>
+      <p class="lead">ImageNet 64×64のクラス条件付きで<span class="mono">FID 6.74</span>を達成し、初期の有力手法と同程度の品質レンジに到達したと主張しています。</p>
+      <div class="grid2" aria-label="評価">
+        <div class="cell">
+          <div class="k">目標</div>
+          <div class="v">低いほど良い（品質＋多様性を反映）</div>
+        </div>
+        <div class="cell">
+          <div class="k">現状比較</div>
+          <div class="v">EDM/GDDなど最新強手法にはパラメータ効率で未達</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Precision/Recallは補助：品質（precision）と想起（recall）を切り分ける</span>
+        <span>和訳：recall＝想起（多様性側）</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 16</div>
+      <p class="eyebrow">どっちが良い？</p>
+      <div class="title">Precision/Recall</div>
+      <p class="lead">FIDが改善しても“どこが効いたか”は別問題で、Precision/Recall解析では改善の多くがrecall（多様性）側にあると報告しています。</p>
+      <div class="grid2" aria-label="役割分担仮説">
+        <div class="cell">
+          <div class="k">ダイナミクス</div>
+          <div class="v">時間方向に多様性（recall）とクラス整合性を形成</div>
+        </div>
+        <div class="cell">
+          <div class="k">デコーダ</div>
+          <div class="v">画像品質（precision）を補う役割</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">11 / 16</div>
+      <p class="eyebrow">“物理”の位置</p>
+      <div class="title">拡散・GAN</div>
+      <p class="lead">Un-0は拡散モデルやGANと同じ種類ではなく、「implicit generative model」として、振動子の時間発展から潜在表現を作ります。</p>
+      <div class="grid2" aria-label="違いの要点">
+        <div class="cell">
+          <div class="k">拡散/フローマッチ</div>
+          <div class="v">学習中に段階制御（デジタル手順）が中心</div>
+        </div>
+        <div class="cell">
+          <div class="k">Un-0</div>
+          <div class="v">ODEで“まず表現”を生成→小さめデコーダで画像化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">12 / 16</div>
+      <p class="eyebrow">見方（賛否）</p>
+      <div class="title">評価</div>
+      <p class="lead">強みは、結合行列<span class="mono">K</span>や周波数<span class="mono">ω</span>を明確にし、対照実験で“物理ダイナミクスの寄与”を分解している点です。一方で、省エネ約1000倍はシミュレーション依存で、実機・比較の公平性は追加検証が必要です。</p>
+      <div class="grid3" aria-label="要点">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">学習対象が明確／アブレーションで根拠／時系列解析</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">実装差・学習コスト・最適化粒度が文章だけでは断定不可</div>
+        </div>
+        <div class="cell">
+          <div class="k">次の課題</div>
+          <div class="v">実機の誤差・安定性・積分誤差・計算資源あたりの勝ち筋</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <p class="eyebrow">結論</p>
+      <div class="title">要点</div>
+      <p class="lead">Un-0は「物理ダイナミクスを生成モデルにする」初期成果として筋が通り、改善要因はダイナミクスが主に多様性（recall）側を形成し、デコーダが品質（precision）を補う可能性が示唆されます。</p>
+      <div class="grid2" aria-label="まとめ">
+        <div class="cell">
+          <div class="k">達成</div>
+          <div class="v"><span class="mono">ImageNet 64×64</span>、条件付き<span class="mono">FID 6.74</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">未達</div>
+          <div class="v">EDM/GDD級の性能にはパラメータ効率で距離、実機の省エネは実測が必要</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>次に知りたい：省エネ算出前提／推論速度／実装候補と誤差耐性</span>
+        <span>—</span>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/Kuramoto_model" target="_blank" rel="noreferrer noopener">Kuramoto model - Wikipedia</a></h2>
+<p class="reference-note">The **Kuramoto model** (or **Kuramoto–Daido model**), first proposed by Yoshiki Kuramoto (蔵本 由紀, *Kuramoto Yoshiki*), is…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2509.15328v3" target="_blank" rel="noreferrer noopener">Kuramoto Orientation Diffusion Models</a></h2>
+<p class="reference-note">Orientation-rich images, such as fingerprints and textures, often exhibit coherent angular directional patterns that are…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.researchgate.net/figure/Two-coupled-kuramoto-oscillators-at-different-natural-frequencies-a-Schematic-diagram_fig1_322851687" target="_blank" rel="noreferrer noopener">8: Two coupled kuramoto oscillators at different natural frequencies....</a></h2>
+<p class="reference-note">The Kuramoto model is a simple mathematical model which is widely used to study the synchronization dynamics of such cou…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC2995481" target="_blank" rel="noreferrer noopener">Generative Models of Cortical Oscillations: Neurobiological ... - PMC</a></h2>
+<p class="reference-note">Kuramoto model, a mathematical model that speaks to the very nature of coupled oscillating processes, and which has eluc…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://link.aps.org/doi/10.1103/PhysRevE.104.014211" target="_blank" rel="noreferrer noopener">Synchronization of coupled Kuramoto oscillators under resource ...</a></h2>
+<p class="reference-note">Here we construct a system of coupled Kuramoto oscillators that consume or produce resources as a function of their osci…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
