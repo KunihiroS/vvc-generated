@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>プロンプトインジェクション：大規模失敗から学ぶ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); }
+    body { font-family: "Noto Serif JP", serif; }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 20px solid transparent;
+      pointer-events:none;
+    }
+
+    .slide-inner{
+      position: relative;
+      height: 100%;
+    }
+
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", sans-serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-top: 2px solid rgba(232,129,74,0.0);
+    }
+    .slide-tag .rule{
+      display:block;
+      height: 3px;
+      width: 120px;
+      background: linear-gradient(to right, var(--rust), rgba(232,129,74,0.0));
+      opacity: 0.0;
+    }
+    .slide-tag::before{
+      content:"";
+      display:block;
+      width: 72px;
+      height: 2px;
+      margin-bottom: 10px;
+      background: rgba(232,129,74,0.65);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-3);
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 72px;
+      line-height: 1.0;
+      margin: 0 0 18px;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      max-width: 820px;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      color: var(--rust);
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: -0.01em;
+      margin-left: 10px;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.45;
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px 18px;
+      margin-top: 18px;
+      max-width: 920px;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 6px;
+      background: rgba(240,232,216,0.02);
+    }
+    .card .k{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 12.5px;
+      letter-spacing: 0.14em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.96em;
+      color: var(--ink);
+    }
+
+    .list-grid{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px 18px;
+      margin-top: 16px;
+      max-width: 1020px;
+    }
+    .pill{
+      border: 1px solid var(--rule);
+      padding: 12px 12px;
+      background: rgba(232,129,74,0.06);
+      border-radius: 8px;
+    }
+    .pill .t{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 12.5px;
+      letter-spacing: 0.14em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .pill .b{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.35;
+    }
+
+    .bottom-rule{
+      position:absolute; left:0; right:0; bottom:0;
+      height: 2px;
+      background: var(--rule);
+    }
+
+    .ref-small{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin-top: 10px;
+      font-weight: 300;
+    }
+    a{ color: var(--ink); text-decoration: none; border-bottom: 1px solid rgba(240,232,216,0.35); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 13 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 17</div>
+        </div>
+
+        <div class="eyebrow">プロンプトが“文章”になる罠</div>
+        <h1 class="title">大規模<em>失敗</em><span class="jp">から学ぶ</span></h1>
+        <p class="lead">メール本文に混ぜた偽の指示で機密を抜き取ろうとする攻撃が、2,000人超の試行でも<em>ゼロ漏えい</em>だった。</p>
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 2 / 13 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 17</div>
+        </div>
+
+        <div class="eyebrow">攻撃の狙い</div>
+        <h1 class="title">指示のすり替え</h1>
+        <p class="lead">攻撃者はメールなどに「AIが従うべき別指示」を混ぜ、AIに機密（例：<span class="mono">secrets.env</span>）の読み出しを“自然文”として行わせようとする。</p>
+
+        <div class="grid" role="presentation" aria-label="impact grid">
+          <div class="card">
+            <div class="k">コア</div>
+            <div class="v">メール本文が“指示”として解釈される</div>
+          </div>
+          <div class="card">
+            <div class="k">効きやすさ</div>
+            <div class="v">AIが返信・外部通信・ファイル参照などの権限を持つと増幅</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 3 / 13 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 17</div>
+        </div>
+
+        <div class="eyebrow">自然言語の“すり抜け”</div>
+        <h1 class="title">封筒の中の</h1>
+        <p class="lead">本来はただの手紙でも、開封者（AI）が“命令書”だと誤認すると、危険な行動が起きる。</p>
+
+        <div class="list-grid" role="presentation" aria-label="steps grid">
+          <div class="pill">
+            <div class="t">i</div>
+            <div class="b">手紙（メール本文）に紛れ込ませる</div>
+          </div>
+          <div class="pill">
+            <div class="t">ii</div>
+            <div class="b">AIが“指示”として採用する</div>
+          </div>
+          <div class="pill">
+            <div class="t">iii</div>
+            <div class="b">機密に近い出力・参照が発生</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 4 / 13 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 17</div>
+        </div>
+
+        <div class="eyebrow">実験の舞台</div>
+        <h1 class="title">hackmyclaw</h1>
+        <p class="lead">攻撃者はハッキング実験サイト<em>hackmyclaw.com</em>を通じ、OpenClawアシスタント「Fiu」に攻撃メールを大量送信した。</p>
+
+        <div class="grid" role="presentation" aria-label="setup grid">
+          <div class="card">
+            <div class="k">狙い</div>
+            <div class="v"><span class="mono">secrets.env</span> の内容を抽出</div>
+          </div>
+          <div class="card">
+            <div class="k">規模</div>
+            <div class="v">2,000人超が6,000通超を送付（Hacker News到達）</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 5 / 13 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">06 / 17</div>
+        </div>
+
+        <div class="eyebrow">観測結果</div>
+        <h1 class="title">漏えいゼロ</h1>
+        <p class="lead">結論はシンプルで、投稿者の設定により機密の漏えいは<em>一度も成功しなかった</em>：6,000+試行でゼロ抽出。</p>
+
+        <div class="grid" role="presentation" aria-label="result grid">
+          <div class="card">
+            <div class="k">成功定義</div>
+            <div class="v">機密（<span class="mono">secrets.env</span>）の読み出し・抽出</div>
+          </div>
+          <div class="card">
+            <div class="k">計測</div>
+            <div class="v">6,000通超の攻撃バリエーションに対して未達</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 6 / 13 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">ENUMERATION</div>
+          <div class="slide-num">07 / 17</div>
+        </div>
+
+        <div class="eyebrow">攻撃のバリエーション</div>
+        <h1 class="title">多彩な誘導</h1>
+        <p class="lead">攻撃者はなりすまし、緊急対応、未来からの自分、複数言語など、攻撃文面を短時間に大量化して試した。</p>
+
+        <div class="list-grid" role="presentation" aria-label="attack types grid">
+          <div class="pill">
+            <div class="t">i</div>
+            <div class="b">権威のなりすまし（例：OpenClaw Admin）</div>
+          </div>
+          <div class="pill">
+            <div class="t">ii</div>
+            <div class="b">社会的工学（未来／緊急のインシデント対応）</div>
+          </div>
+          <div class="pill">
+            <div class="t">iii</div>
+            <div class="b">言語の工夫（複数言語での誘導）</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 7 / 13 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">08 / 17</div>
+        </div>
+
+        <div class="eyebrow">守りの手触り</div>
+        <h1 class="title">モデル×ルール</h1>
+        <p class="lead">防御には「モデルの性質」と「短い明確な制約（単純ルール）」の両方が効いている可能性がある。</p>
+
+        <div class="grid" role="presentation" aria-label="defense grid">
+          <div class="card">
+            <div class="k">モデル側</div>
+            <div class="v">大量試行を“連携されたセキュリティ演習”と疑う防御的挙動</div>
+          </div>
+          <div class="card">
+            <div class="k">設計側</div>
+            <div class="v">数行の制約でも参照・出力を抑える方向に働いた兆候</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 8 / 13 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">09 / 17</div>
+        </div>
+
+        <div class="eyebrow">成功しないのに損害</div>
+        <h1 class="title">運用の被害</h1>
+        <p class="lead">漏えいはゼロでも、Googleが不正行為としてGmailを停止し、可用性とコスト面で損害が発生した。</p>
+
+        <div class="list-grid" role="presentation" aria-label="ops impacts grid">
+          <div class="pill">
+            <div class="t">i</div>
+            <div class="b">Gmail停止（疑わしい大量メール・API呼び出し）</div>
+          </div>
+          <div class="pill">
+            <div class="t">ii</div>
+            <div class="b">APIコスト：500ドル超</div>
+          </div>
+          <div class="pill">
+            <div class="t">iii</div>
+            <div class="b">“バッチ処理”混入が判断を汚染し得る</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 9 / 13 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">10 / 17</div>
+        </div>
+
+        <div class="eyebrow">実験設計の学び</div>
+        <h1 class="title">コンテキスト分離</h1>
+        <p class="lead">最初の数件が注入攻撃だと、後続のメールも過剰に疑われる（または推論が偏る）ため、入力の分離が結果の信頼性を左右する。</p>
+
+        <div class="grid" role="presentation" aria-label="design points grid">
+          <div class="card">
+            <div class="k">問題</div>
+            <div class="v">複数メールを同一コンテキストで扱う（バッチ混入）</div>
+          </div>
+          <div class="card">
+            <div class="k">対策</div>
+            <div class="v">メールごと／処理ごとにコンテキストを分離し、混入を避ける</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 10 / 13 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">11 / 17</div>
+        </div>
+
+        <div class="eyebrow">脅威は“継続”する</div>
+        <h1 class="title">ゼロ漏えい＝安全</h1>
+        <p class="lead">いいえ。特定モデル・特定プロンプト設計・特定の権限制御・処理フローに強く依存するため、一般化には慎重さが必要。</p>
+
+        <div class="grid" role="presentation" aria-label="limits grid">
+          <div class="card">
+            <div class="k">依存性</div>
+            <div class="v">モデル差（例：耐性）／ルール／権限／バッチ扱い</div>
+          </div>
+          <div class="card">
+            <div class="k">未観測</div>
+            <div class="v">部分情報の推論や“別経路”の影響は、ログ粒度次第で見えない</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 11 / 13 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">ENUMERATION</div>
+          <div class="slide-num">12 / 17</div>
+        </div>
+
+        <div class="eyebrow">運用で効く両立策</div>
+        <h1 class="title">安全×コスト</h1>
+        <p class="lead">同種の運用で安全性とコストを両立するには、「分離・禁止・レート制御・段階化」を前提に設計する。</p>
+
+        <div class="list-grid" role="presentation" aria-label="mitigations grid">
+          <div class="pill">
+            <div class="t">i</div>
+            <div class="b">入力ごとにコンテキスト分離（バッチ混入回避）</div>
+          </div>
+          <div class="pill">
+            <div class="t">ii</div>
+            <div class="b">機密に触れうる処理（参照／外部送信）を厳格に禁止・隔離</div>
+          </div>
+          <div class="pill">
+            <div class="t">iii</div>
+            <div class="b">可用性・課金前提でレート制御と監視設計、必要ならモデル段階化</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 12 / 13 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">13 / 17</div>
+        </div>
+
+        <div class="eyebrow">最終まとめ</div>
+        <h1 class="title">楽観しすぎず</h1>
+        <p class="lead">攻撃は現実だが、今回の観測は「対策が無意味ではない」証拠にもなる。一方で、漏えいがなくても停止やコスト増が起きるため、総合リスクとして管理する必要がある。</p>
+
+        <div class="grid" role="presentation" aria-label="balanced take grid">
+          <div class="card">
+            <div class="k">前向き</div>
+            <div class="v">大量入力でもゼロ抽出は“効き得る条件”を示す</div>
+          </div>
+          <div class="card">
+            <div class="k">注意</div>
+            <div class="v">再現条件が変われば結果も変わる。可用性・費用も脅威</div>
+          </div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+    <!-- 13 / 13 -->
+    <section class="slide" aria-label="references">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">14 / 17</div>
+        </div>
+
+        <div class="eyebrow">参考（記事名の特定は要確認）</div>
+        <h1 class="title">参照先</h1>
+        <p class="lead">本スライドは、提示された要約テキストに基づいて圧縮しています。原文リンクは手元情報がないため、公開元（hackmyclaw / Hacker News / OpenClaw）を確認してください。</p>
+
+        <div class="ref-small">
+          <div><span class="mono">hackmyclaw.com</span></div>
+          <div><span class="mono">Hacker News</span>（トップ到達した投稿）</div>
+          <div><span class="mono">OpenClaw</span> / アシスタント「Fiu」</div>
+        </div>
+
+        <div class="bottom-rule"></div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://venturebeat.com/security/prompt-injection-measurable-security-metric-one-ai-developer-publishes-numbers" target="_blank" rel="noreferrer noopener">Anthropic published the prompt injection failure rates that enterprise ...</a></h2>
+<p class="reference-note"># Anthropic published the prompt injection failure rates that enterprise security teams have been asking every vendor fo…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://blog.cyberdesserts.com/prompt-injection-attacks" target="_blank" rel="noreferrer noopener">Prompt Injection Attacks: Examples and Defences - CyberDesserts</a></h2>
+<p class="reference-note"># Prompt Injection Attacks: Examples, Techniques, and Defence. Prompt injection is a security vulnerability where attack…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/robertgpt_github-ai45labtrinityguard-trinityguard-activity-7430656730033967104-bSV4" target="_blank" rel="noreferrer noopener">Shanghai AI Lab&#39;s TrinityGuard Framework Addresses Agent Safety ...</a></h2>
+<p class="reference-note">The adversarial challenge pits participants against &quot;Fiu,&quot; a Claude Opus 4.6-powered assistant with prompt-only security…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/@ZombieCodeKill/ai-cyber-reading-group-2bf6f9b74388" target="_blank" rel="noreferrer noopener">AI Cyber Reading Group, GTP 5.3 Codex, Opus 4.6 and OpenClaw</a></h2>
+<p class="reference-note"># AI Cyber Reading Group, GTP 5.3 Codex, Opus 4.6 and OpenClaw | by Kevin O&#39;Shaughnessy | Medium. # AI Cyber Reading Gro…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=g9LO9M1ZLIk" target="_blank" rel="noreferrer noopener">OpenClaw and Claude Opus 4.6: Where is AI agent security headed?</a></h2>
+<p class="reference-note">OpenClaw and Claude Opus 4.6: Where is AI agent security headed?
+IBM Technology
+1720000 subscribers
+362 likes
+13965 view…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
