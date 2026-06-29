@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lore（rac-core上のMCPサーバ）—意思決定の台帳</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; background: var(--cream); }
+    body { margin: 0; color: var(--ink); font-family: "Noto Serif JP", "Times New Roman", serif; }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 0 48px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      position: relative;
+      width: 100%;
+      background: var(--paper);
+      box-sizing: border-box;
+      padding: 56px 72px;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: .35;
+    }
+
+    .slide-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      z-index: 1;
+    }
+    .slide-tag {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.18em;
+      font-size: 13px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 14px;
+      position: relative;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute; left:0; top:50%;
+      transform: translateY(-50%);
+      width: 6px; height: 18px;
+      background: var(--rust);
+      opacity: .85;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 8px 0 2px;
+      z-index: 1;
+    }
+    .title {
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 64px;
+      line-height: 1.03;
+      font-weight: 500;
+      color: var(--ink);
+      z-index: 1;
+      margin: 0 0 10px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead {
+      font-size: 22px;
+      line-height: 1.45;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      z-index: 1;
+    }
+
+    .ruleline {
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 14px;
+      z-index: 1;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 14px;
+      margin-top: 10px;
+      z-index: 1;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card {
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.12);
+      padding: 14px 14px;
+      box-sizing: border-box;
+    }
+    .label {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin: 0 0 8px;
+    }
+    .body {
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 300;
+      margin: 0;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .footer-note{
+      position:absolute;
+      left: 72px; right: 72px; bottom: 44px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-4);
+      z-index: 1;
+    }
+
+    @media (max-width: 860px){
+      .slide { padding: 40px 28px; border-width: 12px; }
+      .footer-note{ left: 28px; right: 28px; bottom: 34px; }
+      .title { font-size: 44px; }
+      .lead { font-size: 18px; }
+      .grid2, .grid3 { gap: 12px; }
+      .body { font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1: cover -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Lind: Decision Ledger</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">AIが探す前に、決めを返す</div>
+      <h1 class="title">Lore <em>意思決定の台帳</em></h1>
+      <p class="lead">Loreは、チームの判断（ADRs・要件・設計・ロードマップ等）を typed Markdown として保存し、MCP経由でエージェントに<em>最新の“決定”</em>を確実に根拠提示します。（lore / 決定の法定記録）</p>
+      <div class="footer-note">Target: re-readable “source of truth” for coding agents（Claude Code / Cursor / Claude Desktop等）</div>
+    </section>
+
+    <!-- 2: problem -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">曖昧検索の副作用</div>
+      <h2 class="title"><em>RAG</em>が揺らす</h2>
+      <p class="lead">RAGは類似度でヒットするため、過去に却下した方針を再検討したり、最新の決定に追従できないリスクが残ります。（retrievalの揺れ＝意思決定の不一致）</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">起きがち</p>
+          <p class="body">“それっぽい文章”に引っ張られる</p>
+        </div>
+        <div class="card">
+          <p class="label">困る</p>
+          <p class="body">却下案を再実装 / 方針を更新し続けられない</p>
+        </div>
+      </div>
+      <div class="footer-note">Goal: “探す”ではなく “決定を返す” （deterministic / 再現可能）</div>
+    </section>
+
+    <!-- 3: metaphor -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">類似検索より、判決文</div>
+      <h2 class="title">ニュースではなく <em>判例</em></h2>
+      <p class="lead">Loreは、過去の経緯を“文章の束”として渡すのではなく、決定を決定として固定し、読む側（エージェント）が参照すべき<em>判決文</em>を返します。</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">RAG / 検索</p>
+          <p class="body">類似の手がかりを集める</p>
+        </div>
+        <div class="card">
+          <p class="label">Lore / 台帳</p>
+          <p class="body">いま有効な“意思決定”を確定して返す</p>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: 決定（decision）台帳（ledger）</div>
+    </section>
+
+    <!-- 4: architecture -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">MCP＋read-only境界</div>
+      <h2 class="title">参照は <em>安全</em></h2>
+      <p class="lead">Loreは Lore/RAC 上のMCPサーバとして動き、エージェントからは読み取り専用（read-only）で参照可能にします。信頼境界は最終的に<em>人間のPRレビュー</em>に置きます。</p>
+      <div class="ruleline"></div>
+      <div class="grid3">
+        <div class="card">
+          <p class="label">Storage</p>
+          <p class="body">リポジトリ内 typed Markdown</p>
+        </div>
+        <div class="card">
+          <p class="label">API</p>
+          <p class="body">MCP経由で read-only 配信</p>
+        </div>
+        <div class="card">
+          <p class="label">Governance</p>
+          <p class="body">書き込みは人間のPRレビュー</p>
+        </div>
+      </div>
+      <div class="footer-note">目的: エージェントの誤更新・勝手な上書き・改ざんを構造的に抑制</div>
+    </section>
+
+    <!-- 5: architecture -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">typed Markdown / スキーマ</div>
+      <h2 class="title">“種類”で守る <em>整合性</em></h2>
+      <p class="lead">Loreは、決定・要件・設計などを typed Markdown として保存し、RACがスキーマ適合を検証します。曖昧な書き方や壊れた構造を減らし、参照品質を安定させます。（スキーマバリデーション）</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">typed Markdown</p>
+          <p class="body">“形式（schema）”が文章を縛る</p>
+        </div>
+        <div class="card">
+          <p class="label">rac validate</p>
+          <p class="body">保存・取り込み時に適合をチェック</p>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: 検証（validation）／適合（conformance）</div>
+    </section>
+
+    <!-- 6: process -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">CIゲートで“壊れ”を弾く</div>
+      <h2 class="title">rac gate <em>決定だけを通す</em></h2>
+      <p class="lead">Lore/RACは rac gate により、無効・曖昧・参照不能な意思決定をCIで拒否する構想です。これにより “knowledgeの整合性” を運用の中心にできます。</p>
+      <div class="ruleline"></div>
+      <div class="grid3">
+        <div class="card">
+          <p class="label">拒否1</p>
+          <p class="body">フォーマット不正</p>
+        </div>
+        <div class="card">
+          <p class="label">拒否2</p>
+          <p class="body">壊れたリンク / 無効参照</p>
+        </div>
+        <div class="card">
+          <p class="label">拒否3</p>
+          <p class="body">superseded（無効化）参照</p>
+        </div>
+      </div>
+      <div class="footer-note">注: 詳細なエラー条件は公式ドキュメント（Masked）依存の可能性</div>
+    </section>
+
+    <!-- 7: distinction -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">RAGの探索を否定しない</div>
+      <h2 class="title">併用は <em>探索→検証</em></h2>
+      <p class="lead">LoreはRAGの代替ではなく役割分担です。必要ならRAGで探索し、その後Loreで“決定としての正しさ”を確認するワークフローが推奨されています。</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">RAG（探索）</p>
+          <p class="body">質問に近い情報を探す</p>
+        </div>
+        <div class="card">
+          <p class="label">Lore（確定）</p>
+          <p class="body">いま有効な意思決定を返す</p>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: 検証（verification）／確定（confirmation）</div>
+    </section>
+
+    <!-- 8: distinction -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">LLM呼び出しを避ける</div>
+      <h2 class="title">エアギャップ志向 <em>no-LLM</em></h2>
+      <p class="lead">Lore/RACのエンジンはノーLLM・ノーネットワークとされます。信頼境界は人間レビューが担い、外部通信を最小化する方向性です。</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">思想</p>
+          <p class="body">外部の推論や通信で意思決定を揺らさない</p>
+        </div>
+        <div class="card">
+          <p class="label">境界</p>
+          <p class="body">最終責任はPRレビュー（人間）</p>
+        </div>
+      </div>
+      <div class="footer-note">企業導入で懸念されがちな点（セキュリティ/監査）への配慮</div>
+    </section>
+
+    <!-- 9: evidence -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">“決定だけ”を安定供給</div>
+      <h2 class="title">エージェントの <em>判断根拠</em></h2>
+      <p class="lead">Loreの最大の主張は、エージェントが“関連しそう”を探すのではなく、<em>いま有効な最新の意思決定を決定的に返す</em>ことです。再実装や方針の再検討を抑えるガバナンス基盤になります。</p>
+      <div class="ruleline"></div>
+      <div class="grid3">
+        <div class="card">
+          <p class="label">返すもの</p>
+          <p class="body">意思決定（decision）そのもの</p>
+        </div>
+        <div class="card">
+          <p class="label">性質</p>
+          <p class="body">deterministic / 再現可能</p>
+        </div>
+        <div class="card">
+          <p class="label">狙い</p>
+          <p class="body">却下の再検討を減らす</p>
+        </div>
+      </div>
+      <div class="footer-note">“確定分類＋検証”が一体で機能するイメージ</div>
+    </section>
+
+    <!-- 10: comparison -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">Lore vs RAG vs メモリ</div>
+      <h2 class="title">役割は <em>別</em></h2>
+      <p class="lead">Loreは正本（source of truth）としての役割に寄せ、RAGや外部メモリは必要に応じた探索の補助として位置づけます。移行や併用の前提も、この考え方に沿っています。</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">Lore</p>
+          <p class="body">最新の決定を“決定として”返す</p>
+        </div>
+        <div class="card">
+          <p class="label">RAG / 外部メモリ</p>
+          <p class="body">探索・補完（インデックス/メモリ）</p>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: 正本（source of truth）／補完（complement）</div>
+    </section>
+
+    <!-- 11: process -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Ops</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">取り込みとエクスポート</div>
+      <h2 class="title">既存資産は <em>型へ</em></h2>
+      <p class="lead">既存のADRsやドキュメントは import（rac-importスキル等）で typed Markdown に変換し、バリデーションへ進む流れが書かれています。Loreの内容は export（--documents / --graph / --okf）で外部ツールに渡せます。</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">import</p>
+          <p class="body">既存→typed Markdown化（人間レビュー前提）</p>
+        </div>
+        <div class="card">
+          <p class="label">export</p>
+          <p class="body">外部メモリ/RAG/グラフ形式に変換（OKF等）</p>
+        </div>
+      </div>
+      <div class="footer-note">OKFはGoogleのOpen Knowledge Format（互換の道）</div>
+    </section>
+
+    <!-- 12: closing -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">導入評価の焦点</div>
+      <h2 class="title">“効くか”を <em>検証</em></h2>
+      <p class="lead">LoreはAIに探索させるより、チームの意思決定を手続き化して監査可能性を上げる方向性です。評価では、(1) 移行体験、(2) rac gateでの弾かれ頻度と改善サイクル、(3) 参照失敗時の挙動（参照不能をどう扱うか）を確認するのが重要です。</p>
+      <div class="ruleline"></div>
+      <div class="grid2">
+        <div class="card">
+          <p class="label">価値</p>
+          <p class="body">意思決定の再実装・再検討を抑制</p>
+        </div>
+        <div class="card">
+          <p class="label">確認点</p>
+          <p class="body">superseded定義・スキーマ詳細・失敗時挙動</p>
+        </div>
+      </div>
+      <div class="footer-note">次アクション例: まず小さくADRsをtyped化→CIゲート→エージェント参照の成功/失敗を計測</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/pitch1_rag-vs-mcp-and-why-the-real-answer-for-2026-activity-7450593098633764864-gigq" target="_blank" rel="noreferrer noopener">RAG vs MCP (and Why the Real Answer for 2026) Most companies experimenting with AI hit the same wall: “The model sounds smart… but it doesn’t know our business.” That’s where RAG and MCP come in.… | Youthea Pich</a></h2>
+<p class="reference-note">[Skip to main content](https://www.linkedin.com/posts/pitch1_rag-vs-mcp-and-why-the-real-answer-for-2026-activity-745059…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/dalihabli_ai-generativeai-llm-activity-7427999675359662080-_ITS" target="_blank" rel="noreferrer noopener">RAG vs MCP: AI Knowledge Retrieval vs Execution - LinkedIn</a></h2>
+<p class="reference-note">J&#39;aime beaucoup la distinction entre RAG et MCP : RAG pour lire et récupérer une information fiable, MCP pour agir en te…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.infocaptor.com/mcp-vs-rag-a-practical-guide-for-data-engineers-and-ai-builders" target="_blank" rel="noreferrer noopener">MCP vs RAG: A Practical Guide for Data Engineers and AI Builders - InfoCaptor AI</a></h2>
+<p class="reference-note"># MCP vs RAG: A Practical Guide for Data Engineers and AI Builders. # RAG vs MCP. There is a growing discussion in the A…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=u546On9iEBk" target="_blank" rel="noreferrer noopener">MCP vs A2A vs RAG Explained Simply!</a></h2>
+<p class="reference-note">MCP vs A2A vs RAG Explained Simply!
+Cloud With Raj
+126000 subscribers
+1165 likes
+62699 views
+23 May 2025
+🚀Join the real-…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.truefoundry.com/blog/mcp-vs-rag" target="_blank" rel="noreferrer noopener">MCP vs RAG: Key Differences and Use Cases - Truefoundry</a></h2>
+<p class="reference-note">Blank white background with no objects or features visible. Three horizontal black bars of varying lengths on a white ba…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
