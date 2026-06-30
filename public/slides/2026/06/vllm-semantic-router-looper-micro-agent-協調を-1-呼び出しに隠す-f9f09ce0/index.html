@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>vLLM Semantic Router Looper — Micro-Agent 協調を 1 呼び出しに隠す</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px 0;
+      display: block;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .frame{
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute;
+      left:72px;
+      right:72px;
+      top:56px;
+      height:1px;
+      background: linear-gradient(to right, rgba(232,129,74,0.0), rgba(232,129,74,0.45), rgba(232,129,74,0.0));
+      opacity:0.65;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      left:72px;
+      top:34px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width:14px;
+      height:1px;
+      background: rgba(232,129,74,0.85);
+      transform: translateY(-2px);
+    }
+
+    .slide-num{
+      position:absolute;
+      right:72px;
+      top:34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+      line-height:1.1;
+    }
+
+    .title{
+      font-size: 64px;
+      line-height:1.02;
+      font-weight: 500;
+      margin: 0 0 16px 0;
+      letter-spacing: -0.01em;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      max-width: 900px;
+    }
+
+    .jp-head{
+      font-size: 64px;
+      line-height:1.02;
+      font-weight: 500;
+      margin: 0 0 16px 0;
+      letter-spacing: -0.02em;
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      color: var(--ink);
+      max-width: 900px;
+    }
+
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.6;
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    .thin{
+      color: var(--ink-2);
+    }
+
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 22px 0 18px 0;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      width: 100%;
+      margin-top: 18px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 10px;
+      background: rgba(20,17,13,0.25);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      width: 100%;
+      margin-top: 18px;
+    }
+
+    .smallnote{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      margin-top: 10px;
+      line-height: 1.45;
+    }
+
+    .closingcenter{
+      position:absolute;
+      left:72px;
+      right:72px;
+      bottom:74px;
+      text-align:left;
+    }
+
+    a{ color: var(--ink); text-decoration: underline; text-decoration-color: rgba(232,129,74,0.6); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">LOOPER / ROUTER</div>
+      <div class="slide-num">02 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">モデルの背後にチーム</div>
+      <div class="title">サービング層の協調</div>
+      <div class="lead">
+        vLLM Semantic Router の Looper は、ユーザに「1つのモデル呼び出し」に見せたまま、内部で micro-agents 協調を実行し、最終的に OpenAI 互換の 1 応答として返します。
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">受動→制御へ</div>
+      <div class="title">ルータが“推論盤面”になる</div>
+      <div class="lead">
+        従来は「アプリがモデル名を指定し、バックエンドがそのまま返す」が中心でしたが、今はルータ（Semantic Router）が control plane となり、どのモデルへいつ切り替えるかが品質とコストを左右します。
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">CORE IDEA</div>
+      <div class="slide-num">04 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">単なる配線ではない</div>
+      <div class="title">能力構築（capability）</div>
+      <div class="lead">
+        ルータはモデル選択だけでなく、呼び出し内部で協調パターン（Looper）を選び、モデルの重みを変えずに推論品質を上げる余地になる、と主張します。
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">UX PROMISE</div>
+      <div class="slide-num">05 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">外は 1 回、内は多段</div>
+      <div class="title">1 API に協調を隠す</div>
+      <div class="lead">
+        ユーザは `vllm-sr/auto` のように 1 つのモデル名だけ指定します。裏側ではファンアウト、quorum、検証、不一致統合、契約修復まで行い、最終的には通常の 1 応答を返します。
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">LOOPER RUNTIME</div>
+      <div class="slide-num">06 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">スローガンでなく制御</div>
+      <div class="title">予算・失敗・トレース</div>
+      <div class="lead">
+        Looper は実行ランタイムであり、停止条件・並列上限・合成・フォールバック・トレース（観測ラベル）などの統治が前提です。無制限のエージェントグラフではありません。
+      </div>
+
+      <div class="grid2" style="margin-top:22px;">
+        <div class="cell">
+          <div class="k">停止 / コスト（予算）</div>
+          <div class="v">Confidence 閾値・並列上限・最大ステップ等で制御</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用 / デバッグ</div>
+          <div class="v">trace を保持し、どこで失敗しなぜ統合したかを追跡</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">RECIPES</div>
+      <div class="slide-num">07 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">代表パターン 5 つ</div>
+      <div class="title">Looper のレシピ</div>
+      <div class="lead">
+        協調パターンは 5 系統が中心です（Confidence / Ratings / ReMoM / Fusion / Workflows）。それぞれ停止・合成・契約順守・役割分担の仕方が違います。
+      </div>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v"><span class="thin">Confidence</span><br/>閾値でエスカレーション停止</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v"><span class="thin">Ratings</span><br/>並列アンサンブル（max_concurrent）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v"><span class="thin">ReMoM</span><br/>合成を contract 形式へ統合</div>
+        </div>
+        <div class="cell">
+          <div class="k">iv</div>
+          <div class="v"><span class="thin">Fusion</span><br/>不一致を証拠化して統合</div>
+        </div>
+        <div class="cell" style="grid-column: span 2;">
+          <div class="k">v</div>
+          <div class="v"><span class="thin">Workflows</span><br/>planner 選択の worker を許可制で実行（境界あり）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">DECISION</div>
+      <div class="slide-num">08 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">万能ループはない</div>
+      <div class="title">タスク形状に合わせる</div>
+      <div class="lead">
+        最適なループは普遍ではなく、benchmark が求める出力形式や安定性の性質に応じてレシピを切り替えるべき、という評価観点が提示されています。
+      </div>
+
+      <div class="grid2" style="margin-top:22px;">
+        <div class="cell">
+          <div class="k">例</div>
+          <div class="v">GPQA-Diamond / LiveCodeBench / Humanity’s Last Exam / SWE 相当で要求が異なる</div>
+        </div>
+        <div class="cell">
+          <div class="k">結論</div>
+          <div class="v">信号から推定し、レシピを変えて勝ち筋を作る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">09 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">scorecard は補助線</div>
+      <div class="title">閉モデルで良スコア</div>
+      <div class="lead">
+        記事では scorecard（例：92.6 など）を「タスクに応じたレシピ選択」の有効性の一部として紹介します。ただし、解釈には注意が必要です。
+      </div>
+
+      <div class="grid2" style="margin-top:22px;">
+        <div class="cell">
+          <div class="k">示唆</div>
+          <div class="v">router-owned collaboration が“より強いモデル同一性”になり得る</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">全リクエストで全閉モデルを回すべき、という意味ではない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">OUTPUT CONTRACT</div>
+      <div class="slide-num">10 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">“文”だけじゃない</div>
+      <div class="title">出力契約（output contract）</div>
+      <div class="lead">
+        Fusion / ReMoM の文脈では、自然文の良さだけでなく「特定フォーマット」「実装可能性」「誤差耐性」などの契約を守ることが狙いです。
+      </div>
+
+      <div class="grid2" style="margin-top:22px;">
+        <div class="cell">
+          <div class="k">例</div>
+          <div class="v">ANSWER: X のような厳密フォーマット（想定）</div>
+        </div>
+        <div class="cell">
+          <div class="k">手段</div>
+          <div class="v">協調過程で合成・修復し、最終的に契約順守へ収束</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">DESIGN CHECK</div>
+      <div class="slide-num">11 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">導入前の論点</div>
+      <div class="title">レシピ設計が鍵</div>
+      <div class="lead">
+        自社導入では、信号設計・閾値・モデルプール・失敗時 UX・監視指標まで整備が不可欠です。特に「ループ寄与」と「周辺選択寄与」を切り分けられる設計が重要になります。
+      </div>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v">信号設計（難しさ / リスク / 契約圧力等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">制御パラメータ（閾値 / 並列上限 / 最大ステップ）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">観測（trace / ラベル）と品質・コストの監視</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- References -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">REFERENCES</div>
+      <div class="slide-num">12 / 15</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">Further reading</div>
+      <div class="title">参考文献（出典）</div>
+      <div class="lead">
+        本デッキはユーザ提示テキストの要約です。記事・実装の一次情報は、vLLM Semantic Router（Semantic Router / Looper）公式ドキュメントおよび該当ベンチマーク（GPQA-Diamond, LiveCodeBench, SWE 相当等）をご参照ください。
+      </div>
+
+      <div class="grid2" style="margin-top:22px;">
+        <div class="cell">
+          <div class="k">Semantic Router</div>
+          <div class="v">vLLM Semantic Router ドキュメント（Looper / recipes）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Benchmarks</div>
+          <div class="v">GPQA-Diamond / LiveCodeBench / Humanity’s Last Exam / SWE 系</div>
+        </div>
+      </div>
+
+      <div class="smallnote">
+        二言語（Bilingual）: Looper（ルーパー）= ルータ内部で実行される協調レシピの実行基盤。Micro-agents（マイクロエージェント）= 最小単位の推論協調。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://developers.redhat.com/articles/2025/09/11/vllm-semantic-router-improving-efficiency-ai-reasoning" target="_blank" rel="noreferrer noopener">vLLM Semantic Router: Improving efficiency in AI reasoning | Red Hat Developer</a></h2>
+<p class="reference-note"># vLLM Semantic Router: Improving efficiency in AI reasoning. Large language models (LLMs) are increasingly used in prod…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://vllm.ai/blog/2026-01-05-vllm-sr-iris" target="_blank" rel="noreferrer noopener">vLLM Semantic Router v0.1 Iris: The First Major Release | vLLM Blog</a></h2>
+<p class="reference-note"># vLLM Semantic Router v0.1 Iris: The First Major Release. vLLM Semantic Router is the **System Level Intelligence** for…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://neurips.cc/virtual/2025/129115" target="_blank" rel="noreferrer noopener">When to Reason: Semantic Router for vLLM - NeurIPS 2026</a></h2>
+<p class="reference-note">We present a semantic router that classifies queries based on their reasoning requirements and selectively applies reaso…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://vllm-semantic-router.com/publications" target="_blank" rel="noreferrer noopener">Papers &amp; Talks | vLLM Semantic Router</a></h2>
+<p class="reference-note">Research, talks, and position papers from the vLLM Semantic Router project. ### vLLM Semantic Router: Signal Driven Deci…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pypi.org/project/vllm-sr" target="_blank" rel="noreferrer noopener">vllm-sr · PyPI</a></h2>
+<p class="reference-note">vLLM Semantic Router - Intelligent routing for Mixture-of-Models. # vLLM Semantic Router. Intelligent Router for Mixture…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
