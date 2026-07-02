@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control Plane Was the Point: Revisiting autofz in the LLM Era</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP","Cormorant Garamond",serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border-radius: 18px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+      inset: auto;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border-radius: 12px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: 0.9;
+    }
+
+    .topline{
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 22px;
+      background: transparent;
+      pointer-events: none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 22px;
+      left: 36px;
+      padding: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.12em;
+      color: var(--ink-2);
+      font-size: 15px;
+      text-transform: uppercase;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 32px;
+      height: 2px;
+      background: var(--rust);
+      margin-right: 12px;
+      transform: translateY(-4px);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 36px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 14px 0;
+    }
+
+    .title{
+      margin: 0 0 18px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.95;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .title.jp{
+      font-family: "Noto Serif JP","Cormorant Garamond",serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 60px;
+    }
+
+    .lead{
+      margin: 0;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      color: var(--ink-2);
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 22px 0;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(20,17,13,0.15);
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .value{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 20px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-3);
+      font-weight: 300;
+      margin-top: 8px;
+      line-height: 1.35;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .footer{
+      position:absolute;
+      left: 56px;
+      right: 56px;
+      bottom: 34px;
+      color: var(--ink-4);
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      display:flex;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+
+    @media (max-width: 740px){
+      .slide{ padding: 44px 22px; border-radius: 16px; }
+      .slide-tag{ left: 22px; top: 18px; }
+      .slide-num{ right: 22px; top: 18px; font-size: 20px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .footer{ left: 22px; right: 22px; bottom: 24px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 13 -->
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 17</div>
+      <div class="eyebrow">制御プレーンが要点</div>
+      <h1 class="title">The Control Plane</h1>
+      <p class="lead">autofzを「新しいファジング手法」ではなく、異種ワーカーへ固定予算を配分する制御問題として読み直します（制御プレーン＝control plane / <span style="font-style:italic;">計画・統括層</span>）。</p>
+      <div class="footer">
+        <div>autofz × LLM/CRS</div>
+        <div>Reading deck</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 17</div>
+      <div class="eyebrow">単一最適が消える</div>
+      <h1 class="title">Rank inversion</h1>
+      <p class="lead">同じキャンペーンでも、どのファジングが進んでいるかは時間とともに入れ替わります（rank inversion）。「最初に選んだ最強」が後半で最強になりません。</p>
+      <div class="footer">
+        <div>探索は時間で変質</div>
+        <div>入れ替わり前提</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 17</div>
+      <div class="eyebrow">複数の料理人</div>
+      <h1 class="title">誰に火を</h1>
+      <p class="lead">ファジングを「料理人」、CPU予算を「火加減」と見なすと、問題は最強のレシピ探しではなく、今一番伸びる料理人へ“次の時間”を渡す判断になります。</p>
+      <div class="footer">
+        <div>統括＝control</div>
+        <div>配分＝allocation</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 17</div>
+      <div class="eyebrow">準備→焦点</div>
+      <h1 class="title">Control plane</h1>
+      <p class="lead">autofzの中核は、メタファジング（meta-fuzzing）として複数ワーカーを統括し、「準備フェーズで比較→焦点フェーズで配分更新」を回す制御プレーンです。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">準備（Preparation）</div>
+          <div class="value">各ファザーを短く公平に実行</div>
+          <div class="small">進捗を共通ビューに正規化（AFLビットマップ相当）</div>
+        </div>
+        <div class="card">
+          <div class="label">焦点（Focusing）</div>
+          <div class="value">トレンドから“進んでる側”へ予算</div>
+          <div class="small">固定ではなく定期的に配分を更新</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>意思決定の場所</div>
+        <div>比較可能性が鍵</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">06 / 17</div>
+      <div class="eyebrow">種同期で協調</div>
+      <h1 class="title">Seed sync</h1>
+      <p class="lead">種（seeds）の同期により、あるワーカーで見つかった成果を別ワーカーの起点へ変換し、協調効果を狙います。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">観測</div>
+          <div class="value">進捗データを取得</div>
+          <div class="small">（制御が比較するための入力）</div>
+        </div>
+        <div class="card">
+          <div class="label">変換</div>
+          <div class="value">種（seeds）を同期</div>
+          <div class="small">成果を“次の実験”へ</div>
+        </div>
+        <div class="card">
+          <div class="label">配分</div>
+          <div class="value">予算ウィンドウを再割当</div>
+          <div class="small">トレンドを優先</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>成果の受け渡し</div>
+        <div>協調＝統治</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">07 / 17</div>
+      <div class="eyebrow">プログラム単位で</div>
+      <h1 class="title">Workload first</h1>
+      <p class="lead">「プログラム単位」ではなく「ワークロード単位」で考えるべきです。探索空間は時間で変わるため、最適配分も時間で変わります（ワークロード＝探索状態の文脈）。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">よくある落とし穴</div>
+          <div class="value">最初の“勝ち手”固定</div>
+          <div class="small">後半で陳腐化（rank inversion）</div>
+        </div>
+        <div class="card">
+          <div class="label">autofzの対策</div>
+          <div class="value">定期再評価→配分更新</div>
+          <div class="small">短い窓で“今”に追従</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>固定最適は脆い</div>
+        <div>動的最適へ</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">08 / 17</div>
+      <div class="eyebrow">反実仮想で納得</div>
+      <h1 class="title">Why it won</h1>
+      <p class="lead">著者は「勝ったか」より「スケジューリング判断が妥当か」を問います。準備後の状態をスナップショット化し、多数回復元して代替案と競争させました。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">評価の焦点</div>
+          <div class="value">配分判断の妥当性</div>
+          <div class="small">（デモではなく説得力）</div>
+        </div>
+        <div class="card">
+          <div class="label">検証手段</div>
+          <div class="value">反実仮想的比較</div>
+          <div class="small">“全予算を単一ファザーへ”など</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>科学性</div>
+        <div>再現可能性へ</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">09 / 17</div>
+      <div class="eyebrow">CRSへ同型移植</div>
+      <h1 class="title">LLM/CRS mapping</h1>
+      <p class="lead">類似点は「ワーカーがファザーでない」だけで、制御の論点（比較可能な証拠・固定予算下の配分判断）は同型です。LLM/CRSではワーカーが増え、判断が難しくなります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">ファジング側</div>
+          <div class="value">seed / crash / 到達率</div>
+          <div class="small">共通の進捗指標（AFLビットマップ相当）</div>
+        </div>
+        <div class="card">
+          <div class="label">CRS側</div>
+          <div class="value">static / agent / patch / validate</div>
+          <div class="small">証拠は多様（PoV・パッチ差分・否定的証拠等）</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>転用の条件</div>
+        <div>正規化が必要</div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">10 / 17</div>
+      <div class="eyebrow">固定予算の多次元化</div>
+      <h1 class="title">Budget</h1>
+      <p class="lead">CRSの予算はCPUだけでなく、トークン・レイテンシ・人手まで含みます。だからこそ制御プレーンの設計が増幅します。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">計算</div>
+          <div class="value">CPU / GPU / スレッド</div>
+        </div>
+        <div class="card">
+          <div class="label">言語資源</div>
+          <div class="value">トークン / プロンプト長</div>
+        </div>
+        <div class="card">
+          <div class="label">現実コスト</div>
+          <div class="value">レイテンシ / 人手</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>制御対象が増える</div>
+        <div>配分が難化</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">11 / 17</div>
+      <div class="eyebrow">等分配は無駄</div>
+      <h1 class="title">集中</h1>
+      <p class="lead">seed共有だけでは不十分です。固定予算下では「どのワーカーへCPUを割り当てるか」が別問題で、ワーカー増は測定・同期コストも増やします。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">多様性の落とし穴</div>
+          <div class="value">情報交換のための時間が増える</div>
+          <div class="small">探索が進まず頭打ち</div>
+        </div>
+        <div class="card">
+          <div class="label">必要なこと</div>
+          <div class="value">“今役立つ”側へ配分</div>
+          <div class="small">トレンドで再スケジュール</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>制御＝運用</div>
+        <div>探索速度を守る</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">12 / 17</div>
+      <div class="eyebrow">批判の核心</div>
+      <h1 class="title">共通尺度問題</h1>
+      <p class="lead">CRSではカバレッジのような安価で共通のフィードバックがないため、制御プレーンを同型に移植できる保証が弱い点が未解決です。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">問題</div>
+          <div class="value">証拠（PoV/パッチ/静的警告）が同一スケールで比較できない</div>
+          <div class="small">単純写像が成立しない可能性</div>
+        </div>
+        <div class="card">
+          <div class="label">帰結</div>
+          <div class="value">“思想”は理解できても効果は不確実</div>
+          <div class="small">証拠正規化の実装が鍵</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>転用の限界</div>
+        <div>正規化が要点</div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">13 / 17</div>
+      <div class="eyebrow">死んでない、役割変更</div>
+      <h1 class="title">Fuzzing’s role</h1>
+      <p class="lead">ファジング研究は死んだのではなく役割が変わっています。実運用ではCRSが増え、ファジングの強みは“動的証拠を安価に作る”ことになります。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">役割</div>
+          <div class="value">動的証拠の生成</div>
+        </div>
+        <div class="card">
+          <div class="label">統合</div>
+          <div class="value">静的解析→理解→LLM推論</div>
+        </div>
+        <div class="card">
+          <div class="label">完了条件</div>
+          <div class="value">パッチ生成→検証</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>鍵＝証拠の運用</div>
+        <div>優先順位と配分</div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">14 / 17</div>
+      <div class="eyebrow">結論：制御プレーン</div>
+      <h1 class="title">Transfer the control</h1>
+      <p class="lead">単一の最強ファザではなく、異種ワーカーを固定予算で協調させる制御プレーンが再利用可能な教訓です（ただし証拠の比較可能性は別途設計が必要）。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">持ち帰る核</div>
+          <div class="value">準備→比較→焦点で配分更新</div>
+          <div class="small">rank inversionに追従する運用思想</div>
+        </div>
+        <div class="card">
+          <div class="label">次の実装課題</div>
+          <div class="value">比較可能な証拠の設計（正規化）</div>
+          <div class="small">トークン/レイテンシ/人手を多次元予算へ</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>control plane × CRS</div>
+        <div>autofz再考</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://yfu.tw/publication/sec23-autofz" target="_blank" rel="noreferrer noopener">autofz: Automated Fuzzer Composition at Runtime</a></h2>
+<p class="reference-note">We propose an automated, yet non-intrusive meta-fuzzer, called autofz, to maximize the benefits of existing state-of-the…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.usenix.org/system/files/usenixsecurity23-fu-yu-fu.pdf" target="_blank" rel="noreferrer noopener">[PDF] autofz: Automated Fuzzer Composition at Runtime - USENIX</a></h2>
+<p class="reference-note">Even after taking the preparation phases into account, autofz spent only 22% resources total for the (a) 5-fuzzers (Redq…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/sslab-gatech/autofz" target="_blank" rel="noreferrer noopener">autofz: Automated Fuzzer Composition at Runtime - GitHub</a></h2>
+<p class="reference-note">autofz is a meta fuzzer for automated fuzzer composition at runtime. Some part of the source code might use `autofuzz` (…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://haoran-qiu.com/publication" target="_blank" rel="noreferrer noopener">Publications | Haoran Qiu | Microsoft AzRS</a></h2>
+<p class="reference-note">Murakkab: Resource-Efficient Agentic Workflow Orchestration in Cloud Platforms. Gohar Irfan Chaudhry, Esha Choukse, **Ha…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.preprints.org/manuscript/202604.2147" target="_blank" rel="noreferrer noopener">LLM-Based Multi-Agent Orchestration: A Survey of Frameworks ...</a></h2>
+<p class="reference-note">A taxonomy of orchestration patterns comprising three coordination topologies (centralized, decentralized, hierarchical)…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
