@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIエージェント制御設計：ライブ取引に耐える共通パターン</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 0;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      box-sizing: border-box;
+      border: 1.5px solid var(--rule);
+    }
+    .slideInner{
+      width:100%;
+      height:100%;
+      border: 1.5px solid var(--rule);
+      padding: 56px 72px;
+      position: relative;
+    }
+
+    .slideTop{
+      position:absolute;
+      left: 72px; right: 72px; top: 28px;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap: 18px;
+      pointer-events:none;
+    }
+    .slideTag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .slideTag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform: translateY(-50%);
+      height: 20px;
+      width: 3px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+    .slideNum{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+      font-size: 22px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 12px 0;
+    }
+    .title{
+      margin: 0 0 14px 0;
+      font-size: 72px;
+      line-height: 1.02;
+      font-weight: 500;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+    }
+    .ruleLine{
+      position:absolute;
+      left:72px; right:72px;
+      bottom: 72px;
+      height:1px;
+      background: var(--rule);
+      pointer-events:none;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 22px;
+      width: 100%;
+      align-items: start;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 16px 16px 14px;
+      min-height: 74px;
+    }
+    .cellLabel{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cellBody{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .monoHint{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-2);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
+    .centerHero{
+      position:absolute;
+      inset:0;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:flex-start;
+    }
+    .centerHero .heroLead{
+      max-width: 820px;
+      font-size: 22px;
+      line-height: 1.6;
+      margin-top: 18px;
+    }
+    .closingText{
+      max-width: 860px;
+      font-size: 22px;
+      line-height: 1.65;
+    }
+    @media (max-width: 760px){
+      .slideInner{ padding: 36px 26px; }
+      .slideTop{ left: 26px; right: 26px; top: 18px; }
+      .ruleLine{ left:26px; right:26px; bottom: 54px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 01 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">AI AGENT / LIVE</div>
+          <div class="slideNum">01 / 12</div>
+        </div>
+        <div class="centerHero">
+          <div>
+            <div class="eyebrow">賢さより制御</div>
+            <div class="title">制御設計<span class="jp">の共通パターン</span></div>
+            <div class="lead heroLead">
+              ライブ取引に耐えるAIエージェントは、モデル性能だけでなく「制御アーキテクチャ」で成立する——という主張を、公開情報ベースで整理します。
+            </div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 02 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">PROBLEM</div>
+          <div class="slideNum">02 / 12</div>
+        </div>
+        <div class="eyebrow">事故＝損益＆規制</div>
+        <div class="title">“賢い”だけ不十分</div>
+        <p class="lead">
+          市場では誤作動がP&amp;Lと規制対応に直結するため、幻覚や誤出力を“起きない前提”にできません。
+        </p>
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="cellLabel">失敗の本質</div>
+            <div class="cellBody">内容の誤りだけでなく、判断の非再現性（同条件で揺れる）も本番リスク。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">求められる設計</div>
+            <div class="cellBody">影響範囲の封じ込め、事後追跡、ゲート、組織的な標準化（連邦型ガードレール）。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 03 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">THESIS</div>
+          <div class="slideNum">03 / 12</div>
+        </div>
+        <div class="eyebrow">勝負は閾値</div>
+        <div class="title">公開は“形”</div>
+        <p class="lead">
+          公開されるのはアーキテクチャ（枠組み）で、重要な閾値（thresholds）は非公開——ここが意味を持つ核心です。
+        </p>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="cellLabel">公開されがち</div>
+            <div class="cellBody">コンテインメント、監査ログ、vetoゲート、中央標準＋現場分散。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">非公開になりやすい</div>
+            <div class="cellBody">予算上限、ブロック条件、信頼区間、評価通過率などの校正値。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">結果</div>
+            <div class="cellBody">競争力と安全性は“閾値チューニング”に残る余地。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 04 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">CORE FOUR</div>
+          <div class="slideNum">04 / 12</div>
+        </div>
+        <div class="eyebrow">共通4要素</div>
+        <div class="title">制御アーキテクチャ</div>
+        <p class="lead">
+          ライブ取引に耐えるAIは、(i)コンテインメント、(ii)監査可能トレース、(iii)逐次veto、(iv)連邦型ガードレールの組み合わせで成立する、と整理されます。
+        </p>
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="cellLabel">i. コンテインメント</div>
+            <div class="cellBody">失敗（幻覚/誤出力）をゼロにするより、影響を閉じ込める。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">ii. 監査トレイル</div>
+            <div class="cellBody">入力・出力・モデル呼び出しを後から追跡し、原因究明と改善へ。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">iii. 逐次veto</div>
+            <div class="cellBody">ゲートで危険な出力を止め、非決定性のばらつきを可視化。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">iv. 連邦型ガードレール</div>
+            <div class="cellBody">中央が標準と評価を管理し、現場は裁量の範囲で実装。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 05 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">CONTAINMENT</div>
+          <div class="slideNum">05 / 12</div>
+        </div>
+        <div class="eyebrow">封じ込め思想</div>
+        <div class="title">影響範囲の設計</div>
+        <p class="lead">
+          失敗をゼロにするのではなく、被害が広がらないよう“触れられる範囲”を制限するのがコンテインメント層です。
+        </p>
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="cellLabel">狙い</div>
+            <div class="cellBody">幻覚等を「起きたとしても局所化」し、安全性（封じ込め）を実現。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">設計の含意</div>
+            <div class="cellBody">信用しきらない前提が、金融の再現性要件と整合する。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 06 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">AUDIT</div>
+          <div class="slideNum">06 / 12</div>
+        </div>
+        <div class="eyebrow">監査可能性</div>
+        <div class="title">トレーサビリティ</div>
+        <p class="lead">
+          LLM呼び出しを追跡し、モデルが見た情報と出力を関連付けることで、損失時の原因究明と規制対応の基盤になります。
+        </p>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="cellLabel">監査ログ</div>
+            <div class="cellBody">入力 / 出力 / 呼び出し情報を紐づけて残す（audit trail）。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">改善</div>
+            <div class="cellBody">失敗のパターンを特定→モデルや評価器を修正。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">規制</div>
+            <div class="cellBody">トレーサビリティ要求（NIST/ISO/FINRA/EU AI Act）に整合しやすい。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 07 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">VETO</div>
+          <div class="slideNum">07 / 12</div>
+        </div>
+        <div class="eyebrow">逐次ゲート</div>
+        <div class="title">vetoで止める</div>
+        <p class="lead">
+          人手レビューは“後から眺める”だけでなく、逐次vetoゲートとして危険な出力を取引前に止めます。
+        </p>
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="cellLabel">非決定性（bilingual）</div>
+            <div class="cellBody">同一入力で判断が揺れる → ゲートで出力を止め、ログでばらつきを可視化（不安定さ対策）。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">検証可能性</div>
+            <div class="cellBody">バックテスト／監査可能性を支えるのがvetoの位置と運用。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 08 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">FEDERATION</div>
+          <div class="slideNum">08 / 12</div>
+        </div>
+        <div class="eyebrow">中央×現場</div>
+        <div class="title">連邦型ガードレール</div>
+        <p class="lead">
+          中央がガードレールと評価基準を持ち、現場チームは枠内でローカルにデプロイすることで、勝手な実装と品質ばらつきを抑えます。
+        </p>
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="cellLabel">中央（Applied AI）</div>
+            <div class="cellBody">標準化、評価器、制約（コンテインメントや閾値の運用設計）を管理。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">現場</div>
+            <div class="cellBody">スピードと裁量は確保しつつ、中央の枠組みから逸脱しにくい。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 09 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">EVIDENCE</div>
+          <div class="slideNum">09 / 12</div>
+        </div>
+        <div class="eyebrow">なぜ“揺れ”が問題</div>
+        <div class="title">同一条件で揺れる</div>
+        <p class="lead">
+          Bloombergの競技（Alpha Arena）では、条件が同じでも意思決定が揺れて損失が出た事例が報告され、非決定性（不安定さ）を本番リスクとして位置づけます。
+        </p>
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="cellLabel">幻覚 vs 非決定性</div>
+            <div class="cellBody">幻覚＝内容の誤り／非決定性＝再現性・監査可能性の欠陥として区別。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">対策の方向</div>
+            <div class="cellBody">vetoゲート＋監査ログで、出力ばらつきを“見える化”し安全側に寄せる。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">THRESHOLDS</div>
+          <div class="slideNum">10 / 12</div>
+        </div>
+        <div class="eyebrow">非公開の勝ち筋</div>
+        <div class="title">閾値設計が核心</div>
+        <p class="lead">
+          閾値は予算上限、ブロック条件、信頼区間、評価通過確率などの“いつvetoするか/しないか”に相当し、公開情報からは再現しにくいとされています。
+        </p>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="cellLabel">予算</div>
+            <div class="cellBody">デスク／チームあたりのLLM利用上限（cost cap）。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">評価器</div>
+            <div class="cellBody">仮説を通す/止める基準（信頼区間・ブロック条件）。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">採用判断</div>
+            <div class="cellBody">複数候補のうち、どれが最終採用されるかの校正値。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">CTO VIEW</div>
+          <div class="slideNum">11 / 12</div>
+        </div>
+        <div class="eyebrow">導入チェック</div>
+        <div class="title">監査観点で整える</div>
+        <p class="lead">
+          CTOとしては、ゲートの位置と運用、監査ログの粒度、連邦ガバナンスの境界に加え、閾値が自社データで“学習・更新される計画”まで必要です。
+        </p>
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="cellLabel">ゲート運用</div>
+            <div class="cellBody">どの段階で止めるか／例外時の扱いを、ログと一体で定義。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">閾値学習</div>
+            <div class="cellBody">レジーム変化への対応、監視指標、失敗時の自動隔離まで“運用設計”に含める。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">検証責任</div>
+            <div class="cellBody">公開アーキテクチャは参照に留め、自社で安全性・再現性・性能を検証。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">ボトルネック</div>
+            <div class="cellBody">人レビュー“常時”より、逐次vetoで安全性と可観測性を両立させる。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">CLOSING</div>
+          <div class="slideNum">12 / 12</div>
+        </div>
+        <div class="eyebrow">結論</div>
+        <div class="title">安全は設計で作る</div>
+        <div class="closingText">
+          ライブ取引に耐えるAIエージェントは、「コンテインメント・監査トレース・逐次veto・連邦型ガードレール」という制御アーキテクチャで破綻を防ぎます。
+          ただし勝敗と安全性は“非公開の閾値”と、自社運用データでの検証・運用監視にかかっている—これが本稿の要点です。
+        </div>
+        <div class="grid grid2" style="margin-top:26px;">
+          <div class="cell">
+            <div class="cellLabel">まずやること</div>
+            <div class="cellBody">自社のveto位置・監査ログ要件・中央/現場境界を先に定義。</div>
+          </div>
+          <div class="cell">
+            <div class="cellLabel">次にやること</div>
+            <div class="cellBody">閾値（thresholds）の学習・更新・監視・隔離手順まで一体で設計。</div>
+          </div>
+        </div>
+        <div class="ruleLine"></div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.csail.mit.edu/event/balyasny-asset-management-bam-ai-x-investing-less-hype-more-alpha" target="_blank" rel="noreferrer noopener">Balyasny Asset Management (BAM)- AI x Investing: Less hype, more alpha. | MIT CSAIL</a></h2>
+<p class="reference-note">\* Estimated AUM as of February 1, 2026.Applied AI group at BAM: Our Applied AI team builds and deploys AI systems that …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.getmaxim.ai/articles/top-5-ai-gateways-for-optimizing-llm-cost-in-2026" target="_blank" rel="noreferrer noopener">Top 5 AI Gateways for Optimizing LLM Cost in 2026</a></h2>
+<p class="reference-note"># Top 5 AI Gateways for Optimizing LLM Cost in 2026. **Comparing the top 5 AI gateways for optimizing LLM cost in 2026:*…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/TheValueist/status/2029992969680404840" target="_blank" rel="noreferrer noopener">TheValueist on X: &quot;$NVDA $MU $SNDK $LITE HOW THE TOP FIRMS ARE USING AI AGENTS IN INVESTMENT BALYASNY ASSET MANAGEMENT ($29B AUM) THE MOST ADVANCED PUBLIC IMPLEMENTATION Balyasny has built what is arguably the most sophisticated AI research platform in the hedge fund industry, and OpenAI just&quot; / X</a></h2>
+<p class="reference-note">Tasks that took senior analysts 2 days now take 30 minutes [FACT] •Proactive push alerts — agents don’t wait for PMs to …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://digitalcommons.kennesaw.edu/cgi/viewcontent.cgi?article=1002&amp;context=cognoconproceedings" target="_blank" rel="noreferrer noopener">[PDF] Hierarchical Multi-Level LLM Agent Swarms for Financial Research ...</a></h2>
+<p class="reference-note">Their 12-dimension evaluation pipeline — measuring forecasting accuracy, numerical reasoning, and hallucination reductio…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.solo.io/blog/building-real-time-ai-cost-controls-with-agentgateway" target="_blank" rel="noreferrer noopener">Building Real-Time AI Cost Controls with agentgateway | Solo.io</a></h2>
+<p class="reference-note"># Building Real-Time AI Cost Controls with agentgateway. Discover how to build a dollar-denominated AI cost-governance l…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
