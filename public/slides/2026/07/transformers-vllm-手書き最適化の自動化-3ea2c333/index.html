@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transformers × vLLM: 手書き最適化の自動化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: block;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      aspect-ratio: 16 / 9;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      border-radius: 2px;
+      box-sizing: border-box;
+      border-left: 20px solid var(--rule);
+      border-right: 20px solid var(--rule);
+    }
+
+    @media (max-width: 720px){
+      .deck{ width: calc(100vw - 24px); }
+      .slide{ padding: 42px 28px; }
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      left:0; right:0; top:0;
+      height:1px;
+      background: var(--rule-strong);
+      opacity: .6;
+    }
+
+    .slide-tag{
+      position:absolute;
+      left: 28px;
+      top: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 16px;
+      letter-spacing: .18em;
+      font-style: italic;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      transform: translateZ(0);
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      position:absolute;
+      right: 28px;
+      top: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      margin-top: 8px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      line-height: 1.2;
+    }
+
+    .title{
+      margin-top: 6px;
+      margin-bottom: 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.98;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      font-style: italic;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 62px;
+      letter-spacing: 0;
+      color: var(--ink);
+    }
+
+    .lead{
+      margin-top: 0;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .rule{
+      margin: 14px 0 0;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+    }
+
+    .grid{
+      margin-top: 16px;
+      display: grid;
+      gap: 14px 16px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 2px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-family: "Noto Serif JP", serif;
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+      word-break: break-word;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 18</div>
+      <div class="eyebrow">手書き要らずへ</div>
+      <div class="title">Transformers↔vLLM<br><span class="jp">速度を統合する</span></div>
+      <div class="lead">Transformersモデル定義をそのまま使いながら、vLLMの推論最適化（融合など）を自動適用して、native級のスループットを狙う流れが示されます。</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 18</div>
+      <div class="eyebrow">“統合はできる”停滞</div>
+      <div class="title">二重管理</div>
+      <div class="lead">従来は「Transformersで動く」だけでは不十分で、最高性能はvLLM側でアーキテクチャごとに手書き最適化が必要でした。</div>
+      <div class="grid two" role="presentation" aria-label="Why hard">
+        <div class="cell">
+          <div class="k">運用コスト</div>
+          <div class="v">最適化実装を“別に”維持（モデルごと/実装ごと）</div>
+        </div>
+        <div class="cell">
+          <div class="k">性能の壁</div>
+          <div class="v">統合実装ではnative vLLMのスループットに届かない場合</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 18</div>
+      <div class="eyebrow">“復元”して融合</div>
+      <div class="title">FX×AST</div>
+      <div class="lead">モデル定義の計算グラフを解析し、推論向けに“融合できる形”へ書き換えることで、手書き最適化の一部を一般化します。</div>
+      <div class="grid three" role="presentation" aria-label="Pipeline">
+        <div class="cell">
+          <div class="k">1</div>
+          <div class="v">torch.fxで静的解析</div>
+        </div>
+        <div class="cell">
+          <div class="k">2</div>
+          <div class="v">パターン検出（層/線形/並列塊）</div>
+        </div>
+        <div class="cell">
+          <div class="k">3</div>
+          <div class="v">ASTでソース置換</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Core claim">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">05 / 18</div>
+      <div class="eyebrow">主張の核</div>
+      <div class="title">同等以上</div>
+      <div class="lead">Transformers vLLMバックエンドが、（少なくとも複数のQwen3で）native vLLM手書き実装に匹敵、または上回るスループットを達成したと報告されています。</div>
+      <div class="grid two" role="presentation" aria-label="Models">
+        <div class="cell">
+          <div class="k">高密度</div>
+          <div class="v">4B / 32B（単GPU〜TP）で比較</div>
+        </div>
+        <div class="cell">
+          <div class="k">大規模MoE</div>
+          <div class="v">235B（FP8 MoE、DP＋expert-parallel）で比較</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Flag">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">06 / 18</div>
+      <div class="eyebrow">“フラグ一つ”へ</div>
+      <div class="title">--model-impl</div>
+      <div class="lead">モデル作者のTransformers実装をvLLMへ流し、推論最適化を自動適用する方向性が強調されています（例：<span class="mono">--model-impl transformers</span>）。</div>
+      <div class="grid two" role="presentation" aria-label="Impact">
+        <div class="cell">
+          <div class="k">期待</div>
+          <div class="v">vLLM側の二重実装（ネイティブ最適化）を減らす</div>
+        </div>
+        <div class="cell">
+          <div class="k">実務</div>
+          <div class="v">TP/並列設定は従来どおり組み合わせられる想定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="How it improves">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">07 / 18</div>
+      <div class="eyebrow">差を埋める仕組み</div>
+      <div class="title">layer融合</div>
+      <div class="lead">推論時に層融合（layer fusions）などの最適化を動的に適用し、手書き実装に近いカーネル効率を狙います。</div>
+      <div class="grid two" role="presentation" aria-label="Fusion types">
+        <div class="cell">
+          <div class="k">線形層の融合</div>
+          <div class="v">QKVParallelLinear / MergedColumnParallelLinear など</div>
+        </div>
+        <div class="cell">
+          <div class="k">ブロック判別</div>
+          <div class="v">デコーダブロック等を判別して最適化計画へ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Parallel dimensions">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">08 / 18</div>
+      <div class="eyebrow">効く次元</div>
+      <div class="title">MoE×TP×PP</div>
+      <div class="lead">融合はMoE/テンソル並列（TP）、条件次第でパイプライン並列（PP）など複数の次元に効く可能性が語られています。</div>
+      <div class="grid three" role="presentation" aria-label="Parallel">
+        <div class="cell">
+          <div class="k">MoE</div>
+          <div class="v">Expert Parallelization（多対一の融合など）</div>
+        </div>
+        <div class="cell">
+          <div class="k">TP</div>
+          <div class="v">並列線形層の“まとまり”で効率化</div>
+        </div>
+        <div class="cell">
+          <div class="k">PP</div>
+          <div class="v">デコーダ判別により計画を推定しうる</div>
+        </div>
+      </div>
+      <div class="small">並列（TP/PP/DP）、MoE、注意機構の理解が前提になると、読み解きやすくなります（推論性能は密に依存）。</div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Why FX/AST">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">09 / 18</div>
+      <div class="eyebrow">“最適化の復元”</div>
+      <div class="title">静的解析</div>
+      <div class="lead">vLLMの最適化カーネルに合わせるには、モデル内演算パターンを検出し“融合できる形”へ変換する必要があります。</div>
+      <div class="grid two" role="presentation" aria-label="Why needed">
+        <div class="cell">
+          <div class="k">torch.fx</div>
+          <div class="v">計算グラフを解析し、既知パターンを発見</div>
+        </div>
+        <div class="cell">
+          <div class="k">AST</div>
+          <div class="v">ソース（構造）を書き換え、推論向け構造を作る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Training alignment">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 18</div>
+      <div class="eyebrow">一貫した実装</div>
+      <div class="title">学習も推論も</div>
+      <div class="lead">Transformersは学習にも使えるため、推論専用の別実装を維持しなくて済む可能性があり、開発プロセスの一貫性に寄与します。</div>
+      <div class="grid two" role="presentation" aria-label="Benefits">
+        <div class="cell">
+          <div class="k">開発</div>
+          <div class="v">学習→評価→（必要なら）RL→提供まで同じ実装基盤</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">推論最適化の“二重管理”を減らす方向性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Limitations">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">11 / 18</div>
+      <div class="eyebrow">できない範囲</div>
+      <div class="title">互換性条件</div>
+      <div class="lead">万能ではなく、変換・融合の適用範囲には制約があります（例：線形アテンションモデルは現在サポートされていない）。</div>
+      <div class="grid two" role="presentation" aria-label="Constraints">
+        <div class="cell">
+          <div class="k">未対応</div>
+          <div class="v">線形アテンション（linear attention）モデルはサポート外</div>
+        </div>
+        <div class="cell">
+          <div class="k">カスタム</div>
+          <div class="v">Hubのコードが“コンプライアント”でないと動かない可能性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Benchmark">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">12 / 18</div>
+      <div class="eyebrow">検証の形</div>
+      <div class="title">before/after</div>
+      <div class="lead">native（vLLM手書き）、after（Transformersバックエンド＋PRあり）、before（Transformersバックエンド＋PRなし）で条件を揃えた比較をした、と説明されています。</div>
+      <div class="grid three" role="presentation" aria-label="Benchmark settings">
+        <div class="cell">
+          <div class="k">native</div>
+          <div class="v">vLLM手書き実装</div>
+        </div>
+        <div class="cell">
+          <div class="k">after</div>
+          <div class="v">融合/最適化を含むTransformers側バックエンド</div>
+        </div>
+        <div class="cell">
+          <div class="k">before</div>
+          <div class="v">最適化なし（またはPRなし）での基準</div>
+        </div>
+      </div>
+      <div class="small">再現用runner（例：<span class="mono">benchmark.sh</span>）が参照されている旨が述べられます。</div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="Ops impact">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">13 / 18</div>
+      <div class="eyebrow">導入の現実</div>
+      <div class="title">設定は最小変化</div>
+      <div class="lead">並列オプション（例：tensor-parallel）と組み合わせでき、提供セットアップ自体は大きく変えずに済む方向性が示されています。</div>
+      <div class="grid two" role="presentation" aria-label="Ops">
+        <div class="cell">
+          <div class="k">組み合わせ</div>
+          <div class="v">TPなどの通常オプションはそのまま利用</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">max-model-lenやメモリ制約で調整が必要になり得る（例：<span class="mono">--max-model-len 8192</span>）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide" aria-label="My opinion">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">14 / 18</div>
+      <div class="eyebrow">賛否の要点</div>
+      <div class="title">有望だが条件付き</div>
+      <div class="lead">運用上の二重実装コストを減らす方向性は明確で、MoE/TPまで含めたnative級の結果は強い根拠になり得ます。</div>
+      <div class="grid two" role="presentation" aria-label="Pros and risks">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">torch.fx＋ASTで“推論性能を手書きに依存しない”道が現実味</div>
+        </div>
+        <div class="cell">
+          <div class="k">リスク</div>
+          <div class="v">未対応（linear attention）や、内部実装更新で融合が外れる回帰リスク</div>
+        </div>
+      </div>
+      <div class="small">導入前に、対象モデルの互換性条件・未対応領域・max-model-len/メモリ制約を検証する姿勢が重要です。</div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide" aria-label="References">
+      <div class="slide-tag">REFERENCES</div>
+      <div class="slide-num">15 / 18</div>
+      <div class="eyebrow">参照（要約ベース）</div>
+      <div class="title"><span class="jp">出典</span>情報</div>
+      <div class="lead">このスライドは、ユーザー提示の本文要約（vLLM×Transformers、融合、検証観点、制約、FAQ）を読みやすく再構成したものです。</div>
+
+      <div class="grid two" role="presentation" aria-label="Key terms">
+        <div class="cell">
+          <div class="k">用語</div>
+          <div class="v">torch.fx / AST / layer fusions / tensor-parallel-size（TP）/ expert-parallel（MoE）</div>
+        </div>
+        <div class="cell">
+          <div class="k">制約</div>
+          <div class="v">linear attention未対応、カスタムモデルのコンプライアンス条件</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+      <div class="small" style="margin-top:14px;">
+        該当記事・リポジトリ（例：benchmark runnerやPR）への直接リンクは、ユーザー本文中に明示がないため省略しています。
+        掲載URLがあれば、スライド末尾に正確なReferences形式で追記できます。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://vllm.ai/blog/2025-04-11-transformers-backend" target="_blank" rel="noreferrer noopener">Transformers modeling backend integration in vLLM | vLLM Blog</a></h2>
+<p class="reference-note"># Transformers modeling backend integration in vLLM. The Hugging Face Transformers library offers a flexible, unified in…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://huggingface.co/docs/transformers/en/community_integrations/vllm" target="_blank" rel="noreferrer noopener">vLLM · Hugging Face</a></h2>
+<p class="reference-note"># Transformers. and get access to the augmented documentation experience. # vLLM. vLLM is a high-throughput inference en…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.vllm.ai/en/v0.6.2/models/supported_models.html" target="_blank" rel="noreferrer noopener">Supported Models — vLLM</a></h2>
+<p class="reference-note"># Supported Models. vLLM supports a variety of generative Transformer models in HuggingFace Transformers. The following …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://docs.vllm.ai/en/v0.4.1/models/adding_model.html" target="_blank" rel="noreferrer noopener">Adding a New Model — vLLM</a></h2>
+<p class="reference-note"># Adding a New Model. This document provides a high-level guide on integrating a HuggingFace Transformers model into vLL…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/LocalLLaMA/comments/1k1xgco/vllm_with_transformers_backend" target="_blank" rel="noreferrer noopener">vLLM with transformers backend : r/LocalLLaMA - Reddit</a></h2>
+<p class="reference-note">You can try out the new integration with which you can run ANY transformers model with vLLM (even if it is not natively …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
