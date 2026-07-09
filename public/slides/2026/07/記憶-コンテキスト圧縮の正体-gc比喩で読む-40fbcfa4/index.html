@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>記憶/コンテキスト圧縮の正体：GC比喩で読む</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      position: relative;
+      padding: 56px 72px;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: 0.35;
+    }
+    .tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.16em;
+      font-weight: 600;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
+    .slide-num{
+      position:absolute;
+      top: 26px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 26px;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 6px;
+      line-height: 1.1;
+    }
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 72px;
+      font-weight: 500;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(20,17,13,0.18);
+      min-height: 72px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      font-weight: 300;
+    }
+    .refs{
+      font-size: 20px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .refItem{
+      padding: 10px 12px;
+      border: 1px solid var(--rule);
+      margin-top: 10px;
+      border-radius: 10px;
+      background: rgba(20,17,13,0.15);
+    }
+    .bilingual{
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .jpGloss{
+      font-size: 16px;
+      color: var(--ink-3);
+      margin-top: 6px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; border-width: 10px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .slide-num{ font-size: 20px; top: 18px; right: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="tag">Cover</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="eyebrow">比喩で掴む：<i>記憶</i>の正体</div>
+      <h1 class="title" style="font-style: italic; color: var(--rust);">GCが読む</h1>
+      <p class="lead">LLMエージェントの「コンテキスト圧縮」は、賢い要約ではなく“状態管理の失敗”として理解できる。</p>
+      <div class="grid three" style="margin-top: 4px;">
+        <div class="cell">
+          <div class="k">EN / JA</div>
+          <div class="v"><span class="mono">Memory</span><span class="bilingual"> / 記憶</span></div>
+          <div class="jpGloss">長期に必要な前提の残し方</div>
+        </div>
+        <div class="cell">
+          <div class="k">EN / JA</div>
+          <div class="v"><span class="mono">Context compression</span><span class="bilingual"> / 圧縮</span></div>
+          <div class="jpGloss">保持容量のための削減</div>
+        </div>
+        <div class="cell">
+          <div class="k">EN / JA</div>
+          <div class="v"><span class="mono">GC</span><span class="bilingual"> / ガベージ</span></div>
+          <div class="jpGloss">捨ててよいものを機械的に判定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="tag">Problem</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="eyebrow">コンテキストは有限</div>
+      <h2 class="title"><i>削る</i>と何が起きる</h2>
+      <p class="lead">LLMはコンテキスト長に上限があるため、会話履歴や作業ログを要約して保存することが多い。問題は「要約が事実を失う」ことだけではなく、「失った前提が次の判断を壊しうる」点にある。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">保持されがち</div>
+          <div class="v">結論・要点・“重要そうな雰囲気”</div>
+        </div>
+        <div class="cell">
+          <div class="k">失われがち</div>
+          <div class="v">因果的な根拠・制約・判断の前提</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="tag">Metaphor</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="eyebrow">推論不足ではなく</div>
+      <h2 class="title"><i>状態管理</i>の障害</h2>
+      <p class="lead">投稿の主張は「要約＝推論の改良」ではなく、「ストレージ/割当とGCに似た障害」として捉えるべきだ、という視点。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">要約の売り文句</div>
+          <div class="v">“理由がある保持”の実現</div>
+        </div>
+        <div class="cell">
+          <div class="k">実際の挙動</div>
+          <div class="v">重要度推定で“選別して捨てる”</div>
+        </div>
+        <div class="cell">
+          <div class="k">最大の欠点</div>
+          <div class="v">片方向で不可逆になりやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="tag">Architecture</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="eyebrow">根集合の違い</div>
+      <h2 class="title"><i>GC</i>と要約は別物</h2>
+      <p class="lead">GCは到達可能性（liveness）を根集合から追跡して“安全に捨てる”。一方、エージェント要約は「重要そう」で残すため、後で必要な前提が捨てられやすい。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">GC</div>
+          <div class="v">根集合 → 到達可能性 → 機械的判断</div>
+        </div>
+        <div class="cell">
+          <div class="k">要約</div>
+          <div class="v">モデル推定 → salience/vibes → 曖昧な判定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="distinction">
+      <div class="tag">Distinction</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="eyebrow">“流暢な物語”と</div>
+      <h2 class="title">“根拠の断絶”</h2>
+      <p class="lead">要約は「何が消えたか」を再構成できない場合がある。すると、物語としては連続しても、根拠としては断絶し、前提が次のセッションで崩れうる。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">見た目の連続性</div>
+          <div class="v">文脈が“つながっているように”見える</div>
+        </div>
+        <div class="cell">
+          <div class="k">論証の連続性</div>
+          <div class="v">制約/根拠が欠落し、追跡不能になる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="tag">Evidence</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="eyebrow">失われるものが</div>
+      <h2 class="title"><i>監査可能性</i>を壊す</h2>
+      <p class="lead">要約が“何を消したか分からない形”で状態を書き換えると、次の判断がなぜ妥当だったか追跡できない。結果としてデバッグ不能化や責任追跡の弱体化が起きうる。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">欠落</div>
+          <div class="v">事実・前提・制約</div>
+        </div>
+        <div class="cell">
+          <div class="k">不可逆性</div>
+          <div class="v">後から回復できない</div>
+        </div>
+        <div class="cell">
+          <div class="k">影響</div>
+          <div class="v">誤った確信で行動・監査不能</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="tag">Key</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="eyebrow">論点を圧縮：<i>4</i>点</div>
+      <h2 class="title">核心</h2>
+      <div class="grid two" style="margin-top: 6px;">
+        <div class="cell">
+          <div class="k">i. 要約の改良</div>
+          <div class="v">不可逆欠落なら、信頼性は本質的に上がらない</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. GC比喩</div>
+          <div class="v">要約は“根”が曖昧で、後で必要な前提を落としやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. 監査の破断</div>
+          <div class="v">消えた証跡が復元できず、説明可能性が劣化する</div>
+        </div>
+        <div class="cell">
+          <div class="k">iv. 対策</div>
+          <div class="v">保持政策を明示し、外部で検証可能に分離する</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="process">
+      <div class="tag">Process</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="eyebrow">提案の方向性</div>
+      <h2 class="title"><i>階層化</i>と分離</h2>
+      <p class="lead">対案は、要約を“正確な記憶”として扱うのではなく、キャッシュ/作業補助に限定し、永続すべき状態を外部の検証可能ストアへ分離すること。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Hot</div>
+          <div class="v">短期作業（キャッシュ寄り）</div>
+          <div class="jpGloss">すぐ捨ててよい</div>
+        </div>
+        <div class="cell">
+          <div class="k">Warm</div>
+          <div class="v">要約だが保持（要件次第で永続）</div>
+          <div class="jpGloss">“必要なら戻せる”設計</div>
+        </div>
+        <div class="cell">
+          <div class="k">Cold</div>
+          <div class="v">証跡/監査ログ（永続・外部検証）</div>
+          <div class="jpGloss">receipts（受領書）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="comparison">
+      <div class="tag">Comparison</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="eyebrow">“捨てる”のを</div>
+      <h2 class="title"><i>政策</i>にする</h2>
+      <p class="lead">要約/圧縮は暗黙に進むほど危険になる。捨てること自体をeviction policyとして明示し、差分・失効（tombstone）・監査ログで再評価できる形にする。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Before</div>
+          <div class="v">“圧縮されたので消えた”が不透明</div>
+        </div>
+        <div class="cell">
+          <div class="k">After</div>
+          <div class="v">“何を消したか”が機械的に追跡可能</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="evidence">
+      <div class="tag">Safety</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="eyebrow">なぜ現場で効く</div>
+      <h2 class="title">誤動作を</h2>
+      <p class="lead">要約が“証跡の断絶”を作ると、次のセッションで前提が崩れ、デバッグ不能な誤動作や、誤った確信での行動が起きうる。だから“保持/削除/監査”の境界を設計する価値がある。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">リスク</div>
+          <div class="v">根拠欠落 → 次の判断が誤る</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">receipts / tombstone / 差分ログで再現</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="closing">
+      <div class="tag">My View</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="eyebrow">強みと限界</div>
+      <h2 class="title"><i>設計</i>まで踏み込む</h2>
+      <p class="lead">強みは「記憶」を性能ではなく状態の寿命・保持政策・監査可能性として再定義したこと。限界は、誰が根集合を確定し、矛盾時の優先順位をどう設計/評価するかが実装依存で難しい点。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">GC比喩で“状態管理の問題”へ翻訳</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">監査の境界・測定可能性まで設計が要る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="references">
+      <div class="tag">References</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="eyebrow">参考（一般概念）</div>
+      <h2 class="title">用語の地図</h2>
+      <div class="refs" style="margin-top: 10px;">
+        <div class="refItem">
+          <span style="color: var(--rust); font-style: italic;">GC</span>：Garbage Collection（ガベージコレクション）— 到達可能性に基づく安全なメモリ解放の概念。
+          <div class="jpGloss">“根集合”と“liveness”の考え方。</div>
+        </div>
+        <div class="refItem">
+          <span style="color: var(--rust); font-style: italic;">liveness</span>：到達可能性/生存性— 何を残すかの基準。
+          <div class="jpGloss">要約では根が曖昧になりうる。</div>
+        </div>
+        <div class="refItem">
+          <span style="color: var(--rust); font-style: italic;">tombstone</span>：失効マーカー— 消えた/無効化した事実を差分として扱う発想。
+          <div class="jpGloss">“何を捨てたか”を追跡するための手掛かり。</div>
+        </div>
+        <div class="refItem">
+          <span style="color: var(--rust); font-style: italic;">receipts</span>：受領書/証跡— 後から検証可能に残すためのログの比喩。
+          <div class="jpGloss">監査可能性（explainability/auditability）の部品。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
