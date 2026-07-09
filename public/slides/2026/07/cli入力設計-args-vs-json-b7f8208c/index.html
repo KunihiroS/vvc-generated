@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CLI入力設計：args vs --json</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 6px;
+      padding: 24px 26px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      /* keep stable landscape */
+      min-height: 0;
+    }
+
+    .slide-inner{
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-size: 15px;
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-left: 0;
+    }
+
+    .slide-tag::after{
+      content:"";
+      display:block;
+      margin-top: 8px;
+      width: 140px;
+      height: 2px;
+      background: var(--rule-strong);
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 20px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      padding-top: 2px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 6px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.03;
+      margin-top: -6px;
+      color: var(--ink);
+      max-width: 980px;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin-top: 6px;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 6px;
+      margin-bottom: 2px;
+    }
+
+    .content{
+      margin-top: 2px;
+      flex: 1;
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 12px;
+    }
+    .grid.cols2{ grid-template-columns: 1fr 1fr; }
+    .grid.cols3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(28, 24, 19, 0.35);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+      line-height: 1.3;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 400;
+    }
+
+    .bottom-note{
+      color: var(--ink-4);
+      font-size: 14px;
+      padding-top: 6px;
+      line-height: 1.25;
+    }
+
+    @media (max-width: 720px){
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .slide{ padding: 18px 16px; border-width: 14px; }
+      .grid.cols2, .grid.cols3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">Slide</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+
+        <div class="eyebrow">CLI入力設計の現実</div>
+        <div class="title">argsより <span class="em">--json</span>？</div>
+        <div class="lead">AIコーディングエージェントがCLIを叩くとき、入力の渡し方は「理屈」より「失敗モード」と「コスト」で決まる。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">結論</div>
+              <div class="v">複雑な入力は、argsを削ってJSON一本化しない。</div>
+            </div>
+            <div class="card">
+              <div class="k">根拠</div>
+              <div class="v">成功率の低下と、シェルエスケープ税でコストが増えやすい。</div>
+            </div>
+          </div>
+          <div class="bottom-note">※ここでは「--json '...' をコマンドライン引数として渡す」前提の実測が中心。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+
+        <div class="eyebrow">“JSONが美しい”罠</div>
+        <div class="title">直感 vs 実行</div>
+        <div class="lead">階層構造はJSONが得意に見えるが、エージェント運用では別の要因が主役になりやすい。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols3">
+            <div class="card">
+              <div class="k">直感</div>
+              <div class="v">ネスト・型・フィールド名を明示できる。</div>
+            </div>
+            <div class="card">
+              <div class="k">実行系</div>
+              <div class="v">シェルのクォート/エスケープで壊れる。</div>
+            </div>
+            <div class="card">
+              <div class="k">運用系</div>
+              <div class="v">失敗→リトライが増え、出力トークンが増える。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+
+        <div class="eyebrow">podctlで比較</div>
+        <div class="title">同じ条件で</div>
+        <div class="lead">合成CLI「podctl」を使い、(i) args方式のみ、(ii) --json方式のみ、を同一評価基準で比較した。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">方式 i</div>
+              <div class="v"><span class="mono">--flag value</span> の個別引数（args）だけを許可。</div>
+            </div>
+            <div class="card">
+              <div class="k">方式 ii</div>
+              <div class="v"><span class="mono">--json '{...}'</span> のみを許可（構造はJSON）。</div>
+            </div>
+          </div>
+          <div class="bottom-note">対象モデル複数・評価は「正確性」と「コスト」を中心に実測。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+
+        <div class="eyebrow">正確性：argsが強い</div>
+        <div class="title">5/5 vs 低下</div>
+        <div class="lead">args方式は全モデルで5/5の正確性だった一方、JSON方式はモデルごとに成功率が落ちた。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">args方式</div>
+              <div class="v">全モデル：<span class="mono">5/5</span></div>
+            </div>
+            <div class="card">
+              <div class="k">JSON方式</div>
+              <div class="v">最小クラス：<span class="mono">2/5</span> など、モデル差が拡大</div>
+            </div>
+          </div>
+          <div class="bottom-note">ポイントは「モデル理解だけ」ではなく、失敗が誘発される構造（入力・渡し方）にある。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+
+        <div class="eyebrow">コスト：4〜11倍</div>
+        <div class="title">高いのは試行</div>
+        <div class="lead">JSON方式は全モデルでargsより4〜11倍コストが高かった。主因は失敗→リトライの増加。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols3">
+            <div class="card">
+              <div class="k">args</div>
+              <div class="v">低コストで収束しやすい</div>
+            </div>
+            <div class="card">
+              <div class="k">JSON</div>
+              <div class="v">失敗が増えやすい</div>
+            </div>
+            <div class="card">
+              <div class="k">結果</div>
+              <div class="v">リトライ出力トークンが増える</div>
+            </div>
+          </div>
+          <div class="bottom-note">出力トークン（=やり直し）が特に高価になるため、差が広がる。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+
+        <div class="eyebrow">入力空間の圧縮</div>
+        <div class="title">argsは“格子”</div>
+        <div class="lead">args方式は、<span class="mono">--help</span> にある選択肢・型・（enumがあれば）値をそのまま有効入力集合にする。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">制約が明示</div>
+              <div class="v">エージェントは「フラグ名→値」の対応で組み立てるだけ。</div>
+            </div>
+            <div class="card">
+              <div class="k">失敗が減る</div>
+              <div class="v">ネスト整合性・構文成立を“自力で作る”負担が減る。</div>
+            </div>
+          </div>
+          <div class="bottom-note">そのためモデルの弱点が吸収され、成功率にモデル依存が出にくい。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+
+        <div class="eyebrow">JSONは“失敗モード多”</div>
+        <div class="title">壊れ方が増える</div>
+        <div class="lead">JSON方式は「構造（ネスト）」「フィールド名・型」「構文エラー」など失敗モードが多く、直す必要が出やすい。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols3">
+            <div class="card">
+              <div class="k">構造</div>
+              <div class="v">ネスト整合性が崩れる（例：配列/オブジェクトの入れ違い）</div>
+            </div>
+            <div class="card">
+              <div class="k">命名・型</div>
+              <div class="v">フィールド名/型が微妙に不一致</div>
+            </div>
+            <div class="card">
+              <div class="k">構文</div>
+              <div class="v">JSONとして成立しない（引用符・カンマ等）</div>
+            </div>
+          </div>
+          <div class="bottom-note">直すには追加生成が必要になり、コスト差が拡大する。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+
+        <div class="eyebrow">シェル税：核心</div>
+        <div class="title">クォート/エスケープ</div>
+        <div class="lead">JSONを<span class="mono">--json '...'</span> のように“文字列”として渡すと、シェルのクォート解釈で簡単に崩れる。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">PowerShell</div>
+              <div class="v">JSON失敗が目立ちやすい（引用符のネスト/エスケープ差）</div>
+            </div>
+            <div class="card">
+              <div class="k">Bash</div>
+              <div class="v">差は縮むことがあるが、環境差は残る</div>
+            </div>
+          </div>
+          <div class="bottom-note">“正しいはずのJSON”が“正しく渡らない”が起きるため、JSON一本化が危険になる。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+
+        <div class="eyebrow">args vs JSON（要点）</div>
+        <div class="title">どちらが有利？</div>
+        <div class="lead">この実験条件では、argsは精度・コストの両面で優位。JSONは“悪”ではなく“渡し方次第で壊れやすい”。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">args方式</div>
+              <div class="v">
+                <span class="mono">入力空間が制約される</span><br/>
+                失敗が減り、リトライも減る
+              </div>
+            </div>
+            <div class="card">
+              <div class="k">JSON方式</div>
+              <div class="v">
+                <span class="mono">失敗モードが増える</span><br/>
+                シェル税でさらに壊れやすい
+              </div>
+            </div>
+          </div>
+          <div class="bottom-note">「JSONがダメ」ではなく、特に“コマンドライン文字列で渡すJSON”が弱い。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+
+        <div class="eyebrow">測ってから決める</div>
+        <div class="title">shouldより実測</div>
+        <div class="lead">JSONの階層性という“もっともらしさ”より、モデル・OS・シェル・リトライ許容を含めて測定して決める。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">必要な観点</div>
+              <div class="v">
+                ① モデル差<br/>
+                ② OS/シェル差（クォート解釈）<br/>
+                ③ 失敗時のリトライ設計
+              </div>
+            </div>
+            <div class="card">
+              <div class="k">運用判断</div>
+              <div class="v">argsは残し、JSONは“用途限定で追加”。一本化は最後まで検証する。</div>
+            </div>
+          </div>
+          <div class="bottom-note">（bilingual）測定する：<span style="font-family:'Noto Serif JP', serif;">計測する</span>（keisoku suru）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+
+        <div class="eyebrow">射程の注意</div>
+        <div class="title">一般化は慎重に</div>
+        <div class="lead">合成CLI「podctl」の特定シナリオでの結果。渡し方（stdin/ファイル指定など）を比較していない点は限界になる。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols3">
+            <div class="card">
+              <div class="k">限定条件</div>
+              <div class="v">実験は特定の入力サイズ/構成</div>
+            </div>
+            <div class="card">
+              <div class="k">未比較</div>
+              <div class="v">stdin・ファイル経由でのJSONは未検証</div>
+            </div>
+            <div class="card">
+              <div class="k">解釈</div>
+              <div class="v">結論は「コマンドライン文字列のJSONが壊れやすい」可能性もある</div>
+            </div>
+          </div>
+          <div class="bottom-note">だからこそ、あなたの環境で同じ評価を回す価値が高い。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+
+        <div class="eyebrow">実装者の提言</div>
+        <div class="title">残すべきは <span class="em">args</span></div>
+        <div class="lead">複雑入力を“JSONに置き換える”助言は、成功率低下とシェルエスケープ税で逆効果になり得る。</div>
+        <div class="rule"></div>
+
+        <div class="content">
+          <div class="grid cols2">
+            <div class="card">
+              <div class="k">提言</div>
+              <div class="v">argsを削らず、JSONは追加オプションとして設計する。</div>
+            </div>
+            <div class="card">
+              <div class="k">実務手順</div>
+              <div class="v">モデル×OS×シェル×リトライ条件で“動く確率”と“コスト”を測る。</div>
+            </div>
+          </div>
+          <div class="bottom-note">次の一歩：あなたのCLIで<span class="mono">--json '{...}'</span> をどう渡しているか（Bash/PowerShell等）を棚卸しし、同じ評価軸で試す。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
