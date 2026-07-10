@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VDH/VVS: モデル非依存で脆弱性発見を回す</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      inset: 0;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 2px;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border: 20px solid rgba(240, 232, 216, 0.10);
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      left:56px; right:56px; top:72px;
+      height:1px;
+      background: var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      font-size: 14px;
+      padding-top: 2px;
+      position: relative;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:-18px; top: 10px;
+      width: 10px; height: 2px;
+      background: var(--rust);
+      transform: translateY(-50%);
+      box-shadow: 0 0 0 0 rgba(0,0,0,0);
+    }
+
+    .slide-num{
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+    }
+
+    .title{
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 64px;
+      line-height: 0.95;
+      font-weight: 500;
+      color: var(--rust-deep);
+      letter-spacing: 0.01em;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.6;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+      height: calc(100% - 150px);
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 14px 16px;
+      border-radius: 6px;
+      min-height: 72px;
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .cell .text{
+      font-size: 20px;
+      line-height: 1.5;
+      color: var(--ink);
+    }
+    .cell .sub{
+      font-size: 16px;
+      line-height: 1.45;
+      color: var(--ink-3);
+      margin-top: 6px;
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink-2);
+    }
+
+    .footnote{
+      position:absolute;
+      left:72px; right:72px; bottom:56px;
+      font-size: 14px;
+      color: var(--ink-3);
+      line-height: 1.4;
+    }
+
+    @media (max-width: 800px){
+      .slide{ padding: 44px 28px; border-width: 14px; }
+      .slide::after{ left:28px; right:28px; top:56px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .footnote{ left:28px; right:28px; bottom:40px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-top">
+        <div class="slide-tag">READING DECK</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <p class="eyebrow">Model-agnostic, continuous</p>
+      <h1 class="title">VDH / VVS<br><span class="jp">脆弱性発見のハーネス設計</span></h1>
+      <p class="lead">脆弱性検出をLLMの“賢さ”に任せず、検証・再開・トリアージまで含む継続的パイプラインとして組む。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Key idea</div>
+            <div class="text">状態管理と検証二重化</div>
+            <div class="sub">stateful orchestration + adversarial validation</div>
+          </div>
+          <div class="cell">
+            <div class="label">Bilingual</div>
+            <div class="text">Harness（ハーネス）</div>
+            <div class="sub">発見を“再現可能な実行”に固定する器</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <p class="eyebrow">“検出”で終わらない</p>
+      <h2 class="title">品質の定義不足</h2>
+      <p class="lead">脆弱性は「見つける」だけでなく、検証・再現・修正（patch）まで成立させて初めて成果になる。</p>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">Find</div>
+            <div class="text">候補の抽出</div>
+            <div class="sub">Recon/Hunt</div>
+          </div>
+          <div class="cell">
+            <div class="label">Validate</div>
+            <div class="text">独立に再確認</div>
+            <div class="sub">PoC再現性・境界</div>
+          </div>
+          <div class="cell">
+            <div class="label">Act</div>
+            <div class="text">修正へ圧縮</div>
+            <div class="sub">人がマージ可能に</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-top">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <p class="eyebrow">LLMは“単発”だと壊れる</p>
+      <h2 class="title">推論は文脈枯渇</h2>
+      <p class="lead">LLMを単体実行すると、context exhaustionや途中失敗で“作業やり直し”が起き、偽陽性（False Positive）も残る。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Failure mode</div>
+            <div class="text">途中で消える</div>
+            <div class="sub">rate limit / 接続不安定</div>
+          </div>
+          <div class="cell">
+            <div class="label">Quality risk</div>
+            <div class="text">誤検証が残る</div>
+            <div class="sub">自己整合で妥当化しがち</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <p class="eyebrow">分離が勝ち筋</p>
+      <h2 class="title">VDH と VVS</h2>
+      <p class="lead">発見（VDH）と検証・トリアージ（VVS）を“別モデル”で分け、独立した論理重みで偽陽性を絞る。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">VDH</div>
+            <div class="text">Vulnerability Discovery Harness</div>
+            <div class="sub">発見を状態付き実行に固定</div>
+          </div>
+          <div class="cell">
+            <div class="label">VVS</div>
+            <div class="text">Vulnerability Validation System</div>
+            <div class="sub">検証・優先度決定を別系で実施</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <p class="eyebrow">状態を外部DBへ</p>
+      <h2 class="title">永続化で再開</h2>
+      <p class="lead">LLMを“状態を持たない計算”として扱い、run_id / repo / stage 単位で成果物と中間状態を保存する。</p>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">run_id</div>
+            <div class="text">実行単位</div>
+            <div class="sub mono">resume / retry / auditing</div>
+          </div>
+          <div class="cell">
+            <div class="label">repo</div>
+            <div class="text">解析対象</div>
+            <div class="sub">依存関係トレースの起点</div>
+          </div>
+          <div class="cell">
+            <div class="label">stage</div>
+            <div class="text">Recon→Hunt→Validate</div>
+            <div class="sub">途中失敗でも段階ごと再開</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <p class="eyebrow">継続パイプライン</p>
+      <h2 class="title">VDHの流れ</h2>
+      <p class="lead">候補を“収集して終わり”にせず、状態を伴う検証タスクへ段階的に落とし込む。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">i. Recon</div>
+            <div class="text">攻撃シナリオを作る</div>
+            <div class="sub">threat model に紐づけ</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. Hunt</div>
+            <div class="text">コード空間を探索</div>
+            <div class="sub">依存先にもタスク展開</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. Validate</div>
+            <div class="text">PoC再現を狙う</div>
+            <div class="sub">境界・前提を明示</div>
+          </div>
+          <div class="cell">
+            <div class="label">Output</div>
+            <div class="text">findings の機械可読化</div>
+            <div class="sub mono">findings.json 等</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <p class="eyebrow">初期は“単一リポジトリ”</p>
+      <h2 class="title">約450行の監査スキル</h2>
+      <p class="lead">まず単一リポジトリで動くセキュリティ監査スキルを約450行で構築し、LLMのプロンプト設計でRecon/Hunt/Validateを磨いた。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">What worked</div>
+            <div class="text">モデル中心でも“検出”は進む</div>
+            <div class="sub">シナリオ駆動で改善</div>
+          </div>
+          <div class="cell">
+            <div class="label">What broke</div>
+            <div class="text">現場で3つが致命傷</div>
+            <div class="sub">context / 途中失敗 / cross-repo</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <p class="eyebrow">“サブエージェント”では不足</p>
+      <h2 class="title">ハーネスが必要</h2>
+      <p class="lead">同時並行の調査は入口になっても、実運用には実行をまたぐ蓄積・再開・重複排除・依存関係追跡が必要で、これはプロンプト単体では難しい。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Sub-agent</div>
+            <div class="text">短命・場当たり</div>
+            <div class="sub">会話の中だけで完結しがち</div>
+          </div>
+          <div class="cell">
+            <div class="label">Harness</div>
+            <div class="text">状態と制御が主役</div>
+            <div class="sub">orchestration + persistence</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <p class="eyebrow">独立検証で偽陽性削減</p>
+      <h2 class="title">自己妥当化を遮断</h2>
+      <p class="lead">VDHが出した結論をVVSで“別モデル”が評価し、脅威モデルや境界条件の要求も含めて再確認する。</p>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">VDH</div>
+            <div class="text">主張を生成</div>
+            <div class="sub">findings を作る</div>
+          </div>
+          <div class="cell">
+            <div class="label">VVS</div>
+            <div class="text">反証・条件確認</div>
+            <div class="sub">adversarial validation</div>
+          </div>
+          <div class="cell">
+            <div class="label">Result</div>
+            <div class="text">絞り込み</div>
+            <div class="sub">“正しいとみなせるまで”</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <p class="eyebrow">依存関係で穴埋め</p>
+      <h2 class="title">Cross-repo tracing</h2>
+      <p class="lead">単一リポジトリのスキャンでは“使われ方”が見えないため、依存関係を辿って消費側リポジトリにHuntタスクを生成する。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Trace</div>
+            <div class="text">依存関係を辿る</div>
+            <div class="sub">gapfill/feedbackの前提</div>
+          </div>
+          <div class="cell">
+            <div class="label">Gapfill</div>
+            <div class="text">薄い領域を補う</div>
+            <div class="sub">空のセル・浅い結果へ再探索</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="scalability">
+      <div class="slide-top">
+        <div class="slide-tag">SCALABILITY</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <p class="eyebrow">DedupはLLM任せにしない</p>
+      <h2 class="title">決定論的インデックス</h2>
+      <p class="lead">DedupをLLM比較だけで行うとO(N^2)で破綻するため、触れているファイル/関数などの特徴で先に候補集合を絞る。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Problem</div>
+            <div class="text">全比較（O(N^2））</div>
+            <div class="sub">大規模トリアージの崩壊点</div>
+          </div>
+          <div class="cell">
+            <div class="label">Solution</div>
+            <div class="text">インデックスで縮小</div>
+            <div class="sub">その上でエージェント判断</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <p class="eyebrow">候補からアクショナブルへ</p>
+      <h2 class="title">圧縮の結果</h2>
+      <p class="lead">生の候補が約20,799件から、検証を経て約7,245件の“アクショナブル”に圧縮される流れが示されている。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Raw candidates</div>
+            <div class="text">20,799</div>
+            <div class="sub">まだノイズを含む</div>
+          </div>
+          <div class="cell">
+            <div class="label">Actionable</div>
+            <div class="text">7,245</div>
+            <div class="sub">人が修正できる形に寄せる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <p class="eyebrow">モデルに賭けない</p>
+      <h2 class="title">オーケストレーションが本体</h2>
+      <p class="lead">モデル（LLMプロバイダや世代）が変わっても壊れないために、オーケストレーション層をモデル非依存（model-agnostic）にする。</p>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">Goal</div>
+            <div class="text">差し替え耐性</div>
+            <div class="sub">long-term運用</div>
+          </div>
+          <div class="cell">
+            <div class="label">Method</div>
+            <div class="text">LLMは計算資源</div>
+            <div class="sub">状態は外部に委ねる</div>
+          </div>
+          <div class="cell">
+            <div class="label">Effect</div>
+            <div class="text">不安定要因を減らす</div>
+            <div class="sub">コストとリスク低減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-top">
+        <div class="slide-tag">LIMITATIONS</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <p class="eyebrow">“取りこぼし”は不明</p>
+      <h2 class="title">偽陰性率は測れない</h2>
+      <p class="lead">偽陽性の削減は示される一方で、真の脆弱性母集団に対する網羅性（偽陰性率）は明確に測れていない。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Uncertain</div>
+            <div class="text">偽陰性</div>
+            <div class="sub">“全体に対して”の保証がない</div>
+          </div>
+          <div class="cell">
+            <div class="label">Depends</div>
+            <div class="text">依存データ品質</div>
+            <div class="sub">グラフ/シンボルインデックス前提</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 15 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-top">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">16 / 18</div>
+      </div>
+      <p class="eyebrow">導入するときの要点</p>
+      <h2 class="title">3つの設計チェック</h2>
+      <p class="lead">導入時は、永続化・再開の設計、PoC/パッチの成立条件の厳格化、依存関係データとDedup戦略の過信を避ける。</p>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">i</div>
+            <div class="text">外部DB + resumability</div>
+            <div class="sub">run_id / stageで復旧</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii</div>
+            <div class="text">PoC・パッチのゲート</div>
+            <div class="sub">人が信頼できる形式</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii</div>
+            <div class="text">依存品質とDedup制御</div>
+            <div class="sub">決定論的インデックス優先</div>
+          </div>
+        </div>
+      </div>
+      <div class="footnote">Note: 本稿は“リングフェンスされた研究実験”として読まれ、数値は更新されている可能性がある。</div>
+    </section>
+
+    <!-- 16 References -->
+    <section class="slide" aria-label="references">
+      <div class="slide-top">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">17 / 18</div>
+      </div>
+      <p class="eyebrow">出典（本文要約ベース）</p>
+      <h2 class="title">読解の前提</h2>
+      <p class="lead">このデッキは、ユーザー提示テキストに基づく圧縮要約です。原典の詳細（図・実装・論文）は未添付のため、ここでは参照情報を一般形で整理します。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Cloudflare</div>
+            <div class="text">Vulnerability Harness</div>
+            <div class="sub">VDH / VVS、model-agnostic orchestration</div>
+          </div>
+          <div class="cell">
+            <div class="label">Core terms</div>
+            <div class="text">adversarial validation / Dedup index</div>
+            <div class="sub">偽陽性削減、O(N^2)回避</div>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Workflow</div>
+            <div class="text">Recon → Hunt → Validate</div>
+            <div class="sub">state persistence（run_id / stage）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Metrics</div>
+            <div class="text">20,799 → 7,245</div>
+            <div class="sub">アクショナブル圧縮の例</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
