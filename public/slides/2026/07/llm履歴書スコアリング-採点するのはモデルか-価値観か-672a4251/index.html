@@ -1,0 +1,1846 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM履歴書スコアリング — 採点するのはモデルか、価値観か</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+    }
+
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .deck {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(24px, 4vw, 52px);
+      width: 100%;
+      padding: clamp(24px, 5vw, 64px) 0 clamp(48px, 8vw, 112px);
+    }
+
+    .slide {
+      position: relative;
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      margin: 0 auto;
+      padding: 5cqw 6.43cqw;
+      overflow: hidden;
+      container-type: inline-size;
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.6);
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: 1.78cqw;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 3.12cqw;
+      left: 6.43cqw;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 0.9cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.02cqw;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      display: block;
+      width: 2.4cqw;
+      height: 0.18cqw;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 2.72cqw;
+      right: 6.43cqw;
+      z-index: 5;
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.72cqw;
+      font-style: italic;
+      font-weight: 400;
+      letter-spacing: 0.04em;
+    }
+
+    .slide-content {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .eyebrow {
+      margin: 0;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.96cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+
+    .title {
+      max-width: 88cqw;
+      margin: 0.55cqw 0 0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      font-size: 4.82cqw;
+      font-weight: 500;
+      line-height: 1.11;
+      letter-spacing: -0.045em;
+    }
+
+    .title em {
+      color: var(--rust);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      max-width: 67.85cqw;
+      margin: 1.25cqw 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.96cqw;
+      font-weight: 300;
+      line-height: 1.55;
+      letter-spacing: -0.015em;
+    }
+
+    .content {
+      flex: 1;
+      min-height: 0;
+      margin-top: 2.45cqw;
+    }
+
+    .latin {
+      font-family: "Inter Tight", sans-serif;
+    }
+
+    .accent {
+      color: var(--rust);
+    }
+
+    .muted {
+      color: var(--ink-3);
+    }
+
+    .small-note {
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.12cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4,
+    .grid-5 {
+      display: grid;
+      gap: 1.25cqw;
+      height: 100%;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .grid-5 {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .card {
+      position: relative;
+      min-width: 0;
+      padding: 1.45cqw 1.55cqw;
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .card.strong {
+      border-top: 0.25cqw solid var(--rust);
+    }
+
+    .card-kicker {
+      margin: 0 0 0.7cqw;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.98cqw;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .card h3 {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.75cqw;
+      font-weight: 500;
+      line-height: 1.35;
+      letter-spacing: -0.025em;
+    }
+
+    .card p {
+      margin: 0.8cqw 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.25cqw;
+      font-weight: 300;
+      line-height: 1.58;
+    }
+
+    .roman {
+      display: block;
+      margin-bottom: 0.6cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.1cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .big-stat {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 5.9cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 0.86;
+      letter-spacing: -0.04em;
+    }
+
+    .big-stat .unit {
+      font-size: 2.2cqw;
+      letter-spacing: 0;
+    }
+
+    .metric-label {
+      margin-top: 0.9cqw;
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.18cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .metric-copy {
+      margin-top: 0.55cqw;
+      color: var(--ink-3);
+      font-size: 1.08cqw;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    .callout {
+      display: flex;
+      align-items: center;
+      gap: 1.5cqw;
+      padding: 1.3cqw 1.6cqw;
+      border-left: 0.28cqw solid var(--rust);
+      background: rgba(232, 129, 74, 0.055);
+    }
+
+    .callout strong {
+      flex: 0 0 auto;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.7cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .callout span {
+      color: var(--ink-2);
+      font-size: 1.3cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      gap: 0.62cqw;
+    }
+
+    .flow-step {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
+      min-height: 10.9cqw;
+      padding: 1.35cqw 1.15cqw;
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .flow-index {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.7cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .flow-step h3 {
+      margin: 0.7cqw 0 0;
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 1.28cqw;
+      font-weight: 500;
+      line-height: 1.25;
+    }
+
+    .flow-step p {
+      margin: 0.65cqw 0 0;
+      color: var(--ink-3);
+      font-size: 0.98cqw;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .flow-arrow {
+      align-self: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.2cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .formula {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1.05fr;
+      align-items: stretch;
+      gap: 0.8cqw;
+    }
+
+    .formula-part {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 9.5cqw;
+      padding: 1.4cqw;
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .formula-part span {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.92cqw;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .formula-part strong {
+      margin-top: 0.55cqw;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.72cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .formula-op {
+      align-self: center;
+      color: var(--ink-4);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.6cqw;
+      font-style: italic;
+    }
+
+    .weight-layout {
+      display: grid;
+      grid-template-columns: 3.3fr 1.25fr;
+      gap: 1.7cqw;
+      height: 100%;
+    }
+
+    .weight-list {
+      display: grid;
+      grid-template-rows: repeat(4, 1fr);
+      gap: 0.72cqw;
+    }
+
+    .weight-row {
+      display: grid;
+      grid-template-columns: 12.5cqw 1fr 4.2cqw;
+      align-items: center;
+      gap: 1cqw;
+      padding: 0.7cqw 1cqw;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .weight-name {
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.2cqw;
+      font-weight: 500;
+    }
+
+    .weight-track {
+      height: 0.58cqw;
+      background: var(--rule);
+    }
+
+    .weight-fill {
+      height: 100%;
+      width: calc(var(--weight) * 2.5%);
+      background: var(--rust);
+    }
+
+    .weight-value {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.2cqw;
+      font-style: italic;
+      text-align: right;
+    }
+
+    .weight-total {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 1.6cqw;
+      border: 1px solid var(--rule);
+      text-align: left;
+    }
+
+    .weight-total .big-stat {
+      font-size: 6.6cqw;
+    }
+
+    .comparison-panel {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 1.55cqw 1.7cqw;
+      border-top: 0.24cqw solid var(--rust);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .comparison-panel h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 2.05cqw;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    .comparison-item {
+      display: grid;
+      grid-template-columns: 2.1cqw 1fr;
+      gap: 0.8cqw;
+      padding: 1.05cqw 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .comparison-item:last-child {
+      border-bottom: 0;
+    }
+
+    .comparison-item .roman {
+      margin: 0;
+      font-size: 1.65cqw;
+    }
+
+    .comparison-item p {
+      margin: 0;
+      color: var(--ink-2);
+      font-size: 1.22cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .role-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 10.5cqw;
+      padding: 1.5cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .role-card .roman {
+      margin: 0;
+    }
+
+    .role-card h3 {
+      margin: 0.65cqw 0 0;
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.55cqw;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    .role-card p {
+      margin: 0.9cqw 0 0;
+      color: var(--ink-3);
+      font-size: 1.05cqw;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .result-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 11.8cqw;
+      padding: 1.35cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .result-card h3 {
+      min-height: 3.6cqw;
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.22cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .result-card .score {
+      margin-top: 0.8cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 4.35cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 0.95;
+    }
+
+    .result-card .score small {
+      color: var(--ink-3);
+      font-size: 1.45cqw;
+    }
+
+    .chain {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+      align-items: center;
+      gap: 0.8cqw;
+    }
+
+    .chain-step {
+      min-height: 10.4cqw;
+      padding: 1.35cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .chain-step .roman {
+      margin-bottom: 0.6cqw;
+    }
+
+    .chain-step h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 1.48cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .chain-step p {
+      margin: 0.7cqw 0 0;
+      color: var(--ink-3);
+      font-size: 1cqw;
+      font-weight: 300;
+      line-height: 1.48;
+    }
+
+    .gate {
+      display: grid;
+      grid-template-columns: 1.2fr auto 1.2fr;
+      align-items: center;
+      gap: 1.7cqw;
+      height: 100%;
+    }
+
+    .gate-side {
+      padding: 1.7cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .gate-side h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 1.85cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .gate-side p {
+      margin: 0.85cqw 0 0;
+      color: var(--ink-2);
+      font-size: 1.2cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .gate-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75cqw;
+      color: var(--rust);
+      text-align: center;
+    }
+
+    .gate-code {
+      padding: 1.2cqw 1.45cqw;
+      border-top: 1px solid var(--rust);
+      border-bottom: 1px solid var(--rust);
+      font-family: "Inter Tight", monospace;
+      font-size: 1.45cqw;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .gate-center span:last-child {
+      color: var(--ink-3);
+      font-size: 0.96cqw;
+      line-height: 1.4;
+    }
+
+    .culture-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 12.3cqw;
+      padding: 1.45cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .culture-card .signal {
+      align-self: flex-start;
+      padding-bottom: 0.45cqw;
+      border-bottom: 0.18cqw solid var(--rust);
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.92cqw;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .culture-card h3 {
+      margin: 0.85cqw 0 0;
+      color: var(--ink);
+      font-size: 1.55cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .culture-card p {
+      margin: 0.75cqw 0 0;
+      color: var(--ink-2);
+      font-size: 1.11cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .timeline {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 2.2fr 1fr;
+      align-items: center;
+      gap: 1.2cqw;
+      height: 12.8cqw;
+      padding-top: 2.2cqw;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      top: 4.3cqw;
+      left: 4cqw;
+      right: 4cqw;
+      height: 1px;
+      background: var(--rule-strong);
+    }
+
+    .time-block {
+      position: relative;
+      align-self: start;
+      padding-top: 3.4cqw;
+      text-align: left;
+    }
+
+    .time-block::before {
+      content: "";
+      position: absolute;
+      top: 1.65cqw;
+      left: 0;
+      width: 1.2cqw;
+      height: 1.2cqw;
+      border: 0.2cqw solid var(--rust);
+      background: var(--paper);
+      border-radius: 50%;
+    }
+
+    .time-block strong {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 3.3cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .time-block h3 {
+      margin: 0.4cqw 0 0;
+      color: var(--ink);
+      font-size: 1.35cqw;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    .time-block p {
+      margin: 0.45cqw 0 0;
+      color: var(--ink-3);
+      font-size: 0.98cqw;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .question-card {
+      padding: 1.45cqw 1.55cqw;
+      border-top: 0.22cqw solid var(--rust);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .question-card .roman {
+      margin-bottom: 0.7cqw;
+    }
+
+    .question-card h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 1.63cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .question-card p {
+      margin: 0.8cqw 0 0;
+      color: var(--ink-2);
+      font-size: 1.1cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .risk-stack {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1.15cqw;
+    }
+
+    .risk-card {
+      position: relative;
+      min-height: 12cqw;
+      padding: 1.45cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .risk-card::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -1.05cqw;
+      z-index: 3;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2cqw;
+      font-style: italic;
+      transform: translateY(-50%);
+    }
+
+    .risk-card:last-child::after {
+      display: none;
+    }
+
+    .risk-card h3 {
+      margin: 0.7cqw 0 0;
+      color: var(--ink);
+      font-size: 1.6cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .risk-card p {
+      margin: 0.75cqw 0 0;
+      color: var(--ink-2);
+      font-size: 1.08cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .economics {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 1.6cqw;
+      align-items: stretch;
+    }
+
+    .economics-side {
+      padding: 1.65cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .economics-side h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 1.82cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .economics-side p {
+      margin: 0.9cqw 0 0;
+      color: var(--ink-2);
+      font-size: 1.18cqw;
+      font-weight: 300;
+      line-height: 1.58;
+    }
+
+    .economics-op {
+      align-self: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 4.8cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .readiness {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25cqw;
+    }
+
+    .readiness-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 13cqw;
+      padding: 1.45cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .readiness-card .gate-label {
+      align-self: flex-start;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.94cqw;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .readiness-card h3 {
+      margin: 0.8cqw 0 0;
+      color: var(--ink);
+      font-size: 1.58cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .readiness-card p {
+      margin: 0.75cqw 0 0;
+      color: var(--ink-2);
+      font-size: 1.06cqw;
+      font-weight: 300;
+      line-height: 1.52;
+    }
+
+    .readiness-card .pass {
+      margin-top: auto;
+      padding-top: 0.9cqw;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 0.93cqw;
+      line-height: 1.45;
+    }
+
+    .operating-flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      gap: 0.58cqw;
+    }
+
+    .operating-step {
+      min-width: 0;
+      min-height: 11.7cqw;
+      padding: 1.2cqw 1cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .operating-step .roman {
+      margin-bottom: 0.55cqw;
+      font-size: 1.72cqw;
+    }
+
+    .operating-step h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 1.27cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .operating-step p {
+      margin: 0.62cqw 0 0;
+      color: var(--ink-3);
+      font-size: 0.92cqw;
+      font-weight: 300;
+      line-height: 1.48;
+    }
+
+    .governance-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.92cqw;
+    }
+
+    .governance-card {
+      min-height: 12.3cqw;
+      padding: 1.2cqw 1.05cqw;
+      border-top: 0.2cqw solid var(--rust);
+      border-left: 1px solid var(--rule);
+      border-right: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .governance-card .roman {
+      margin-bottom: 0.55cqw;
+      font-size: 1.75cqw;
+    }
+
+    .governance-card h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 1.23cqw;
+      font-weight: 500;
+      line-height: 1.38;
+    }
+
+    .governance-card p {
+      margin: 0.62cqw 0 0;
+      color: var(--ink-3);
+      font-size: 0.9cqw;
+      font-weight: 300;
+      line-height: 1.48;
+    }
+
+    .cover .slide-content,
+    .closing .slide-content {
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .cover .eyebrow,
+    .closing .eyebrow {
+      font-size: 2.25cqw;
+    }
+
+    .cover .title {
+      max-width: 83cqw;
+      margin-top: 1cqw;
+      font-size: 7cqw;
+      line-height: 1.03;
+      letter-spacing: -0.055em;
+    }
+
+    .cover .lead {
+      max-width: 69cqw;
+      margin-top: 1.7cqw;
+      font-size: 1.85cqw;
+      line-height: 1.6;
+      text-align: center;
+    }
+
+    .cover-meta {
+      position: absolute;
+      right: 6.43cqw;
+      bottom: 4.75cqw;
+      left: 6.43cqw;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.3cqw;
+      padding-top: 1.15cqw;
+      border-top: 1px solid var(--rule);
+      text-align: left;
+    }
+
+    .cover-meta div {
+      min-width: 0;
+    }
+
+    .cover-meta span {
+      display: block;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.88cqw;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .cover-meta strong {
+      display: block;
+      margin-top: 0.4cqw;
+      color: var(--ink-2);
+      font-size: 1.08cqw;
+      font-weight: 400;
+      line-height: 1.4;
+    }
+
+    .closing .title {
+      max-width: 82cqw;
+      margin-top: 0.85cqw;
+      font-size: 6cqw;
+      line-height: 1.08;
+    }
+
+    .closing .lead {
+      max-width: 68cqw;
+      margin-top: 1.4cqw;
+      text-align: center;
+    }
+
+    .closing-principles {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.15cqw;
+      width: 75cqw;
+      margin-top: 2.3cqw;
+      text-align: left;
+    }
+
+    .closing-principle {
+      padding: 1.1cqw 1.3cqw;
+      border-top: 1px solid var(--rust);
+    }
+
+    .closing-principle span {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.7cqw;
+      font-style: italic;
+    }
+
+    .closing-principle p {
+      margin: 0.5cqw 0 0;
+      color: var(--ink-2);
+      font-size: 1.05cqw;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    .closing-footer {
+      position: absolute;
+      bottom: 4.5cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 0.96cqw;
+      letter-spacing: 0.08em;
+    }
+
+    @media print {
+      @page {
+        size: landscape;
+        margin: 0;
+      }
+
+      body {
+        background: var(--cream);
+      }
+
+      .deck {
+        gap: 0;
+        padding: 0;
+      }
+
+      .slide {
+        width: 1120px;
+        box-shadow: none;
+        break-after: page;
+        page-break-after: always;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="slide-tag">Hiring Intelligence</div>
+      <div class="slide-num">02 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">LLM Resume Scoring</p>
+        <h1 class="title">採点するのはモデルか、<em>価値観</em>か</h1>
+        <p class="lead">履歴書スコアリングの実装を追うと、最終評価を決めるのはモデル性能よりも、入力処理・配点・プロンプトに埋め込まれた設計判断だった。</p>
+        <div class="cover-meta">
+          <div>
+            <span>Subject</span>
+            <strong>HackerRank Hiring Agentの再現検証</strong>
+          </div>
+          <div>
+            <span>Method</span>
+            <strong>実装読解・入力検証・職位変更テスト</strong>
+          </div>
+          <div>
+            <span>Decision</span>
+            <strong>自動決定ではなく、限定的な参考指標へ</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="slide-tag">Core Thesis</div>
+      <div class="slide-num">03 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">The score is designed</p>
+        <h2 class="title">100点は、<em>設計判断</em>の出力</h2>
+        <p class="lead">候補者の能力が直接100点へ変換されるわけではない。抽出品質、評価基準、モデル解釈が連鎖して、初めてスコアになる。</p>
+        <div class="content">
+          <div class="formula">
+            <div class="formula-part">
+              <span>Input</span>
+              <strong>履歴書・GitHub</strong>
+            </div>
+            <div class="formula-op">×</div>
+            <div class="formula-part">
+              <span>Extraction</span>
+              <strong>構造化の品質</strong>
+            </div>
+            <div class="formula-op">×</div>
+            <div class="formula-part">
+              <span>Policy</span>
+              <strong>配点・除外ルール</strong>
+            </div>
+            <div class="formula-op">×</div>
+            <div class="formula-part">
+              <span>Interpretation</span>
+              <strong>LLMの指示解釈</strong>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.55cqw;">
+            <strong>≠ 能力そのもの</strong>
+            <span>精密な点数表示は、評価対象の客観性を保証しない。まず問うべきは「誰の何を、有能性として数えたか」である。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="slide-tag">System Map</div>
+      <div class="slide-num">04 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Five-stage pipeline</p>
+        <h2 class="title">採点は5段階の<em>パイプライン</em></h2>
+        <p class="lead">実装はPDFを段階的に構造化し、最後にプロンプトで評価する。Pythonは処理を運び、評価方針はルールと指示文が担う。</p>
+        <div class="content">
+          <div class="flow">
+            <div class="flow-step">
+              <span class="flow-index">i</span>
+              <div>
+                <h3>PDF</h3>
+                <p>候補者が提出した原文書</p>
+              </div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-index">ii</span>
+              <div>
+                <h3>Markdown</h3>
+                <p>レイアウトを文字列へ変換</p>
+              </div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-index">iii</span>
+              <div>
+                <h3>JSON</h3>
+                <p>項目を正規化した構造データ</p>
+              </div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-index">iv</span>
+              <div>
+                <h3>Section LLM</h3>
+                <p>経歴・技能・実績を抽出</p>
+              </div>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step">
+              <span class="flow-index">v</span>
+              <div>
+                <h3>Prompt Score</h3>
+                <p>複数観点を100点で評価</p>
+              </div>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.45cqw;">
+            <strong>Policy layer</strong>
+            <span>採点の中心はコード量ではなく、何を抽出し、何点を与え、何を除外するかという評価ポリシーにある。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="slide-tag">Input Risk</div>
+      <div class="slide-num">05 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Bias begins upstream</p>
+        <h2 class="title">最初のバイアスは、<em>PDF</em>で生まれる</h2>
+        <p class="lead">2段組みの履歴書では、列方向の読み違いによって見出し・技能・時系列が崩れる。スコアは候補者より先に、文字列抽出品質を評価しかねない。</p>
+        <div class="content grid-2">
+          <div class="comparison-panel">
+            <p class="card-kicker">Intended reading</p>
+            <h3>人間が見る順序</h3>
+            <div class="comparison-item">
+              <span class="roman">i</span>
+              <p>見出しと本文を同じ列のまとまりとして読む</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">ii</span>
+              <p>職歴・技能・実績の対応関係を視覚的に補う</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">iii</span>
+              <p>時系列や強調表現から意味を復元する</p>
+            </div>
+          </div>
+          <div class="comparison-panel">
+            <p class="card-kicker">Possible parse</p>
+            <h3>変換後に起こる崩れ</h3>
+            <div class="comparison-item">
+              <span class="roman">i</span>
+              <p>左列の途中へ右列の技能リストが割り込む</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">ii</span>
+              <p>見出しと説明文が別セクションとして認識される</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">iii</span>
+              <p>誤った構造が、そのままLLM評価の事実になる</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="slide-tag">Weighting</div>
+      <div class="slide-num">06 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Weights reveal priorities</p>
+        <h2 class="title">配点は、組織の<em>価値観</em>を固定する</h2>
+        <p class="lead">公開された配点では、Open SourceとSelf Projectsが合計65点を占める。実務経験よりも、外部から観測できる制作活動が大きく評価される設計だ。</p>
+        <div class="content weight-layout">
+          <div class="weight-list">
+            <div class="weight-row">
+              <span class="weight-name">Open Source</span>
+              <div class="weight-track"><div class="weight-fill" style="--weight: 35;"></div></div>
+              <span class="weight-value">35</span>
+            </div>
+            <div class="weight-row">
+              <span class="weight-name">Self Projects</span>
+              <div class="weight-track"><div class="weight-fill" style="--weight: 30;"></div></div>
+              <span class="weight-value">30</span>
+            </div>
+            <div class="weight-row">
+              <span class="weight-name">Production</span>
+              <div class="weight-track"><div class="weight-fill" style="--weight: 25;"></div></div>
+              <span class="weight-value">25</span>
+            </div>
+            <div class="weight-row">
+              <span class="weight-name">Technical</span>
+              <div class="weight-track"><div class="weight-fill" style="--weight: 10;"></div></div>
+              <span class="weight-value">10</span>
+            </div>
+          </div>
+          <div class="weight-total">
+            <div class="big-stat">65<span class="unit">%</span></div>
+            <div class="metric-label">公開制作活動への配点</div>
+            <div class="metric-copy">Open Source 35点とSelf Projects 30点の合計。職種ごとの適合性は別途検証が必要。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="slide-tag">Validity</div>
+      <div class="slide-num">07 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Transparency is not validity</p>
+        <h2 class="title">「公開されている」と「<em>妥当</em>」は別</h2>
+        <p class="lead">配点やルールを追跡できることは重要だが、それだけで公平性や予測力は証明されない。透明性は検証の入口であって、結論ではない。</p>
+        <div class="content grid-2">
+          <div class="comparison-panel">
+            <p class="card-kicker">Transparency</p>
+            <h3>公開ルールの強み</h3>
+            <div class="comparison-item">
+              <span class="roman">i</span>
+              <p>何に何点を与えるかを関係者が確認できる</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">ii</span>
+              <p>閾値や優先順位について議論・修正できる</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">iii</span>
+              <p>再現実験によって仕様と挙動を比較できる</p>
+            </div>
+          </div>
+          <div class="comparison-panel">
+            <p class="card-kicker">Validity</p>
+            <h3>別途必要な証拠</h3>
+            <div class="comparison-item">
+              <span class="roman">i</span>
+              <p>点数が採用後の実務成果を予測するか</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">ii</span>
+              <p>属性やキャリア経路ごとの誤差が偏らないか</p>
+            </div>
+            <div class="comparison-item">
+              <span class="roman">iii</span>
+              <p>職種・業界・地域が変わっても通用するか</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="slide-tag">Test Design</div>
+      <div class="slide-num">08 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Controlled role-title test</p>
+        <h2 class="title">同じ履歴書で、<em>職位</em>だけを変える</h2>
+        <p class="lead">創業者・共同創業者・初期エンジニアへの加点が実効するかを、同一履歴書のタイトル変更で比較した。観測対象はProduction Experienceの得点差である。</p>
+        <div class="content">
+          <div class="grid-3" style="height: auto;">
+            <div class="role-card">
+              <span class="roman">i</span>
+              <div>
+                <h3>Senior Java Engineer</h3>
+                <p>一般的なシニア技術職として評価</p>
+              </div>
+            </div>
+            <div class="role-card">
+              <span class="roman">ii</span>
+              <div>
+                <h3>Founding Engineer</h3>
+                <p>初期メンバーとしての加点を期待</p>
+              </div>
+            </div>
+            <div class="role-card">
+              <span class="roman">iii</span>
+              <div>
+                <h3>Co-founder CTO</h3>
+                <p>創業・経営技術責任への加点を期待</p>
+              </div>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.25cqw;">
+            <strong>Controlled</strong>
+            <span>履歴書の経歴情報と採点枠組みを維持し、役割タイトルに対するルールの感度を見る。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="slide-tag">Test Result</div>
+      <div class="slide-num">09 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">The bonus barely moved</p>
+        <h2 class="title">期待した加点は、ほぼ<em>再現しない</em></h2>
+        <p class="lead">3条件のProduction Experienceは、いずれも22〜23点／25点に集中した。職位変更の影響は小さく、明示ルールと実際の出力に乖離が見られた。</p>
+        <div class="content">
+          <div class="grid-3" style="height: auto;">
+            <div class="result-card">
+              <h3>Senior Java Engineer</h3>
+              <div class="score">22–23 <small>/ 25</small></div>
+            </div>
+            <div class="result-card">
+              <h3>Founding Engineer</h3>
+              <div class="score">22–23 <small>/ 25</small></div>
+            </div>
+            <div class="result-card">
+              <h3>Co-founder CTO</h3>
+              <div class="score">22–23 <small>/ 25</small></div>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.2cqw;">
+            <strong>Observed</strong>
+            <span>「起業・初期メンバーなら加点する」と書かれていても、モデル出力が期待どおり分離するとは限らない。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="slide-tag">Rule Gap</div>
+      <div class="slide-num">10 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Written rules are not executed rules</p>
+        <h2 class="title">ルールの記述と<em>実効性</em>は違う</h2>
+        <p class="lead">LLMは指示文を機械的な条件分岐として実行しない。複数基準の解釈、優先度衝突、証拠不足を経て、ルールの効果が弱まる。</p>
+        <div class="content">
+          <div class="chain">
+            <div class="chain-step">
+              <span class="roman">i</span>
+              <h3>ルールを書く</h3>
+              <p>創業者・初期メンバーへ加点すると指示</p>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="chain-step">
+              <span class="roman">ii</span>
+              <h3>証拠を解釈する</h3>
+              <p>肩書きと実績の対応をモデルが判断</p>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="chain-step">
+              <span class="roman">iii</span>
+              <h3>条件が競合する</h3>
+              <p>上限、他項目、厳格性の指示が干渉</p>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="chain-step">
+              <span class="roman">iv</span>
+              <h3>差が縮む</h3>
+              <p>期待した加点が得点差として現れない</p>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.35cqw;">
+            <strong>Test every rule</strong>
+            <span>新しい評価ルールには、入力例・期待差・許容誤差を持つ回帰テストが必要になる。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="slide-tag">GitHub Filter</div>
+      <div class="slide-num">11 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">A threshold becomes culture</p>
+        <h2 class="title"><em>5 forks</em>の境界が、候補者像を選ぶ</h2>
+        <p class="lead"><span class="latin">forks_count &lt; 5</span>を除外するルールはノイズ削減に役立つ一方、小規模・新規・非公開中心の開発スタイルを見えにくくする。</p>
+        <div class="content">
+          <div class="gate">
+            <div class="gate-side">
+              <p class="card-kicker">Benefit</p>
+              <h3>観測ノイズを減らす</h3>
+              <p>活動のないフォークや単純な複製を集計対象から外し、評価対象を絞り込める。</p>
+            </div>
+            <div class="gate-center">
+              <span class="gate-code">forks_count &lt; 5</span>
+              <span>除外ゲート</span>
+            </div>
+            <div class="gate-side">
+              <p class="card-kicker">Blind spot</p>
+              <h3>価値ある小規模活動も消す</h3>
+              <p>新しい領域、少人数共同開発、社内・顧客向けの非公開成果は能力があっても観測されにくい。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="slide-tag">OSS Culture</div>
+      <div class="slide-num">12 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Contribution style is policy</p>
+        <h2 class="title">GitHub評価は、特定の<em>開発文化</em>を選好する</h2>
+        <p class="lead">他者プロジェクトへの貢献を強く評価し、個人リポジトリを限定的に扱う設計は、単なる技術指標ではない。望ましい働き方の定義でもある。</p>
+        <div class="content grid-3">
+          <div class="culture-card">
+            <span class="signal">Favored signal</span>
+            <h3>他者OSSへの貢献</h3>
+            <p>外部コミュニティでレビューされ、共同作業した証拠として高く扱われやすい。</p>
+          </div>
+          <div class="culture-card">
+            <span class="signal">Limited signal</span>
+            <h3>個人リポジトリ</h3>
+            <p>自主性や制作力を示しても、自己管理された成果として評価が抑えられる。</p>
+          </div>
+          <div class="culture-card">
+            <span class="signal">Weak visibility</span>
+            <h3>非公開・小規模開発</h3>
+            <p>企業内成果、守秘義務下の仕事、新領域の活動は公開指標だけでは正当に比較しにくい。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="slide-tag">Maturity</div>
+      <div class="slide-num">13 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Activity is not operating evidence</p>
+        <h2 class="title">開発履歴は、<em>プロトタイプ</em>を示す</h2>
+        <p class="lead">約77日の集中開発後に231日の沈黙があり、その後は少数修正に留まる。試作としては自然だが、長期運用・監査・改善の成熟度は別途証明が必要だ。</p>
+        <div class="content">
+          <div class="timeline">
+            <div class="time-block">
+              <strong>77 days</strong>
+              <h3>集中開発</h3>
+              <p>短期間で原型を構築</p>
+            </div>
+            <div class="time-block">
+              <strong>231 days</strong>
+              <h3>長期の沈黙</h3>
+              <p>継続的な改善活動を確認しにくい期間</p>
+            </div>
+            <div class="time-block">
+              <strong>few fixes</strong>
+              <h3>後追い修正</h3>
+              <p>少数の更新が再開</p>
+            </div>
+          </div>
+          <div class="callout">
+            <strong>Prototype ≠ System</strong>
+            <span>採用インフラには、精度改善だけでなく、障害対応・変更管理・定期監査・責任者の継続性が求められる。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="slide-tag">Evidence Gap</div>
+      <div class="slide-num">14 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Three unanswered questions</p>
+        <h2 class="title">未検証のまま残る、<em>3つの問い</em></h2>
+        <p class="lead">提供された情報だけでは、点数の予測力・公平性・適用範囲を判断できない。採用成果と結びつく検証が、実運用への主要な不足条件である。</p>
+        <div class="content grid-3">
+          <div class="question-card">
+            <span class="roman">i</span>
+            <h3>成果を予測するか</h3>
+            <p>スコアと採用後評価、実務成果、定着率・離職率の関係は示されていない。</p>
+          </div>
+          <div class="question-card">
+            <span class="roman">ii</span>
+            <h3>誰に誤るか</h3>
+            <p>候補者属性やキャリア経路別の偽陽性・偽陰性、抽出エラー率が不明である。</p>
+          </div>
+          <div class="question-card">
+            <span class="roman">iii</span>
+            <h3>どこまで通用するか</h3>
+            <p>職種、業界、地域、公開文化の違いを越えて同じ重みが妥当か確認されていない。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="slide-tag">Risk Stack</div>
+      <div class="slide-num">15 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Errors compound downstream</p>
+        <h2 class="title">上流の誤りは、<em>公平性</em>まで伝播する</h2>
+        <p class="lead">抽出ミスは単なる技術障害で終わらない。再現性の低い判断を生み、公開活動の少ない候補者へ構造的な不利益を与える可能性がある。</p>
+        <div class="content">
+          <div class="risk-stack">
+            <div class="risk-card">
+              <span class="roman">i</span>
+              <h3>技術的リスク</h3>
+              <p>PDFレイアウト、OCR、Markdown変換の誤りによって、技能・実績・時系列が別物になる。</p>
+            </div>
+            <div class="risk-card">
+              <span class="roman">ii</span>
+              <h3>運用的リスク</h3>
+              <p>同じルールでも出力差が安定せず、現場が何を採点したのか説明しにくくなる。</p>
+            </div>
+            <div class="risk-card">
+              <span class="roman">iii</span>
+              <h3>倫理的リスク</h3>
+              <p>OSS活動が難しい新人、非公開開発者、地域的制約のある候補者を過小評価し得る。</p>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.2cqw;">
+            <strong>One pipeline</strong>
+            <span>技術・運用・倫理は別々の論点ではなく、同じ評価パイプライン上の連続した品質問題である。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="slide-tag">Economics</div>
+      <div class="slide-num">16 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Automation changes the cost curve</p>
+        <h2 class="title">ROIを決めるのは、API費より<em>誤評価</em></h2>
+        <p class="lead">自動化は初期選考の処理コストを下げられるが、有能人材の見落としや面接工数の偏在は高くつく。重み設定と検証品質が経済効果を左右する。</p>
+        <div class="content">
+          <div class="economics">
+            <div class="economics-side">
+              <p class="card-kicker">Visible savings</p>
+              <h3>直接コストの削減</h3>
+              <p>履歴書の構造化、候補者比較、初期レビューを高速化し、人事・現場の反復作業を減らせる。</p>
+            </div>
+            <div class="economics-op">−</div>
+            <div class="economics-side">
+              <p class="card-kicker">Hidden losses</p>
+              <h3>誤判断の機会損失</h3>
+              <p>優秀層の除外、面接対象の偏り、採用後ミスマッチ、候補者からの不信はAPI利用料を超える損失になり得る。</p>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.35cqw;">
+            <strong>Net ROI</strong>
+            <span>評価すべきは「何件を自動処理したか」ではなく、「採用品質を落とさず意思決定コストを下げたか」である。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="slide-tag">Readiness</div>
+      <div class="slide-num">17 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Three gates before production</p>
+        <h2 class="title">本格利用には、最低<em>3つの検証</em></h2>
+        <p class="lead">入力、予測、運用の3層を通過しない限り、自動スコアを採用判断へ直結させるべきではない。それぞれに定量的な合格条件が要る。</p>
+        <div class="content readiness">
+          <div class="readiness-card">
+            <span class="gate-label">Gate 01</span>
+            <h3>抽出精度を測る</h3>
+            <p>1段組み・2段組み・表形式・画像PDFごとに、項目抽出と時系列復元の誤りを評価する。</p>
+            <div class="pass">PASS：形式別の精度・失敗率・人手修正率を記録</div>
+          </div>
+          <div class="readiness-card">
+            <span class="gate-label">Gate 02</span>
+            <h3>採用成果と照合する</h3>
+            <p>点数を採用後評価、実務成果、定着率と結びつけ、重みが実際の成功を予測するか検証する。</p>
+            <div class="pass">PASS：予測力と属性別エラーを継続観測</div>
+          </div>
+          <div class="readiness-card">
+            <span class="gate-label">Gate 03</span>
+            <h3>人間レビューを設計する</h3>
+            <p>どの点数帯を誰が再確認し、矛盾や異議をどう処理するかを運用プロトコルとして定める。</p>
+            <div class="pass">PASS：責任者・判断根拠・例外処理を明文化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="slide-tag">Operating Model</div>
+      <div class="slide-num">18 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Human in the loop</p>
+        <h2 class="title">スコアは、決定ではなく<em>レビュー入口</em></h2>
+        <p class="lead">妥当な運用は、LLMに最終判断を委ねない。原文証拠を人間が確認し、判断結果を次の監査と重み見直しへ戻す。</p>
+        <div class="content">
+          <div class="operating-flow">
+            <div class="operating-step">
+              <span class="roman">i</span>
+              <h3>構造化</h3>
+              <p>PDFと外部情報を変換し、抽出品質を表示</p>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="operating-step">
+              <span class="roman">ii</span>
+              <h3>参考採点</h3>
+              <p>観点別スコアと根拠箇所を生成</p>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="operating-step">
+              <span class="roman">iii</span>
+              <h3>人間確認</h3>
+              <p>原文、職務要件、例外条件を照合</p>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="operating-step">
+              <span class="roman">iv</span>
+              <h3>採用判断</h3>
+              <p>複数証拠を統合し、責任者が決定</p>
+            </div>
+            <div class="flow-arrow">→</div>
+            <div class="operating-step">
+              <span class="roman">v</span>
+              <h3>学習・監査</h3>
+              <p>成果と異議を蓄積し、基準を更新</p>
+            </div>
+          </div>
+          <div class="callout" style="margin-top: 1.35cqw;">
+            <strong>Observable</strong>
+            <span>点数だけでなく、使用データ、抽出結果、適用ルール、モデル理由、人間による変更履歴を保存する。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="slide-tag">Governance</div>
+      <div class="slide-num">19 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">A scoring system needs institutions</p>
+        <h2 class="title">必要なのは、モデル管理より<em>評価統治</em></h2>
+        <p class="lead">採用評価は継続的に変化する制度である。基準公開、異議申立て、監査、閾値見直し、ドリフト検知を一つの責任体系として運用する必要がある。</p>
+        <div class="content governance-grid">
+          <div class="governance-card">
+            <span class="roman">i</span>
+            <h3>基準公開</h3>
+            <p>評価軸、重み、除外条件、使用データを関係者へ説明する。</p>
+          </div>
+          <div class="governance-card">
+            <span class="roman">ii</span>
+            <h3>根拠ログ</h3>
+            <p>入力、抽出、ルール適用、出力、人間修正を追跡可能にする。</p>
+          </div>
+          <div class="governance-card">
+            <span class="roman">iii</span>
+            <h3>異議申立て</h3>
+            <p>候補者や現場が誤情報・不当評価を訂正できる経路を持つ。</p>
+          </div>
+          <div class="governance-card">
+            <span class="roman">iv</span>
+            <h3>定期監査</h3>
+            <p>職種・属性別の精度、選考通過率、例外判断を点検する。</p>
+          </div>
+          <div class="governance-card">
+            <span class="roman">v</span>
+            <h3>ドリフト管理</h3>
+            <p>母集団や職務要件の変化に合わせ、重みと閾値を再検証する。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">20 / 21</div>
+      <div class="slide-content">
+        <p class="eyebrow">Design the values first</p>
+        <h2 class="title">モデルを選ぶ前に、<em>価値</em>を説明できるか</h2>
+        <p class="lead">現時点で妥当なのは、最終採用判断の置換ではなく、候補者比較を補助する限定運用である。点数を答えにせず、追加確認すべき問いとして使う。</p>
+        <div class="closing-principles">
+          <div class="closing-principle">
+            <span>i</span>
+            <p>入力品質を測らないスコアを、精密な評価として扱わない。</p>
+          </div>
+          <div class="closing-principle">
+            <span>ii</span>
+            <p>配点を普遍的能力ではなく、検証可能な組織仮説として扱う。</p>
+          </div>
+          <div class="closing-principle">
+            <span>iii</span>
+            <p>人間の責任、説明、異議、監査を自動化の外へ追い出さない。</p>
+          </div>
+        </div>
+        <div class="closing-footer">LLMは評価の実装手段であり、評価価値観の責任主体ではない。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">21 / 21</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</main>
+</body>
+</html>
