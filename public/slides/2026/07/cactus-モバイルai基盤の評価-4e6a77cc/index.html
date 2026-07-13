@@ -1,0 +1,1877 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cactus — モバイルAI基盤の評価</title>
+  <meta name="description" content="Cactusのアーキテクチャ、量子化、性能、クラウドハンドオフ、導入判断を整理したリーディングデック。">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      padding: 48px 0 88px;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-color: var(--rust);
+      text-underline-offset: 4px;
+    }
+
+    .deck {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 42px;
+      width: 100%;
+    }
+
+    .slide {
+      position: relative;
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      overflow: hidden;
+      padding: 56px 72px;
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      isolation: isolate;
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 29px;
+      left: 72px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      display: block;
+      width: 30px;
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 21px;
+      right: 72px;
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 20px;
+      font-style: italic;
+      font-weight: 400;
+      letter-spacing: 0.04em;
+    }
+
+    .intro {
+      position: relative;
+      z-index: 2;
+      margin-top: 15px;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 58px;
+      font-weight: 500;
+      line-height: 0.98;
+      letter-spacing: -0.035em;
+    }
+
+    h1 em,
+    h2 em {
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin: 16px 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.55;
+      letter-spacing: 0.005em;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      margin-top: 25px;
+    }
+
+    .section-label {
+      margin: 0 0 8px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: 0.17em;
+      text-transform: uppercase;
+    }
+
+    .body-copy {
+      margin: 0;
+      color: var(--ink-2);
+      font-size: 15px;
+      font-weight: 300;
+      line-height: 1.72;
+    }
+
+    .small-copy {
+      margin: 0;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: 12px;
+      font-weight: 300;
+      line-height: 1.62;
+    }
+
+    .latin {
+      font-family: "Inter Tight", sans-serif;
+    }
+
+    .mono {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.94em;
+      letter-spacing: 0.01em;
+    }
+
+    .accent {
+      color: var(--rust);
+    }
+
+    .rule-top {
+      border-top: 1px solid var(--rule);
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4 {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      min-width: 0;
+      padding: 17px 18px;
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.015);
+    }
+
+    .card-number {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 25px;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .card-title {
+      margin: 0 0 7px;
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .card-text {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 13px;
+      font-weight: 300;
+      line-height: 1.62;
+    }
+
+    .card-kicker {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .verdict-strip {
+      display: grid;
+      grid-template-columns: 148px 1fr;
+      align-items: center;
+      gap: 20px;
+      margin-top: 14px;
+      padding: 14px 18px;
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .verdict-strip .label {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.17em;
+      text-transform: uppercase;
+    }
+
+    .verdict-strip p {
+      margin: 0;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 400;
+      line-height: 1.55;
+    }
+
+    .footnote {
+      position: absolute;
+      right: 72px;
+      bottom: 34px;
+      left: 72px;
+      z-index: 2;
+      color: var(--ink-4);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 10px;
+      font-weight: 400;
+      line-height: 1.4;
+      letter-spacing: 0.02em;
+    }
+
+    /* Cover */
+    .cover {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .cover .intro {
+      max-width: 900px;
+      margin-top: 8px;
+    }
+
+    .cover h1 {
+      font-size: 84px;
+      line-height: 0.91;
+      letter-spacing: -0.045em;
+    }
+
+    .cover .lead {
+      max-width: 780px;
+      margin: 25px auto 0;
+    }
+
+    .cover-meta {
+      display: flex;
+      justify-content: center;
+      gap: 34px;
+      margin-top: 31px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .cover-meta span {
+      position: relative;
+    }
+
+    .cover-meta span + span::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: -18px;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: var(--rust);
+      transform: translateY(-50%);
+    }
+
+    /* Problem */
+    .tension {
+      display: grid;
+      grid-template-columns: 1fr 160px 1fr;
+      align-items: stretch;
+      gap: 14px;
+    }
+
+    .tension-side {
+      padding: 17px 18px;
+      border: 1px solid var(--rule);
+    }
+
+    .tension-side h3 {
+      margin: 0 0 9px;
+      color: var(--ink);
+      font-size: 20px;
+      font-weight: 500;
+      line-height: 1.25;
+    }
+
+    .tension-side p {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 13px;
+      font-weight: 300;
+      line-height: 1.65;
+    }
+
+    .tension-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      color: var(--rust);
+      text-align: center;
+    }
+
+    .tension-center strong {
+      font-family: "Cormorant Garamond", serif;
+      font-size: 31px;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .tension-center span {
+      margin-top: 7px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    /* Flow */
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr 54px 1fr 54px 1fr;
+      align-items: center;
+      gap: 0;
+    }
+
+    .flow-node {
+      min-height: 116px;
+      padding: 17px 17px 15px;
+      border: 1px solid var(--rule);
+    }
+
+    .flow-node strong {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    .flow-node p {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 12px;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .flow-arrow {
+      position: relative;
+      height: 1px;
+      background: var(--rule-strong);
+    }
+
+    .flow-arrow::after {
+      content: "";
+      position: absolute;
+      top: -4px;
+      right: 0;
+      width: 7px;
+      height: 7px;
+      border-top: 1px solid var(--rust);
+      border-right: 1px solid var(--rust);
+      transform: rotate(45deg);
+    }
+
+    .criteria-row {
+      display: grid;
+      grid-template-columns: 150px repeat(3, 1fr);
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 11px;
+      border-top: 1px solid var(--rule);
+    }
+
+    .criteria-row .criteria-label {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .criteria-chip {
+      color: var(--ink-2);
+      font-size: 11px;
+      font-weight: 300;
+      line-height: 1.4;
+    }
+
+    .criteria-chip::before {
+      content: "i";
+      display: inline-block;
+      margin-right: 7px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 15px;
+      font-style: italic;
+    }
+
+    /* Architecture */
+    .architecture-layout {
+      display: grid;
+      grid-template-columns: 1.55fr 0.85fr;
+      gap: 17px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 6px;
+    }
+
+    .stack-row {
+      display: grid;
+      grid-template-columns: 142px 1fr;
+      align-items: center;
+      min-height: 36px;
+      padding: 7px 13px;
+      border: 1px solid var(--rule);
+    }
+
+    .stack-row strong {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+
+    .stack-row span {
+      color: var(--ink-3);
+      font-size: 11px;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .architecture-aside {
+      padding: 16px 17px;
+      border-left: 1px solid var(--rule-strong);
+    }
+
+    .binding-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 7px;
+      margin-top: 12px;
+    }
+
+    .binding-list span {
+      padding: 5px 8px;
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    /* Commands */
+    .command-grid .card {
+      padding: 14px 16px;
+    }
+
+    .command {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+
+    .compat-bar {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 15px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 11px 15px;
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .compat-bar strong {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .compat-bar span {
+      color: var(--ink-3);
+      font-size: 11px;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    /* Capabilities */
+    .capability-card {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .capability-mark {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 30px;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    /* Quantization */
+    .quant-layout {
+      display: grid;
+      grid-template-columns: 0.86fr 1.7fr;
+      gap: 17px;
+    }
+
+    .quant-explain {
+      padding: 16px 18px;
+      border-left: 2px solid var(--rust);
+    }
+
+    .quant-explain strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 500;
+    }
+
+    .quant-table {
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .quant-row {
+      display: grid;
+      grid-template-columns: 88px 1fr 1fr;
+      align-items: center;
+      min-height: 52px;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .quant-row > span {
+      padding: 8px 10px;
+    }
+
+    .quant-row .bit {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px;
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .quant-row .position {
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .quant-row .tradeoff {
+      color: var(--ink-3);
+      font-size: 11px;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    /* Evidence */
+    .metric-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 17px;
+    }
+
+    .metric {
+      padding: 17px 20px 15px;
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .metric-label {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin: 3px 0 0;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 67px;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 0.9;
+      letter-spacing: -0.04em;
+    }
+
+    .metric-unit {
+      margin-left: 5px;
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      font-style: normal;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .metric-detail {
+      margin-top: 9px;
+      color: var(--ink-3);
+      font-size: 12px;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    .evidence-note {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 17px;
+      margin-top: 12px;
+    }
+
+    .evidence-note div {
+      padding-left: 13px;
+      border-left: 1px solid var(--rule);
+    }
+
+    /* Quality */
+    .quality-layout {
+      display: grid;
+      grid-template-columns: 0.8fr 1.4fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .quality-stat {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 17px 20px;
+      border: 1px solid var(--rule);
+    }
+
+    .quality-stat .value {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 64px;
+      font-style: italic;
+      line-height: 0.9;
+      letter-spacing: -0.04em;
+    }
+
+    .quality-stat .name {
+      margin-top: 8px;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .quality-stat .context {
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .quality-scale {
+      display: grid;
+      gap: 11px;
+      align-content: center;
+    }
+
+    .scale-item {
+      display: grid;
+      grid-template-columns: 95px 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .scale-item strong {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .scale-track {
+      position: relative;
+      height: 9px;
+      background: var(--rule);
+    }
+
+    .scale-fill {
+      height: 100%;
+      background: var(--rust);
+    }
+
+    .scale-caption {
+      grid-column: 2;
+      margin-top: -7px;
+      color: var(--ink-3);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    /* Handoff */
+    .handoff-flow {
+      display: grid;
+      grid-template-columns: 1fr 42px 1.12fr 42px 1fr;
+      align-items: center;
+    }
+
+    .handoff-node {
+      min-height: 127px;
+      padding: 16px;
+      border: 1px solid var(--rule);
+    }
+
+    .handoff-node .index {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .handoff-node strong {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .handoff-node p {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    .handoff-arrow {
+      height: 1px;
+      background: var(--rule-strong);
+      position: relative;
+    }
+
+    .handoff-arrow::after {
+      content: "";
+      position: absolute;
+      top: -4px;
+      right: 0;
+      width: 7px;
+      height: 7px;
+      border-top: 1px solid var(--rust);
+      border-right: 1px solid var(--rust);
+      transform: rotate(45deg);
+    }
+
+    .governance-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .governance-row div {
+      padding-top: 9px;
+      border-top: 1px solid var(--rule);
+    }
+
+    /* Tradeoff */
+    .balance-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .balance-panel {
+      padding: 16px 18px;
+      border: 1px solid var(--rule);
+    }
+
+    .balance-panel h3 {
+      margin: 0 0 12px;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 500;
+    }
+
+    .balance-item {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 10px;
+      padding: 8px 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .balance-item .roman {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 18px;
+      font-style: italic;
+      line-height: 1.2;
+    }
+
+    .balance-item strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--ink-2);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .balance-item p {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 10px;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    /* Risk */
+    .risk-grid .card {
+      padding: 14px 16px;
+    }
+
+    .risk-grid .card-title {
+      font-size: 15px;
+      margin-bottom: 5px;
+    }
+
+    .risk-grid .card-text {
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .risk-question {
+      display: block;
+      margin-top: 7px;
+      color: var(--ink-2);
+      font-size: 10px;
+      font-weight: 400;
+      line-height: 1.4;
+    }
+
+    /* Validation */
+    .gate-grid .card {
+      padding: 14px 16px;
+    }
+
+    .gate-grid .card-title {
+      font-size: 15px;
+    }
+
+    .metric-line {
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      gap: 8px;
+      margin-top: 7px;
+      padding-top: 7px;
+      border-top: 1px solid var(--rule);
+    }
+
+    .metric-line span:first-child {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .metric-line span:last-child {
+      color: var(--ink-2);
+      font-size: 10px;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    /* Closing */
+    .closing {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .closing .intro {
+      max-width: 900px;
+      margin-top: -8px;
+    }
+
+    .closing h2 {
+      font-size: 75px;
+      line-height: 0.94;
+    }
+
+    .closing .lead {
+      max-width: 790px;
+      margin: 22px auto 0;
+    }
+
+    .recommendation-grid {
+      max-width: 860px;
+      margin: 30px auto 0;
+      text-align: left;
+    }
+
+    .recommendation-grid .card {
+      padding: 14px 16px;
+    }
+
+    .recommendation-grid .card-title {
+      font-size: 15px;
+    }
+
+    .recommendation-grid .card-text {
+      font-size: 11px;
+    }
+
+    /* References */
+    .reference-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .reference-item {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 18px;
+      padding: 11px 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .reference-item:last-child {
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .reference-type {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .reference-body strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .reference-body p {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 11px;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 900px) {
+      body {
+        padding-top: 24px;
+      }
+
+      .deck {
+        gap: 24px;
+      }
+
+      .slide {
+        padding: 5vw 6.4vw;
+      }
+
+      .slide-tag {
+        top: 2.6vw;
+        left: 6.4vw;
+        font-size: clamp(5px, 0.9vw, 10px);
+      }
+
+      .slide-num {
+        top: 1.9vw;
+        right: 6.4vw;
+        font-size: clamp(10px, 1.8vw, 20px);
+      }
+
+      .intro {
+        margin-top: 1.35vw;
+      }
+
+      .eyebrow {
+        margin-bottom: 0.6vw;
+        font-size: clamp(10px, 2vw, 22px);
+      }
+
+      h1,
+      h2 {
+        font-size: clamp(25px, 5.2vw, 58px);
+      }
+
+      .cover h1 {
+        font-size: clamp(34px, 7.5vw, 84px);
+      }
+
+      .closing h2 {
+        font-size: clamp(31px, 6.7vw, 75px);
+      }
+
+      .lead {
+        margin-top: 1.4vw;
+        font-size: clamp(9px, 1.95vw, 22px);
+      }
+
+      .content {
+        margin-top: 2.2vw;
+      }
+
+      .card {
+        padding: 1.5vw 1.6vw;
+      }
+
+      .card-title {
+        margin-bottom: 0.55vw;
+        font-size: clamp(7px, 1.5vw, 17px);
+      }
+
+      .card-text,
+      .body-copy {
+        font-size: clamp(5px, 1.15vw, 13px);
+      }
+
+      .small-copy {
+        font-size: clamp(5px, 1.05vw, 12px);
+      }
+
+      .section-label,
+      .card-kicker {
+        font-size: clamp(4px, 0.85vw, 10px);
+      }
+
+      .footnote {
+        right: 6.4vw;
+        bottom: 3vw;
+        left: 6.4vw;
+        font-size: clamp(4px, 0.85vw, 10px);
+      }
+    }
+
+    @media print {
+      @page {
+        size: landscape;
+        margin: 0;
+      }
+
+      body {
+        padding: 0;
+        background: var(--cream);
+      }
+
+      .deck {
+        gap: 0;
+      }
+
+      .slide {
+        width: 100vw;
+        height: 100vh;
+        aspect-ratio: 16 / 9;
+        break-after: page;
+        page-break-after: always;
+        box-shadow: none;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck" aria-label="Cactus モバイルAI基盤評価デック">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover" aria-labelledby="slide-01-title">
+      <div class="slide-tag">Technology Review</div>
+      <div class="slide-num">02 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Mobile AI, made practical</p>
+        <h1 id="slide-01-title">Cactus<br>端末AIを、<em>実用</em>の基盤へ</h1>
+        <p class="lead">スマートフォン／ウェアラブルでのローカル推論を中心に、必要時だけクラウドへ移行するハイブリッドOSS。その価値と採用条件を整理する。</p>
+        <div class="cover-meta" aria-label="デックの対象">
+          <span>Architecture</span>
+          <span>Quantization</span>
+          <span>Adoption Decision</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-02-title">
+      <div class="slide-tag">Executive Summary</div>
+      <div class="slide-num">03 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Executive verdict</p>
+        <h2 id="slide-02-title">有望な基盤。だが、まだ<em>導入済み品質</em>ではない</h2>
+        <p class="lead">Cactusは速度・効率・導入容易性を同時に狙う、実装指向のモバイルAI基盤である。製品採用には電力、熱、品質安全域、クラウド移行の追加検証が必要だ。</p>
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <article class="card">
+            <span class="card-number">i</span>
+            <h3 class="card-title">統合された開発導線</h3>
+            <p class="card-text">Engine、Graph、Kernels、Quants、Transpiler、CLI、各種バインディングまでを一つのエコシステムとして提供する。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">ii</span>
+            <h3 class="card-title">定量的な設計判断</h3>
+            <p class="card-text">端末別の速度・RAMと量子化後の精度を並べ、効率と品質のトレードオフを可視化している。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">iii</span>
+            <h3 class="card-title">残る運用上の空白</h3>
+            <p class="card-text">長時間稼働、端末差、セキュリティ監査、ハンドオフの再現性などはREADMEだけでは判断できない。</p>
+          </article>
+        </div>
+        <div class="verdict-strip">
+          <span class="label">Current position</span>
+          <p><strong class="accent">PoC候補として高評価。</strong> CQ4を初期基準に、実ワークロードで品質と端末運用を通過した範囲だけ段階導入する。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-03-title">
+      <div class="slide-tag">Problem Framing</div>
+      <div class="slide-num">04 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">The mobile constraint</p>
+        <h2 id="slide-03-title">「端末かクラウドか」の<em>二択</em>では解けない</h2>
+        <p class="lead">端末は即時性・プライバシー・オフライン性に強いが、計算資源と電力が限られる。クラウドは高性能だが、通信遅延・費用・データ移転を伴う。</p>
+      </div>
+      <div class="content">
+        <div class="tension">
+          <article class="tension-side">
+            <span class="card-kicker">On-device</span>
+            <h3>端末内で完結</h3>
+            <p>低遅延、オフライン、データ最小化に有利。一方でRAM、帯域、発熱、バッテリー、モデルサイズが上限になる。</p>
+          </article>
+          <div class="tension-center" aria-label="解決方針">
+            <strong>Hybrid</strong>
+            <span>local first</span>
+          </div>
+          <article class="tension-side">
+            <span class="card-kicker">Cloud</span>
+            <h3>クラウドで処理</h3>
+            <p>大規模モデルと弾力的な計算資源を利用可能。一方でネットワーク依存、従量課金、プライバシー管理が増える。</p>
+          </article>
+        </div>
+        <div class="verdict-strip">
+          <span class="label">Design response</span>
+          <p><strong>軽量化して端末で処理し、端末では安全に完遂できない要求だけクラウドへ送る。</strong> Cactusの中心命題はこの分業にある。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-04-title">
+      <div class="slide-tag">Core Idea</div>
+      <div class="slide-num">05 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Local-first inference</p>
+        <h2 id="slide-04-title">ローカルを既定にし、必要時だけ<em>移行</em>する</h2>
+        <p class="lead">量子化モデルを端末で実行し、信頼度や制約に応じてクラウドへハンドオフする。この構成が速度・費用・プライバシーの折衷点をつくる。</p>
+      </div>
+      <div class="content">
+        <div class="flow" aria-label="Cactusの基本フロー">
+          <article class="flow-node">
+            <span class="card-kicker">Step i</span>
+            <strong>端末で入力を処理</strong>
+            <p>テキスト、音声、画像などをローカルのモデル／カーネルで推論する。</p>
+          </article>
+          <div class="flow-arrow" aria-hidden="true"></div>
+          <article class="flow-node">
+            <span class="card-kicker">Step ii</span>
+            <strong>結果と制約を判定</strong>
+            <p><span class="mono">confidence_threshold</span>、失敗、処理時間、ポリシーを確認する。</p>
+          </article>
+          <div class="flow-arrow" aria-hidden="true"></div>
+          <article class="flow-node">
+            <span class="card-kicker">Step iii</span>
+            <strong>必要時のみクラウド</strong>
+            <p><span class="mono">cloud_handoff</span>を実行し、タイムアウト内で代替結果を取得する。</p>
+          </article>
+        </div>
+        <div class="criteria-row">
+          <span class="criteria-label">Routing criteria</span>
+          <span class="criteria-chip">推論の信頼度</span>
+          <span class="criteria-chip">通信・遅延の許容値</span>
+          <span class="criteria-chip">データ送信ポリシー</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-05-title">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">06 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">One integrated stack</p>
+        <h2 id="slide-05-title">価値はエンジン単体ではなく、<em>層全体</em>にある</h2>
+        <p class="lead">モデル変換、実行、最適化、量子化、アプリ統合までを分断しない。独自モデルを実機に持ち込み、計測する工程が一つのスタックに収まる。</p>
+      </div>
+      <div class="content architecture-layout">
+        <div class="stack" aria-label="Cactusのレイヤー">
+          <div class="stack-row">
+            <strong>Cactus Engine</strong>
+            <span>推論実行、API、ローカル／クラウド制御の中心</span>
+          </div>
+          <div class="stack-row">
+            <strong>Graph</strong>
+            <span>ネイティブな計算グラフと演算の構成管理</span>
+          </div>
+          <div class="stack-row">
+            <strong>Kernels</strong>
+            <span>ARM・Apple系を含む端末向け低レベル最適化</span>
+          </div>
+          <div class="stack-row">
+            <strong>Quants</strong>
+            <span>CQによる低ビット量子化と端末コスト削減</span>
+          </div>
+          <div class="stack-row">
+            <strong>Transpiler</strong>
+            <span>外部モデルをCactus向け形式へ変換する導線</span>
+          </div>
+        </div>
+        <aside class="architecture-aside">
+          <p class="section-label">Application surface</p>
+          <p class="body-copy">C++／Python実装を核に、モバイル・クロスプラットフォーム環境から利用できる。</p>
+          <div class="binding-list" aria-label="対応バインディング">
+            <span>Swift</span>
+            <span>Kotlin</span>
+            <span>Flutter</span>
+            <span>React Native</span>
+            <span>Python</span>
+            <span>Rust</span>
+          </div>
+          <p class="small-copy" style="margin-top:14px;">OpenAI互換APIにより、既存の呼び出し設計を活用しやすい。</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-06-title">
+      <div class="slide-tag">Developer Experience</div>
+      <div class="slide-num">07 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">From model to device</p>
+        <h2 id="slide-06-title">変換から評価まで、<em>一つのCLI</em>でつながる</h2>
+        <p class="lead">Cactusはデモ用ランタイムに留まらず、モデル準備・サービング・ベンチ・テストまでの再現可能な開発導線を提供する。</p>
+      </div>
+      <div class="content">
+        <div class="grid-2 command-grid">
+          <article class="card">
+            <span class="command">cactus run</span>
+            <p class="card-text">対象モデルを実行し、端末上の挙動と出力を素早く確認する。</p>
+          </article>
+          <article class="card">
+            <span class="command">cactus convert</span>
+            <p class="card-text">モデルを変換し、量子化やターゲット環境への適合を進める。</p>
+          </article>
+          <article class="card">
+            <span class="command">cactus serve</span>
+            <p class="card-text">APIとして公開し、アプリや既存クライアントから統合評価する。</p>
+          </article>
+          <article class="card">
+            <span class="command">cactus benchmark / test</span>
+            <p class="card-text">速度、メモリ、品質、回帰を同じ工程内で比較・検証する。</p>
+          </article>
+        </div>
+        <div class="compat-bar">
+          <strong>OpenAI-compatible API</strong>
+          <span>呼び出しインターフェースの移行負担を抑えられる。ただし端末固有のモデル管理、権限、更新設計は別途必要。</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-07-title">
+      <div class="slide-tag">Capability Scope</div>
+      <div class="slide-num">08 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Beyond text generation</p>
+        <h2 id="slide-07-title">対象はLLMだけではない。<em>複合AI</em>を端末へ</h2>
+        <p class="lead">音声認識、画像入力、RAG、ツール呼び出しまでを想定する。単発のテキスト生成ではなく、実アプリに近い推論フローが射程に入る。</p>
+      </div>
+      <div class="content grid-2">
+        <article class="card capability-card">
+          <span class="capability-mark">i</span>
+          <div>
+            <span class="card-kicker">Language</span>
+            <h3 class="card-title">LLM・対話</h3>
+            <p class="card-text">ローカル生成、会話、要約などを端末上で実行し、応答遅延とデータ移転を抑える。</p>
+          </div>
+        </article>
+        <article class="card capability-card">
+          <span class="capability-mark">ii</span>
+          <div>
+            <span class="card-kicker">Audio</span>
+            <h3 class="card-title">Transcribe — 音声認識</h3>
+            <p class="card-text">音声入力の文字起こしを対象に含む。実用化には騒音、話者差、長時間音声での誤差評価が必要。</p>
+          </div>
+        </article>
+        <article class="card capability-card">
+          <span class="capability-mark">iii</span>
+          <div>
+            <span class="card-kicker">Vision</span>
+            <h3 class="card-title">VLM — 画像理解</h3>
+            <p class="card-text">画像とテキストを組み合わせる入力を想定。端末カメラとの統合はプライバシー上の利点が大きい。</p>
+          </div>
+        </article>
+        <article class="card capability-card">
+          <span class="capability-mark">iv</span>
+          <div>
+            <span class="card-kicker">Augmentation</span>
+            <h3 class="card-title">RAG・ツール呼び出し</h3>
+            <p class="card-text">外部知識や機能を接続し、回答だけでなく検索・操作を含むアプリケーションフローを構成する。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-08-title">
+      <div class="slide-tag">Quantization</div>
+      <div class="slide-num">09 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Efficiency has a price</p>
+        <h2 id="slide-08-title">CQ量子化は中核技術。低ビット化は<em>無料</em>ではない</h2>
+        <p class="lead">CQはRotation-and-codebook方式で、概ね4bit〜2bitへモデルを圧縮する。RAMと実行コストを下げる一方、ビット幅を攻めるほど品質リスクが増える。</p>
+      </div>
+      <div class="content quant-layout">
+        <aside class="quant-explain">
+          <span class="card-kicker">Core mechanism</span>
+          <strong>より小さく、より速く</strong>
+          <p class="body-copy">量子化は重み表現を小さくし、端末のメモリ帯域と計算負荷を抑える。モバイル実行を成立させる鍵だが、用途ごとの許容誤差が選定条件になる。</p>
+        </aside>
+        <div class="quant-table" aria-label="量子化設定の比較">
+          <div class="quant-row">
+            <span class="bit">CQ4</span>
+            <span class="position">初期基準に適したバランス型</span>
+            <span class="tradeoff">主要ベンチでは比較的高い再現率を維持する傾向。</span>
+          </div>
+          <div class="quant-row">
+            <span class="bit">CQ3.26</span>
+            <span class="position">効率を一段高める中間型</span>
+            <span class="tradeoff">タスク間の劣化幅を実データで確認する必要がある。</span>
+          </div>
+          <div class="quant-row">
+            <span class="bit">CQ2</span>
+            <span class="position">省メモリを優先する攻めた設定</span>
+            <span class="tradeoff">一部タスクで急激な精度低下が見られ、安全域が狭い。</span>
+          </div>
+        </div>
+      </div>
+      <div class="footnote">CQ = Rotation-and-codebook quantization. ビット幅の呼称と具体設定は対象モデル・リポジトリの版を確認すること。</div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-09-title">
+      <div class="slide-tag">Performance Evidence</div>
+      <div class="slide-num">10 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Speed on Apple silicon</p>
+        <h2 id="slide-09-title">READMEの性能値は、端末AIの<em>実効性</em>を示す</h2>
+        <p class="lead">Gemma系モデルの例では、Mac M5 Maxで高いprefill／decode速度が提示される。iPhone 15・17系を含む端末別ベンチも、モバイル実行の成立可能性を支える。</p>
+      </div>
+      <div class="content">
+        <div class="metric-pair">
+          <article class="metric">
+            <span class="metric-label">Prefill · Mac M5 Max</span>
+            <p class="metric-value">2964<span class="metric-unit">tps</span></p>
+            <p class="metric-detail">入力文脈をモデルへ取り込む処理速度。長い入力の初期応答時間に影響する。</p>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Decode · Mac M5 Max</span>
+            <p class="metric-value">154<span class="metric-unit">tps</span></p>
+            <p class="metric-detail">トークンを逐次生成する処理速度。ユーザーが感じる生成テンポに直結する。</p>
+          </article>
+        </div>
+        <div class="evidence-note">
+          <div>
+            <p class="section-label">What it supports</p>
+            <p class="small-copy">Appleシリコン向け最適化とネイティブカーネルが、高いスループットにつながる可能性を示す。</p>
+          </div>
+          <div>
+            <p class="section-label">What it does not prove</p>
+            <p class="small-copy">文脈長、バッチ、モデル版、熱状態、電源条件が変われば結果も変わる。自社条件での再測定が前提。</p>
+          </div>
+        </div>
+      </div>
+      <div class="footnote">tps = tokens per second. 数値は提供資料に記載されたリポジトリREADMEのベンチマーク要約に基づく。</div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-10-title">
+      <div class="slide-tag">Quality Evidence</div>
+      <div class="slide-num">11 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">The quality cliff</p>
+        <h2 id="slide-10-title">CQ2では、品質が緩やかでなく<em>急落</em>しうる</h2>
+        <p class="lead">CQ4は主要ベンチで比較的高い品質を保つ一方、CQ2ではARC-C 24.73という低下例が示される。最小ビットを選ぶことが最適化とは限らない。</p>
+      </div>
+      <div class="content quality-layout">
+        <article class="quality-stat">
+          <span class="card-kicker">Reported example</span>
+          <span class="value">24.73</span>
+          <span class="name">ARC-C · CQ2</span>
+          <span class="context">提供資料に記載された精度表の例。低ビット条件でタスク性能が大きく崩れる可能性を示す。</span>
+        </article>
+        <div class="quality-scale" aria-label="量子化と品質リスクの概念比較">
+          <div class="scale-item">
+            <strong>CQ4</strong>
+            <div class="scale-track"><div class="scale-fill" style="width:84%;"></div></div>
+            <span class="scale-caption">比較的高い再現率を保つ傾向。実務PoCの出発点として現実的。</span>
+          </div>
+          <div class="scale-item">
+            <strong>CQ3.26</strong>
+            <div class="scale-track"><div class="scale-fill" style="width:63%;"></div></div>
+            <span class="scale-caption">効率と品質の中間。タスクごとの劣化幅を個別に測る。</span>
+          </div>
+          <div class="scale-item">
+            <strong>CQ2</strong>
+            <div class="scale-track"><div class="scale-fill" style="width:27%;"></div></div>
+            <span class="scale-caption">品質安全域が狭い。限定タスク以外では慎重な判定が必要。</span>
+          </div>
+        </div>
+      </div>
+      <div class="footnote">バーは概念図であり、ベンチマーク得点の直接比較ではない。評価は提示タスク・約3 seedに限られるため、実ワークロード検証が必要。</div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-11-title">
+      <div class="slide-tag">Cloud Handoff</div>
+      <div class="slide-num">12 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Fallback is governance</p>
+        <h2 id="slide-11-title">ハンドオフは機能ではなく、<em>統治ルール</em>である</h2>
+        <p class="lead">低信頼時にクラウドへ切り替える設計は成功率を高めるが、データ移転・遅延・費用も発生させる。分岐条件は監査可能でなければならない。</p>
+      </div>
+      <div class="content">
+        <div class="handoff-flow">
+          <article class="handoff-node">
+            <span class="index">i</span>
+            <strong>Local inference</strong>
+            <p>端末で推論し、出力・信頼度・所要時間・エラー状態を取得する。</p>
+          </article>
+          <div class="handoff-arrow" aria-hidden="true"></div>
+          <article class="handoff-node">
+            <span class="index">ii</span>
+            <strong>Policy decision</strong>
+            <p><span class="mono">confidence_threshold</span>と送信可否、通信状態、制限時間を照合する。</p>
+          </article>
+          <div class="handoff-arrow" aria-hidden="true"></div>
+          <article class="handoff-node">
+            <span class="index">iii</span>
+            <strong>Cloud handoff</strong>
+            <p><span class="mono">cloud_handoff</span>を実行し、<span class="mono">cloud-timeout-ms</span>内で結果を返す。</p>
+          </article>
+        </div>
+        <div class="governance-row">
+          <div>
+            <p class="section-label">Traceability</p>
+            <p class="small-copy">なぜクラウドへ送ったかを記録する。</p>
+          </div>
+          <div>
+            <p class="section-label">Data control</p>
+            <p class="small-copy">送信対象とマスキング範囲を定義する。</p>
+          </div>
+          <div>
+            <p class="section-label">Calibration</p>
+            <p class="small-copy">信頼度自体が正しく校正されているか測る。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-12-title">
+      <div class="slide-tag">Economic View</div>
+      <div class="slide-num">13 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Savings shift the work</p>
+        <h2 id="slide-12-title">クラウド費は減らせる。代わりに<em>検証費</em>が増える</h2>
+        <p class="lead">ローカル推論は従量課金と通信依存を抑える可能性がある。一方、複数端末・複数量子化設定の評価と運用が新しいコストになる。</p>
+      </div>
+      <div class="content balance-layout">
+        <article class="balance-panel">
+          <span class="card-kicker">Potential gains</span>
+          <h3>得られる経済価値</h3>
+          <div class="balance-item">
+            <span class="roman">i</span>
+            <div>
+              <strong>クラウド推論量の削減</strong>
+              <p>端末で完結する要求が増えるほど、API従量課金と通信量を抑えられる。</p>
+            </div>
+          </div>
+          <div class="balance-item">
+            <span class="roman">ii</span>
+            <div>
+              <strong>応答体験の改善</strong>
+              <p>ネットワーク往復を避け、待ち時間による離脱や失敗を減らせる可能性がある。</p>
+            </div>
+          </div>
+          <div class="balance-item">
+            <span class="roman">iii</span>
+            <div>
+              <strong>既存API資産の活用</strong>
+              <p>OpenAI互換インターフェースにより、統合の初期負担を抑えやすい。</p>
+            </div>
+          </div>
+        </article>
+        <article class="balance-panel">
+          <span class="card-kicker">New cost centers</span>
+          <h3>増える実装・運用負担</h3>
+          <div class="balance-item">
+            <span class="roman">i</span>
+            <div>
+              <strong>端末マトリクス検証</strong>
+              <p>SoC、RAM、OS、温度、バッテリー状態ごとに性能と安定性を測る必要がある。</p>
+            </div>
+          </div>
+          <div class="balance-item">
+            <span class="roman">ii</span>
+            <div>
+              <strong>量子化チューニング</strong>
+              <p>モデルとタスクごとに、速度・容量・品質の安全域を探索する工数が生じる。</p>
+            </div>
+          </div>
+          <div class="balance-item">
+            <span class="roman">iii</span>
+            <div>
+              <strong>二重経路の運用</strong>
+              <p>ローカルとクラウド双方の監視、障害対応、モデル更新、ログ管理が必要になる。</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-13-title">
+      <div class="slide-tag">Risk Review</div>
+      <div class="slide-num">14 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">The missing evidence</p>
+        <h2 id="slide-13-title">採用を止めるのは性能不足より、<em>運用の空白</em>だ</h2>
+        <p class="lead">READMEは製品説明として有用だが、実デプロイの保証ではない。採用判断では、技術・セキュリティ・法務・安定性の未確認項目を明示する。</p>
+      </div>
+      <div class="content grid-2 risk-grid">
+        <article class="card">
+          <span class="card-kicker">Operations</span>
+          <h3 class="card-title">電力・熱・長時間安定性</h3>
+          <p class="card-text">連続推論時の消費電力、サーマルスロットリング、バックグラウンド実行、同時利用時の挙動が未評価。</p>
+          <span class="risk-question">判断質問：代表端末で30分以上、目標SLAを維持できるか。</span>
+        </article>
+        <article class="card">
+          <span class="card-kicker">Security</span>
+          <h3 class="card-title">クラウド移行とデータ境界</h3>
+          <p class="card-text">音声・画像・テキストがいつ外部へ移るか、ログに何が残るか、送信禁止データをどう止めるかを定義する。</p>
+          <span class="risk-question">判断質問：分岐理由と送信内容を監査・再現できるか。</span>
+        </article>
+        <article class="card">
+          <span class="card-kicker">Legal</span>
+          <h3 class="card-title">モデル規約とデータ法制</h3>
+          <p class="card-text">Cactus本体のLICENSEだけでなく、Hugging Face上のモデル規約、gated modelのトークン、音声データ法制を確認する。</p>
+          <span class="risk-question">判断質問：配布形態と商用利用が全ライセンスに適合するか。</span>
+        </article>
+        <article class="card">
+          <span class="card-kicker">Stability</span>
+          <h3 class="card-title">実験機能と互換性</h3>
+          <p class="card-text">任意HFモデル変換はexperimentalとされ、OS別最適化や一部コア機能も変更されうる。</p>
+          <span class="risk-question">判断質問：固定版で回帰試験とロールバックを運用できるか。</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-14-title">
+      <div class="slide-tag">Validation Plan</div>
+      <div class="slide-num">15 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Four gates to adoption</p>
+        <h2 id="slide-14-title">ベンチ再現ではなく、<em>製品条件</em>で通過判定する</h2>
+        <p class="lead">PoCでは速度だけを測らない。品質、端末運用、ハンドオフ、ガバナンスを独立したゲートとして評価する。</p>
+      </div>
+      <div class="content grid-2 gate-grid">
+        <article class="card">
+          <span class="card-number">i</span>
+          <h3 class="card-title">製品品質ゲート</h3>
+          <p class="card-text">長文要約、長期対話、専門語、長時間音声、画像入力を実データ分布で評価する。</p>
+          <div class="metric-line">
+            <span>Measure</span>
+            <span>正解率、失敗率、重大誤答率、量子化前後の差</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-number">ii</span>
+          <h3 class="card-title">端末性能ゲート</h3>
+          <p class="card-text">低・中・高性能端末で初回応答、decode、RAM、電力、温度推移を測定する。</p>
+          <div class="metric-line">
+            <span>Measure</span>
+            <span>p50／p95遅延、最大RAM、Wh、温度、速度低下率</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-number">iii</span>
+          <h3 class="card-title">ハンドオフゲート</h3>
+          <p class="card-text">低信頼、通信不良、クラウド遅延、タイムアウト、ローカル再試行を故障注入で確認する。</p>
+          <div class="metric-line">
+            <span>Measure</span>
+            <span>移行率、成功率、誤移行率、総遅延、追加コスト</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-number">iv</span>
+          <h3 class="card-title">統治・適合ゲート</h3>
+          <p class="card-text">送信可否、暗号化、保持期間、削除、監査ログ、モデルライセンスを運用手順へ落とす。</p>
+          <div class="metric-line">
+            <span>Measure</span>
+            <span>監査可能性、規約適合、権限分離、インシデント対応時間</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-labelledby="slide-15-title">
+      <div class="slide-tag">Recommendation</div>
+      <div class="slide-num">16 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Adopt in stages</p>
+        <h2 id="slide-15-title">Cactusは「試す価値が高い」。<br>答えは<em>段階導入</em>である</h2>
+        <p class="lead">CQ4を起点に、クラウド移行を監査可能な形で限定実装し、代表端末と実データで四つのゲートを通す。合格した用途だけを本番へ広げる。</p>
+        <div class="grid-3 recommendation-grid">
+          <article class="card">
+            <span class="card-number">i</span>
+            <h3 class="card-title">PoC</h3>
+            <p class="card-text">1モデル・1用途・代表端末に限定し、CQ4と非量子化基準を比較する。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">ii</span>
+            <h3 class="card-title">Limited rollout</h3>
+            <p class="card-text">端末範囲を広げ、ハンドオフ、監視、失敗時フォールバックを検証する。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">iii</span>
+            <h3 class="card-title">Production</h3>
+            <p class="card-text">品質安全域、熱・電力、法務・セキュリティ条件を満たした機能だけ公開する。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-16-title">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">17 / 20</div>
+      <div class="intro">
+        <p class="eyebrow">Sources and boundaries</p>
+        <h2 id="slide-16-title">数値は出発点。最終判断は<em>実測</em>で行う</h2>
+        <p class="lead">本デックは提供されたレポートとGitHub READMEの要約に基づく。性能・品質・互換性は、採用時点のコミットと実デプロイ条件で再確認する必要がある。</p>
+      </div>
+      <div class="content reference-list">
+        <article class="reference-item">
+          <div class="reference-type">Primary source</div>
+          <div class="reference-body">
+            <strong><a href="https://github.com/cactus-compute/cactus">cactus-compute/cactus — GitHub Repository</a></strong>
+            <p>アーキテクチャ、CLI、バインディング、量子化、端末別ベンチマーク、精度表、クラウドハンドオフに関する製品説明。</p>
+          </div>
+        </article>
+        <article class="reference-item">
+          <div class="reference-type">Provided report</div>
+          <div class="reference-body">
+            <strong>Pre-knowledge / Summary / Points / FAQ / Opinion</strong>
+            <p>本デックの評価観点、数値、リスク、導入意見はユーザー提供資料を構造化・圧縮したもの。</p>
+          </div>
+        </article>
+        <article class="reference-item">
+          <div class="reference-type">Reported figures</div>
+          <div class="reference-body">
+            <strong>2964 tps prefill · 154 tps decode · ARC-C 24.73 at CQ2</strong>
+            <p>提供資料に記載された代表値。対象モデル、量子化条件、端末、文脈長、seed、リポジトリ版を揃えて再現確認すること。</p>
+          </div>
+        </article>
+        <article class="reference-item">
+          <div class="reference-type">Evaluation limit</div>
+          <div class="reference-body">
+            <strong>READMEはデプロイ保証ではない</strong>
+            <p>消費電力、発熱、長時間安定性、広範な端末差、セキュリティ監査、法的適合、クラウド移行のSLAは別途検証対象。</p>
+          </div>
+        </article>
+      </div>
+      <div class="footnote">結論：現段階の妥当な位置づけは「有望なモバイルAI基盤」であり、「検証不要の導入済み品質」ではない。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 20</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cactus-compute-cactus.mintlify.app/introduction" target="_blank" rel="noreferrer noopener">Introduction to Cactus - Cactus</a></h2>
+<p class="reference-note"># Introduction to Cactus. A hybrid low-latency energy-efficient AI engine for mobile devices &amp; wearables with NPU accele…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://huggingface.co/Cactus-Compute" target="_blank" rel="noreferrer noopener">Cactus-Compute (Cactus Compute, Inc.)</a></h2>
+<p class="reference-note"># Cactus Compute, Inc. Framework for on-device AI inference. Henry Ndubuaku&#39;s profile picture&quot;). # Cactus. A low-latency…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 20</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cactuscompute.com/docs/v1.7" target="_blank" rel="noreferrer noopener">Overview | Cactus</a></h2>
+<p class="reference-note">On-device and Hybrid cross-platform AI framework. * **Cactus Hybrid Cloud:** Automatic cloud handoff based on model conf…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/cactus-compute/cactus" target="_blank" rel="noreferrer noopener">GitHub - cactus-compute/cactus: Low-latency AI engine for mobile devices &amp; wearables · GitHub</a></h2>
+<p class="reference-note"># cactus-compute/cactus. # Cactus. * Step 1: `brew install cactus-compute/cactus/cactus`. ## Cactus Engine.</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">20 / 20</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cactuscompute.com/blog" target="_blank" rel="noreferrer noopener">Engineering Blog | Cactus</a></h2>
+<p class="reference-note">[NEW]|Needle: a 26M tool-calling model distilled from Gemini. Deep dives into on-device AI, inference optimization, and …</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
