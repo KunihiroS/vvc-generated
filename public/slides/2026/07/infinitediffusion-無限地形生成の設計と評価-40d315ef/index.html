@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InfiniteDiffusion — 無限地形生成の設計と評価</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      color: var(--ink);
+    }
+
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .deck {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(28px, 4.5vw, 56px);
+      padding: clamp(24px, 5vw, 72px) 0;
+    }
+
+    .slide {
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      position: relative;
+      overflow: hidden;
+      container-type: inline-size;
+      display: flex;
+      flex-direction: column;
+      padding:
+        clamp(18px, 5cqw, 56px)
+        clamp(22px, 6.43cqw, 72px);
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: clamp(12px, 3.04cqw, 34px);
+      left: clamp(22px, 6.43cqw, 72px);
+      display: flex;
+      align-items: center;
+      gap: clamp(6px, 0.9cqw, 10px);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 1.08cqw, 12px);
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      line-height: 1;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      width: clamp(14px, 2.15cqw, 24px);
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      position: absolute;
+      top: clamp(10px, 2.68cqw, 30px);
+      right: clamp(22px, 6.43cqw, 72px);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(10px, 1.96cqw, 22px);
+      font-style: italic;
+      color: var(--ink-3);
+      letter-spacing: 0.04em;
+    }
+
+    .intro {
+      position: relative;
+      z-index: 1;
+      margin-top: clamp(12px, 1.8cqw, 20px);
+    }
+
+    .eyebrow {
+      margin: 0 0 clamp(4px, 0.72cqw, 8px);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(8px, 1.96cqw, 22px);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+      color: var(--rust);
+    }
+
+    .title {
+      margin: 0;
+      max-width: 980px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: clamp(17px, 5.1cqw, 58px);
+      font-weight: 500;
+      line-height: 1.02;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+    }
+
+    .title em,
+    .hero-title em {
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin: clamp(7px, 1.25cqw, 14px) 0 0;
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(8px, 1.96cqw, 22px);
+      font-weight: 300;
+      line-height: 1.55;
+      color: var(--ink-2);
+    }
+
+    .body {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      min-height: 0;
+      margin-top: clamp(10px, 2.15cqw, 24px);
+      margin-bottom: clamp(10px, 2.3cqw, 26px);
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4 {
+      display: grid;
+      height: 100%;
+      gap: clamp(8px, 1.6cqw, 18px);
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      min-width: 0;
+      padding-top: clamp(7px, 1.25cqw, 14px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .card.accent {
+      border-top-color: var(--rust);
+    }
+
+    .card-kicker,
+    .label {
+      margin: 0 0 clamp(4px, 0.72cqw, 8px);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 0.98cqw, 11px);
+      font-weight: 500;
+      line-height: 1.2;
+      letter-spacing: 0.15em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+
+    .card-title {
+      margin: 0 0 clamp(4px, 0.72cqw, 8px);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(9px, 1.7cqw, 19px);
+      font-weight: 500;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+
+    .card-text {
+      margin: 0;
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(7px, 1.28cqw, 14.5px);
+      font-weight: 300;
+      line-height: 1.65;
+      color: var(--ink-2);
+    }
+
+    .small {
+      font-size: clamp(6px, 1.08cqw, 12px);
+      line-height: 1.55;
+      color: var(--ink-3);
+    }
+
+    .roman {
+      display: block;
+      margin-bottom: clamp(4px, 0.72cqw, 8px);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(12px, 2.5cqw, 28px);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+      color: var(--rust);
+    }
+
+    .metric {
+      display: block;
+      margin-bottom: clamp(4px, 0.72cqw, 8px);
+      font-family: "Cormorant Garamond", "Inter Tight", serif;
+      font-size: clamp(18px, 4.1cqw, 46px);
+      font-weight: 500;
+      line-height: 0.95;
+      color: var(--rust);
+    }
+
+    .metric-unit {
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.42em;
+      font-style: normal;
+      letter-spacing: 0.04em;
+      color: var(--ink-3);
+    }
+
+    .panel {
+      height: 100%;
+      padding: clamp(10px, 1.65cqw, 18px);
+      border: 1px solid var(--rule);
+      background: var(--paper);
+    }
+
+    .panel.accent {
+      border-color: var(--rust);
+    }
+
+    .formula {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: clamp(40px, 7.5cqw, 84px);
+      padding: clamp(8px, 1.4cqw, 16px);
+      border: 1px solid var(--rule-strong);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(10px, 2.05cqw, 23px);
+      font-weight: 400;
+      color: var(--ink);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .formula .accent-text {
+      color: var(--rust);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      height: 100%;
+      gap: clamp(12px, 2.6cqw, 29px);
+      align-items: stretch;
+    }
+
+    .flow-step {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: clamp(10px, 1.8cqw, 20px);
+      border: 1px solid var(--rule);
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: clamp(-18px, -1.7cqw, -8px);
+      top: 50%;
+      transform: translate(50%, -50%);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(12px, 2.4cqw, 27px);
+      font-style: italic;
+      color: var(--rust);
+      z-index: 2;
+    }
+
+    .process-line {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      height: 100%;
+      gap: clamp(7px, 1.25cqw, 14px);
+    }
+
+    .process-step {
+      position: relative;
+      min-width: 0;
+      padding: clamp(9px, 1.45cqw, 16px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .process-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: clamp(8px, 1.2cqw, 14px);
+      right: clamp(-10px, -0.8cqw, -4px);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(10px, 1.8cqw, 20px);
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      height: 100%;
+      gap: clamp(12px, 2.5cqw, 28px);
+    }
+
+    .comparison-col {
+      padding: clamp(10px, 1.7cqw, 19px);
+      border: 1px solid var(--rule);
+    }
+
+    .comparison-col.accent {
+      border-color: var(--rust);
+    }
+
+    .comparison-row {
+      display: grid;
+      grid-template-columns: 0.78fr 1.22fr;
+      gap: clamp(6px, 1.1cqw, 12px);
+      padding: clamp(5px, 0.78cqw, 9px) 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .comparison-row:last-child {
+      border-bottom: 0;
+    }
+
+    .row-key {
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 1cqw, 11px);
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+
+    .row-value {
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(7px, 1.18cqw, 13px);
+      line-height: 1.5;
+      color: var(--ink-2);
+    }
+
+    .statement {
+      display: flex;
+      align-items: center;
+      height: 100%;
+      padding: clamp(12px, 2cqw, 22px);
+      border-left: 2px solid var(--rust);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(11px, 2.4cqw, 27px);
+      font-weight: 400;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+
+    .statement strong {
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .terrain-band {
+      display: grid;
+      grid-template-columns: 1fr 1.35fr 1fr;
+      height: 100%;
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    .terrain-band > div {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: clamp(9px, 1.5cqw, 17px);
+      border-right: 1px solid var(--rule);
+    }
+
+    .terrain-band > div:last-child {
+      border-right: 0;
+    }
+
+    .tile-map {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: clamp(5px, 0.8cqw, 9px);
+      height: 100%;
+    }
+
+    .tile {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
+      padding: clamp(8px, 1.25cqw, 14px);
+      border: 1px solid var(--rule);
+    }
+
+    .tile.requested {
+      border-color: var(--rust);
+    }
+
+    .tile-coordinate {
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 1cqw, 11px);
+      color: var(--ink-3);
+    }
+
+    .tile-result {
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(14px, 2.8cqw, 31px);
+      font-style: italic;
+      color: var(--ink);
+    }
+
+    .tile.requested .tile-result {
+      color: var(--rust);
+    }
+
+    .evidence-table {
+      display: grid;
+      grid-template-columns: 0.8fr 1.25fr 1.25fr;
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .evidence-cell {
+      min-width: 0;
+      padding: clamp(6px, 1cqw, 11px);
+      border-right: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(6px, 1.08cqw, 12px);
+      line-height: 1.5;
+      color: var(--ink-2);
+    }
+
+    .evidence-cell:nth-child(3n) {
+      border-right: 0;
+    }
+
+    .evidence-cell.head {
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.11em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+
+    .evidence-cell.emphasis {
+      color: var(--rust);
+    }
+
+    .footer-note {
+      position: absolute;
+      z-index: 2;
+      right: clamp(22px, 6.43cqw, 72px);
+      bottom: clamp(10px, 2.85cqw, 32px);
+      left: clamp(22px, 6.43cqw, 72px);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(5px, 0.8cqw, 9px);
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+    }
+
+    .cover,
+    .closing {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .cover .intro,
+    .closing .intro {
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .cover .eyebrow,
+    .closing .eyebrow {
+      margin-bottom: clamp(8px, 1.35cqw, 15px);
+    }
+
+    .hero-title {
+      margin: 0 auto;
+      max-width: 900px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: clamp(24px, 7.45cqw, 84px);
+      font-weight: 500;
+      line-height: 0.98;
+      letter-spacing: -0.035em;
+      color: var(--ink);
+    }
+
+    .cover .lead,
+    .closing .lead {
+      max-width: 800px;
+      margin-right: auto;
+      margin-left: auto;
+    }
+
+    .cover-meta {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: clamp(10px, 2cqw, 22px);
+      margin-top: clamp(14px, 2.7cqw, 30px);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 1.08cqw, 12px);
+      letter-spacing: 0.18em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+
+    .cover-meta span {
+      position: relative;
+      padding-left: clamp(9px, 1.25cqw, 14px);
+    }
+
+    .cover-meta span::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: clamp(4px, 0.55cqw, 6px);
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .closing-line {
+      width: min(440px, 45%);
+      height: 1px;
+      margin: clamp(14px, 2.5cqw, 28px) auto;
+      background: var(--rust);
+    }
+
+    .reference-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      height: 100%;
+      gap: clamp(12px, 2.2cqw, 25px);
+    }
+
+    .reference-item {
+      display: grid;
+      grid-template-columns: clamp(24px, 3.5cqw, 39px) 1fr;
+      gap: clamp(7px, 1.15cqw, 13px);
+      padding: clamp(5px, 0.8cqw, 9px) 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .reference-index {
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(10px, 1.85cqw, 21px);
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .reference-text {
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(6px, 1.1cqw, 12.5px);
+      line-height: 1.55;
+      color: var(--ink-2);
+    }
+
+    .reference-text strong {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    @media (max-width: 560px) {
+      .slide {
+        width: calc(100vw - 24px);
+      }
+
+      .slide::before {
+        inset: 8px;
+      }
+    }
+
+    @media print {
+      body {
+        background: var(--cream);
+      }
+
+      .deck {
+        gap: 0;
+        padding: 0;
+      }
+
+      .slide {
+        width: 100vw;
+        break-after: page;
+        page-break-after: always;
+        box-shadow: none;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="slide-tag">Research Brief</div>
+      <div class="slide-num">02 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">SIGGRAPH 2026 / Reading Deck</p>
+        <h1 class="hero-title">有限キャンバスを越える<br><em>InfiniteDiffusion</em></h1>
+        <p class="lead">拡散モデルの写実性と、手続き生成の無限性を同時に得る。座標とシードで再現可能な地形生成へ、設計思想・実装価値・未検証点を整理する。</p>
+        <div class="cover-meta">
+          <span>Training-free</span>
+          <span>Infinite domain</span>
+          <span>Stateless access</span>
+          <span>Terrain generation</span>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>InfiniteDiffusion / Terrain Diffusion</span>
+        <span>Technical &amp; Product Assessment</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Context</div>
+      <div class="slide-num">03 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">The Missing Bridge</p>
+        <h2 class="title">地形生成は、品質と<em>規模</em>が分断されていた</h2>
+        <p class="lead">Perlinノイズはどこまでも生成できるが、地理的な説得力に限界がある。拡散モデルは高品質だが、通常は固定キャンバスと全体状態に縛られる。</p>
+      </div>
+      <div class="body grid-3">
+        <article class="card">
+          <span class="roman">i</span>
+          <p class="card-kicker">Procedural Noise</p>
+          <h3 class="card-title">無限に計算できる</h3>
+          <p class="card-text">座標から直接値を求められ、軽量で再現性も高い。一方、局所ノイズの組み合わせだけでは、大陸・海溝・山系の意味ある構造を作りにくい。</p>
+        </article>
+        <article class="card">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Diffusion Model</p>
+          <h3 class="card-title">写真のように生成できる</h3>
+          <p class="card-text">学習済み分布から高忠実度な画像や地形表現を得られる。ただし固定解像度、キャンバス境界、全体サンプリングが実運用の制約になる。</p>
+        </article>
+        <article class="card accent">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Desired System</p>
+          <h3 class="card-title">必要な場所だけ高品質に</h3>
+          <p class="card-text">無限世界の任意座標を、要求時に同じ結果で取得する。InfiniteDiffusionは、この欠けていた橋を既存モデルの変換で構築する。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Problem framing</span>
+        <span>Realism × Scale</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">04 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">A Three-Way Constraint</p>
+        <h2 class="title">従来の設計は、三条件を<em>同時</em>に選べなかった</h2>
+        <p class="lead">著者が提示する核心は、無限性・ステートレス性・学習済みリアリズムのトリレンマである。InfiniteDiffusionは選択ではなく同時達成を狙う。</p>
+      </div>
+      <div class="body grid-3">
+        <article class="panel">
+          <span class="roman">i</span>
+          <p class="card-kicker">Infinite</p>
+          <h3 class="card-title">無限領域</h3>
+          <p class="card-text">世界の端を事前に決めず、任意の世界座標へ生成領域を拡張できる。</p>
+        </article>
+        <article class="panel accent">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Stateless</p>
+          <h3 class="card-title">事実上ステートレス</h3>
+          <p class="card-text">過去の生成順序や隣接チャンクの保存状態を、結果の唯一の根拠にしない。</p>
+        </article>
+        <article class="panel">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Pretrained Realism</p>
+          <h3 class="card-title">学習済みの高忠実度</h3>
+          <p class="card-text">既存の拡散モデルが持つ表現力を、無限化のために捨てない。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Claimed breakthrough</span>
+        <span>Three properties, one system</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Core Idea</div>
+      <div class="slide-num">05 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Reuse, Not Retrain</p>
+        <h2 class="title">新しいモデルではなく、既存サンプリングの<em>変換</em></h2>
+        <p class="lead">InfiniteDiffusionはtraining-free（追加学習不要）を掲げる。有限キャンバス向けの拡散過程を、座標窓ごとに要求できる遅延計算へ再解釈する。</p>
+      </div>
+      <div class="body flow">
+        <article class="flow-step">
+          <span class="roman">i</span>
+          <p class="card-kicker">Input Asset</p>
+          <h3 class="card-title">学習済み拡散モデル</h3>
+          <p class="card-text">既存の重みと生成能力を再利用し、無限化のための追加データセットや再学習を避ける。</p>
+        </article>
+        <article class="flow-step">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Reparameterize</p>
+          <h3 class="card-title">座標付きの局所サンプリング</h3>
+          <p class="card-text">要求領域に必要なノイズと推論だけを構成し、世界全体を一枚のテンソルとして保持しない。</p>
+        </article>
+        <article class="flow-step">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Result</p>
+          <h3 class="card-title">仮想的な無限出力</h3>
+          <p class="card-text">有限計算の繰り返しから、任意座標にアクセスできる一貫した無限領域を見せる。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>General transformation</span>
+        <span>MultiDiffusion lineage</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Determinism</div>
+      <div class="slide-num">06 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Seed + Coordinates</p>
+        <h2 class="title">世界は保存物ではなく、再計算できる<em>関数</em>になる</h2>
+        <p class="lead">同一のランダムシードと世界座標を渡せば、生成順序に関係なく同じ結果を得る。世界の同一性は巨大ファイルではなく、入力規則へ圧縮される。</p>
+      </div>
+      <div class="body grid-2">
+        <div class="panel accent">
+          <p class="card-kicker">Conceptual Function</p>
+          <div class="formula">
+            T = G(<span class="accent-text">seed</span>, x, y, width, height)
+          </div>
+          <p class="card-text" style="margin-top: clamp(8px,1.3cqw,15px);">Tは要求された地形窓。キャッシュが消えても、同じseedと座標から同一結果を再構成できることが設計目標となる。</p>
+        </div>
+        <div class="grid-3">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3 class="card-title">順序非依存</h3>
+            <p class="card-text">東から生成しても、西から生成しても座標の結果は変わらない。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">再取得可能</h3>
+            <p class="card-text">破棄したチャンクを、後から同じ内容で取り戻せる。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">共有可能</h3>
+            <p class="card-text">シードと規則を共有すれば、複数環境で同じ世界を指せる。</p>
+          </article>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Deterministic world function</span>
+        <span>Cache is not identity</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Lazy Generation</div>
+      <div class="slide-num">07 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Compute Only What Is Seen</p>
+        <h2 class="title">「無限」は全域生成ではなく、<em>遅延評価</em>で成立する</h2>
+        <p class="lead">無限世界を先に作る必要はない。プレイヤー、カメラ、シミュレーションが要求した有限窓だけを計算し、残りは未評価のまま保つ。</p>
+      </div>
+      <div class="body grid-2">
+        <div class="tile-map">
+          <div class="tile">
+            <span class="tile-coordinate">x−2, y+1</span>
+            <span class="tile-result">latent</span>
+          </div>
+          <div class="tile requested">
+            <span class="tile-coordinate">x−1, y+1</span>
+            <span class="tile-result">render</span>
+          </div>
+          <div class="tile requested">
+            <span class="tile-coordinate">x, y+1</span>
+            <span class="tile-result">render</span>
+          </div>
+          <div class="tile">
+            <span class="tile-coordinate">x+1, y+1</span>
+            <span class="tile-result">latent</span>
+          </div>
+          <div class="tile">
+            <span class="tile-coordinate">x−2, y</span>
+            <span class="tile-result">latent</span>
+          </div>
+          <div class="tile requested">
+            <span class="tile-coordinate">x−1, y</span>
+            <span class="tile-result">render</span>
+          </div>
+          <div class="tile requested">
+            <span class="tile-coordinate">x, y</span>
+            <span class="tile-result">render</span>
+          </div>
+          <div class="tile">
+            <span class="tile-coordinate">x+1, y</span>
+            <span class="tile-result">latent</span>
+          </div>
+        </div>
+        <div class="statement">
+          <div>世界全体をメモリに置かない。<br><strong>有限の要求</strong>を処理することで、外部からは無限の地形場として振る舞う。</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Virtual infinite tensor</span>
+        <span>Finite work per request</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Properties</div>
+      <div class="slide-num">08 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Operational Consequences</p>
+        <h2 class="title">座標アクセスが、三つの実運用価値を<em>同時</em>に生む</h2>
+        <p class="lead">主張される利点は単なる無限出力ではない。任意地点への直接アクセス、完全再現、独立実行がゲーム運用の構造を変える。</p>
+      </div>
+      <div class="body grid-3">
+        <article class="card accent">
+          <span class="metric">O(1)</span>
+          <p class="card-kicker">Random Access</p>
+          <h3 class="card-title">距離に依存しない取得</h3>
+          <p class="card-text">原点から順番に生成せず、遠隔座標のチャンクを直接要求する。アクセスコストを既生成距離から切り離す。</p>
+        </article>
+        <article class="card">
+          <span class="metric">=</span>
+          <p class="card-kicker">Reproducibility</p>
+          <h3 class="card-title">順序に依存しない一致</h3>
+          <p class="card-text">seed＋座標が同じなら、セッションや生成順序が異なっても同じ出力を返す設計を目指す。</p>
+        </article>
+        <article class="card">
+          <span class="metric">N×</span>
+          <p class="card-kicker">Parallelism</p>
+          <h3 class="card-title">領域を分散して生成</h3>
+          <p class="card-text">逐次的な前領域依存を避け、複数GPU・複数ワーカー・複数クライアントへの分割を容易にする。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Access / Replay / Scale-out</span>
+        <span>Claimed system properties</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">09 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Autoregressive vs Coordinate-Based</p>
+        <h2 class="title">本質的な差は、次の領域が前の結果に<em>従属</em>するか</h2>
+        <p class="lead">Auto-Regressive（自己回帰）生成は連続性を作りやすい反面、順序依存と誤差蓄積を抱える。InfiniteDiffusionは座標を主語にして、その依存鎖を弱める。</p>
+      </div>
+      <div class="body comparison">
+        <article class="comparison-col">
+          <p class="card-kicker">Auto-Regressive</p>
+          <h3 class="card-title">前の生成結果を受け継ぐ</h3>
+          <div class="comparison-row">
+            <span class="row-key">Access</span>
+            <span class="row-value">原点または既生成領域から順に展開</span>
+          </div>
+          <div class="comparison-row">
+            <span class="row-key">Order</span>
+            <span class="row-value">生成順序が結果に影響しやすい</span>
+          </div>
+          <div class="comparison-row">
+            <span class="row-key">Error</span>
+            <span class="row-value">局所的なずれが後続領域へ蓄積</span>
+          </div>
+          <div class="comparison-row">
+            <span class="row-key">Parallel</span>
+            <span class="row-value">逐次依存が分散実行を制約</span>
+          </div>
+        </article>
+        <article class="comparison-col accent">
+          <p class="card-kicker">InfiniteDiffusion</p>
+          <h3 class="card-title">座標から対象領域を決める</h3>
+          <div class="comparison-row">
+            <span class="row-key">Access</span>
+            <span class="row-value">任意の世界座標を直接要求</span>
+          </div>
+          <div class="comparison-row">
+            <span class="row-key">Order</span>
+            <span class="row-value">要求順序から結果を分離</span>
+          </div>
+          <div class="comparison-row">
+            <span class="row-key">Error</span>
+            <span class="row-value">長い生成鎖による累積を回避</span>
+          </div>
+          <div class="comparison-row">
+            <span class="row-key">Parallel</span>
+            <span class="row-value">複数領域を独立に処理しやすい</span>
+          </div>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Dependency model</span>
+        <span>Sequence → Address</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Parallelism</div>
+      <div class="slide-num">10 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Order Is No Longer the Scheduler</p>
+        <h2 class="title">生成順序を外せば、世界を<em>分割</em>して処理できる</h2>
+        <p class="lead">各ワーカーはseedと担当座標窓を受け取り、独立して地形を生成できる。同期対象は逐次履歴ではなく、モデル版・乱数規則・境界規則になる。</p>
+      </div>
+      <div class="body grid-4">
+        <article class="panel">
+          <p class="card-kicker">Worker A</p>
+          <span class="metric">−8, 4</span>
+          <p class="card-text">遠隔西側のチャンクを先に計算。</p>
+        </article>
+        <article class="panel accent">
+          <p class="card-kicker">Worker B</p>
+          <span class="metric">0, 0</span>
+          <p class="card-text">スポーン地点を優先して計算。</p>
+        </article>
+        <article class="panel">
+          <p class="card-kicker">Worker C</p>
+          <span class="metric">21, −3</span>
+          <p class="card-text">高速移動先を予測して先行計算。</p>
+        </article>
+        <article class="panel">
+          <p class="card-kicker">Shared Contract</p>
+          <h3 class="card-title">同じ世界規約</h3>
+          <p class="card-text">seed、座標系、モデル版、精度、境界処理を一致させる。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Distributed chunk generation</span>
+        <span>Determinism is the contract</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Terrain Diffusion</div>
+      <div class="slide-num">11 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">From Images to Elevation</p>
+        <h2 class="title">Terrain Diffusionは、無限化を<em>地球規模</em>の標高へ応用する</h2>
+        <p class="lead">対象は見た目だけの地形画像ではなく、深海から高山までを含む広い標高レンジである。一つの生成系が、大域構造と局所ディテールを接続する。</p>
+      </div>
+      <div class="body terrain-band">
+        <div>
+          <p class="card-kicker">Low Elevation</p>
+          <span class="metric">Deep</span>
+          <h3 class="card-title">深海・海溝</h3>
+          <p class="card-text">大きな負の標高と海底構造を同一表現内で扱う。</p>
+        </div>
+        <div>
+          <p class="card-kicker">Planetary Continuity</p>
+          <span class="metric">Earth-scale</span>
+          <h3 class="card-title">大陸から地域へ</h3>
+          <p class="card-text">千km〜万km級の流れを保持しながら、プレイ領域に必要な細部へ降りる。</p>
+        </div>
+        <div>
+          <p class="card-kicker">High Elevation</p>
+          <span class="metric">High</span>
+          <h3 class="card-title">山脈・高山</h3>
+          <p class="card-text">急峻な標高差と細かな起伏を同じ生成パイプラインへ統合する。</p>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Elevation synthesis</span>
+        <span>Ocean trench → Mountain range</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Hierarchy</div>
+      <div class="slide-num">12 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Context Before Detail</p>
+        <h2 class="title">階層化の目的は、細部を大域文脈から<em>孤立</em>させないこと</h2>
+        <p class="lead">一つのチャンクだけを高精細にしても、広域地形としては不自然になり得る。階層的拡散は大陸級の構造を条件として、地域と局所の詳細を生成する。</p>
+      </div>
+      <div class="body flow">
+        <article class="flow-step">
+          <span class="roman">i</span>
+          <p class="card-kicker">Global Context</p>
+          <h3 class="card-title">大域構造</h3>
+          <p class="card-text">大陸、海洋、長大な山系、海溝など、地形全体の低周波な配置を決める。</p>
+        </article>
+        <article class="flow-step">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Regional Form</p>
+          <h3 class="card-title">地域形状</h3>
+          <p class="card-text">流域、尾根、沿岸、盆地など、複数チャンクをまたぐ中間スケールを整える。</p>
+        </article>
+        <article class="flow-step">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Local Detail</p>
+          <h3 class="card-title">局所ディテール</h3>
+          <p class="card-text">斜面、谷、侵食感、細かな起伏を、上位構造と矛盾しない範囲で追加する。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Hierarchical diffusion</span>
+        <span>Global → Regional → Local</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Representation</div>
+      <div class="slide-num">13 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Laplacian Encoding</p>
+        <h2 class="title">巨大な標高差は、周波数帯へ<em>分解</em>して扱う</h2>
+        <p class="lead">Laplacian encoding（ラプラシアン符号化）は、深海から高山までのダイナミックレンジを一度に背負わせない。粗い標高場と残差ディテールを階層ごとに表現する。</p>
+      </div>
+      <div class="body grid-2">
+        <div class="panel accent">
+          <p class="card-kicker">Conceptual Decomposition</p>
+          <div class="formula">
+            Elevation = <span class="accent-text">Base</span> + Δ₁ + Δ₂ + … + Δₙ
+          </div>
+          <p class="card-text" style="margin-top: clamp(8px,1.3cqw,15px);">Baseが大域的な標高傾向を持ち、各Δが段階的に細かな差分を加える。モデルはスケールごとの役割へ集中できる。</p>
+        </div>
+        <div class="grid-3">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3 class="card-title">低周波</h3>
+            <p class="card-text">海陸分布や大陸規模の高さを表現。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">中周波</h3>
+            <p class="card-text">山地、盆地、流域の形を補う。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">高周波</h3>
+            <p class="card-text">尾根や谷、表面の細かな変化を加える。</p>
+          </article>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Dynamic-range strategy</span>
+        <span>Multi-scale elevation</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Runtime</div>
+      <div class="slide-num">14 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Chunk-on-Demand Pipeline</p>
+        <h2 class="title">ゲーム実装では、カメラ移動を<em>生成要求</em>へ変換する</h2>
+        <p class="lead">ランタイムはプレイヤー周辺の必要チャンクを決め、座標窓を拡散系へ渡す。生成結果は描画・物理へ供給され、キャッシュは正解そのものではなく高速化層として働く。</p>
+      </div>
+      <div class="body process-line">
+        <article class="process-step">
+          <span class="roman">i</span>
+          <p class="card-kicker">Observe</p>
+          <h3 class="card-title">位置を監視</h3>
+          <p class="card-text">カメラ、速度、視距離から必要範囲を予測。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Address</p>
+          <h3 class="card-title">座標窓へ変換</h3>
+          <p class="card-text">ワールド座標を安定したチャンクIDへ写像。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Generate</p>
+          <h3 class="card-title">拡散で生成</h3>
+          <p class="card-text">seedと窓に基づいて必要な標高を推論。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">iv</span>
+          <p class="card-kicker">Integrate</p>
+          <h3 class="card-title">エンジンへ供給</h3>
+          <p class="card-text">メッシュ、衝突、LOD、描画資源へ変換。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">v</span>
+          <p class="card-kicker">Evict</p>
+          <h3 class="card-title">破棄・再取得</h3>
+          <p class="card-text">遠方データを捨て、必要時に同じ内容を再生成。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>World streaming loop</span>
+        <span>Cache = optimization layer</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Demonstration</div>
+      <div class="slide-num">15 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Prototype Evidence</p>
+        <h2 class="title">UnityとMinecraftは、研究を<em>動く系</em>として示す</h2>
+        <p class="lead">提供資料では軽量GPU上の実用性、9倍高速、3倍軌道速度での飛行が報告される。ただし、比較条件と再現手順が不足しているため数値は主張として読む必要がある。</p>
+      </div>
+      <div class="body grid-4">
+        <article class="card accent">
+          <span class="metric">9×</span>
+          <p class="card-kicker">Reported Speed</p>
+          <h3 class="card-title">高速化の主張</h3>
+          <p class="card-text">基準方式、解像度、品質設定、GPU条件の完全な対応表は提供情報から確認できない。</p>
+        </article>
+        <article class="card">
+          <span class="metric">3×</span>
+          <p class="card-kicker">Flight Trajectory</p>
+          <h3 class="card-title">高速移動デモ</h3>
+          <p class="card-text">移動に追随する生成能力を示すが、速度の定義と失敗率は追加確認が必要。</p>
+        </article>
+        <article class="card">
+          <span class="metric">Unity</span>
+          <p class="card-kicker">Engine Demo</p>
+          <h3 class="card-title">汎用エンジン接続</h3>
+          <p class="card-text">チャンク生成、表示、飛行体験までを統合した実装可能性を示す。</p>
+        </article>
+        <article class="card">
+          <span class="metric">MC</span>
+          <p class="card-kicker">Open Prototype</p>
+          <h3 class="card-title">Minecraft Mod</h3>
+          <p class="card-text">既存ゲームの世界生成系へ組み込む導線と、第三者検証の入口になる。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Reported, not independently verified</span>
+        <span>Demo evidence</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Product Value</div>
+      <div class="slide-num">16 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Why Games Care</p>
+        <h2 class="title">実用価値は「無限」より、世界を<em>運べる</em>ことにある</h2>
+        <p class="lead">決定論的な座標生成は、保存容量、配信、同期、再現テストの設計を簡素化し得る。特にマルチプレイでは、同じ生成規約を世界の共通参照にできる。</p>
+      </div>
+      <div class="body grid-4">
+        <article class="card">
+          <span class="roman">i</span>
+          <p class="card-kicker">Single Player</p>
+          <h3 class="card-title">初期生成を短縮</h3>
+          <p class="card-text">巨大マップを事前構築せず、プレイヤー周辺から段階的に開く。</p>
+        </article>
+        <article class="card accent">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Multiplayer</p>
+          <h3 class="card-title">同一世界を共有</h3>
+          <p class="card-text">seed・モデル版・規則を一致させ、複数ノードが同じ地形を参照する。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Streaming</p>
+          <h3 class="card-title">必要箇所を復元</h3>
+          <p class="card-text">キャッシュ破棄後も遠隔ストレージへ依存せず、再計算で復元できる。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iv</span>
+          <p class="card-kicker">Testing</p>
+          <h3 class="card-title">座標で不具合を共有</h3>
+          <p class="card-text">問題地点をseed＋座標で固定し、再現試験と回帰テストへ利用する。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Storage / Distribution / Synchronization</span>
+        <span>Seed as world reference</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Engineering</div>
+      <div class="slide-num">17 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Determinism Is Engineered</p>
+        <h2 class="title">理論が同じでも、実装品質が<em>世界の同一性</em>を決める</h2>
+        <p class="lead">再現性は「seedを固定する」だけでは完成しない。座標乱数、数値精度、境界処理、モデル更新の全層を決定論的な契約として管理する必要がある。</p>
+      </div>
+      <div class="body grid-4">
+        <article class="panel accent">
+          <p class="card-kicker">Coordinate PRNG</p>
+          <h3 class="card-title">座標依存乱数</h3>
+          <p class="card-text">チャンクIDとseedから衝突しにくい乱数系列を作り、要求順序から独立させる。</p>
+        </article>
+        <article class="panel">
+          <p class="card-kicker">Boundary Rule</p>
+          <h3 class="card-title">重複窓と接合</h3>
+          <p class="card-text">隣接領域の文脈範囲、重み付け、ブレンド方法を固定し、継ぎ目を抑える。</p>
+        </article>
+        <article class="panel">
+          <p class="card-kicker">Numerical Stack</p>
+          <h3 class="card-title">精度と実行環境</h3>
+          <p class="card-text">GPU、演算精度、カーネル差で出力が変わる場合、許容誤差と同期方式を定義する。</p>
+        </article>
+        <article class="panel">
+          <p class="card-kicker">Versioning</p>
+          <h3 class="card-title">モデル版の固定</h3>
+          <p class="card-text">重みやサンプラーの更新で世界が変わらないよう、世界IDに実装版を含める。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Engineering contract</span>
+        <span>Seed alone is insufficient</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">18 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Claim Strength</p>
+        <h2 class="title">概念実証は強いが、汎用採用には<em>比較データ</em>が足りない</h2>
+        <p class="lead">公開情報は設計の可能性とデモの実在を示す。一方、画質、速度、境界、長時間運用を横断する標準化されたベンチマークは追加で必要になる。</p>
+      </div>
+      <div class="body">
+        <div class="evidence-table">
+          <div class="evidence-cell head">Area</div>
+          <div class="evidence-cell head">示されていること</div>
+          <div class="evidence-cell head">不足していること</div>
+
+          <div class="evidence-cell emphasis">Architecture</div>
+          <div class="evidence-cell">無限・ステートレス・高忠実度を同時に狙う明確な問題設定</div>
+          <div class="evidence-cell">適用可能なモデル種別と失敗条件の体系的整理</div>
+
+          <div class="evidence-cell emphasis">Visual Quality</div>
+          <div class="evidence-cell">「ほとんど劣化がない」という品質主張と生成例</div>
+          <div class="evidence-cell">複数ベースライン、複数地形、知覚評価を含む完全比較</div>
+
+          <div class="evidence-cell emphasis">Performance</div>
+          <div class="evidence-cell">9倍高速、3倍軌道速度、軽量GPUでのデモ指標</div>
+          <div class="evidence-cell">ハードウェア、解像度、同時要求数、遅延分布、消費電力</div>
+
+          <div class="evidence-cell emphasis">Operations</div>
+          <div class="evidence-cell">Unity・Minecraftで動作するプロトタイプとオープンな導線</div>
+          <div class="evidence-cell">長時間サーバー、障害復旧、バージョン更新、同時接続試験</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Prototype maturity</span>
+        <span>Promising ≠ production-proven</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Unknowns</div>
+      <div class="slide-num">19 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Where Infinite Can Fail</p>
+        <h2 class="title">局所品質が高くても、長距離の<em>因果</em>は保証されない</h2>
+        <p class="lead">無限アクセスと地理的整合性は別の性質である。境界、流域、気候、洞窟、資源などが長距離で破綻しないかは、地形画像の品質とは別に検証すべきだ。</p>
+      </div>
+      <div class="body grid-4">
+        <article class="card accent">
+          <span class="roman">i</span>
+          <p class="card-kicker">Seams</p>
+          <h3 class="card-title">境界の不連続</h3>
+          <p class="card-text">高低差、法線、侵食模様がチャンク端で微妙に食い違う可能性。</p>
+        </article>
+        <article class="card">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Long-Range Logic</p>
+          <h3 class="card-title">地形因果の崩れ</h3>
+          <p class="card-text">川が海へ届くか、流域が閉じるか、山脈が意味ある連続性を持つか。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Edge Cases</p>
+          <h3 class="card-title">稀な歪み</h3>
+          <p class="card-text">極端な標高、特殊な座標、窓サイズの変化で異常地形が現れる可能性。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iv</span>
+          <p class="card-kicker">Extensions</p>
+          <h3 class="card-title">地下・植生・資源</h3>
+          <p class="card-text">洞窟、生態系、鉱床、建設適地を同じ決定論へ統合できるかは未確認。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Failure modes</span>
+        <span>Visual coherence ≠ systemic coherence</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Decision Support</div>
+      <div class="slide-num">20 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Adoption Gates</p>
+        <h2 class="title">採用判断は、四段階の<em>ゲート</em>で行う</h2>
+        <p class="lead">最初から本番ワールドを置き換えるべきではない。再現性、品質、速度、ゲーム設計への適合を順番に閉じ、小規模プロトタイプから運用試験へ進む。</p>
+      </div>
+      <div class="body grid-4">
+        <article class="panel">
+          <span class="roman">i</span>
+          <p class="card-kicker">Reproduce</p>
+          <h3 class="card-title">決定論を確認</h3>
+          <p class="card-text">複数GPU、再起動、生成順序変更でも、許容範囲内で同じチャンクになるか。</p>
+        </article>
+        <article class="panel">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Benchmark</p>
+          <h3 class="card-title">負荷を測る</h3>
+          <p class="card-text">平均値だけでなく、P95遅延、VRAM、同時要求、移動速度別の欠損率を計測。</p>
+        </article>
+        <article class="panel accent">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Design Fit</p>
+          <h3 class="card-title">遊べる地形へ制御</h3>
+          <p class="card-text">安全地帯、進行導線、採掘資源、難易度、建設可能性を条件付けできるか。</p>
+        </article>
+        <article class="panel">
+          <span class="roman">iv</span>
+          <p class="card-kicker">Operate</p>
+          <h3 class="card-title">長時間運用を試す</h3>
+          <p class="card-text">キャッシュ、障害復旧、モデル更新、監視、マルチプレイ同期まで含めて検証。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Prototype → Benchmark → Design → Operations</span>
+        <span>Recommended path</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Strategy</div>
+      <div class="slide-num">21 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Beyond Terrain</p>
+        <h2 class="title">次の競争は、地形から<em>世界システム</em>へ移る</h2>
+        <p class="lead">高品質な標高場だけでは、永続的なゲーム世界は完成しない。気候、生態系、資源、経済を同じ座標規約と因果階層へ接続できるかが戦略的な差になる。</p>
+      </div>
+      <div class="body process-line">
+        <article class="process-step">
+          <span class="roman">i</span>
+          <p class="card-kicker">Terrain</p>
+          <h3 class="card-title">標高・地形</h3>
+          <p class="card-text">大域形状と局所ディテールの基盤。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Climate</p>
+          <h3 class="card-title">気候・水循環</h3>
+          <p class="card-text">緯度、標高、風、流域から環境を決定。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Ecology</p>
+          <h3 class="card-title">植生・生物</h3>
+          <p class="card-text">気候と地形に整合する生息分布を生成。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">iv</span>
+          <p class="card-kicker">Resources</p>
+          <h3 class="card-title">資源・居住圏</h3>
+          <p class="card-text">地質と遊びの要件を両立した配置へ。</p>
+        </article>
+        <article class="process-step">
+          <span class="roman">v</span>
+          <p class="card-kicker">Economy</p>
+          <h3 class="card-title">社会・経済</h3>
+          <p class="card-text">確定世界を動的シミュレーションへ接続。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Deterministic world stack</span>
+        <span>Terrain is layer one</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Governance</div>
+      <div class="slide-num">22 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Infinite Scale, Infinite Surface</p>
+        <h2 class="title">世界が広がるほど、監視と権利設計も<em>拡張</em>が必要になる</h2>
+        <p class="lead">シード共有型の無限世界は教育・研究・芸術表現を促進できる。同時に、所有権、フィルタリング、悪意ある利用、問題地点の通報と修正を設計段階から扱う必要がある。</p>
+      </div>
+      <div class="body grid-4">
+        <article class="card">
+          <span class="roman">i</span>
+          <p class="card-kicker">Ownership</p>
+          <h3 class="card-title">生成物の権利</h3>
+          <p class="card-text">seed、モデル、生成地形、ユーザー改変の所有関係と利用範囲を明示する。</p>
+        </article>
+        <article class="card">
+          <span class="roman">ii</span>
+          <p class="card-kicker">Moderation</p>
+          <h3 class="card-title">問題領域の特定</h3>
+          <p class="card-text">座標単位の通報、再現、隔離、再生成を可能にする運用導線が必要。</p>
+        </article>
+        <article class="card accent">
+          <span class="roman">iii</span>
+          <p class="card-kicker">Version Control</p>
+          <h3 class="card-title">修正と世界保存</h3>
+          <p class="card-text">モデル修正で既存世界が変わる問題に、版固定や例外パッチで対応する。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iv</span>
+          <p class="card-kicker">Safety</p>
+          <h3 class="card-title">利用規約と制限</h3>
+          <p class="card-text">公開サーバー、教育利用、研究利用ごとに許容範囲と監査責任を定める。</p>
+        </article>
+      </div>
+      <div class="footer-note">
+        <span>Governance by coordinates</span>
+        <span>Scale expands responsibility</span>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="slide-tag">Conclusion</div>
+      <div class="slide-num">23 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Assessment</p>
+        <h2 class="hero-title">有望な突破口。<br>ただし採用条件は<em>検証</em>である。</h2>
+        <div class="closing-line"></div>
+        <p class="lead">InfiniteDiffusionの価値は、既存モデルの品質を保ちながら、無限・ランダムアクセス・決定論を一つの設計へ統合した点にある。現時点では強い研究プロトタイプであり、汎用本番採用には比較評価、失敗例、長時間運用データの公開拡充が必要だ。</p>
+        <div class="cover-meta">
+          <span>High potential</span>
+          <span>Low retraining barrier</span>
+          <span>Validation required</span>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Overall verdict</span>
+        <span>Prototype first, production later</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">24 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Source &amp; Scope Notes</p>
+        <h2 class="title">このデッキが参照した<em>情報範囲</em></h2>
+        <p class="lead">本資料は、ユーザー提供の事前知識・要約・論点・FAQ・所見を圧縮した読解用デッキである。論文本文、リポジトリ、完全なベンチマーク表へのURLは提供情報に含まれないため、数値主張は独立検証していない。</p>
+      </div>
+      <div class="body reference-grid">
+        <div>
+          <div class="reference-item">
+            <span class="reference-index">i</span>
+            <div class="reference-text"><strong>InfiniteDiffusion</strong><br>提供資料でSIGGRAPH 2026研究として説明された、training-freeな無限領域拡散変換。無限性、事実上のステートレス性、学習済みリアリズムの同時達成が中心主張。</div>
+          </div>
+          <div class="reference-item">
+            <span class="reference-index">ii</span>
+            <div class="reference-text"><strong>Terrain Diffusion</strong><br>InfiniteDiffusionの地形生成応用として説明された階層的拡散系。地球規模の標高レンジ、広域連続性、Laplacian encodingが主要要素。</div>
+          </div>
+          <div class="reference-item">
+            <span class="reference-index">iii</span>
+            <div class="reference-text"><strong>MultiDiffusion</strong><br>有限領域の拡散モデルを複数領域へ協調的に適用する思想上の先行文脈として、提供資料内で言及。</div>
+          </div>
+          <div class="reference-item">
+            <span class="reference-index">iv</span>
+            <div class="reference-text"><strong>Unity / Minecraft demonstrations</strong><br>ゲームエンジン実装、Minecraft Mod、オープンソース導線、軽量GPU上の実用性を示す事例として提供資料内で説明。</div>
+          </div>
+        </div>
+        <div class="panel accent">
+          <p class="card-kicker">Verification Boundary</p>
+          <h3 class="card-title">追加確認が必要な項目</h3>
+          <div class="reference-item">
+            <span class="reference-index">i</span>
+            <div class="reference-text">「9倍高速」「3倍軌道速度」の比較対象、測定条件、品質設定、ハードウェア。</div>
+          </div>
+          <div class="reference-item">
+            <span class="reference-index">ii</span>
+            <div class="reference-text">画質劣化が「ほとんどない」とする定量指標、ベースライン、失敗例。</div>
+          </div>
+          <div class="reference-item">
+            <span class="reference-index">iii</span>
+            <div class="reference-text">境界整合、長距離地理因果、サーバー規模運用、複数GPU間の完全再現性。</div>
+          </div>
+          <div class="reference-item">
+            <span class="reference-index">iv</span>
+            <div class="reference-text">洞窟、植生、資源、気候、生態系への拡張とゲームデザイン上の制御可能性。</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Prepared from supplied secondary summary</span>
+        <span>Independent verification pending</span>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">25 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://xandergos.github.io/terrain-diffusion" target="_blank" rel="noreferrer noopener">InfiniteDiffusion</a></h2>
+<p class="reference-note"># InfiniteDiffusion: Bridging Learned Fidelity and Procedural Utility for Open-World Terrain Generation. For decades, pr…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2512.08309v4" target="_blank" rel="noreferrer noopener">InfiniteDiffusion: Bridging Learned Fidelity and Procedural Utility for Open-World Terrain Generation - Project Website</a></h2>
+<p class="reference-note"># InfiniteDiffusion: Bridging Learned Fidelity and Procedural Utility for Open-World Terrain Generation - Project Websit…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">26 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.researchgate.net/publication/398513474_Terrain_Diffusion_A_Diffusion-Based_Successor_to_Perlin_Noise_in_Infinite_Real-Time_Terrain_Generation" target="_blank" rel="noreferrer noopener">A Diffusion-Based Successor to Perlin Noise in Infinite ...</a></h2>
+<p class="reference-note">Dec 9, 2025 — At its core is InfiniteDiffusion, a novel algorithm for infinite generation, enabling seamless, real-time …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2512.08309v1" target="_blank" rel="noreferrer noopener">A Diffusion-Based Successor to Perlin Noise in Infinite ...</a></h2>
+<p class="reference-note"># Terrain Diffusion: A Diffusion-Based Successor to Perlin Noise in Infinite, Real-Time Terrain Generation. For decades,…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">27 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://huggingface.co/papers/2512.08309" target="_blank" rel="noreferrer noopener">A Diffusion-Based Successor to Perlin Noise in Infinite ...</a></h2>
+<p class="reference-note"># Terrain Diffusion: A Diffusion-Based Successor to Perlin Noise in Infinite, Real-Time Terrain Generation. Terrain Diff…</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
