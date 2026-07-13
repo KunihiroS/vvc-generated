@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grok Build CLI — 通信傍受が示したコード送信の実態</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      padding: 48px 0 80px;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .deck {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 34px;
+      width: 100%;
+    }
+
+    .slide {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      padding: 5cqw 6.43cqw;
+      overflow: hidden;
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      container-type: inline-size;
+      isolation: isolate;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 1.79cqw;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 3.66cqw;
+      left: 6.43cqw;
+      display: flex;
+      align-items: center;
+      gap: 0.9cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.05cqw;
+      font-weight: 500;
+      letter-spacing: 0.2em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      width: 2.5cqw;
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 3.2cqw;
+      right: 6.43cqw;
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.7cqw;
+      font-style: italic;
+      font-weight: 400;
+      letter-spacing: 0.04em;
+    }
+
+    .intro {
+      position: relative;
+      margin-top: 2.85cqw;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.55cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.96cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+
+    .title {
+      max-width: 86cqw;
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 4.82cqw;
+      font-weight: 500;
+      line-height: 1.08;
+      letter-spacing: -0.045em;
+    }
+
+    .title em {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: -0.015em;
+    }
+
+    .lead {
+      max-width: 67.85cqw;
+      margin: 1.12cqw 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.96cqw;
+      font-weight: 300;
+      line-height: 1.62;
+      letter-spacing: -0.015em;
+    }
+
+    .content {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      justify-content: flex-end;
+      margin-top: 1.7cqw;
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4,
+    .grid-6 {
+      display: grid;
+      gap: 1.05cqw;
+      width: 100%;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .grid-6 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: repeat(2, minmax(0, 1fr));
+    }
+
+    .card {
+      position: relative;
+      padding: 1.42cqw 1.52cqw;
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .card.accent {
+      border-top: 2px solid var(--rust);
+    }
+
+    .card-number {
+      display: block;
+      margin-bottom: 0.42cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.45cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 0.9;
+    }
+
+    .card-label,
+    .mini-label {
+      display: block;
+      margin-bottom: 0.48cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.98cqw;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .card-title {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.55cqw;
+      font-weight: 500;
+      line-height: 1.4;
+      letter-spacing: -0.02em;
+    }
+
+    .card-copy {
+      margin: 0.55cqw 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.18cqw;
+      font-weight: 300;
+      line-height: 1.62;
+      letter-spacing: -0.01em;
+    }
+
+    .card-copy strong,
+    .body-copy strong {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .endpoint {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 500;
+      overflow-wrap: anywhere;
+    }
+
+    code {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.96em;
+      font-weight: 500;
+    }
+
+    .metric {
+      display: block;
+      margin: 0.1cqw 0 0.35cqw;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 3.7cqw;
+      font-weight: 500;
+      line-height: 0.95;
+    }
+
+    .metric em {
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .metric-unit {
+      margin-left: 0.3cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.1cqw;
+      font-style: normal;
+      letter-spacing: 0.04em;
+    }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: 1.08fr 0.28fr 1.2fr 0.28fr 1.08fr;
+      align-items: stretch;
+      width: 100%;
+    }
+
+    .node {
+      display: flex;
+      min-height: 10.9cqw;
+      flex-direction: column;
+      justify-content: center;
+      padding: 1.45cqw;
+      border: 1px solid var(--rule-strong);
+    }
+
+    .node.rust-edge {
+      border-top: 2px solid var(--rust);
+    }
+
+    .node-title {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.55cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .node-copy {
+      margin: 0.52cqw 0 0;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.08cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .connector {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.5cqw;
+      font-style: italic;
+    }
+
+    .connector::before {
+      content: "";
+      position: absolute;
+      left: 0.3cqw;
+      right: 0.3cqw;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.65;
+    }
+
+    .connector span {
+      position: relative;
+      padding: 0 0.25cqw;
+      background: var(--paper);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1.65cqw;
+      counter-reset: flow;
+    }
+
+    .flow-step {
+      position: relative;
+      padding: 1.35cqw 1.25cqw 1.2cqw;
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 2.9cqw;
+      right: -1.38cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.1cqw;
+      font-style: italic;
+    }
+
+    .roman {
+      display: block;
+      margin-bottom: 0.55cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.15cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .flow-title {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.42cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .flow-copy {
+      margin: 0.48cqw 0 0;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.05cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .comparison-panel {
+      padding: 1.55cqw 1.65cqw;
+    }
+
+    .comparison-panel + .comparison-panel {
+      border-left: 1px solid var(--rule);
+    }
+
+    .comparison-panel.accent-panel {
+      border-top: 2px solid var(--rust);
+      margin-top: -1px;
+    }
+
+    .comparison-title {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.72cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .comparison-copy {
+      margin: 0.72cqw 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.17cqw;
+      font-weight: 300;
+      line-height: 1.65;
+    }
+
+    .fact-row {
+      display: grid;
+      grid-template-columns: 15cqw 1fr;
+      align-items: baseline;
+      padding: 0.8cqw 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .fact-row:last-child {
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .fact-key {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.02cqw;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      line-height: 1.35;
+      text-transform: uppercase;
+    }
+
+    .fact-value {
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.27cqw;
+      font-weight: 400;
+      line-height: 1.5;
+    }
+
+    .code-panel {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      gap: 1.55cqw;
+      align-items: stretch;
+    }
+
+    .code-block {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 1.55cqw 1.75cqw;
+      border: 1px solid var(--rule-strong);
+      border-left: 2px solid var(--rust);
+      background: rgba(0,0,0,0.12);
+    }
+
+    .code-block pre {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.45cqw;
+      font-weight: 400;
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }
+
+    .code-block .code-accent {
+      color: var(--rust);
+    }
+
+    .statement {
+      padding: 1.6cqw 1.8cqw;
+      border-left: 2px solid var(--rust);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.8cqw;
+      font-weight: 400;
+      line-height: 1.6;
+    }
+
+    .statement strong {
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .risk-line {
+      display: grid;
+      grid-template-columns: 13cqw 1fr 17cqw;
+      align-items: center;
+      min-height: 3.55cqw;
+      border-top: 1px solid var(--rule);
+    }
+
+    .risk-line:last-child {
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .risk-level {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.75cqw;
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .risk-condition {
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.16cqw;
+      line-height: 1.5;
+    }
+
+    .risk-action {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.03cqw;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-align: right;
+      text-transform: uppercase;
+    }
+
+    .note {
+      margin-top: 0.9cqw;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.02cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .cover,
+    .closing {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .cover .intro,
+    .closing .intro {
+      margin-top: 0;
+    }
+
+    .cover .eyebrow,
+    .closing .eyebrow {
+      font-size: 2.35cqw;
+    }
+
+    .cover .title {
+      max-width: 82cqw;
+      margin: 0 auto;
+      font-size: 7.15cqw;
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+
+    .cover .lead,
+    .closing .lead {
+      max-width: 70cqw;
+      margin-right: auto;
+      margin-left: auto;
+    }
+
+    .cover-meta {
+      display: flex;
+      justify-content: center;
+      gap: 2.2cqw;
+      margin-top: 2.3cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.05cqw;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .cover-meta span + span {
+      position: relative;
+    }
+
+    .cover-meta span + span::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: -1.2cqw;
+      width: 0.25cqw;
+      height: 0.25cqw;
+      border-radius: 50%;
+      background: var(--rust);
+    }
+
+    .closing .title {
+      max-width: 82cqw;
+      margin: 0 auto;
+      font-size: 6.25cqw;
+      line-height: 1.02;
+    }
+
+    .closing-principles {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      max-width: 76cqw;
+      margin: 2.35cqw auto 0;
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .closing-principle {
+      padding: 1.25cqw 1.5cqw;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.12cqw;
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .closing-principle + .closing-principle {
+      border-left: 1px solid var(--rule);
+    }
+
+    .closing-principle em {
+      display: block;
+      margin-bottom: 0.3cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.6cqw;
+      font-style: italic;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 20px 0 36px;
+      }
+
+      .deck {
+        gap: 18px;
+      }
+
+      .slide {
+        width: calc(100vw - 24px);
+      }
+    }
+
+    @media print {
+      body {
+        padding: 0;
+      }
+
+      .deck {
+        gap: 0;
+      }
+
+      .slide {
+        width: 100vw;
+        break-after: page;
+        box-shadow: none;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="slide-tag">Investigation Brief</div>
+      <div class="slide-num">02 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Grok Build CLI 0.2.93</p>
+        <h1 class="title">コードを読むだけでは、<em>終わらない</em></h1>
+        <p class="lead">通信傍受によれば、読込ファイルはモデル入力へ、未読ファイルを含むリポジトリ全体は別の保存経路へ送られうる。</p>
+        <div class="cover-meta">
+          <span>Consumer Login</span>
+          <span>Traffic Interception</span>
+          <span>July 2026 Scope</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Executive Finding</div>
+      <div class="slide-num">03 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">結論</p>
+        <h2 class="title">送信対象は、AIが<em>読んだ範囲</em>を超える</h2>
+        <p class="lead">観測された実装では、モデル入力とコードベース保存が別チャネルで進む。利用者が会話上で開かなかったファイルも、Gitバンドルに含まれうる。</p>
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <article class="card accent">
+            <span class="card-number">i</span>
+            <span class="card-label">Model Input</span>
+            <h3 class="card-title"><span class="endpoint">/v1/responses</span></h3>
+            <p class="card-copy">読込ファイルの本文が送信され、<code>.env</code>内の疑似シークレットも未編集で確認された。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-number">ii</span>
+            <span class="card-label">Archive Path</span>
+            <h3 class="card-title"><span class="endpoint">/v1/storage</span></h3>
+            <p class="card-copy">未読ファイルを含むリポジトリが、Gitバンドルとしてアップロードされた。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-number">iii</span>
+            <span class="card-label">Observed Destination</span>
+            <h3 class="card-title">GCS セッショントレース</h3>
+            <p class="card-copy"><code>grok-code-session-traces</code>という保存先を示す証跡が観測された。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Scope</div>
+      <div class="slide-num">04 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">検証の射程</p>
+        <h2 class="title">対象はAPIキーではなく、<em>消費者ログイン</em></h2>
+        <p class="lead">X／SuperGrokの通常ログインで動作するGrok Build CLIを、通信・保存物・復元結果から評価した。</p>
+      </div>
+      <div class="content">
+        <div class="fact-row">
+          <div class="fact-key">Target</div>
+          <div class="fact-value">Grok Build CLI <code>0.2.93</code></div>
+        </div>
+        <div class="fact-row">
+          <div class="fact-key">Time Boundary</div>
+          <div class="fact-value">報告上の観測時点：2026年7月</div>
+        </div>
+        <div class="fact-row">
+          <div class="fact-key">Authentication</div>
+          <div class="fact-value">APIキー型ではなく、X／SuperGrokの消費者向けログイン</div>
+        </div>
+        <div class="fact-row">
+          <div class="fact-key">Method</div>
+          <div class="fact-value">通信傍受、保存オブジェクト回収、ハッシュ確認、Git cloneによる再現</div>
+        </div>
+        <p class="note">評価対象は当該バージョンと実行経路に限定される。将来版や別認証方式の挙動を自動的に証明するものではない。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">二重チャネル</p>
+        <h2 class="title">同じセッションに、<em>二つの出口</em>がある</h2>
+        <p class="lead"><span class="endpoint">responses</span>はモデル処理、<span class="endpoint">storage</span>は保存・トレースを担う。片方だけを見ても、総送信量は把握できない。</p>
+      </div>
+      <div class="content">
+        <div class="architecture">
+          <div class="node">
+            <span class="mini-label">Local Workspace</span>
+            <h3 class="node-title">ローカル・リポジトリ</h3>
+            <p class="node-copy">読込ファイル、未読ファイル、Git履歴、設定・秘密情報候補</p>
+          </div>
+          <div class="connector"><span>i</span></div>
+          <div class="node rust-edge">
+            <span class="mini-label">Two Paths</span>
+            <h3 class="node-title"><span class="endpoint">/v1/responses</span></h3>
+            <p class="node-copy">モデル入力として読込内容を送信</p>
+            <h3 class="node-title" style="margin-top:0.7cqw;"><span class="endpoint">/v1/storage</span></h3>
+            <p class="node-copy">コードベース／セッショントレースを送信</p>
+          </div>
+          <div class="connector"><span>ii</span></div>
+          <div class="node">
+            <span class="mini-label">Cloud Side</span>
+            <h3 class="node-title">モデル処理＋外部保存</h3>
+            <p class="node-copy">保存先としてGoogle Cloud Storageと<code>grok-code-session-traces</code>が示唆された</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Responses Path</div>
+      <div class="slide-num">06 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">第一の経路</p>
+        <h2 class="title">読込内容は<em>未編集</em>でモデル側へ</h2>
+        <p class="lead">AIが参照したファイル本文は<span class="endpoint">/v1/responses</span>へ送られた。検証用の疑似シークレットも、そのまま通信中に確認された。</p>
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <article class="card">
+            <span class="card-label">Observed Input</span>
+            <h3 class="card-title">明示的に読ませたファイル</h3>
+            <p class="card-copy">プロンプト処理に必要なコンテキストとして、本文レベルで送信された。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-label">Sensitive Example</span>
+            <h3 class="card-title"><code>.env</code>の疑似シークレット</h3>
+            <p class="card-copy">値のマスキングや置換がない状態で、リクエスト内容に含まれた。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Meaning</span>
+            <h3 class="card-title">これはクラウド推論の範囲</h3>
+            <p class="card-copy">コード送信自体は一般的でも、秘密情報の前処理がない点は別途管理が必要になる。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Storage Path</div>
+      <div class="slide-num">07 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">第二の経路</p>
+        <h2 class="title"><em>未読ファイル</em>までGitバンドルへ入る</h2>
+        <p class="lead"><span class="endpoint">/v1/storage</span>では、会話で開いていないファイルを含むコードベースが送信された。モデル入力の範囲とは一致しない。</p>
+      </div>
+      <div class="content">
+        <div class="comparison">
+          <div class="comparison-panel">
+            <span class="mini-label">User Mental Model</span>
+            <h3 class="comparison-title">「AIが読んだものだけ送る」</h3>
+            <p class="comparison-copy">利用者は、参照を許可したファイルや会話に必要な断片だけが外部へ出ると理解しやすい。</p>
+          </div>
+          <div class="comparison-panel accent-panel">
+            <span class="mini-label">Observed Behavior</span>
+            <h3 class="comparison-title">「リポジトリ状態を別途保存する」</h3>
+            <p class="comparison-copy">未読の検証ファイルを含むGitバンドルが回収され、ローカル内容との対応が確認された。</p>
+          </div>
+        </div>
+        <div class="statement">問題はクラウド推論そのものではなく、<strong>推論に不要な範囲まで別経路で保有されうる</strong>ことにある。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Reproduction</div>
+      <div class="slide-num">08 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">再現手順</p>
+        <h2 class="title">「丸ごと送信」は<em>復元</em>で確認された</h2>
+        <p class="lead">単なる通信量の推測ではない。未読ファイルの固有マーカーを、アップロード物から復元して照合している。</p>
+      </div>
+      <div class="content">
+        <div class="flow">
+          <article class="flow-step">
+            <span class="roman">i</span>
+            <h3 class="flow-title">未読ファイルを配置</h3>
+            <p class="flow-copy">AIに開かせないファイルへ、識別可能な固有マーカーを入れる。</p>
+          </article>
+          <article class="flow-step">
+            <span class="roman">ii</span>
+            <h3 class="flow-title">通信を捕捉</h3>
+            <p class="flow-copy"><span class="endpoint">/v1/storage</span>への大容量アップロードと保存物を回収する。</p>
+          </article>
+          <article class="flow-step">
+            <span class="roman">iii</span>
+            <h3 class="flow-title">Gitバンドルを復元</h3>
+            <p class="flow-copy">保存オブジェクトからバンドルを取り出し、<code>git clone</code>を実行する。</p>
+          </article>
+          <article class="flow-step">
+            <span class="roman">iv</span>
+            <h3 class="flow-title">内容を照合</h3>
+            <p class="flow-copy">未読ファイル、マーカー、ハッシュの一致を確認する。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Evidence Quality</div>
+      <div class="slide-num">09 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">証拠の強さ</p>
+        <h2 class="title">通信量だけでなく、<em>中身</em>が一致した</h2>
+        <p class="lead">複数の独立した観測を組み合わせることで、キャッシュや通信ノイズによる誤認の可能性を下げている。</p>
+      </div>
+      <div class="content">
+        <div class="grid-4">
+          <article class="card accent">
+            <span class="card-number">i</span>
+            <span class="card-label">Network</span>
+            <h3 class="card-title">エンドポイント</h3>
+            <p class="card-copy"><code>responses</code>と<code>storage</code>の別通信を確認。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-number">ii</span>
+            <span class="card-label">Artifact</span>
+            <h3 class="card-title">保存物</h3>
+            <p class="card-copy">アップロードされたGitバンドルを回収。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-number">iii</span>
+            <span class="card-label">Integrity</span>
+            <h3 class="card-title">ハッシュ照合</h3>
+            <p class="card-copy">ローカルと復元後の内容対応を確認。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-number">iv</span>
+            <span class="card-label">Reproduction</span>
+            <h3 class="card-title">clone再現</h3>
+            <p class="card-copy">未読マーカーを通常のGit操作で再現。</p>
+          </article>
+        </div>
+        <p class="note">この組み合わせは「全リポジトリ相当のデータが送られた」という主張を強く支える。ただし、すべての環境・全バージョンで同一とは限らない。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Capacity Evidence</div>
+      <div class="slide-num">10 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">大容量挙動</p>
+        <h2 class="title">モデル制限後も、保存側は<em>200</em>を返した</h2>
+        <p class="lead">12GB規模の検証では、5GBを超える転送が進行した。モデル側の利用制限と、ストレージ側の受理は独立して見える。</p>
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <article class="card">
+            <span class="card-label">Test Corpus</span>
+            <span class="metric"><em>12</em><span class="metric-unit">GB scale</span></span>
+            <p class="card-copy">大容量リポジトリ相当のデータで送信挙動を観測。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-label">Observed Transfer</span>
+            <span class="metric"><em>5+</em><span class="metric-unit">GB</span></span>
+            <p class="card-copy">ストレージ通信は成功応答を返しながら継続。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">HTTP Split</span>
+            <span class="metric"><em>200</em><span class="metric-unit">vs 402 / 429</span></span>
+            <p class="card-copy">保存側の成功と、モデル側の課金・レート制限が分離。</p>
+          </article>
+        </div>
+        <p class="note">12GB全量の完走までは確認されていない。証明されたのは、大容量でも保存経路が長時間継続しうること。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Critical Distinction</div>
+      <div class="slide-num">11 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">誤解しやすい点</p>
+        <h2 class="title">「APIが止まった」≠「送信が<em>止まった</em>」</h2>
+        <p class="lead">生成リクエストが制限されても、コードベース保存が同時に停止するとは限らない。課金監視は情報流出の遮断策ではない。</p>
+      </div>
+      <div class="content">
+        <div class="comparison">
+          <div class="comparison-panel">
+            <span class="mini-label">Model Plane</span>
+            <h3 class="comparison-title"><span class="endpoint">/v1/responses</span></h3>
+            <p class="comparison-copy">推論、トークン利用、レート制限、消費者アカウントの利用枠と関連する経路。観測では<code>402</code>／<code>429</code>が発生した。</p>
+          </div>
+          <div class="comparison-panel accent-panel">
+            <span class="mini-label">Storage Plane</span>
+            <h3 class="comparison-title"><span class="endpoint">/v1/storage</span></h3>
+            <p class="comparison-copy">コードベースやトレースの保存経路。モデル側制限後も<code>200</code>応答と転送継続が観測された。</p>
+          </div>
+        </div>
+        <div class="statement"><strong>利用料金の上限</strong>と<strong>データ移転の上限</strong>は、別々に統制しなければならない。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Proof Boundary</div>
+      <div class="slide-num">12 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">断定の境界</p>
+        <h2 class="title">送信・保存は確認、<em>学習利用</em>は未証明</h2>
+        <p class="lead">データフローの事実と、その後の用途は分けて評価する必要がある。強い証拠があるからこそ、証明範囲も限定する。</p>
+      </div>
+      <div class="content">
+        <div class="comparison">
+          <div class="comparison-panel accent-panel">
+            <span class="mini-label">Established</span>
+            <h3 class="comparison-title">実測で支持されること</h3>
+            <p class="comparison-copy"><code>.env</code>を含む読込内容の送信、別ストレージ経路、未読ファイル入りGitバンドル、GCSを示す保存証跡、大容量転送の継続。</p>
+          </div>
+          <div class="comparison-panel">
+            <span class="mini-label">Not Established</span>
+            <h3 class="comparison-title">この結果だけでは言えないこと</h3>
+            <p class="comparison-copy">実際のモデル学習への投入、正確な保持期間、全オブジェクトの利用目的、12GB全量完走、将来版での同一挙動。</p>
+          </div>
+        </div>
+        <p class="note">ポリシーに書かれた将来用途、技術的に保存された事実、実際に学習へ使われた事実は、それぞれ異なる証明を要する。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Transparency</div>
+      <div class="slide-num">13 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">文書整合性</p>
+        <h2 class="title">利用者が送信範囲を<em>予見しにくい</em></h2>
+        <p class="lead">調査対象のセットアップ資料では、内部状態や保存先を示す重要語が明瞭に露出していない可能性が指摘された。</p>
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <article class="card">
+            <span class="card-label">Internal State</span>
+            <h3 class="card-title"><code>repo_state</code></h3>
+            <p class="card-copy">リポジトリ状態を収集・管理する挙動を利用者が事前に把握しにくい。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Local Queue</span>
+            <h3 class="card-title"><code>upload_queue</code></h3>
+            <p class="card-copy">送信待ちデータの存在、容量、再送条件が運用上の盲点になりうる。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-label">Cloud Destination</span>
+            <h3 class="card-title"><code>grok-code-session-traces</code></h3>
+            <p class="card-copy">保存先を示す名称が、通常導線の説明から読み取りにくいとされた。</p>
+          </article>
+        </div>
+        <p class="note">これは「関連文書のどこにも記載がない」という全面的な断定ではなく、調査されたCLI導線・資料範囲で透明性が不足していたという評価。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Control Layers</div>
+      <div class="slide-num">14 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">設定構造</p>
+        <h2 class="title">制御は一枚ではなく、<em>多層</em>に重なる</h2>
+        <p class="lead">環境変数、ローカル設定、リモート／UI設定、実行経路が最終挙動を左右する。画面上の一つのトグルだけでは判定できない。</p>
+      </div>
+      <div class="content">
+        <div class="architecture">
+          <div class="node">
+            <span class="mini-label">Highest Sensitivity</span>
+            <h3 class="node-title">環境変数</h3>
+            <p class="node-copy"><code>trace_upload</code>系は環境変数の優先影響を受けると報告</p>
+          </div>
+          <div class="connector"><span>i</span></div>
+          <div class="node rust-edge">
+            <span class="mini-label">Local Policy</span>
+            <h3 class="node-title"><code>~/.grok/config.toml</code></h3>
+            <p class="node-copy"><code>harness</code>設定でコードベース送信を拒否可能</p>
+          </div>
+          <div class="connector"><span>ii</span></div>
+          <div class="node">
+            <span class="mini-label">Execution Context</span>
+            <h3 class="node-title">UI・リモート・起動経路</h3>
+            <p class="node-copy">ラッパー経由と直接実行で、読み込まれる設定が異なりうる</p>
+          </div>
+        </div>
+        <p class="note">優先順位は実環境で再確認する必要がある。特に、シェル初期化・CI環境・ラッパースクリプトによる環境汚染に注意する。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Strongest Control</div>
+      <div class="slide-num">15 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">抑制策</p>
+        <h2 class="title">コードベース送信には、<em>harness veto</em></h2>
+        <p class="lead">追記検証では、<code>disable_codebase_upload = true</code>が全体アップロードを止める強い制御として機能した。</p>
+      </div>
+      <div class="content">
+        <div class="code-panel">
+          <div class="code-block">
+            <span class="mini-label">~/.grok/config.toml</span>
+            <pre><span class="code-accent">[harness]</span>
+disable_codebase_upload = <span class="code-accent">true</span></pre>
+          </div>
+          <div>
+            <div class="fact-row" style="grid-template-columns: 11cqw 1fr;">
+              <div class="fact-key">Effect</div>
+              <div class="fact-value">リポジトリ全体のコードベース・アップロードを停止</div>
+            </div>
+            <div class="fact-row" style="grid-template-columns: 11cqw 1fr;">
+              <div class="fact-key">Strength</div>
+              <div class="fact-value">追記実験では強い拒否制御として再現</div>
+            </div>
+            <div class="fact-row" style="grid-template-columns: 11cqw 1fr;">
+              <div class="fact-key">Boundary</div>
+              <div class="fact-value"><code>/v1/responses</code>への必要コンテキスト送信まで自動的に止めるとは限らない</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">設定した事実ではなく、通信傍受で<code>/v1/storage</code>が消えたことを確認して初めて統制が成立する。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Toggle Distinction</div>
+      <div class="slide-num">16 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">UIの限界</p>
+        <h2 class="title">「Improve the model」は<em>万能停止</em>ではない</h2>
+        <p class="lead">学習改善、コードベース保存、トレース送信は別の制御面として扱うべきだ。名称が似ていても、停止対象は同じとは限らない。</p>
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <article class="card">
+            <span class="card-label">Purpose Control</span>
+            <h3 class="card-title">Improve the model</h3>
+            <p class="card-copy">データの改善・学習用途に関する利用者設定。送信そのものの全停止とは区別する。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-label">Scope Control</span>
+            <h3 class="card-title">Codebase upload</h3>
+            <p class="card-copy">リポジトリ全体の転送範囲を制御。<code>harness</code>による明示的拒否が重要。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Telemetry Control</span>
+            <h3 class="card-title">Trace upload</h3>
+            <p class="card-copy">セッショントレース系の送信を制御。環境変数と設定値を二重確認する。</p>
+          </article>
+        </div>
+        <div class="statement">安全性の確認単位は<strong>UI表示</strong>ではなく、各エンドポイントへの<strong>実通信</strong>である。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Operational Failure</div>
+      <div class="slide-num">17 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">運用の落とし穴</p>
+        <h2 class="title">設定済みでも、起動方法で<em>無効化</em>されうる</h2>
+        <p class="lead">ラッパー、直接実行、CI、シェル環境で適用値が変われば、期待した抑制は成立しない。統制は経路ごとに試験する。</p>
+      </div>
+      <div class="content">
+        <div class="grid-4">
+          <article class="card">
+            <span class="card-number">i</span>
+            <span class="card-label">Wrapper</span>
+            <h3 class="card-title">シェルラッパー</h3>
+            <p class="card-copy">環境変数を注入し、設定の有効値を変える可能性。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">ii</span>
+            <span class="card-label">Direct</span>
+            <h3 class="card-title">バイナリ直接実行</h3>
+            <p class="card-copy">ラッパー依存の防御が読み込まれない可能性。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">iii</span>
+            <span class="card-label">Environment</span>
+            <h3 class="card-title">環境汚染</h3>
+            <p class="card-copy">古い変数やCIシークレットが優先値を上書き。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-number">iv</span>
+            <span class="card-label">Verification</span>
+            <h3 class="card-title">通信プローブ</h3>
+            <p class="card-copy">各経路で実送信の有無を再確認する。</p>
+          </article>
+        </div>
+        <p class="note">ローカルの<code>upload_queue</code>が肥大すると、情報管理だけでなくディスク枯渇・再送・障害復旧時の意図しない送信も問題になる。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Exposure Surface</div>
+      <div class="slide-num">18 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">漏えい面積</p>
+        <h2 class="title">Gitバンドルは「現在の画面」より<em>広い</em></h2>
+        <p class="lead">リスクは開いているソースコードに限られない。履歴や未読資料まで含めば、過去に削除した秘密情報も露出候補になる。</p>
+      </div>
+      <div class="content">
+        <div class="grid-6">
+          <article class="card">
+            <span class="card-label">Current Tree</span>
+            <h3 class="card-title">現在のソース</h3>
+            <p class="card-copy">実装、設定、テスト、依存関係。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Unread Files</span>
+            <h3 class="card-title">未読ファイル</h3>
+            <p class="card-copy">会話で参照していない内部資料。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Environment</span>
+            <h3 class="card-title">秘密情報</h3>
+            <p class="card-copy"><code>.env</code>、鍵、トークン、接続情報。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-label">Git History</span>
+            <h3 class="card-title">過去コミット</h3>
+            <p class="card-copy">履歴に残る古い実装や顧客情報。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-label">Deleted Data</span>
+            <h3 class="card-title">削除済み秘密</h3>
+            <p class="card-copy">作業ツリーから消しても履歴に残存。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Business IP</span>
+            <h3 class="card-title">設計・契約資料</h3>
+            <p class="card-copy">非公開仕様、価格、脆弱性、顧客資産。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Governance</div>
+      <div class="slide-num">19 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">法務・規制</p>
+        <h2 class="title">核心は「学習」より先に、<em>移転と保有</em></h2>
+        <p class="lead">学習利用が未証明でも、外部送信と保存だけで契約・秘密保持・個人情報・顧客許諾の問題は成立しうる。</p>
+      </div>
+      <div class="content">
+        <div class="grid-4">
+          <article class="card">
+            <span class="card-number">i</span>
+            <span class="card-label">Consent</span>
+            <h3 class="card-title">同意の粒度</h3>
+            <p class="card-copy">推論送信と全体保存を区別して説明・同意できているか。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">ii</span>
+            <span class="card-label">Contract</span>
+            <h3 class="card-title">契約上の許諾</h3>
+            <p class="card-copy">顧客コードや委託データを第三者へ移転できるか。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">iii</span>
+            <span class="card-label">Retention</span>
+            <h3 class="card-title">保持・削除条件</h3>
+            <p class="card-copy">保存期間、削除要求、バックアップ、再利用範囲を確認。</p>
+          </article>
+          <article class="card accent">
+            <span class="card-number">iv</span>
+            <span class="card-label">Auditability</span>
+            <h3 class="card-title">証跡可能性</h3>
+            <p class="card-copy">誰が、何を、どこへ送ったかを企業側で説明できる状態にする。</p>
+          </article>
+        </div>
+        <p class="note">GCS利用が示唆されても、保存リージョン・管理主体・保持期間までは名称だけで確定できない。契約・ポリシー・技術証跡を突き合わせる。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Decision Support</div>
+      <div class="slide-num">20 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">導入判断</p>
+        <h2 class="title">生産性ではなく、<em>資産感度×統制</em>で決める</h2>
+        <p class="lead">無料枠や生成品質だけでは判断できない。コード資産の機密性と、送信停止を実証できるかを掛け合わせる。</p>
+      </div>
+      <div class="content">
+        <div class="risk-line">
+          <div class="risk-level">Low</div>
+          <div class="risk-condition">公開リポジトリ、秘密情報なし、履歴も公開済み</div>
+          <div class="risk-action">Controlled Trial</div>
+        </div>
+        <div class="risk-line">
+          <div class="risk-level">Medium</div>
+          <div class="risk-condition">社内コードだが分離環境を用意でき、通信遮断と設定検証が可能</div>
+          <div class="risk-action">Isolated Use Only</div>
+        </div>
+        <div class="risk-line">
+          <div class="risk-level">High</div>
+          <div class="risk-condition">顧客データ、秘密鍵、未公開設計、規制対象情報、履歴中の削除済み秘密を含む</div>
+          <div class="risk-action">Block by Default</div>
+        </div>
+        <div class="risk-line">
+          <div class="risk-level">Unknown</div>
+          <div class="risk-condition">設定値はあるが、実通信・保存先・実行経路を検証していない</div>
+          <div class="risk-action">Treat as High</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Immediate Actions</div>
+      <div class="slide-num">21 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">今すぐ行うこと</p>
+        <h2 class="title">まず止め、次に測り、最後に<em>許可</em>する</h2>
+        <p class="lead">本番リポジトリへ導入する前に、設定・通信・履歴を独立して確認する。未検証のデフォルト利用を避ける。</p>
+      </div>
+      <div class="content">
+        <div class="grid-6">
+          <article class="card accent">
+            <span class="card-number">i</span>
+            <h3 class="card-title">全体送信を拒否</h3>
+            <p class="card-copy"><code>disable_codebase_upload = true</code>を設定。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">ii</span>
+            <h3 class="card-title">環境変数を棚卸し</h3>
+            <p class="card-copy">trace系の有効値と継承元を確認。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">iii</span>
+            <h3 class="card-title">通信を再現測定</h3>
+            <p class="card-copy"><code>responses</code>と<code>storage</code>を別々に記録。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">iv</span>
+            <h3 class="card-title">Git履歴を清掃</h3>
+            <p class="card-copy">削除済み秘密を履歴から除去し、鍵をローテーション。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">v</span>
+            <h3 class="card-title">隔離環境で実行</h3>
+            <p class="card-copy">最小ファイル、最小権限、送信先制限で試験。</p>
+          </article>
+          <article class="card">
+            <span class="card-number">vi</span>
+            <h3 class="card-title">監査証跡を保存</h3>
+            <p class="card-copy">バージョン、設定、起動経路、通信結果を記録。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Verification Protocol</div>
+      <div class="slide-num">22 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">継続検証</p>
+        <h2 class="title">アップデートごとに、<em>同じプローブ</em>を回す</h2>
+        <p class="lead">設定の存在ではなく、送信されないことを継続的に証明する。CLI更新、認証変更、起動経路変更を再試験のトリガーにする。</p>
+      </div>
+      <div class="content">
+        <div class="flow">
+          <article class="flow-step">
+            <span class="roman">i</span>
+            <h3 class="flow-title">カナリアを作る</h3>
+            <p class="flow-copy">読込用と未読用に異なる固有マーカーを配置する。</p>
+          </article>
+          <article class="flow-step">
+            <span class="roman">ii</span>
+            <h3 class="flow-title">全経路で起動</h3>
+            <p class="flow-copy">ラッパー、直接実行、IDE、CIを個別に試験する。</p>
+          </article>
+          <article class="flow-step">
+            <span class="roman">iii</span>
+            <h3 class="flow-title">通信を分離記録</h3>
+            <p class="flow-copy">宛先、パス、容量、HTTP状態、再送を取得する。</p>
+          </article>
+          <article class="flow-step">
+            <span class="roman">iv</span>
+            <h3 class="flow-title">内容まで照合</h3>
+            <p class="flow-copy">可能なら保存物を復元し、マーカーとハッシュを確認する。</p>
+          </article>
+        </div>
+        <p class="note">合格条件の例：未読カナリアが外部通信・保存物の双方に現れず、許可した読込データだけが想定エンドポイントへ送られること。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Evidence Notes</div>
+      <div class="slide-num">23 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">根拠と限界</p>
+        <h2 class="title">強い実証を、<em>固定的事実</em>にしない</h2>
+        <p class="lead">本資料は提示された検証報告と追記コメントを圧縮したもの。再現性は高いが、製品更新と環境差を前提に読む。</p>
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <article class="card accent">
+            <span class="card-label">Primary Basis</span>
+            <h3 class="card-title">検証報告・追記コメント</h3>
+            <p class="card-copy">通信ログ、保存物、ハッシュ、再現コマンド、設定無効化実験を根拠とする。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Version Boundary</span>
+            <h3 class="card-title">Grok Build CLI 0.2.93</h3>
+            <p class="card-copy">報告上の2026年7月時点。別バージョンの挙動は再測定が必要。</p>
+          </article>
+          <article class="card">
+            <span class="card-label">Interpretation Boundary</span>
+            <h3 class="card-title">学習利用は未証明</h3>
+            <p class="card-copy">確認されたのは送信・保存。保持期間、二次利用、学習適用は別途確認する。</p>
+          </article>
+        </div>
+        <div class="statement">最も信頼できる結論は、<strong>モデル入力制御だけではコードベース全体の保存を防げない場合がある</strong>ということ。</div>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">24 / 27</div>
+      <div class="intro">
+        <p class="eyebrow">Final Takeaway</p>
+        <h2 class="title">導入判断は、生成品質より<em>送信面積</em>から</h2>
+        <p class="lead">「何を読ませたか」ではなく、「何が別経路で保存されうるか」を問う。安全はトグルではなく、拒否設定と通信証跡で証明する。</p>
+        <div class="closing-principles">
+          <div class="closing-principle">
+            <em>i</em>
+            responsesとstorageを分けて監査する
+          </div>
+          <div class="closing-principle">
+            <em>ii</em>
+            送信・保存と学習利用を混同しない
+          </div>
+          <div class="closing-principle">
+            <em>iii</em>
+            バージョンごとに再測定する
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">25 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/LocalLLaMA/comments/1ut7tis/grok_build_cli_uploads_your_whole_repo_full_git" target="_blank" rel="noreferrer noopener">Grok Build CLI uploads your whole repo — full git history + .env secrets — to xAI&#39;s cloud, and the opt-out doesn&#39;t stop it (wire-captured) : r/LocalLLaMA</a></h2>
+<p class="reference-note">[Skip to main content](https://www.reddit.com/r/LocalLLaMA/comments/1ut7tis/grok_build_cli_uploads_your_whole_repo_full_…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">26 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.eigent.ai/blog/grok-build-cli" target="_blank" rel="noreferrer noopener">Grok Build CLI Review 2026: Features &amp; Alternatives</a></h2>
+<p class="reference-note"># Grok Build CLI: xAI&#39;s Developer Terminal Tool Explained. A deep dive into Grok Build CLI — what it does, how it compar…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=XLH_WLrmwfk" target="_blank" rel="noreferrer noopener">This is THE EASIEST WAY to USE GROK BUILD CLI for 100% FREE!</a></h2>
+<p class="reference-note">Grok Build + FULLY Free Unlimited APIs: This is THE EASIEST WAY to USE GROK BUILD CLI for 100% FREE!
+AICodeKing
+130000 s…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">27 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.ai/news/grok-build-cli" target="_blank" rel="noreferrer noopener">Introducing Grok Build | SpaceXAI</a></h2>
+<p class="reference-note"># Introducing Grok Build. Now in early beta for all SuperGrok and X Premium Plus subscribers — Grok Build is a new codin…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://docs.x.ai/build/enterprise" target="_blank" rel="noreferrer noopener">Enterprise Deployments | SpaceXAI Docs</a></h2>
+<p class="reference-note">This page covers everything needed to deploy Grok Build in enterprise environments, including network requirements, conf…</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
