@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mesh LLM 1.0 — 分散推論アーキテクチャ読解</title>
+  <meta name="description" content="Mesh LLM 1.0の技術アーキテクチャ、分散推論、Skippy、iroh、運用・コスト・ガバナンス上の論点を整理したリーディングデック。">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      color: var(--ink);
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+    }
+
+    .deck {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      padding: 32px 0 72px;
+    }
+
+    .slide {
+      position: relative;
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      container-type: inline-size;
+      overflow: hidden;
+      flex: 0 0 auto;
+      padding: 56px 72px 50px;
+      padding: 5cqw 6.43cqw 4.46cqw;
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.6);
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      inset: 1.79cqw;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+
+    .slide-tag,
+    .slide-num {
+      position: absolute;
+      z-index: 2;
+      top: 28px;
+      top: 2.5cqw;
+    }
+
+    .slide-tag {
+      left: 72px;
+      left: 6.43cqw;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      gap: 0.9cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 11px;
+      font-size: 0.98cqw;
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: 0.19em;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      width: 28px;
+      width: 2.5cqw;
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      right: 72px;
+      right: 6.43cqw;
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 17px;
+      font-size: 1.52cqw;
+      font-style: italic;
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: 0.05em;
+    }
+
+    .intro {
+      position: relative;
+      z-index: 1;
+    }
+
+    .eyebrow {
+      margin: 0 0 5px;
+      margin-bottom: 0.45cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px;
+      font-size: 1.96cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1.1;
+      letter-spacing: 0.02em;
+    }
+
+    .title {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 54px;
+      font-size: 4.85cqw;
+      font-weight: 500;
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .title em {
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      max-width: 760px;
+      max-width: 67.86cqw;
+      margin: 11px 0 0;
+      margin-top: 0.98cqw;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 22px;
+      font-size: 1.96cqw;
+      font-weight: 300;
+      line-height: 1.65;
+      letter-spacing: 0.015em;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      margin-top: 23px;
+      margin-top: 2.05cqw;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      gap: 1.25cqw;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      min-width: 0;
+      padding: 16px 18px;
+      padding: 1.43cqw 1.61cqw;
+      border-top: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .card.accent {
+      border-top-color: var(--rust);
+    }
+
+    .card-label {
+      margin: 0 0 7px;
+      margin-bottom: 0.63cqw;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 11px;
+      font-size: 0.98cqw;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .card h3 {
+      margin: 0 0 7px;
+      margin-bottom: 0.63cqw;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      font-size: 1.61cqw;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 14px;
+      font-size: 1.25cqw;
+      font-weight: 300;
+      line-height: 1.7;
+    }
+
+    .roman {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 24px;
+      font-size: 2.14cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .statement {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 17px;
+      gap: 1.52cqw;
+      margin-top: 14px;
+      margin-top: 1.25cqw;
+      padding: 13px 18px;
+      padding: 1.16cqw 1.61cqw;
+      border-left: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .statement strong {
+      color: var(--ink);
+      font-size: 17px;
+      font-size: 1.52cqw;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .statement span:last-child {
+      color: var(--ink-2);
+      font-size: 14px;
+      font-size: 1.25cqw;
+      line-height: 1.65;
+    }
+
+    .comparison-table {
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .table-row {
+      display: grid;
+      grid-template-columns: 15cqw 1fr 1fr;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .table-row > div {
+      min-width: 0;
+      padding: 8px 13px;
+      padding: 0.72cqw 1.16cqw;
+      color: var(--ink-2);
+      font-size: 13px;
+      font-size: 1.16cqw;
+      line-height: 1.5;
+    }
+
+    .table-row > div + div {
+      border-left: 1px solid var(--rule);
+    }
+
+    .table-row.header > div {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      font-size: 0.89cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .table-row .criterion {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .table-row .mesh {
+      color: var(--ink);
+    }
+
+    .architecture-flow,
+    .api-flow {
+      display: grid;
+      align-items: stretch;
+      gap: 10px;
+      gap: 0.89cqw;
+    }
+
+    .architecture-flow {
+      grid-template-columns: 1.05fr auto 1.1fr auto 2.7fr;
+    }
+
+    .api-flow {
+      grid-template-columns: 1fr auto 1.28fr auto 1.55fr;
+    }
+
+    .flow-box {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      padding: 14px;
+      padding: 1.25cqw;
+      border: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .flow-box.accent {
+      border-color: var(--rust);
+    }
+
+    .flow-box small {
+      margin-bottom: 5px;
+      margin-bottom: 0.45cqw;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 10px;
+      font-size: 0.89cqw;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .flow-box strong {
+      color: var(--ink);
+      font-size: 16px;
+      font-size: 1.43cqw;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .flow-box span {
+      margin-top: 4px;
+      margin-top: 0.36cqw;
+      color: var(--ink-3);
+      font-size: 12px;
+      font-size: 1.07cqw;
+      line-height: 1.55;
+    }
+
+    .arrow {
+      align-self: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 27px;
+      font-size: 2.41cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .route-stack {
+      display: grid;
+      gap: 7px;
+      gap: 0.63cqw;
+    }
+
+    .route {
+      display: grid;
+      grid-template-columns: 4.6cqw 1fr;
+      align-items: center;
+      min-width: 0;
+      padding: 9px 12px;
+      padding: 0.8cqw 1.07cqw;
+      border-left: 1px solid var(--rust);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .route .route-id {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 21px;
+      font-size: 1.88cqw;
+      font-style: italic;
+    }
+
+    .route strong {
+      color: var(--ink);
+      font-size: 14px;
+      font-size: 1.25cqw;
+      font-weight: 500;
+    }
+
+    .route span {
+      display: block;
+      margin-top: 2px;
+      color: var(--ink-3);
+      font-size: 11px;
+      font-size: 0.98cqw;
+      line-height: 1.45;
+    }
+
+    .micro-note {
+      margin: 11px 0 0;
+      margin-top: 0.98cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 11px;
+      font-size: 0.98cqw;
+      line-height: 1.55;
+      letter-spacing: 0.02em;
+    }
+
+    .priority {
+      display: grid;
+      grid-template-columns: 10cqw 1fr 14cqw;
+      align-items: center;
+      gap: 14px;
+      gap: 1.25cqw;
+      padding: 10px 0;
+      padding: 0.89cqw 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .priority:last-child {
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .priority .rank {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 23px;
+      font-size: 2.05cqw;
+      font-style: italic;
+    }
+
+    .priority h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 16px;
+      font-size: 1.43cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .priority p {
+      margin: 3px 0 0;
+      color: var(--ink-3);
+      font-size: 12px;
+      font-size: 1.07cqw;
+      line-height: 1.5;
+    }
+
+    .priority .decision {
+      color: var(--ink-2);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 11px;
+      font-size: 0.98cqw;
+      line-height: 1.45;
+      text-align: right;
+    }
+
+    .distinction {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      gap: 1.34cqw;
+    }
+
+    .distinction-panel {
+      position: relative;
+      padding: 18px 20px;
+      padding: 1.61cqw 1.79cqw;
+      border: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .distinction-panel .roman {
+      position: absolute;
+      top: 14px;
+      top: 1.25cqw;
+      right: 16px;
+      right: 1.43cqw;
+    }
+
+    .distinction-panel h3 {
+      margin: 0 0 8px;
+      margin-bottom: 0.72cqw;
+      color: var(--ink);
+      font-size: 20px;
+      font-size: 1.79cqw;
+      font-weight: 500;
+    }
+
+    .distinction-panel .definition {
+      margin: 0 0 12px;
+      margin-bottom: 1.07cqw;
+      color: var(--ink-2);
+      font-size: 14px;
+      font-size: 1.25cqw;
+      line-height: 1.65;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      gap: 0.63cqw;
+    }
+
+    .mini-cell {
+      padding-top: 7px;
+      padding-top: 0.63cqw;
+      border-top: 1px solid var(--rule);
+    }
+
+    .mini-cell small {
+      display: block;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      font-weight: 600;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .mini-cell span {
+      display: block;
+      margin-top: 4px;
+      color: var(--ink-2);
+      font-size: 11px;
+      font-size: 0.98cqw;
+      line-height: 1.45;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      gap: 8px;
+      gap: 0.72cqw;
+    }
+
+    .stage {
+      min-width: 0;
+      padding: 15px 13px;
+      padding: 1.34cqw 1.16cqw;
+      border-top: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .stage small {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      font-weight: 600;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .stage h3 {
+      margin: 6px 0;
+      margin: 0.54cqw 0;
+      color: var(--ink);
+      font-size: 16px;
+      font-size: 1.43cqw;
+      font-weight: 500;
+    }
+
+    .stage p {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 11px;
+      font-size: 0.98cqw;
+      line-height: 1.5;
+    }
+
+    .activation {
+      align-self: center;
+      text-align: center;
+    }
+
+    .activation span {
+      display: block;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 25px;
+      font-size: 2.23cqw;
+      font-style: italic;
+      line-height: 0.8;
+    }
+
+    .activation small {
+      color: var(--ink-4);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 8px;
+      font-size: 0.71cqw;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .formula {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 13px;
+      gap: 1.16cqw;
+      margin-bottom: 14px;
+      margin-bottom: 1.25cqw;
+      padding: 13px;
+      padding: 1.16cqw;
+      border: 1px solid var(--rule-strong);
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+    }
+
+    .formula .main {
+      font-size: 25px;
+      font-size: 2.23cqw;
+      font-style: italic;
+    }
+
+    .formula .equals {
+      color: var(--rust);
+      font-size: 26px;
+      font-size: 2.32cqw;
+    }
+
+    .formula .result {
+      font-size: 18px;
+      font-size: 1.61cqw;
+    }
+
+    .status-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 13px;
+      gap: 1.16cqw;
+      margin-top: 13px;
+      margin-top: 1.16cqw;
+    }
+
+    .status {
+      padding: 12px 15px;
+      padding: 1.07cqw 1.34cqw;
+      border-left: 2px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .status.rust {
+      border-left-color: var(--rust);
+    }
+
+    .status small {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      font-weight: 600;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .status p {
+      margin: 5px 0 0;
+      color: var(--ink-2);
+      font-size: 12px;
+      font-size: 1.07cqw;
+      line-height: 1.6;
+    }
+
+    .layer-stack {
+      display: grid;
+      grid-template-columns: 13cqw 1fr 1fr;
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .layer-stack > div {
+      padding: 9px 12px;
+      padding: 0.8cqw 1.07cqw;
+      border-bottom: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-size: 12px;
+      font-size: 1.07cqw;
+      line-height: 1.5;
+    }
+
+    .layer-stack > div:nth-child(3n+2),
+    .layer-stack > div:nth-child(3n+3) {
+      border-left: 1px solid var(--rule);
+    }
+
+    .layer-stack .layer-name {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .layer-stack .layer-head {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .equation {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 14px;
+      gap: 1.25cqw;
+    }
+
+    .equation-panel {
+      padding: 16px 18px;
+      padding: 1.43cqw 1.61cqw;
+      border: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.025);
+    }
+
+    .equation-panel small {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .equation-panel h3 {
+      margin: 5px 0 9px;
+      margin: 0.45cqw 0 0.8cqw;
+      color: var(--ink);
+      font-size: 18px;
+      font-size: 1.61cqw;
+      font-weight: 500;
+    }
+
+    .terms {
+      display: grid;
+      gap: 5px;
+      gap: 0.45cqw;
+    }
+
+    .term {
+      display: grid;
+      grid-template-columns: 1.2cqw 1fr;
+      gap: 7px;
+      gap: 0.63cqw;
+      color: var(--ink-2);
+      font-size: 11px;
+      font-size: 0.98cqw;
+      line-height: 1.45;
+    }
+
+    .term span:first-child {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+
+    .versus {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 24px;
+      font-size: 2.14cqw;
+      font-style: italic;
+    }
+
+    .process-line {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      gap: 1.07cqw;
+    }
+
+    .step {
+      position: relative;
+      min-width: 0;
+      padding: 17px 15px 13px;
+      padding: 1.52cqw 1.34cqw 1.16cqw;
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .step::after {
+      content: "";
+      position: absolute;
+      top: -1px;
+      left: 0;
+      width: 34%;
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .step .roman {
+      display: block;
+      margin-bottom: 7px;
+      margin-bottom: 0.63cqw;
+    }
+
+    .step h3 {
+      margin: 0 0 7px;
+      margin-bottom: 0.63cqw;
+      color: var(--ink);
+      font-size: 16px;
+      font-size: 1.43cqw;
+      font-weight: 500;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--ink-3);
+      font-size: 11px;
+      font-size: 0.98cqw;
+      line-height: 1.55;
+    }
+
+    .step .gate {
+      display: block;
+      margin-top: 8px;
+      margin-top: 0.72cqw;
+      padding-top: 7px;
+      padding-top: 0.63cqw;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      line-height: 1.45;
+    }
+
+    .cover,
+    .closing {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .cover .intro,
+    .closing .intro {
+      text-align: center;
+    }
+
+    .cover .title {
+      font-size: 78px;
+      font-size: 6.96cqw;
+      line-height: 1.02;
+    }
+
+    .cover .lead,
+    .closing .lead {
+      margin-right: auto;
+      margin-left: auto;
+    }
+
+    .cover-facts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      gap: 1.07cqw;
+      width: 73%;
+      margin: 30px auto 0;
+      margin-top: 2.68cqw;
+    }
+
+    .cover-fact {
+      padding-top: 10px;
+      padding-top: 0.89cqw;
+      border-top: 1px solid var(--rule-strong);
+      text-align: left;
+    }
+
+    .cover-fact small {
+      display: block;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .cover-fact strong {
+      display: block;
+      margin-top: 5px;
+      margin-top: 0.45cqw;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 18px;
+      font-size: 1.61cqw;
+      font-weight: 500;
+    }
+
+    .closing .title {
+      max-width: 84cqw;
+      margin-right: auto;
+      margin-left: auto;
+      font-size: 64px;
+      font-size: 5.71cqw;
+      line-height: 1.13;
+    }
+
+    .closing-verdict {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      gap: 1.25cqw;
+      width: 78%;
+      margin: 28px auto 0;
+      margin-top: 2.5cqw;
+      text-align: left;
+    }
+
+    .verdict-cell {
+      padding: 12px 14px;
+      padding: 1.07cqw 1.25cqw;
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .verdict-cell small {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 9px;
+      font-size: 0.8cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .verdict-cell p {
+      margin: 6px 0 0;
+      color: var(--ink-2);
+      font-size: 12px;
+      font-size: 1.07cqw;
+      line-height: 1.55;
+    }
+
+    @media (max-width: 700px) {
+      .deck {
+        gap: 16px;
+        padding: 16px 0 36px;
+      }
+    }
+
+    @media print {
+      @page {
+        size: 16in 9in;
+        margin: 0;
+      }
+
+      body {
+        background: var(--cream);
+      }
+
+      .deck {
+        gap: 0;
+        padding: 0;
+      }
+
+      .slide {
+        width: 100vw;
+        break-after: page;
+        page-break-after: always;
+        box-shadow: none;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck" aria-label="Mesh LLM 1.0 読解デック">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover" aria-label="スライド1：表紙">
+      <div class="slide-tag">Overview</div>
+      <div class="slide-num">02 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Distributed inference</p>
+        <h1 class="title">推論を、もう一度 <em>自社</em> へ</h1>
+        <p class="lead">Mesh LLM 1.0は、既存GPUとピアを束ね、LLM推論を中央クラウドの外で実行する分散基盤です。OpenAI互換APIを維持しながら、実行場所・モデル・データ経路の制御を利用者側へ戻します。</p>
+        <div class="cover-facts" aria-label="主要情報">
+          <div class="cover-fact">
+            <small>Network</small>
+            <strong>iroh / QUIC / P2P</strong>
+          </div>
+          <div class="cover-fact">
+            <small>Gateway</small>
+            <strong>localhost:9337/v1</strong>
+          </div>
+          <div class="cover-fact">
+            <small>Execution</small>
+            <strong>Local · Peer · Skippy</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem" aria-label="スライド2：問題設定">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Hidden dependency</p>
+        <h2 class="title">便利さの代価は、<em>制御</em> の外部化</h2>
+        <p class="lead">クラウドAPIは導入を簡単にした一方、推論の実体を利用者から遠ざけました。処理場所、モデル変更、データ保持、料金条件の多くはベンダー側で決まります。</p>
+      </div>
+      <div class="content">
+        <div class="grid three">
+          <article class="card">
+            <p class="card-label">Visibility</p>
+            <h3>実行が見えない</h3>
+            <p>どの設備・地域・モデル版で処理されたかを、利用企業が直接確認できる範囲は限られます。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Economics</p>
+            <h3>単価を選べない</h3>
+            <p>利用量とAPI単価が支出を決め、既設GPUを保有していても推論資産として再利用できません。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Governance</p>
+            <h3>変更権限を持てない</h3>
+            <p>モデル更新、提供終了、レート制限、保持方針などの重要条件を外部ロードマップに委ねます。</p>
+          </article>
+        </div>
+        <div class="statement">
+          <span class="roman">i</span>
+          <div>
+            <strong>Mesh LLMの反論は「APIを捨てる」ことではありません。</strong>
+            <span>開発者体験を保ったまま、APIの背後にある実行主体を再設計します。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="スライド3：集中型APIとの比較">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">04 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Control shift</p>
+        <h2 class="title">変わるのはAPIではなく、<em>実行主体</em></h2>
+        <p class="lead">利用コードから見れば、どちらもOpenAI互換のリクエストです。差は、推論資源を誰が所有し、経路・更新・費用を誰が決めるかにあります。</p>
+      </div>
+      <div class="content">
+        <div class="comparison-table" role="table" aria-label="集中型クラウドAPIとMesh LLMの比較">
+          <div class="table-row header" role="row">
+            <div role="columnheader">Decision</div>
+            <div role="columnheader">集中型クラウドAPI</div>
+            <div role="columnheader">Mesh LLM</div>
+          </div>
+          <div class="table-row" role="row">
+            <div class="criterion" role="cell">計算資源</div>
+            <div role="cell">ベンダー設備を従量利用</div>
+            <div class="mesh" role="cell">自社GPUを基点に、許可したピアへ拡張</div>
+          </div>
+          <div class="table-row" role="row">
+            <div class="criterion" role="cell">実行経路</div>
+            <div role="cell">サービス内部のルーティング</div>
+            <div class="mesh" role="cell">ローカル、既存ピア、層分割から選択</div>
+          </div>
+          <div class="table-row" role="row">
+            <div class="criterion" role="cell">モデル管理</div>
+            <div role="cell">提供カタログと更新方針に依存</div>
+            <div class="mesh" role="cell">配置・版・追加プラグインを運用主体が管理</div>
+          </div>
+          <div class="table-row" role="row">
+            <div class="criterion" role="cell">データ経路</div>
+            <div role="cell">契約・リージョン条件で間接制御</div>
+            <div class="mesh" role="cell">参加ノードと信頼境界によって直接設計</div>
+          </div>
+          <div class="table-row" role="row">
+            <div class="criterion" role="cell">コスト構造</div>
+            <div role="cell">API単価 × トークン量</div>
+            <div class="mesh" role="cell">設備償却、電力、回線、運用を含むTCO</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="スライド4：全体アーキテクチャ">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">One front door</p>
+        <h2 class="title">入口は一つ、実行経路は <em>三つ</em></h2>
+        <p class="lead">クライアントは単一のOpenAI互換ゲートウェイへ接続します。メッシュ内部は、要求モデルと資源状況に応じてローカル、ピア、Skippyへ振り分けます。</p>
+      </div>
+      <div class="content">
+        <div class="architecture-flow" aria-label="Mesh LLMの要求処理フロー">
+          <div class="flow-box">
+            <small>Client</small>
+            <strong>既存アプリ</strong>
+            <span>SDK・エージェント・業務システム</span>
+          </div>
+          <div class="arrow">→</div>
+          <div class="flow-box accent">
+            <small>Gateway</small>
+            <strong>/v1 API</strong>
+            <span>互換リクエストを受理</span>
+          </div>
+          <div class="arrow">→</div>
+          <div class="route-stack">
+            <div class="route">
+              <div class="route-id">i</div>
+              <div><strong>ローカル実行</strong><span>同一ノードのGPUで完結</span></div>
+            </div>
+            <div class="route">
+              <div class="route-id">ii</div>
+              <div><strong>ピアルーティング</strong><span>モデルを持つ別ノードへ要求を転送</span></div>
+            </div>
+            <div class="route">
+              <div class="route-id">iii</div>
+              <div><strong>Skippy分割実行</strong><span>モデル層を複数ノードで連結</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="micro-note">クライアントへ返る応答形式は共通。複雑さはゲートウェイとメッシュ内部へ閉じ込められます。</p>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="スライド5：irohネットワーク">
+      <div class="slide-tag">Network</div>
+      <div class="slide-num">06 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Peer foundation</p>
+        <h2 class="title">中央サーバなしで、<em>ノード</em> を結ぶ</h2>
+        <p class="lead">Mesh LLMの中核はP2P基盤irohです。公開鍵でノードを識別し、QUIC接続、NAT越え、リレー、通信種別の分離を一つの基盤で扱います。</p>
+      </div>
+      <div class="content">
+        <div class="grid four">
+          <article class="card accent">
+            <p class="card-label">Identity</p>
+            <h3>公開鍵識別</h3>
+            <p>固定IPや中央アカウントではなく、暗号学的なノードIDを接続の基点にします。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Transport</p>
+            <h3>QUIC通信</h3>
+            <p>暗号化された多重ストリームで、制御情報と推論データを効率よく運びます。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Reachability</p>
+            <h3>NAT越え・リレー</h3>
+            <p>直接接続できる経路を探し、難しい場合はリレーを介して到達性を確保します。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Protocol</p>
+            <h3>ALPN分離</h3>
+            <p>メインメッシュ、制御、分割実行を論理的に分け、通信目的を識別します。</p>
+          </article>
+        </div>
+        <div class="statement">
+          <span class="roman">ii</span>
+          <div>
+            <strong>「中央サーバがない」と「管理者がいない」は別です。</strong>
+            <span>中央依存を減らしても、参加許可、所有権、ルーティング方針は運用主体が設計します。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="スライド6：ルーティング方針">
+      <div class="slide-tag">Routing</div>
+      <div class="slide-num">07 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Policy before speed</p>
+        <h2 class="title">最短経路より先に、<em>許可</em> を決める</h2>
+        <p class="lead">分散推論のルーティングは単なる負荷分散ではありません。信頼境界を満たす候補だけを残し、その中からモデル適合性、容量、遅延で選ぶ必要があります。</p>
+      </div>
+      <div class="content">
+        <div class="priority">
+          <div class="rank">i</div>
+          <div>
+            <h3>Trust boundary — 信頼境界</h3>
+            <p>そのノードへ入力、活性化、モデル資産を渡してよいか。</p>
+          </div>
+          <div class="decision">未許可なら候補外</div>
+        </div>
+        <div class="priority">
+          <div class="rank">ii</div>
+          <div>
+            <h3>Model fit — モデル適合</h3>
+            <p>要求されたモデル、量子化方式、版、コンテキスト条件に一致するか。</p>
+          </div>
+          <div class="decision">不一致なら再探索</div>
+        </div>
+        <div class="priority">
+          <div class="rank">iii</div>
+          <div>
+            <h3>Capacity — 実行余力</h3>
+            <p>GPUメモリ、同時実行数、キュー長が要求を受け入れられるか。</p>
+          </div>
+          <div class="decision">混雑なら別ピアへ</div>
+        </div>
+        <div class="priority">
+          <div class="rank">iv</div>
+          <div>
+            <h3>Latency — 応答品質</h3>
+            <p>ネットワーク遅延と推論速度が用途のSLOを満たすか。</p>
+          </div>
+          <div class="decision">候補間で最適化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-label="スライド7：分散方式の違い">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">08 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Two distributions</p>
+        <h2 class="title">要求を配るか、モデルを <em>分ける</em> か</h2>
+        <p class="lead">ピアルーティングとSkippyは、同じ「分散」でも問題設定が異なります。前者は要求単位、後者は一回の推論計算そのものを複数ノードへ分割します。</p>
+      </div>
+      <div class="content">
+        <div class="distinction">
+          <article class="distinction-panel">
+            <span class="roman">i</span>
+            <h3>Request routing</h3>
+            <p class="definition">完全なモデルを持つノードへ、リクエスト全体を転送します。各推論は原則として一つのノード内で完結します。</p>
+            <div class="mini-grid">
+              <div class="mini-cell">
+                <small>Good for</small>
+                <span>同時要求の分散、拠点別配置</span>
+              </div>
+              <div class="mini-cell">
+                <small>Primary risk</small>
+                <span>キュー偏り、ピア障害</span>
+              </div>
+            </div>
+          </article>
+          <article class="distinction-panel">
+            <span class="roman">ii</span>
+            <h3>Layer splitting</h3>
+            <p class="definition">モデル層を複数ノードへ配置し、中間活性化を順番に渡します。一台に収まらないモデルも対象にできます。</p>
+            <div class="mini-grid">
+              <div class="mini-cell">
+                <small>Good for</small>
+                <span>235B級、VRAM制約の回避</span>
+              </div>
+              <div class="mini-cell">
+                <small>Primary risk</small>
+                <span>帯域、遅延、同期、再試行</span>
+              </div>
+            </div>
+          </article>
+        </div>
+        <p class="micro-note">ローカル実行は両者の基準線です。最も単純で低遅延ですが、単一ノードのGPUメモリと処理能力に制約されます。</p>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="スライド8：Skippyの分割実行">
+      <div class="slide-tag">Skippy</div>
+      <div class="slide-num">09 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Pipeline inference</p>
+        <h2 class="title">巨大モデルを、層で <em>つなぐ</em></h2>
+        <p class="lead">Skippyはモデルを層単位で複数ステージへ配置します。入力は各ノードを順に通り、活性化と呼ばれる中間データが次のステージへ送られます。</p>
+      </div>
+      <div class="content">
+        <div class="pipeline" aria-label="Skippyパイプライン">
+          <article class="stage">
+            <small>Node A</small>
+            <h3>入力・初期層</h3>
+            <p>トークン化された入力を受け、前半の表現を生成。</p>
+          </article>
+          <div class="activation"><span>→</span><small>activation</small></div>
+          <article class="stage">
+            <small>Node B</small>
+            <h3>中間層 1</h3>
+            <p>受信した活性化へ割り当て層の計算を適用。</p>
+          </article>
+          <div class="activation"><span>→</span><small>activation</small></div>
+          <article class="stage">
+            <small>Node C</small>
+            <h3>中間層 2</h3>
+            <p>計算状態を引き継ぎ、後段へ逐次転送。</p>
+          </article>
+          <div class="activation"><span>→</span><small>tokens</small></div>
+          <article class="stage">
+            <small>Node D</small>
+            <h3>最終層・出力</h3>
+            <p>最終確率を計算し、生成トークンを返却。</p>
+          </article>
+        </div>
+        <div class="status-pair">
+          <div class="status rust">
+            <small>What it solves</small>
+            <p>一台のVRAMに収まらない235B級モデルを、既存GPU群へ分割配置できる可能性を開きます。</p>
+          </div>
+          <div class="status">
+            <small>What it changes</small>
+            <p>GPU購入問題を、層配置・ネットワーク・同期・障害回復を含む分散システム問題へ変えます。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="スライド9：Skippyの性能制約">
+      <div class="slide-tag">Performance</div>
+      <div class="slide-num">10 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Network becomes compute</p>
+        <h2 class="title">上限を決めるのは、GPU数より <em>経路</em></h2>
+        <p class="lead">層分割では、各トークン生成の途中にネットワーク転送が入ります。最も遅いステージと最も不安定なリンクが、パイプライン全体の品質を支配します。</p>
+      </div>
+      <div class="content">
+        <div class="formula" aria-label="分割推論の性能式">
+          <span class="main">End-to-end latency</span>
+          <span class="equals">≈</span>
+          <span class="result">各ステージ計算時間 ＋ 活性化転送 ＋ 同期待ち</span>
+        </div>
+        <div class="grid four">
+          <article class="card">
+            <p class="card-label">Bandwidth</p>
+            <h3>帯域</h3>
+            <p>活性化サイズに対して回線が細いと、GPUは転送待ちになり利用率が落ちます。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Latency</p>
+            <h3>往復遅延</h3>
+            <p>トークンごとの逐次性により、小さな遅延でも生成全体へ累積します。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Balance</p>
+            <h3>層配置</h3>
+            <p>一つのステージだけが重いと、後続ノードが待機しスループットが頭打ちになります。</p>
+          </article>
+          <article class="card accent">
+            <p class="card-label">Failure</p>
+            <h3>途中障害</h3>
+            <p>ノード離脱時に、どこから再試行するかが応答時間と計算浪費を左右します。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="スライド10：OpenAI互換ゲートウェイ">
+      <div class="slide-tag">Gateway</div>
+      <div class="slide-num">11 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Compatibility layer</p>
+        <h2 class="title">移行の表面積を <em>最小化</em> する</h2>
+        <p class="lead">Mesh LLMは標準的なOpenAI互換エンドポイントをlocalhost:9337/v1で公開します。既存クライアントは接続先を変え、分散実行の複雑さを意識せず利用できます。</p>
+      </div>
+      <div class="content">
+        <div class="api-flow">
+          <div class="flow-box">
+            <small>Existing client</small>
+            <strong>OpenAI SDK</strong>
+            <span>アプリの要求形式を維持</span>
+          </div>
+          <div class="arrow">→</div>
+          <div class="flow-box accent">
+            <small>Local endpoint</small>
+            <strong>localhost:9337/v1</strong>
+            <span>互換APIとして受理</span>
+          </div>
+          <div class="arrow">→</div>
+          <div class="flow-box">
+            <small>Mesh execution</small>
+            <strong>GPU群・許可ピア</strong>
+            <span>内部で経路と実行方式を選択</span>
+          </div>
+        </div>
+        <div class="status-pair">
+          <div class="status rust">
+            <small>Stays stable</small>
+            <p>クライアントライブラリ、主要なリクエスト形式、業務アプリから見たAPI境界。</p>
+          </div>
+          <div class="status">
+            <small>Must be validated</small>
+            <p>ストリーミング、エラー表現、モデル名、ツール呼び出しなどの互換範囲と版追随。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="スライド11：プラグインとカタログ">
+      <div class="slide-tag">Ecosystem</div>
+      <div class="slide-num">12 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Beyond serving</p>
+        <h2 class="title">単一サーバから、<em>拡張基盤</em> へ</h2>
+        <p class="lead">40以上のモデルとプラグインmanifestは、能力を交換可能な部品として扱う設計を示します。MCP、HTTP、イベント経路を持ち、将来のエージェントやモバイル連携へ広げられます。</p>
+      </div>
+      <div class="content">
+        <div class="grid three">
+          <article class="card accent">
+            <p class="card-label">Catalog</p>
+            <h3>40+ models</h3>
+            <p>モデルごとの実行能力をカタログ化し、要求名と利用可能なノード資源を対応づけます。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Manifest</p>
+            <h3>能力宣言</h3>
+            <p>プラグインが提供する機能、接続方式、必要条件を宣言し、追加機能を疎結合にします。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Interfaces</p>
+            <h3>MCP・HTTP・イベント</h3>
+            <p>同期APIだけでなく、ツール連携やイベント駆動処理を同じ基盤へ接続できます。</p>
+          </article>
+        </div>
+        <div class="statement">
+          <span class="roman">iii</span>
+          <div>
+            <strong>長期価値は「何モデル動くか」だけでは決まりません。</strong>
+            <span>manifestの互換性、カタログ更新、ACPやモバイルを含む周辺エコシステムの成熟が継続利用を左右します。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-label="スライド12：セキュリティと信頼設計">
+      <div class="slide-tag">Security</div>
+      <div class="slide-num">13 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Identity is not policy</p>
+        <h2 class="title">暗号化接続だけでは、<em>信頼</em> にならない</h2>
+        <p class="lead">公開鍵識別とQUICは安全な接続の土台です。しかし企業利用では、誰がどのモデルとデータへ触れられるかを別途定義し、検証可能にする必要があります。</p>
+      </div>
+      <div class="content">
+        <div class="layer-stack" role="table" aria-label="セキュリティ統制の整理">
+          <div class="layer-head" role="columnheader">Layer</div>
+          <div class="layer-head" role="columnheader">基盤が提供する出発点</div>
+          <div class="layer-head" role="columnheader">企業導入で必要な統制</div>
+
+          <div class="layer-name" role="cell">Identity</div>
+          <div role="cell">公開鍵によるノード識別</div>
+          <div role="cell">所有者、端末、環境へのひも付けと失効</div>
+
+          <div class="layer-name" role="cell">Transport</div>
+          <div role="cell">QUICによる暗号化通信</div>
+          <div role="cell">閉鎖網方針、リレー許可、経路制限</div>
+
+          <div class="layer-name" role="cell">Authorization</div>
+          <div role="cell">参加ノードの制御プレーン</div>
+          <div role="cell">ユーザー・モデル・テナント単位の権限</div>
+
+          <div class="layer-name" role="cell">Integrity</div>
+          <div role="cell">ノード所有権のアテステーション</div>
+          <div role="cell">モデル、manifest、更新物の署名検証</div>
+
+          <div class="layer-name" role="cell">Audit</div>
+          <div role="cell">通信と実行イベントの発生</div>
+          <div role="cell">改ざん耐性ログ、保存期間、追跡ID</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="スライド13：データ主権">
+      <div class="slide-tag">Governance</div>
+      <div class="slide-num">14 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Governed data flow</p>
+        <h2 class="title">経路を選べることと、<em>安全</em> は別</h2>
+        <p class="lead">中央クラウドを介さない構成は、データの行き先を直接制御しやすくします。ただし、参加ピアの信頼性と監査ポリシーが弱ければ、リスクは分散したまま残ります。</p>
+      </div>
+      <div class="content">
+        <div class="grid three">
+          <article class="card">
+            <p class="card-label">Data locality</p>
+            <h3>入力をどこへ出すか</h3>
+            <p>機密度や地域規制に応じ、ローカル限定、特定拠点限定、許可ピア利用を分けます。</p>
+          </article>
+          <article class="card accent">
+            <p class="card-label">Activation flow</p>
+            <h3>中間データも対象</h3>
+            <p>Skippyでは元の文章だけでなく、層間を流れる活性化もデータ分類と保護の対象です。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Accountability</p>
+            <h3>誰が説明するか</h3>
+            <p>障害、漏えい、不正ノード、モデル誤配布が起きた際の責任分界を事前に定義します。</p>
+          </article>
+        </div>
+        <div class="statement">
+          <span class="roman">iv</span>
+          <div>
+            <strong>データ主権とは「外部へ出さない」だけではありません。</strong>
+            <span>経路、処理主体、モデル版、保存、削除、監査証跡を説明できる状態を指します。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="スライド14：経済性とTCO">
+      <div class="slide-tag">Economics</div>
+      <div class="slide-num">15 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Total cost view</p>
+        <h2 class="title">API単価ではなく、<em>TCO</em> で比べる</h2>
+        <p class="lead">既存GPUの有効活用は強い経済合理性を持ちますが、クラウド課金の削減額だけでは判断できません。設備、電力、回線、監視、障害対応を含む総保有コストで比較します。</p>
+      </div>
+      <div class="content">
+        <div class="equation">
+          <article class="equation-panel">
+            <small>Cloud API spend</small>
+            <h3>従量費中心</h3>
+            <div class="terms">
+              <div class="term"><span>i</span><span>入力・出力トークン料金</span></div>
+              <div class="term"><span>ii</span><span>高性能モデルの単価差</span></div>
+              <div class="term"><span>iii</span><span>予約枠・レート上限対策</span></div>
+            </div>
+          </article>
+          <div class="versus">vs.</div>
+          <article class="equation-panel">
+            <small>Mesh LLM TCO</small>
+            <h3>資産・運用費中心</h3>
+            <div class="terms">
+              <div class="term"><span>i</span><span>GPU調達・既設資産の償却</span></div>
+              <div class="term"><span>ii</span><span>電力、冷却、回線、保守</span></div>
+              <div class="term"><span>iii</span><span>監視、更新、障害対応の人件費</span></div>
+            </div>
+          </article>
+        </div>
+        <div class="status-pair">
+          <div class="status rust">
+            <small>Favorable when</small>
+            <p>既設GPUの余力があり、需要が安定し、データ主権やコスト予測可能性に高い価値がある。</p>
+          </div>
+          <div class="status">
+            <small>Less favorable when</small>
+            <p>需要が突発的で、専任運用者がなく、低遅延ネットワークや高可用性の構築費が大きい。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="スライド15：運用上の論点">
+      <div class="slide-tag">Operations</div>
+      <div class="slide-num">16 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Lifecycle discipline</p>
+        <h2 class="title">ノード追加より、<em>整合性</em> 維持が難しい</h2>
+        <p class="lead">接続できることは運用開始にすぎません。エンタープライズ利用では、モデル版、資源配分、監視、フェイルオーバーを継続的にそろえる仕組みが必要です。</p>
+      </div>
+      <div class="content">
+        <div class="process-line">
+          <article class="step">
+            <span class="roman">i</span>
+            <h3>配備・参加</h3>
+            <p>ノードIDを登録し、GPU能力、ネットワーク、信頼区分をカタログへ反映。</p>
+            <span class="gate">Gate：未管理ノードを拒否</span>
+          </article>
+          <article class="step">
+            <span class="roman">ii</span>
+            <h3>モデル整合</h3>
+            <p>版、量子化、分割位置、manifestを検証し、段階的に更新。</p>
+            <span class="gate">Gate：署名と互換性を確認</span>
+          </article>
+          <article class="step">
+            <span class="roman">iii</span>
+            <h3>監視・配分</h3>
+            <p>キュー、VRAM、温度、帯域、トークン速度、経路遅延を観測。</p>
+            <span class="gate">Gate：SLO逸脱を自動検知</span>
+          </article>
+          <article class="step">
+            <span class="roman">iv</span>
+            <h3>障害回復</h3>
+            <p>ピア離脱、回線断、途中失敗時の再配置と再試行範囲を制御。</p>
+            <span class="gate">Gate：責任者と復旧手順を固定</span>
+          </article>
+        </div>
+        <p class="micro-note">「ノードを増やせば強くなる」のは、自動配備・監視・障害検知・版管理が先に整っている場合に限られます。</p>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="スライド16：不足している実証">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">17 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Proof still needed</p>
+        <h2 class="title">1.0の思想は強い。<em>証拠</em> はまだ足りない</h2>
+        <p class="lead">提示されたアーキテクチャは実務的ですが、本番採用を決める公開データは不足しています。性能、障害耐性、監査可能性、サービス水準を実環境で検証する必要があります。</p>
+      </div>
+      <div class="content">
+        <div class="grid four">
+          <article class="card accent">
+            <p class="card-label">Benchmark</p>
+            <h3>性能比較</h3>
+            <p>モデル別のTTFT、tokens/s、同時実行数、ローカル・ピア・Skippy間の差。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Chaos test</p>
+            <h3>障害注入</h3>
+            <p>ノード離脱、回線劣化、リレー切替、ステージ途中障害での復旧挙動。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">Auditability</p>
+            <h3>監査証跡</h3>
+            <p>実行ノード、モデル版、経路、操作者を後から一貫して追跡できるか。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">SLA / SLO</p>
+            <h3>品質保証</h3>
+            <p>可用性、遅延、更新頻度、脆弱性対応、互換性維持の責任と目標値。</p>
+          </article>
+        </div>
+        <div class="statement">
+          <span class="roman">v</span>
+          <div>
+            <strong>「理論上動く」と「予測可能に運用できる」の間が評価対象です。</strong>
+            <span>PoCでは平均性能だけでなく、低位パーセンタイル、失敗率、復旧時間、運用工数を測ります。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="スライド17：段階導入">
+      <div class="slide-tag">Adoption</div>
+      <div class="slide-num">18 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Expand by evidence</p>
+        <h2 class="title">PoCから、信頼境界を <em>段階拡張</em></h2>
+        <p class="lead">最初から全面置換する必要はありません。低リスク用途で互換性と運用性を確認し、証拠がそろうたびにモデル、ノード、データ機密度を広げます。</p>
+      </div>
+      <div class="content">
+        <div class="process-line">
+          <article class="step">
+            <span class="roman">i</span>
+            <h3>Local PoC</h3>
+            <p>単一拠点・非機密データで、OpenAI互換性とローカル性能を確認。</p>
+            <span class="gate">合格：主要クライアントが無改修で動作</span>
+          </article>
+          <article class="step">
+            <span class="roman">ii</span>
+            <h3>Private mesh</h3>
+            <p>自社管理ノードだけを接続し、ルーティング、監視、版管理を検証。</p>
+            <span class="gate">合格：経路と責任主体を追跡可能</span>
+          </article>
+          <article class="step">
+            <span class="roman">iii</span>
+            <h3>Skippy trial</h3>
+            <p>大規模モデルを限定用途で分割し、帯域、遅延、障害回復を測定。</p>
+            <span class="gate">合格：用途別SLOとTCOを満たす</span>
+          </article>
+          <article class="step">
+            <span class="roman">iv</span>
+            <h3>Controlled scale</h3>
+            <p>許可ピア、対象部署、機密度を段階的に拡張し、本番運用へ移行。</p>
+            <span class="gate">合格：監査・法務・運用承認を取得</span>
+          </article>
+        </div>
+        <p class="micro-note">各段階でクラウドAPIをフォールバックとして残せば、可逆性を保ちながら実行主体を移せます。</p>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-label="スライド18：結論">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">19 / 22</div>
+      <div class="intro">
+        <p class="eyebrow">Measured conviction</p>
+        <h2 class="title">万能な置き換えではない。だが、<em>選択肢</em> を変える</h2>
+        <p class="lead">Mesh LLMは、OpenAI互換性を壊さずに推論資源とデータ経路の主導権を取り戻す、意味のある設計的反論です。採用判断は思想への共感ではなく、実測性能、監査性、障害回復、TCOで行うべきです。</p>
+        <div class="closing-verdict">
+          <div class="verdict-cell">
+            <small>Strategic value</small>
+            <p>クラウド依存を減らし、既存GPU、地域規制、データ主権を一つの実行基盤へ統合。</p>
+          </div>
+          <div class="verdict-cell">
+            <small>Primary risk</small>
+            <p>ネットワーク遅延、分散障害、モデル整合、監査、運用責任が新しいボトルネック。</p>
+          </div>
+          <div class="verdict-cell">
+            <small>Recommended decision</small>
+            <p>PoCから開始し、限定利用を経て、測定可能なゲートを通過した範囲だけ本番化。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">20 / 22</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.kucoin.com/news/flash/mesh-llm-launches-on-iroh-for-distributed-ai-computing" target="_blank" rel="noreferrer noopener">Mesh LLM Launches on iroh for Distributed AI Computing</a></h2>
+<p class="reference-note"># Mesh LLM Launches on iroh for Distributed AI Computing. Mesh LLM is now live on iroh, bringing distributed AI computin…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/mesh-llm-iroh-distributed-inference-v1-july-2026" target="_blank" rel="noreferrer noopener">Mesh LLM v1.0 - Distributed Inference on iroh</a></h2>
+<p class="reference-note">Mesh LLM 1.0 — Distributed Inference on iroh | explainx.ai Blog | explainx.ai. # Mesh LLM v1.0: Split 235B Models Across…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">21 / 22</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.iroh.computer/blog/mesh-llm" target="_blank" rel="noreferrer noopener">Mesh LLM: distributed AI computing on iroh - Iroh</a></h2>
+<p class="reference-note"># Mesh LLM: distributed AI computing on iroh. Distributed Model Inference: a mesh of laptop, GPU rig, mini PC, server, w…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.developersdigest.tech/blog/mesh-llm-distributed-inference-iroh" target="_blank" rel="noreferrer noopener">Mesh LLM: Run 235B Models Across Your Home Lab with iroh</a></h2>
+<p class="reference-note"># Mesh LLM: Run 235B Models Across Your Home Lab with iroh. A new distributed inference system pools GPU resources acros…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">22 / 22</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://hi.news.hada.io/topic?id=31351" target="_blank" rel="noreferrer noopener">Mesh LLM - iroh-आधारित वितरित AI कंप्यूटिंग</a></h2>
+<p class="reference-note">Mesh LLM कई मशीनों के GPU और मेमोरी को एक OpenAI-compatible API के पीछे जोड़कर बड़े मॉडलों के लिए वितरित AI execution सक…</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
