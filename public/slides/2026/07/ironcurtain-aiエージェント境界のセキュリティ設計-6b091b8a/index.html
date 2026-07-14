@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>ironcurtain — AIエージェント境界のセキュリティ設計</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .tag {
+      position: absolute;
+      top: 26px;
+      left: 28px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: 0.14em;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: transparent;
+    }
+    .tag::before{
+      content:"";
+      width: 10px;
+      height: 2px;
+      background: var(--rust);
+      display: inline-block;
+      box-shadow: 0 0 0 6px rgba(232,129,74,0.08);
+    }
+
+    .slide-num{
+      position: absolute;
+      top: 26px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-3);
+    }
+
+    .eyebrow{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      margin: 10px 0 14px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 72px;
+      line-height: 1.02;
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.45;
+      margin-top: 10px;
+    }
+
+    .rule-h {
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin: 22px 0 0;
+    }
+
+    .grid-2{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 16px;
+      max-width: 880px;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px 12px;
+      border-radius: 6px;
+      min-height: 68px;
+      background: rgba(0,0,0,0.04);
+    }
+
+    .cell h3{
+      margin: 0 0 6px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+    }
+
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.38;
+      font-weight: 300;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.98em;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.45;
+      max-width: 900px;
+    }
+
+    .closing-center{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 76px;
+      text-align: left;
+    }
+
+    @media (max-width: 900px){
+      .slide { padding: 44px 40px; }
+      .title { font-size: 56px; }
+      .lead { font-size: 18px; }
+      .slide-num { font-size: 22px; }
+      .tag { left: 18px; }
+      .slide-num { right: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide cover">
+      <div class="tag">ironcurtain</div>
+      <div class="slide-num">02 / 19</div>
+      <div class="eyebrow">境界で安全を強制</div>
+      <div class="title"><em>憲法</em>が守る</div>
+      <div class="lead">
+        ironcurtainは、AIエージェントの安全性を「賢さ」ではなく<strong>tool boundary</strong>で担保するための研究プロトタイプです。
+        自然言語の憲法（constitution）を決定的ルールにコンパイルし、MCP経由のツール呼び出しを許可/拒否/承認要求で強制します。
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide problem">
+      <div class="tag">Ambient Authority</div>
+      <div class="slide-num">03 / 19</div>
+      <div class="eyebrow">逸脱が前提</div>
+      <div class="title">信頼しない</div>
+      <div class="lead">
+        ironcurtainは、プロンプトインジェクションや長時間のドリフトでLLMが逸脱する可能性を前提にします。
+        つまり「指示を守るはず」という期待ではなく、<strong>実行境界で強制</strong>します（untrusted前提）。
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide metaphor">
+      <div class="tag">平文憲法</div>
+      <div class="slide-num">04 / 19</div>
+      <div class="eyebrow">書ける安全</div>
+      <div class="title">コンパイル</div>
+      <div class="lead">
+        人が読む平文の憲法（constitution）を、実行用の決定的ルール（allow/deny/escalate）へコンパイルします。
+        実行時はそのルールに従い、会話の揺らぎを減らすことを狙います。
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide architecture">
+      <div class="tag">全体像</div>
+      <div class="slide-num">05 / 19</div>
+      <div class="eyebrow">分業の芯</div>
+      <div class="title">憲法→ルール→強制</div>
+      <div class="lead">
+        中心は「<strong>憲法（自然言語）</strong> → <strong>コンパイル（決定的ルール）</strong> → <strong>実行時の強制（tool boundary）</strong>」という流れです。
+        実行時には、MCP経由の<strong>すべてのツール呼び出し</strong>にルールを適用します。
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide enumeration">
+      <div class="tag">脅威前提</div>
+      <div class="slide-num">06 / 19</div>
+      <div class="eyebrow">何が壊れる</div>
+      <div class="title">ドリフト</div>
+      <div class="lead">
+        次のような状況で、エージェントが意図しない行動に逸脱し得ます。
+        これを設計の出発点に置き、境界判定をLLMの従順さから切り離します。
+      </div>
+      <div class="grid-2">
+        <div class="cell">
+          <h3>Prompt</h3>
+          <p>プロンプトインジェクション</p>
+        </div>
+        <div class="cell">
+          <h3>Behavior</h3>
+          <p>多段会話のドリフト</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide architecture">
+      <div class="tag">Semantic Interposition</div>
+      <div class="slide-num">07 / 19</div>
+      <div class="eyebrow">経路ではなく意味</div>
+      <div class="title">MCP</div>
+      <div class="lead">
+        ファイル・Git・Web取得・GitHub・Google Workspace・Memoryなどの操作を、MCPサーバとして抽象化します。
+        単なる経路制限ではなく、<strong>操作の性質（read/write/delete等）</strong>で許可/拒否/エスカレーションを判定します。
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide process">
+      <div class="tag">エンフォース</div>
+      <div class="slide-num">08 / 19</div>
+      <div class="eyebrow">許可の三段</div>
+      <div class="title">allow / deny / escalate</div>
+      <div class="lead">
+        ツール呼び出しごとに、憲法から得たルールで判定します。
+        必要な場合は<strong>エスカレーション（人間承認）</strong>へ停止して確認します。
+      </div>
+      <div class="grid-2">
+        <div class="cell">
+          <h3>i</h3>
+          <p><span class="mono">allow</span>：実行を通す</p>
+        </div>
+        <div class="cell">
+          <h3>ii</h3>
+          <p><span class="mono">deny</span>：実行を拒否</p>
+        </div>
+        <div class="cell">
+          <h3>iii</h3>
+          <p><span class="mono">escalate</span>：承認要求へ</p>
+        </div>
+        <div class="cell">
+          <h3>狙い</h3>
+          <p>境界で一貫性を作る</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide evidence">
+      <div class="tag">多層防御</div>
+      <div class="slide-num">09 / 19</div>
+      <div class="eyebrow">層を分ける</div>
+      <div class="title">隔離・監査・不変性</div>
+      <div class="lead">
+        V8 isolateでコード実行を隔離し、監査ログとリソース制限で追跡性を確保します。
+        さらに、policyファイルや監査ログ等の<strong>自己改変を不可能にする</strong>構造的不変性が重視されています。
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide comparison">
+      <div class="tag">Docker Mode</div>
+      <div class="slide-num">10 / 19</div>
+      <div class="eyebrow">ネットワーク遮断</div>
+      <div class="title">MITM</div>
+      <div class="lead">
+        Docker Agent Modeでは、ネットワーク遮断＋MITMプロキシ＋ドメイン許可のランタイム制御を用います。
+        外部API利用の有用性と、安全性（許可制）をエスカレーションで扱おうとします。
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide distinction">
+      <div class="tag">「secure」の限界</div>
+      <div class="slide-num">11 / 19</div>
+      <div class="eyebrow">過信しない</div>
+      <div class="title">安全の定義</div>
+      <div class="lead">
+        ironcurtainの「secure」は比喩であり、何をもって安全とするか（脅威モデル・制御範囲・限界）を設計で明示する必要があります。
+        README上も研究プロトタイプとして、既知の限界が列挙されています。
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide evidence">
+      <div class="tag">残るリスク</div>
+      <div class="slide-num">12 / 19</div>
+      <div class="eyebrow">落とし穴</div>
+      <div class="title">ギャップ</div>
+      <div class="lead">
+        憲法コンパイルの解釈ミスや、V8隔離がOSレベル完全隔離と同等でない可能性があります。
+        またアウトバウンド内容検査がないため、書き込み可能情報が外部へ持ち出される経路が残ります。
+      </div>
+      <div class="grid-2">
+        <div class="cell">
+          <h3>i</h3>
+          <p>コンパイル解釈の誤り</p>
+        </div>
+        <div class="cell">
+          <h3>ii</h3>
+          <p>隔離の到達範囲が限定</p>
+        </div>
+        <div class="cell">
+          <h3>iii</h3>
+          <p>アウトバウンド内容検査なし</p>
+        </div>
+        <div class="cell">
+          <h3>結果</h3>
+          <p>情報流出リスクが残存</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide process">
+      <div class="tag">補助策</div>
+      <div class="slide-num">13 / 19</div>
+      <div class="eyebrow">救いは検証</div>
+      <div class="title">Verification</div>
+      <div class="lead">
+        憲法→コンパイルの差分を埋めるため、シナリオ生成・検証（verification）を重視します。
+        ただし検証の網羅性には限界があり、導入前に失敗ケースや運用条件を確認すべきです。
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide comparison">
+      <div class="tag">所見</div>
+      <div class="slide-num">14 / 19</div>
+      <div class="eyebrow">筋が良い</div>
+      <div class="title">境界依存へ</div>
+      <div class="lead">
+        私見ではironcurtainは「AIを賢くする」より「暴れても越境できない形にする」方向性が実務的で説得力があります。
+        一方で、憲法精度・検証の強さ・承認フローのチューニングが導入成否を左右します。
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide closing">
+      <div class="tag">Takeaway</div>
+      <div class="slide-num">15 / 19</div>
+      <div class="eyebrow">設計チェック</div>
+      <div class="title">次に見るべき</div>
+      <div class="lead">
+        実環境導入では、(1) constitutionの具体性、(2) compiled-policyの妥当性、(3) verificationの失敗例、
+        (4) 承認設計、(5) 情報流出対策（アウトバウンド検査の方針）をセットで確認してください。
+      </div>
+      <div class="closing-center">
+        <div class="small" style="max-width: 820px;">
+          まとめ：ironcurtainは <span class="mono">ambient authority</span> を前提に、セキュリティを「モデル従順」から<strong>境界強制</strong>へ移す試みです。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/fairuzan/ironcurtain/security" target="_blank" rel="noreferrer noopener">Overview · fairuzan/ironcurtain</a></h2>
+<p class="reference-note">If you discover a security vulnerability in IronCurtain, please report it responsibly. Do not open a public issue. Email…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/provos/ironcurtain" target="_blank" rel="noreferrer noopener">GitHub - provos/ironcurtain: A secure* runtime for autonomous AI agents. Policy from plain-English constitutions. (*https://ironcurtain.dev) · GitHub</a></h2>
+<p class="reference-note">You signed in with another tab or window. # IronCurtain. **A secure\* runtime for autonomous AI agents, where security p…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.threads.com/@wired/post/DVPEN1IltmV/the-new-open-source-project-iron-curtain-uses-a-unique-method-to-secure-and?hl=en" target="_blank" rel="noreferrer noopener">The new open source project IronCurtain uses a unique ...</a></h2>
+<p class="reference-note">Feb 26, 2026 — The new open source project IronCurtain uses a unique method to secure and constrain AI assistant agents …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.wired.com/story/ironcurtain-ai-agent-security" target="_blank" rel="noreferrer noopener">This AI Agent Is Designed to Not Go Rogue | WIRED</a></h2>
+<p class="reference-note">The new open source project IronCurtain uses a unique method to secure and constrain AI assistant agents before they fli…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.kaspersky.com/blog/ironcurtain-ai-agent-security/55526" target="_blank" rel="noreferrer noopener">An iron curtain for AI: how to improve autonomous AI agent security | Kaspersky official blog</a></h2>
+<p class="reference-note"># Why AI agents need an iron curtain. Researcher Niels Provos’ prototype IronCurtain architecture: a system designed to …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
