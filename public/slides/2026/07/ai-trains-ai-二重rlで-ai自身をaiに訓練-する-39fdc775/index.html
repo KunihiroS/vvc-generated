@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>ai-trains-ai：二重RLで“AI自身をAIに訓練”する</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      box-sizing: border-box;
+      border-radius: 0px;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .slide-inner{
+      position: relative;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .slide-top{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 24px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.02;
+      margin: 10px 0 12px;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.35;
+      color: var(--ink);
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 16px;
+    }
+    .grid{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      background: rgba(0,0,0,0.10);
+      box-sizing: border-box;
+      min-height: 78px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .value{
+      font-size: 20px;
+      line-height: 1.25;
+      color: var(--ink);
+    }
+    .muted{ color: var(--ink-3); }
+    .small{
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+      max-width: 920px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.10);
+    }
+    .ref-title{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-2);
+      font-size: 16px;
+      margin-bottom: 6px;
+      letter-spacing: 0.02em;
+    }
+    .ref-url{
+      font-size: 18px;
+      color: var(--ink);
+      word-break: break-word;
+    }
+    .closing{
+      margin-top:auto;
+      padding-top: 14px;
+    }
+    .bottom-hint{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      margin-top: 14px;
+      letter-spacing: 0.04em;
+    }
+    @media (max-width: 520px){
+      .slide{ padding: 28px 22px; }
+      .slide::before{ inset: 12px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">ai-trains-ai</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">二重RLで自己強化</div>
+        <div class="title"><span class="em">AI</span>をAIに訓練</div>
+        <div class="lead">外側エージェントが“学習ジョブ”を生成し、内側（GPU上）でそのジョブがRL学習として実行されます。隠れ評価の結果が外側の報酬になり、学習ジョブ生成スキル自体がさらに強化されます。</div>
+        <div class="closing">
+          <div class="bottom-hint">Reading deck（読書用）／二重RL：Outer（ジョブ生成）⇄ Inner（prime-rl実行）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">肝は“報酬の意味”</div>
+        <div class="title">因果が曖昧</div>
+        <div class="lead">二重ループでは、外側の上達が「本当に学習設計が良くなったのか／評価が偏ったのか」を見分けにくくなります。特に報酬が内側のhidden evalに依存するため、評価妥当性と計算基盤が結果の解釈を左右します。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="presentation">
+          <div class="cell">
+            <div class="label">難所</div>
+            <div class="value">hidden evalが鍵</div>
+          </div>
+          <div class="cell">
+            <div class="label">難所</div>
+            <div class="value">GPU運用が学習に影響</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">コーチが教材を作る</div>
+        <div class="title">教材生成RL</div>
+        <div class="lead">外側は“コーチ”として、環境・報酬・ハイパラ等を含む「学習カリキュラム（ジョブ）」を作ります。内側は“選手”として、そのカリキュラムどおりにprime-rl（GRPO）で小型モデルを訓練し、出来栄えが成績（報酬）になります。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">Outer：ジョブを生成</div>
+        <div class="title">外側のRL</div>
+        <div class="lead">外側エージェント（Trainer agent）はQwen3.6-35B系モデルにLoRAを当て、Tinkerを用いたGRPOで訓練されます。行動は「学習ジョブ仕様」を出すこと（verifiers環境、ルーブリック、prime-rl設定テーブル等を含む）です。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" role="presentation">
+          <div class="cell">
+            <div class="label">行動</div>
+            <div class="value">ジョブ仕様を生成</div>
+          </div>
+          <div class="cell">
+            <div class="label">中身</div>
+            <div class="value">環境・報酬・検証</div>
+          </div>
+          <div class="cell">
+            <div class="label">訓練</div>
+            <div class="value">GRPO（importance-sampling GRPO）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Architecture 2">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">Inner：GPUでprime-rl</div>
+        <div class="title">内側のRL</div>
+        <div class="lead">内側では生成された仕様に基づき、GPU上で小型ベースモデル（例：Qwen3-0.6B/1.7Bなど）をprime-rl（GRPO）で学習します。出来栄えはhidden eval（隠れ評価）やベースライン比でスコア化され、その値が外側の報酬になります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="presentation">
+          <div class="cell">
+            <div class="label">入力</div>
+            <div class="value">外側が作る“ジョブ仕様”</div>
+          </div>
+          <div class="cell">
+            <div class="label">出力</div>
+            <div class="value">hidden evalスコア</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Reward">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">報酬＝結果×信号</div>
+        <div class="title">報酬の分解</div>
+        <div class="lead">エピソード報酬は、検証を通す確率（最初の試行で有効提出を作れるか等）と、ジョブ品質（ポスト評価スコアとベースライン改善）を混ぜた構造です。さらに“少量のタイブレーク”が含まれ、報酬スパースさを緩和する狙いがあります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" role="presentation">
+          <div class="cell">
+            <div class="label">軸 i</div>
+            <div class="value">検証通過（成立性）</div>
+          </div>
+          <div class="cell">
+            <div class="label">軸 ii</div>
+            <div class="value">ポスト評価（質）</div>
+          </div>
+          <div class="cell">
+            <div class="label">軸 iii</div>
+            <div class="value">ベースライン改善</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Two-stage learning">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">上達は二段階</div>
+        <div class="title">プロセス→質</div>
+        <div class="lead">観測上、最初の改善は“検証・完走可能性（プロセス信頼性）”に現れ、その後に“モデル品質（ベースライン比やポスト評価）”が上がったとされています。これにより、最適化の因果が比較的追いやすいと主張されています。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="presentation">
+          <div class="cell">
+            <div class="label">段階 1</div>
+            <div class="value">有効提出率・生存率 ↑</div>
+          </div>
+          <div class="cell">
+            <div class="label">段階 2</div>
+            <div class="value">ベースライン改善・スコア ↑</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Results">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">報酬は0→ピーク</div>
+        <div class="title">学習曲線</div>
+        <div class="lead">報酬は0.0付近から約0.63まで上昇し、計54ステップの訓練で結果が改善したと報告されています。初期は“まず動く”方向に寄り、次に性能改善が乗る形でした。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" role="presentation">
+          <div class="cell">
+            <div class="label">初期</div>
+            <div class="value">0.0付近</div>
+          </div>
+          <div class="cell">
+            <div class="label">ピーク</div>
+            <div class="value">約0.63</div>
+          </div>
+          <div class="cell">
+            <div class="label">時間</div>
+            <div class="value">54ステップ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Generalization">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">未学習でも伸びる？</div>
+        <div class="title">triage汎化</div>
+        <div class="lead">学習に含まれていないタスクファミリー（triage）でも性能が一定の伸びを示し、過学習だけではなさそうだと主張されています。ただし統計的頑健性と、hidden evalが現実タスクをどれだけ反映するかは追加情報が必要です。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="presentation">
+          <div class="cell">
+            <div class="label">示唆</div>
+            <div class="value">暗記より学習ジョブ生成の汎化</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意</div>
+            <div class="value">サンプルサイズ・評価妥当性が鍵</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Critical points">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">報酬設計で“最適化”が変わる</div>
+        <div class="title">解釈の落とし穴</div>
+        <div class="lead">検証通過を報酬に含めると、短期的には“提出を通す技術”が先に伸びます。だからこそ、品質改善との切り分けが必須で、検証報酬が支配すると本質的能力が見えにくくなるリスクがあります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="presentation">
+          <div class="cell">
+            <div class="label">利点</div>
+            <div class="value">報酬スパース緩和（成立性を作る）</div>
+          </div>
+          <div class="cell">
+            <div class="label">リスク</div>
+            <div class="value">検証最適化に適応しやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Hidden eval">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">hidden evalの妥当性</div>
+        <div class="title">評価の裏取り</div>
+        <div class="lead">提示文書ではhidden evalの存在やvLLMでの事前/事後スコアリングが述べられる一方、データ生成手順・リーク対策・厳密な妥当性検証は読み切れません。再現や信頼性評価には、hidden evalの仕様と統計的管理が必要になります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" role="presentation">
+          <div class="cell">
+            <div class="label">不明点</div>
+            <div class="value">生成プロセス</div>
+          </div>
+          <div class="cell">
+            <div class="label">不明点</div>
+            <div class="value">リーク対策</div>
+          </div>
+          <div class="cell">
+            <div class="label">不明点</div>
+            <div class="value">統計的な頑健性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Infra impacts">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">GPUオーケストレーション</div>
+        <div class="title">計算が学習を歪める</div>
+        <div class="lead">内側ジョブが多数走るため、GPU選定・並列度・失敗時の扱い（ジョブが死ぬと一定スコアなど）・ストラグラ対策（async off-policy）などが、報酬信号の分布と学習ダイナミクスに直結します。別環境で再現する際は再調整が必要になり得ます。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="presentation">
+          <div class="cell">
+            <div class="label">影響 i</div>
+            <div class="value">並列・故障時のスコア</div>
+          </div>
+          <div class="cell">
+            <div class="label">影響 ii</div>
+            <div class="value">非同期オフポリシー補正</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="Safety and practicalities">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">14 / 16</div>
+        </div>
+        <div class="eyebrow">応用は可能、でも慎重に</div>
+        <div class="title">価値と限界</div>
+        <div class="lead">価値：外側が“教育設計（ジョブ）”をし、内側が“実行（prime-rl）”し、結果で外側が学習する循環を、オープンに回しています（evaluatable）。限界：評価（hidden eval）と計算資源の再現性、安全性（コード実行の攻撃面）を精査しないと、現実タスクで再現できない可能性があります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="presentation">
+          <div class="cell">
+            <div class="label">価値</div>
+            <div class="value">改善の因果が観測しやすい（段階曲線）</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意</div>
+            <div class="value">評価妥当性・再現性・安全の裏取り</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="References">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">references</div>
+          <div class="slide-num">15 / 16</div>
+        </div>
+        <div class="eyebrow">一次情報に当たる</div>
+        <div class="title">References</div>
+        <div class="lead">この要約は、ユーザー提示のREADME要旨と論点整理に基づく二次要約です。正確な式・評価仕様・ハイパラ・再現手順は、公式README/リポジトリ本文で確認してください（hidden evalは特に重要）。</div>
+        <div class="rule"></div>
+        <div class="refs" role="presentation">
+          <div class="ref-item">
+            <div class="ref-title">Project repository (ai-trains-ai)</div>
+            <div class="ref-url">（ユーザー提示のREADME全文URLが未提示のため、こちらは空欄）</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">prime-rl（GRPO）関連</div>
+            <div class="ref-url">（prime-rl GRPOの一次情報URLは未提示）</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">Tinker / vLLM スコアリング手順</div>
+            <div class="ref-url">（評価プロトコルの一次情報URLは未提示）</div>
+          </div>
+        </div>
+        <div class="bottom-hint">補足（JA）：必要なら、あなたのREADMEのURL/該当箇所を貼ってください。Referencesを一次情報に差し替えます。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
