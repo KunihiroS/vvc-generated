@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>AI長期メモリの「削除ギャップ」— 説得装置化のリスク</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing:border-box; }
+    html, body { margin:0; padding:0; background: var(--cream); color: var(--ink); }
+    body { font-family: "Noto Serif JP", serif; }
+    .deck { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 24px 0 64px; display:flex; flex-direction:column; gap:24px; }
+    .slide {
+      background: var(--paper);
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 6px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      width: 100%;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      background:
+        linear-gradient(to bottom, rgba(240,232,216,0.03), rgba(240,232,216,0.00) 35%);
+      pointer-events:none;
+    }
+    .topline{
+      position:absolute; left:28px; right:28px; top:26px; height:1px;
+      background: var(--rule);
+    }
+    .slide-tag{
+      position:absolute; left:28px; top:20px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: .16em;
+      font-size: 14px;
+      color: var(--ink-3);
+      font-style: italic;
+      text-transform: uppercase;
+      display:flex; align-items:center; gap:12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width:42px; height:2px; background: var(--rust);
+      box-shadow: 0 0 0 6px rgba(232,129,74,0.08);
+    }
+    .slide-num{
+      position:absolute; right:28px; top:20px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+    }
+    .content{
+      position:relative;
+      z-index:1;
+      height: 100%;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      gap: 16px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 10px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.0;
+      margin: 0;
+      color: var(--ink);
+      letter-spacing: .01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.35;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 2px;
+    }
+    .rule-h{
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 6px;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px 12px;
+      background: rgba(240,232,216,0.02);
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 12px;
+      letter-spacing: .08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card h4{
+      margin:0 0 8px;
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--ink-2);
+    }
+    .card p{
+      margin:0;
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height:1.35;
+      font-weight: 300;
+    }
+    .footer{
+      margin-top:auto;
+      padding-top: 18px;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-3);
+      font-size: 14px;
+      font-family: "Inter Tight", sans-serif;
+      letter-spacing: .02em;
+      position:relative;
+      z-index:1;
+    }
+    @media (max-width: 720px){
+      .slide { padding: 40px 22px; }
+      .slide-tag{ left: 16px; top: 14px; }
+      .slide-num{ right: 16px; top: 14px; }
+      .topline{ left: 16px; right: 16px; top: 14px; }
+      .title{ font-size: 42px; }
+      .lead{ font-size: 18px; }
+      .card p{ font-size: 16px; }
+      .card h4{ font-size: 16px; }
+      .mono{ font-size: 14px; }
+      .small{ font-size: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="slide-tag">Long-Term Memory / 長期記憶</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">削除の先に残るもの</div>
+        <h1 class="title">「<em>圧縮政策</em>」問題</h1>
+        <div class="lead">AIの長期メモリは、単なるログ保存ではなく「行動のためのルール（compressed policy）」を内部化し得ます。その結果、“消したはず”が次回の説得や誘導に再合成されるリスクがあります。</div>
+        <div class="rule-h"></div>
+        <div class="grid two" style="margin-top:10px;">
+          <div class="card">
+            <div class="label">Key idea / 核</div>
+            <p>削除対象（生ログ）と、残る危険（推定ルール）がズレる。</p>
+          </div>
+          <div class="card">
+            <div class="label">Why now / いま</div>
+            <p>プライバシー対策UIが「安心感」を誤作動させる。</p>
+          </div>
+        </div>
+        <div class="footer">このスライドは、提示された議論の要点を読みやすく圧縮して整理しています。</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="slide-tag">The Core Gap / 削除ギャップ</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">「消した」つもり</div>
+        <h2 class="title">delete <em>vs</em> inference</h2>
+        <div class="lead">生の発話やメッセージを削除しても、そこから推定された推論器や圧縮された政策が残れば、次の応答が同じ方向へ再生成され得ます。</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Delete / 削除する層</div>
+            <p class="small"><span class="mono">evidence</span>（例：発話ログ、メッセージ）</p>
+          </div>
+          <div class="card">
+            <div class="label">Remain / 残り得る層</div>
+            <p class="small"><span class="mono">estimator / compressed policy</span>（推定ルール、行動指紋）</p>
+          </div>
+        </div>
+        <div class="footer">結論：削除は“証拠”には効いても、“能力（capability）”に効かない場合がある。</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor">
+      <div class="slide-tag">Behavior Fingerprint / 行動指紋</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">嗜好より“折れる癖”</div>
+        <h2 class="title">ためらいの保存</h2>
+        <div class="lead">「安いのが好き」より危険なのは、拒否が連続した後にどこで譲歩するか、どんな制約を先に緩めるか、という“行動の折り方”が学習されることです。</div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">Indecision / ためらい</div>
+            <p>矛盾が解ける条件</p>
+          </div>
+          <div class="card">
+            <div class="label">Constraints / 境界条件</div>
+            <p>先に緩める制約の順序</p>
+          </div>
+          <div class="card">
+            <div class="label">Bargaining / 譲歩パターン</div>
+            <p>拒否→受容のタイミング</p>
+          </div>
+        </div>
+        <div class="footer">これが「パーソナライズ」から「交渉最適化」に近づく、と警告されています。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture">
+      <div class="slide-tag">Memory as Capability / 能力化</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">メモリ＝能力</div>
+        <h2 class="title"><em>record</em>ではなく<br/> <em>capability</em></h2>
+        <div class="lead">メモリは“記録”に見えても、推論結果が次の学習パイプラインへ入ると、重み・アダプタ・要約/ランキングのヒューリスティック等に潜り込む可能性があります。</div>
+        <div class="grid two" style="margin-top:6px;">
+          <div class="card">
+            <div class="label">What looks safe / 安全に見える</div>
+            <p>ログ削除、TTL（時限）、保存期間の設定</p>
+          </div>
+          <div class="card">
+            <div class="label">What may survive / 残る影響</div>
+            <p>推論→出力→学習の経路で固定化される“派生状態”</p>
+          </div>
+        </div>
+        <div class="footer">“保存期間”だけでは、影響の固定化を止められないことが争点です。</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide evidence">
+      <div class="slide-tag">Where the Risk Emerges / リスク源</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">説得が最適化対象になる</div>
+        <h2 class="title">相互作用の支配構造</h2>
+        <div class="lead">行動指紋がコントローラになった瞬間、モデル性能ではなく“相互作用の設計”が安全性を決めます。つまり、誘導がより当たるように最適化され得ます。</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Mechanism / 機構</div>
+            <p>拒否・譲歩の履歴 → 次の交渉戦略</p>
+          </div>
+          <div class="card">
+            <div class="label">Impact / 影響</div>
+            <p>ユーザーの選択が“反証不能な前払い”になる</p>
+          </div>
+        </div>
+        <div class="footer">安全性評価が「性能指標」から「相互作用設計」へ移る、という示唆です。</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide distinction">
+      <div class="slide-tag">Distinguish / 分けて考える</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">ログ vs 派生物</div>
+        <h2 class="title">削除“だけ”の限界</h2>
+        <div class="lead">議論の焦点は、削除操作が届く層と、推論結果が内部化される層が一致しないことです。特に「圧縮された政策」は削除対象になりにくい、とされます。</div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">Layer i / i層</div>
+            <p>生ログ（発話・メッセージ）</p>
+          </div>
+          <div class="card">
+            <div class="label">Layer ii / ii層</div>
+            <p>推定（estimator）</p>
+          </div>
+          <div class="card">
+            <div class="label">Layer iii / iii層</div>
+            <p>圧縮された政策（compressed policy）</p>
+          </div>
+        </div>
+        <div class="footer">問題は“i層を消しても、ii/iii層に効かない”ことがあり得る点です。</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide enumeration">
+      <div class="slide-tag">Four Questions / 点検項目</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">何を・誰が・どう</div>
+        <h2 class="title">設計点検</h2>
+        <div class="lead">ためらいを保存すること自体が即悪ではありません。危険性は「何を保存し、何が起きるか」で決まります。</div>
+        <div class="grid two" style="margin-top:6px;">
+          <div class="card">
+            <div class="label">i. 保存の中身</div>
+            <p>どの“層”の情報を保持するか</p>
+          </div>
+          <div class="card">
+            <div class="label">ii. 反証可能性</div>
+            <p>ユーザーが拒否・無効化できるか</p>
+          </div>
+          <div class="card">
+            <div class="label">iii. 影響の経路</div>
+            <p>推定が次の行動を変えるか</p>
+          </div>
+          <div class="card">
+            <div class="label">iv. ガバナンス</div>
+            <p>保持者・監査・開示・編集の権限</p>
+          </div>
+        </div>
+        <div class="footer">争点は「データ操作」より「統治と影響制御」です。</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide process">
+      <div class="slide-tag">TTL Isn’t Enough / TTL限界</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">時限は万能ではない</div>
+        <h2 class="title">削除・TTLの <em>穴</em></h2>
+        <div class="lead">TTLや保存期間の設定でも、推論を条件づけた出力が学習パイプラインへ入ると、影響が残る形で固定化され得ます。さらに派生の要約やランキングが残る場合もあります。</div>
+        <div class="grid two" style="margin-top:6px;">
+          <div class="card">
+            <div class="label">Supposed control / 想定制御</div>
+            <p>保存期間・削除（レジーム検出の補助）</p>
+          </div>
+          <div class="card">
+            <div class="label">Observed failure mode / 失敗の形</div>
+            <p>推論→出力→学習で“重み側”に影響が移る</p>
+          </div>
+        </div>
+        <div class="footer">従って、影響の“経路”を特定する必要がある、という立場です。</div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide comparison">
+      <div class="slide-tag">Governance vs UI / UIと統治</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">安心UIの罠</div>
+        <h2 class="title"><em>theater</em>（儀式）</h2>
+        <div class="lead">投稿は、生ログの削除要求を満たしても、実際には圧縮された政策が残ればプライバシー対策が“儀式”になる危険を強調します。開示や削除ボタンが安全性を自動的に担保しません。</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">UI promise / UIの約束</div>
+            <p>「消しました」</p>
+          </div>
+          <div class="card">
+            <div class="label">Threat reality / 脅威の現実</div>
+            <p>「推定ルールが再合成される」</p>
+          </div>
+        </div>
+        <div class="footer">結局、誰が何を保持し、誰がどこまで制御できるかが問われます。</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide evidence">
+      <div class="slide-tag">Open Disclosure / 開示の限界</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">透明性＝安全ではない</div>
+        <h2 class="title">開示しても <em>残る</em></h2>
+        <div class="lead">「説明すれば安全」だけでは不十分です。開示が合意形成や操作の成立に繋がり得て、推論が生き残る限り危険は消えない、と議論されています。</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Transparency / 透明化</div>
+            <p>推論の根拠や保持内容の提示</p>
+          </div>
+          <div class="card">
+            <div class="label">Still unsafe / それでも危険</div>
+            <p>推定→出力→学習で“影響が固定化”</p>
+          </div>
+        </div>
+        <div class="footer">安全性は説明の有無より、影響の層と経路で決まる、という見方です。</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide distinction">
+      <div class="slide-tag">Your Take / あなたの見立て</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">支持しつつ前へ</div>
+        <h2 class="title">削除ボタンより <em>統治設計</em></h2>
+        <div class="lead">強みは、「削除すれば終わり」という表層から、削除可能性が一致しない可能性を丁寧に突く点です。特に“生ログ vs 圧縮政策”のズレの説明は実務的示唆が大きい、という立場です。</div>
+        <div class="grid two" style="margin-top:6px;">
+          <div class="card">
+            <div class="label">Strength / 強み</div>
+            <p>削除の空白（消せるはず→消えない）を明確化</p>
+          </div>
+          <div class="card">
+            <div class="label">Focus / 重点</div>
+            <p>「推論・影響の層」を特定し、反証・無効化を設計する</p>
+          </div>
+        </div>
+        <div class="footer">解決は“削除手段の増加”より、“層への統治”の優先。</div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide comparison">
+      <div class="slide-tag">Limitations / 残る課題</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">実装の詰めが不足</div>
+        <h2 class="title">検証可能性が足りない</h2>
+        <div class="lead">議論内では様々な技術要素（例：RustChain、アテステーション、deterministic classifier、k-of-n合意など）が言及される一方、どの層がどの操作でどの程度消える/復元されるかの体系化が弱い印象があります。</div>
+        <div class="grid two" style="margin-top:6px;">
+          <div class="card">
+            <div class="label">Missing / 不足</div>
+            <p>“どの実装で、どの程度”起きるかの定量</p>
+          </div>
+          <div class="card">
+            <div class="label">Need / 必要</div>
+            <p>監査可能なプロトコル設計の具体</p>
+          </div>
+        </div>
+        <div class="footer">これは反証ではなく、今後の研究・設計課題の輪郭とも言えます。</div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide process">
+      <div class="slide-tag">Architectural Controls / 事前設計</div>
+      <div class="slide-num">14 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">事後より事前へ</div>
+        <h2 class="title">アーキテクチャ制約</h2>
+        <div class="lead">解決策は“後から取消できるようにする”だけでなく、推論が行動へ結びつきにくい構造、学習経路へ入れない分離、出力への隔離を徹底するアーキテクチャが現実的な道筋になります。</div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">Isolation / 分離</div>
+            <p>推論と学習の経路を隔てる</p>
+          </div>
+          <div class="card">
+            <div class="label">No leakage / 漏れ防止</div>
+            <p>推論根拠を学習へ通さない</p>
+          </div>
+          <div class="card">
+            <div class="label">Control / 統制</div>
+            <p>反証・無効化の権限設計</p>
+          </div>
+        </div>
+        <div class="footer">「禁止」か「柔軟な運用」か以前に、影響が残る経路を遮断する発想です。</div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide closing">
+      <div class="slide-tag">Takeaway / まとめ</div>
+      <div class="slide-num">15 / 16</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">結局、何を守る？</div>
+        <h2 class="title">“削除”より <em>影響</em></h2>
+        <div class="lead">長期メモリの危険は、ログ削除ではなく「圧縮された政策（derived/compressed policy）」が次の相互作用を変えることにあります。だから対策は、影響の層と経路を特定し、ユーザーが反証・無効化できる統治と、事前の分離設計を優先すべきです。</div>
+        <div class="grid two" style="margin-top:8px;">
+          <div class="card">
+            <div class="label">Checklist / チェック</div>
+            <p>保存する層／制御可能性／影響の経路／監査・権限</p>
+          </div>
+          <div class="card">
+            <div class="label">Goal / 目標</div>
+            <p>説得装置化を防ぎ、ユーザーの自律性を守る</p>
+          </div>
+        </div>
+        <div class="footer">— References / 参考 — 本デッキは、ユーザー提示の要約・論点（生ログ/圧縮政策、TTL限界、ガバナンス等）を整理したものです。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
