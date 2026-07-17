@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>敵対的自己対戦で「AIコードのslop」を抑える（Telosハーネスの狙いと評価）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px 0 48px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+    .topline{
+      position:absolute;
+      left: 24px; right: 24px; top: 22px;
+      height: 1px;
+      background: var(--rule-strong);
+      opacity: 0.55;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 20px; left: 24px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.16em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+    .slide-num{
+      position:absolute;
+      top: 20px; right: 24px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 6px;
+      letter-spacing: 0.02em;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      line-height: 0.95;
+      margin: 0 0 18px 0;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 18px 0;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell h4{
+      margin:0 0 8px 0;
+      font-family: "Inter Tight", "Noto Serif JP", serif;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+    }
+    .cell p{
+      margin:0;
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 500;
+    }
+    .jp{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 300;
+      margin-top: 8px;
+    }
+    .listgrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .pair{
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 14px;
+      background: rgba(0,0,0,0.08);
+      min-height: 90px;
+    }
+    .pair .k{
+      font-family: "Inter Tight", serif;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 700;
+      margin-bottom: 8px;
+      display:flex;
+      gap:10px;
+      align-items: baseline;
+    }
+    .pair .v{
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 300;
+      margin:0;
+      color: var(--ink);
+    }
+    .italicRust{
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 18px;
+    }
+    .note{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.6;
+      max-width: 820px;
+    }
+    .closing{
+      position:absolute;
+      left: 72px; right: 72px; bottom: 64px;
+      max-width: 920px;
+    }
+    .closing .lead{
+      max-width: none;
+    }
+    @media (max-width: 900px){
+      .slide{ padding: 44px 44px; border-width: 14px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" style="margin-top:0;">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">敵対的検証でslopを抑える</div>
+      <h1 class="title"><span class="em">Telos</span> harness</h1>
+      <div class="lead">AIが書いたコードは速く作れても、保守しづらい“slop”が残りがちです。Telosは敵対的自己対戦で、その後送りコストを減らすことを狙います。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">合格しても危ない</div>
+      <h1 class="title"><span class="em">slop</span>問題</h1>
+      <div class="lead">表面テストや見た目の完成度に合格しても、読む・消費するのに人間の努力が増えるコードが生まれます（slop）。短期の最適化が、設計・保守性・要件整合の負債を後ろに押しやります。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">04 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">バグ vs 保守コスト</div>
+      <h1 class="title">品質の<span class="em">別軸</span></h1>
+      <div class="lead">Telosが測りたいのは「バグの有無」だけではなく、消費者（人間）が払い続ける摩擦です。例：冗長コメント、デッドコード、形だけのテスト、仕様からのズレ。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>短期合格</h4>
+          <p>テスト通過・見た目の整合に最適化しがち</p>
+          <div class="jp">（short-term “pass”）</div>
+        </div>
+        <div class="cell">
+          <h4>slop（後払い）</h4>
+          <p>読む/保守するコストが増える状態</p>
+          <div class="jp">（cost deferred）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">05 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">ひとり採点は甘い</div>
+      <h1 class="title">“疑う側”の設計</h1>
+      <div class="lead">自己評価（生成役が自分で内省）は局所最適に陥りやすいです。Telosは検証役を独立に用意し、懐疑的・敵対的にルーブリック採点させて手抜きを抑えます。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <h4>生成役</h4>
+          <p>コードを書くエージェント</p>
+        </div>
+        <div class="cell">
+          <h4>検証役</h4>
+          <p>レビュー/テストで採点するエージェント</p>
+        </div>
+        <div class="cell">
+          <h4>バックプレッシャー</h4>
+          <p>譲歩しない圧力で改善を強制</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">06 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">ゴール仕様を契約に</div>
+      <h1 class="title">Goal spec × ループ</h1>
+      <div class="lead">Telosは同じ目的仕様（goal spec：自然言語）を入力に、生成→敵対検証→修正のループを回します。検証役が譲歩するか、レビュー予算が尽きたら終了します。</div>
+      <div class="rule"></div>
+      <div class="listgrid">
+        <div class="pair">
+          <div class="k"><span class="italicRust">i</span> 入力</div>
+          <p class="v"><span class="mono">goal spec</span>（自然言語仕様）</p>
+          <div class="jp">（仕様の契約化）</div>
+        </div>
+        <div class="pair">
+          <div class="k"><span class="italicRust">ii</span> 反復</div>
+          <p class="v">生成エージェントと検証役（レビュー/テスト）</p>
+          <div class="jp">（adversarial loop）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">07 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">“長く保つ”ための反復</div>
+      <h1 class="title">検証予算で整える</h1>
+      <div class="lead">単発の自己批判ではなく、検証役が拒否できる前提で改善を繰り返します。結果として、短期最適よりも仕様整合を優先する方向に安定化します。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>終了条件</h4>
+          <p>検証役の譲歩 or レビュー予算（max passes）</p>
+        </div>
+        <div class="cell">
+          <h4>狙い</h4>
+          <p>破綻しやすい自己批判ループを“ストッパー”で安定化</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">08 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">SlopCodeBenchで測る</div>
+      <h1 class="title">計測で<span class="em">slop</span>へ</h1>
+      <div class="lead">評価には SlopCodeBench を使用し、5問の代表セットで実験（最大5パス）した結果を報告しています。コード侵食（erosion）などのslop兆候が減り、検証者が拒否する事例も見られます。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <h4>条件</h4>
+          <p>5問・max 5パス</p>
+          <div class="jp">（limited eval）</div>
+        </div>
+        <div class="cell">
+          <h4>観測</h4>
+          <p>erosion / slop兆候が減少</p>
+          <div class="jp">（qual signals）</div>
+        </div>
+        <div class="cell">
+          <h4>例</h4>
+          <p>隠しテスト高得点でも拒否</p>
+          <div class="jp">（表層最適を抑制）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">09 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">隠しテスト高得点でも拒否</div>
+      <h1 class="title">“必要条件”の罠</h1>
+      <div class="lead">隠しテストは仕様の一部しか測らないことがあります。Telosでは隠しテストにない仕様条項を検証する“埋め込みプローブ”が増え、仕様逸脱を拾いやすくなると述べています。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>見える評価</h4>
+          <p>隠しテストのスコアが高い</p>
+          <div class="jp">（score ≠ acceptance）</div>
+        </div>
+        <div class="cell">
+          <h4>拒否理由</h4>
+          <p>仕様条項の不足・機能バグなど</p>
+          <div class="jp">（spec-aware checks）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">時間が経つと差が出る</div>
+      <h1 class="title">回帰テストが効く</h1>
+      <div class="lead">過去のチェックポイントを再検証すると、単発型エージェントは前段要件への回帰に失敗しやすい一方で、Telosは回帰パス率を高く維持しやすいと報告されています。これは“コード作成”から“仕様維持”への転換を示します。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>単発型</h4>
+          <p>過去要件への回帰が弱い</p>
+          <div class="jp">（drift）</div>
+        </div>
+        <div class="cell">
+          <h4>Telos</h4>
+          <p>回帰パス率を維持</p>
+          <div class="jp">（durable spec）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">11 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">契約としての仕様</div>
+      <h1 class="title">Specは“正”</h1>
+      <div class="lead">本文の方向性は、「仕様（spec）を耐久的な契約として扱う」ことです。実装（コード）は更新され続けても、過去も含めて仕様との整合を再確認することでドリフトを抑える狙いがあります。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <h4>正</h4>
+          <p>仕様（spec / contract）</p>
+        </div>
+        <div class="cell">
+          <h4>更新</h4>
+          <p>コードは作り直しに近い運用</p>
+        </div>
+        <div class="cell">
+          <h4>監査</h4>
+          <p>過去チェックポイントの再検証</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">12 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">自己評価 vs 敵対検証</div>
+      <h1 class="title">なぜ“分離”する</h1>
+      <div class="lead">生成役と検証役を分けることで、生成者がローカル最適に逃げる余地を減らします。懐疑的な検証者は、表面の合格だけでは通らない改善方向を提示できます。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>単一エージェント</h4>
+          <p>検索として厳しく、検証は相対的に甘くなりやすい</p>
+          <div class="jp">（self critic risk）</div>
+        </div>
+        <div class="cell">
+          <h4>敵対的検証</h4>
+          <p>譲歩しない採点でバックプレッシャーを与える</p>
+          <div class="jp">（adversarial brake）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">13 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">良い点（著者の主張）</div>
+      <h1 class="title">slopを減らす要因</h1>
+      <div class="lead">本文は、敵対的ループが slop 兆候を抑え、仕様整合を長期で維持しやすいと主張します。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="pair">
+          <div class="k"><span class="italicRust">i</span> 兆候低減</div>
+          <p class="v">erosionや冗長/死んだ/形だけの検証が減る</p>
+        </div>
+        <div class="pair">
+          <div class="k"><span class="italicRust">ii</span> 表層最適抑制</div>
+          <p class="v">隠しテスト高得点でも拒否し得る</p>
+        </div>
+        <div class="pair">
+          <div class="k"><span class="italicRust">iii</span> プローブ強化</div>
+          <p class="v">埋め込みプローブで仕様条項を補足</p>
+        </div>
+        <div class="pair">
+          <div class="k"><span class="italicRust">iv</span> 回帰維持</div>
+          <p class="v">過去チェックポイントの再検証で差が出る</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">14 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">注意点（一般化の壁）</div>
+      <h1 class="title">万能ではない</h1>
+      <div class="lead">slopは多面的で、ルーブリック設計やベンチ仕様に強く依存します。5問・限られた条件での評価のため、広いタスクやチーム標準へそのまま外挿できるとは断定できない、とする見解です。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <h4>測定の限界</h4>
+          <p>ベンチは“現場品質”を完全には表さない</p>
+        </div>
+        <div class="cell">
+          <h4>計算コスト</h4>
+          <p>レビュー予算（max passes）で効きやすさが変動</p>
+        </div>
+        <div class="cell">
+          <h4>ルーブリック</h4>
+          <p>採点の質が結果を左右する</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">15 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">実務でのリスクと設計</div>
+      <h1 class="title">運用設計が鍵</h1>
+      <div class="lead">敵対的ループは品質を押し上げ得ますが、同時にコストと“採点の偏り”も持ち込みます。運用ではルーブリック、拒否/改善の基準、レビュー体制との相互作用を設計する必要があります。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>リスク</h4>
+          <p>ベンチ適応（bench overfitting）、コスト増、検証漏れ</p>
+        </div>
+        <div class="cell">
+          <h4>対策案</h4>
+          <p>外部の検証（追加ベンチ/人手レビュー/セキュリティ評価）を併用</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVALUABLE</div>
+      <div class="slide-num">16 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">評価可能性の整理</div>
+      <h1 class="title">科学・実務・統治</h1>
+      <div class="lead">SlopCodeBenchによる計測、erosion/回帰パス率などの指標は評価可能性を高めます。一方で安全性・ガバナンスの運用詳細は追加情報が必要です。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>Scientific / Evaluable</h4>
+          <p>SlopCodeBench + 測れる兆候</p>
+          <div class="jp">（qual→quant寄せ）</div>
+        </div>
+        <div class="cell">
+          <h4>Practical</h4>
+          <p>レビュー予算・仕様ファイル・再テスト</p>
+          <div class="jp">（プロセス化）</div>
+        </div>
+        <div class="cell">
+          <h4>Risk</h4>
+          <p>ルーブリック不備と計算コスト</p>
+        </div>
+        <div class="cell">
+          <h4>Security / Safety / Governance</h4>
+          <p>仕様逸脱の抑制には寄与し得るが、セキュリティ評価は未詳</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">17 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">結論</div>
+      <h1 class="title">AIに“契約”を守らせる</h1>
+      <div class="lead">この提案は「AIにコードを書く仕事を任せる」より、「仕様（契約）を守らせる」ための工学的アプローチとして有望です。実運用では、ベンチ指標の限界とルーブリック品質、そしてコストを慎重に見積もることが重要です。</div>
+      <div class="closing">
+        <div class="note">要点：敵対的検証 + 仕様の耐久化で、単発生成のドリフトを抑えやすくする。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">REFERENCES</div>
+      <div class="slide-num">18 / 21</div>
+      <div class="topline"></div>
+      <div class="eyebrow">参照</div>
+      <h1 class="title">用語</h1>
+      <div class="lead">本デッキはユーザー提供の文章内容を圧縮要約しています。登場する主要概念は以下です。</div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <h4>Telos harness</h4>
+          <p>生成役と敵対的検証役をループさせる枠組み</p>
+          <div class="jp">（敵対的自己対戦 / adversarial self-play）</div>
+        </div>
+        <div class="cell">
+          <h4>SlopCodeBench</h4>
+          <p>slop兆候を測ろうとするベンチマーク</p>
+          <div class="jp">（slop測定）</div>
+        </div>
+        <div class="cell">
+          <h4>goal spec</h4>
+          <p>目的仕様（自然言語）</p>
+          <div class="jp">（契約化）</div>
+        </div>
+        <div class="cell">
+          <h4>プローブ / 回帰</h4>
+          <p>隠しテスト外の条項を補う確認、過去チェックポイントの再検証</p>
+          <div class="jp">（embedded probes / regression）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 21</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2603.24755v1" target="_blank" rel="noreferrer noopener">SlopCodeBench: Benchmarking How Coding Agents Degrade Over ...</a></h2>
+<p class="reference-note">Recent iterative benchmarks attempt to close this gap, but constrain the agent’s design decisions too tightly to faithfu…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=nvXDnW6en9E" target="_blank" rel="noreferrer noopener">SlopCodeBench: Benchmarking How Coding Agents Degrade Over Long ...</a></h2>
+<p class="reference-note">This paper introduces SlopCodeBench (SCBench), a language-agnostic benchmark designed to measure how AI coding agents ma…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">20 / 21</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.mindstudio.ai/blog/agent-harnesses-beat-model-upgrades-5-benchmarks" target="_blank" rel="noreferrer noopener">Agent Harnesses Beat Model Upgrades: 5 Benchmarks That Prove the Harness Is Now the Product | MindStudio</a></h2>
+<p class="reference-note"># Agent Harnesses Beat Model Upgrades: 5 Benchmarks That Prove the Harness Is Now the Product. GPT-5.5 jumped from 61.5%…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/theprimeagen/comments/1smmqi4/slopcodebench_benchmarking_how_coding_agents" target="_blank" rel="noreferrer noopener">SlopCodeBench: Benchmarking How Coding Agents Degrade Over ...</a></h2>
+<p class="reference-note">GPT 5.4 spends 47.9% more per run under anti_slop, $450 vs. $304, and 29.2% more under plan_first at $393. On dynamic_bu…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">21 / 21</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://huggingface.co/papers/2603.24755" target="_blank" rel="noreferrer noopener">Paper page - SlopCodeBench: Benchmarking How Coding Agents Degrade Over Long-Horizon Iterative Tasks</a></h2>
+<p class="reference-note">Recent iterative benchmarks attempt to close this gap, but constrain the agent&#39;s design decisions too tightly to faithfu…</p>
+</article>
+</div>
+</section>
+</div>
+
+  <script>
+    // Keep slide numbers consistent without changing layout preset.
+    (function(){
+      const slides = document.querySelectorAll('.slide');
+      slides.forEach((s, idx) => {
+        const num = s.querySelector('.slide-num');
+        if(!num) return;
+        const i = String(idx).padStart(2,'0');
+        const total = String(slides.length).padStart(2,'0');
+        // Replace NN / TT with actual.
+        num.textContent = (idx===0 ? "00" : i) + " / " + total;
+      });
+    })();
+  </script>
+</body>
+</html>
