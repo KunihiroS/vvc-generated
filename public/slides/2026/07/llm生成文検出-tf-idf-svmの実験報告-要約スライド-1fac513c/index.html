@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>LLM生成文検出：TF-IDF＋SVMの実験報告（要約スライド）</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .slide-inner{
+      position: relative;
+      height: 100%;
+      width: 100%;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      padding-right: 8px;
+    }
+
+    .top-row{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 16px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 24px;
+      color: var(--ink-2);
+      opacity: 0.95;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 68px;
+      line-height: 1;
+      margin-top: 2px;
+      color: var(--ink);
+      font-style: italic;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      color: var(--ink-2);
+      margin-top: 4px;
+    }
+
+    .content{
+      margin-top: 10px;
+      flex: 1;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      justify-content:flex-start;
+      padding-top: 6px;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 10px 0 0;
+    }
+
+    .grid{
+      width: 100%;
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.06);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .grid-row{
+      display:grid;
+      gap: 0;
+      border-top: 1px solid var(--rule);
+    }
+    .grid-row:first-child{ border-top: none; }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      padding: 16px 18px;
+      min-height: 54px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.25;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .center-hero{
+      margin-top: auto;
+      margin-bottom: auto;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap: 10px;
+    }
+    .center-hero .title{
+      font-size: 88px;
+      max-width: 100%;
+    }
+
+    .closing{
+      justify-content:flex-start;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 48px 40px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ font-size: 14px; }
+      .slide-num{ font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Research Demo</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+
+        <div class="center-hero">
+          <div class="eyebrow">LLM検出を“古典ML”で</div>
+          <div class="title">TF-IDF＋<em>SVM</em></div>
+          <div class="lead">LLM生成文（AIGC）を、人間文と判別するための実験報告を読みやすく圧縮します。</div>
+        </div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">狙い</div>
+                <div class="v">検索ベースの“検出サービス”に頼らず、自作分類器を構築</div>
+              </div>
+              <div class="cell">
+                <div class="k">要点</div>
+                <div class="v">巨大モデル不要：語彙統計でも単文レベルで検出可能</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+
+        <div class="eyebrow">なぜ検出が必要？</div>
+        <div class="title">目的</div>
+        <div class="lead">学術不正の抑止、創作領域の透明性確保、投稿物の品質管理に関係します。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">前提</div>
+                <div class="v">LLMは統計的パターンで文章生成し、人間とは異なる“癖”が出る</div>
+              </div>
+              <div class="cell">
+                <div class="k">仮説</div>
+                <div class="v">その癖は巨大モデルなしでも、特徴量＋分類で拾える可能性</div>
+              </div>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="small">
+            まずの理解目安：<span class="mono">TF-IDF</span>＝語の重要度の特徴量、<span class="mono">SVM</span>＝特徴量から境界（分類ルール）を学習。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Idea</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+
+        <div class="eyebrow">検出の“仕組み”</div>
+        <div class="title">統計の指紋</div>
+        <div class="lead">LLM文は語の出方や組み合わせに偏りが出るため、その偏りを特徴として線形SVMに学習させます。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-3">
+              <div class="cell">
+                <div class="k"><span style="font-style: italic; color: var(--rust);">i</span> 特徴</div>
+                <div class="v">TF-IDFで語の重要度分布へ変換</div>
+              </div>
+              <div class="cell">
+                <div class="k"><span style="font-style: italic; color: var(--rust);">ii</span> 学習</div>
+                <div class="v">Linear SVCが人間/AIの境界を学習</div>
+              </div>
+              <div class="cell">
+                <div class="k"><span style="font-style: italic; color: var(--rust);">iii</span> 判定</div>
+                <div class="v">未知文を特徴量化し分類へ</div>
+              </div>
+            </div>
+          </div>
+          <div class="small">比較対象として他のベースラインも用い、perplexity単独から方針転換しています。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+
+        <div class="eyebrow">最初の試行</div>
+        <div class="title">Perplexity</div>
+        <div class="lead">予測確率（出にくさ）を使う方法を試しましたが、閾値設計が難しく、誤検知・見逃しが多く失敗しています。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">狙い</div>
+                <div class="v">単語が“出にくい度合い”でAIっぽさを推定</div>
+              </div>
+              <div class="cell">
+                <div class="k">問題</div>
+                <div class="v">合理的な閾値が定めにくく、運用で不安定</div>
+              </div>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="small">「性能」だけでなく「基準（閾値）設計」の重要性が示唆されています。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Pipeline</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+
+        <div class="eyebrow">学習データと単位</div>
+        <div class="title">単文学習</div>
+        <div class="lead">人間文約1万本と、LLMの“章要約→再生成”で作ったLLM文を用意し、文章を文単位に分割して評価しました。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">データ</div>
+                <div class="v">人間文：約1万本</div>
+              </div>
+              <div class="cell">
+                <div class="k">LLM文</div>
+                <div class="v">ほぼ同内容の章要約→再生成</div>
+              </div>
+            </div>
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">単位</div>
+                <div class="v">文（sentence）を分割して学習・評価</div>
+              </div>
+              <div class="cell">
+                <div class="k">分類器</div>
+                <div class="v">7つの二値分類器（7モデル）＋多数決</div>
+              </div>
+            </div>
+          </div>
+          <div class="small">長文は“疑い文の割合/疑い箇所”として扱う設計に繋がっています。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Results</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+
+        <div class="eyebrow">単文での強さ</div>
+        <div class="title">約85% </div>
+        <div class="lead">単文レベルでは、7モデルそれぞれ概ね85%前後の精度、F1も80%以上という結果を報告しています。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-3">
+              <div class="cell">
+                <div class="k">精度</div>
+                <div class="v">概ね 85% 前後</div>
+              </div>
+              <div class="cell">
+                <div class="k">F1</div>
+                <div class="v">80% 以上</div>
+              </div>
+              <div class="cell">
+                <div class="k">設計</div>
+                <div class="v">多数決で堅牢化</div>
+              </div>
+            </div>
+          </div>
+          <div class="small">誤りを抑えるため、「7つのうち2以上がAI判定」の文のみを疑う方針が示されています。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Ensemble</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+
+        <div class="eyebrow">多数決の論理</div>
+        <div class="title">誤判定抑制</div>
+        <div class="lead">単一モデルの誤りをそのまま採用せず、複数の二値分類器が一致した文だけをAI疑いに寄せます。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">ルール例</div>
+                <div class="v">7つのうち <span class="mono">2以上</span> がAI判定 → 疑う</div>
+              </div>
+              <div class="cell">
+                <div class="k">狙い</div>
+                <div class="v">閾値設計により偽陽性を抑え、誤りを減らす</div>
+              </div>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="small">記事では、投票ロジックと閾値設定の関係で「ほぼゼロに近い偽陽性率」を主張しています。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Deployment</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+
+        <div class="eyebrow">軽量化と実装</div>
+        <div class="title">ブラウザ推論</div>
+        <div class="lead">Python実行を避け、TF-IDF＋SVMの推論をJavaScriptで実装。モデルファイルをJSONにしてブラウザ推論可能にしています。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-3">
+              <div class="cell">
+                <div class="k">形</div>
+                <div class="v">TF-IDF＋SVMをJS化</div>
+              </div>
+              <div class="cell">
+                <div class="k">モデル</div>
+                <div class="v">JSONでブラウザに配布</div>
+              </div>
+              <div class="cell">
+                <div class="k">軽量化</div>
+                <div class="v">特徴量上限を調整</div>
+              </div>
+            </div>
+          </div>
+          <div class="small">特徴量数（最終的に50万）を制限しても、性能低下は約1%程度に抑えたと報告。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Validation</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+
+        <div class="eyebrow">既知 vs 未学習</div>
+        <div class="title">汎化</div>
+        <div class="lead">既知モデルの生成物は高い検出率（例：78〜93%）。一方、未学習モデルでもおおむね70%前後で検出したとされています。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">既知モデル</div>
+                <div class="v">検出率：78〜93%</div>
+              </div>
+              <div class="cell">
+                <div class="k">未学習モデル</div>
+                <div class="v">検出率：おおむね70%前後</div>
+              </div>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="small">実データ（例：Lofterのファンフィクション等）で、閾値設定により偽陽性率を低く抑える主張があります。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Robustness</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+
+        <div class="eyebrow">回避策は効く？</div>
+        <div class="title">簡単には崩れない</div>
+        <div class="lead">翻訳往復や“ごまかし”プロンプトなどを試しても、著者の範囲では検出率が大きくは下がらなかったと述べています。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">試した回避</div>
+                <div class="v">翻訳往復 / プロンプト工夫</div>
+              </div>
+              <div class="cell">
+                <div class="k">結論（範囲内）</div>
+                <div class="v">十分に下がらない（完全回避は別途困難）</div>
+              </div>
+            </div>
+          </div>
+          <div class="small">ただし回避は万能ではなく、別手法では結果が変わり得るため注意が必要です。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">Limits</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+
+        <div class="eyebrow">“万能”ではない</div>
+        <div class="title">解釈の注意</div>
+        <div class="lead">再現性・公平性に疑義が残る点があるため、これは「技術の可能性」を示すデモであり、確定的な法的証拠ではありません。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-3">
+              <div class="cell">
+                <div class="k">懸念</div>
+                <div class="v">学習データ生成の由来・整合性</div>
+              </div>
+              <div class="cell">
+                <div class="k">評価</div>
+                <div class="v">言語/ジャンル/文体の分布差（分布シフト）</div>
+              </div>
+              <div class="cell">
+                <div class="k">更新</div>
+                <div class="v">新しいLLMで検出率が下がり得る</div>
+              </div>
+            </div>
+          </div>
+          <div class="small">記事内にはAPI利用規約違反に触れる記述もあり、倫理・法務の側面でもそのまま模倣できない可能性があります。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-inner closing">
+        <div class="top-row">
+          <div class="slide-tag">Takeaway</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+
+        <div class="eyebrow">あなたの次の一歩</div>
+        <div class="title">結論</div>
+        <div class="lead">TF-IDF＋Linear SVCは“単文でも”一定の検出シグナルを持ち、多数決で安定化できる。しかし「断罪」ではなく、誤り前提で透明に運用すべきです。</div>
+
+        <div class="content">
+          <div class="grid">
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">強い点</div>
+                <div class="v">巨大モデルに頼らず、軽量実装（JS）まで到達</div>
+              </div>
+              <div class="cell">
+                <div class="k">注意点</div>
+                <div class="v">データ分布・閾値・モデル更新で結果が変わる</div>
+              </div>
+            </div>
+            <div class="grid-row grid-2">
+              <div class="cell">
+                <div class="k">運用指針</div>
+                <div class="v">偽陽性/偽陰性を前提に、透明性（前提・範囲）を明示</div>
+              </div>
+              <div class="cell">
+                <div class="k">安全性</div>
+                <div class="v">回避の誘発・不利益（名誉/権利）を考慮しガードレールを用意</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rule"></div>
+          <div class="small">（このスライドは、提示された要約テキストに基づく圧縮版です。）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.researchgate.net/publication/398443891_AI-Generated_Text_Detection_A_Comprehensive_Review_of_Active_and_Passive_Approaches" target="_blank" rel="noreferrer noopener">(PDF) AI-Generated Text Detection: A Comprehensive ...</a></h2>
+<p class="reference-note">The rapid advancement of large language models (LLMs) has driven the pervasive adoption of AI-generated content (AIGC), …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://blog.lyc8503.net/en/post/llm-classifier" target="_blank" rel="noreferrer noopener">Detecting LLM-Generated Web Fiction with &quot;Classical&quot; Machine Learning (AIGC Text Detection)</a></h2>
+<p class="reference-note"># Detecting LLM-Generated Web Fiction with &quot;Classical&quot; Machine Learning (AIGC Text Detection). As of early 2026, mainstr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/xianjun-yang/awesome_papers_on_llms_detection" target="_blank" rel="noreferrer noopener">GitHub - Xianjun-Yang/Awesome_papers_on_LLMs_detection: The lastest paper about detection of LLM-generated text and code · GitHub</a></h2>
+<p class="reference-note">This repo is a curated list of papers about detection of LLMs-generated content. * **Detecting AI-Generated Sentences in…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.emergentmind.com/topics/ai-text-detection-methods" target="_blank" rel="noreferrer noopener">AI Text Detection Methods</a></h2>
+<p class="reference-note"># AI Text Detection Methods. * AI text detection methods are computational techniques designed to distinguish AI-generat…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.lgresearch.ai/blog/view?seq=482" target="_blank" rel="noreferrer noopener">[ACL 2024] AI-generated Text Detection Research Trends - LG AI Research BLOG</a></h2>
+<p class="reference-note">:   [1] LG AI Research &quot;EXAONE 3.0 7.8B Instruction Tuned Language Model.&quot; arXiv preprint arXiv:2408.03541 (2024). &quot;Dete…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
