@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LLMの賛否のねじれ：批判に同意しつつ使う設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      padding: 56px 72px;
+      position: relative;
+      overflow:hidden;
+      inset: 0;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 8px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.16em;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag:before{
+      content:"";
+      width: 54px;
+      height: 1px;
+      background: var(--rust);
+      opacity: .9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      margin-top: -4px;
+      white-space:nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 10px 0 10px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.0;
+      margin: 0 0 16px;
+      letter-spacing: -0.02em;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .hr{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px 14px;
+      margin-top: 18px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+      min-height: 86px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .label:before{
+      content:"";
+      width: 10px;
+      height: 10px;
+      border: 1px solid rgba(232,129,74,0.55);
+      border-radius: 3px;
+      background: rgba(232,129,74,0.10);
+      flex: 0 0 auto;
+    }
+    .card .text{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    .small{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .bilingual{
+      margin-top: 10px;
+      font-size: 16px;
+      color: var(--ink-3);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 820px){
+      .slide{ padding: 44px 44px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .card .text{ font-size: 16px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">賛否のねじれを読む</div>
+      <div class="title">LLMを <span class="em">消さない</span>。</div>
+      <p class="lead">批判に“ほぼ同意”しながら、筆者は日常的にLLMを使う。その矛盾を、道徳論ではなく運用の設計として説明する。</p>
+      <div class="bilingual bilingual">（LLM ≒ 大規模言語モデル Large Language Model）</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">賛成と反対が同時にある</div>
+      <div class="title">“矛盾”が事実。</div>
+      <p class="lead">著作権・環境負荷・倫理・フェイク・セキュリティなどの批判は一部正しい。一方で、筆者はLLMを毎日使って価値も取っている。</p>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="topbar">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">代替ではなく増幅</div>
+      <div class="title"><span class="em">思考</span>の増幅装置。</div>
+      <p class="lead">LLMを“答えの代役”にせず、“あなたの枠組みを加速する道具”として扱う。だから人間の検証（verification）が前提になる。</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">Wrong framing</div>
+          <div class="text">思考の代替（確認が後回し）</div>
+        </div>
+        <div class="card">
+          <div class="label">Right framing</div>
+          <div class="text">思考の増幅（検証を埋め込む）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">使う人が危険も語る</div>
+      <div class="title">現場のねじれ。</div>
+      <p class="lead">ベルリンのLocal-First Confで、著名エンジニアがLLMの危険性を語りつつ、Claude Codeのような環境も開いていた。</p>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">場所</div>
+          <div class="text">Local-First Conf（Berlin）</div>
+        </div>
+        <div class="card">
+          <div class="label">認識</div>
+          <div class="text">危険・限界の共有</div>
+        </div>
+        <div class="card">
+          <div class="label">行動</div>
+          <div class="text">同時にLLM利用</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topbar">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">価値回収の骨格</div>
+      <div class="title">“制御”で形を与える。</div>
+      <p class="lead">LLMを信頼で丸投げせず、制御・手順・検証がセットになるようにワークフローを設計する。</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">1</div>
+          <div class="text">ローカル実行（オープンウェイト）</div>
+          <div class="bilingual">Local execution（供給途絶・価格高騰への保険）</div>
+        </div>
+        <div class="card">
+          <div class="label">2</div>
+          <div class="text">検証可能な領域に限定</div>
+          <div class="bilingual">Test/compile/spec適合で良否を切る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">良い/悪いの分岐</div>
+      <div class="title">判別は“文体”では無理。</div>
+      <p class="lead">LLMが上手いと、外から「人間の思考が背後にあるか」が分かりにくい。だから“信頼の崩壊”が起きやすい。</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">外から見える</div>
+          <div class="text">文章・コードの表面品質</div>
+        </div>
+        <div class="card">
+          <div class="label">外から見えない</div>
+          <div class="text">背後の検討・反証・合意</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">OSSで“洪水”が現実化</div>
+      <div class="title">信頼コストが増える。</div>
+      <p class="lead">Pi.devの例では、LLM由来の大量PR/大量Issueが実務として運用対策（自動クローズ等）につながっている。</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">問題</div>
+          <div class="text">大量投稿でレビュー文化が成立しにくい</div>
+        </div>
+        <div class="card">
+          <div class="label">対策</div>
+          <div class="text">洪水を抑える運用（例：自動クローズ）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Enumeration">
+      <div class="topbar">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">拍手される批判に同意</div>
+      <div class="title">スラップ等。</div>
+      <p class="lead">筆者は、低品質（“slop”/スラップ）、OSSの信頼喪失、ジュニア育成の停滞、地政学リスク、政治バイアスなどを“ほぼ”認める。</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">品質</div>
+          <div class="text">slop（それっぽいが弱い）</div>
+        </div>
+        <div class="card">
+          <div class="label">社会/開発</div>
+          <div class="text">信頼コスト・レビュー劣化・育成停滞</div>
+        </div>
+        <div class="card">
+          <div class="label">地政学</div>
+          <div class="text">輸出規制など供給の不確実性</div>
+        </div>
+        <div class="card">
+          <div class="label">価値観</div>
+          <div class="text">政治バイアス</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Process">
+      <div class="topbar">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">対策は“手順”中心</div>
+      <div class="title">反証ループを作る。</div>
+      <p class="lead">質問を段階化し、理解の合意が取れるまで進めない。文脈を破壊して誤りを炙り出し、実行前のズレを潰す。</p>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">i</div>
+          <div class="text">問題設定を固める（3文など）</div>
+        </div>
+        <div class="card">
+          <div class="label">ii</div>
+          <div class="text">根拠/前提を引かせる</div>
+        </div>
+        <div class="card">
+          <div class="label">iii</div>
+          <div class="text">反証・検証で“止める”</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topbar">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">/grill-meの狙い</div>
+      <div class="title">理解不足を進めない。</div>
+      <p class="lead">/grill-meのような手順は、LLMが理解不十分なまま“それっぽく実装”するのを防ぐ狙いがある。</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">防ぐこと</div>
+          <div class="text">勘違いのまま前進（見た目だけ完成）</div>
+        </div>
+        <div class="card">
+          <div class="label">作ること</div>
+          <div class="text">人間との共通理解（合意形成）</div>
+        </div>
+      </div>
+      <p class="small" style="margin-top:14px;">
+        <span class="mono">Grill</span>＝焼き出し（test/反証でズレを露出）
+      </p>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="topbar">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">任せる領域の境界</div>
+      <div class="title">“評価可能”へ寄せる。</div>
+      <p class="lead">良否の基準が曖昧だと、LLMは多数派の好みに寄せた“それっぽさ”を出し、誤りが紛れやすくなる。</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">安全寄り</div>
+          <div class="text">コンパイル/テスト/仕様適合で判定できる</div>
+        </div>
+        <div class="card">
+          <div class="label">危険寄り</div>
+          <div class="text">正解が決めにくい領域（AI slop増殖）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="Closing">
+      <div class="topbar">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">結論：信頼を設計する</div>
+      <div class="title"><span class="em">万能薬</span>ではない。</div>
+      <p class="lead">LLMは消せない。だから検証可能な形に制御し、人間の思考と信頼を守る。鍵は“人間側の設計・監査・専門性”。</p>
+      <div class="hr"></div>
+      <p class="small">
+        次にやること（要点）：
+        <span class="mono">local実行</span>＋<span class="mono">検証可能なタスク限定</span>＋<span class="mono">反証ループ</span>
+      </p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://web.archive.org/web/20260418174831/https://openrouter.ai/state-of-ai" target="_blank" rel="noreferrer noopener">State of AI 2025: 100T Token LLM Usage Study | OpenRouter</a></h2>
+<p class="reference-note">Title: State of AI 2025: 100T Token LLM Usage Study | OpenRouter
+The past year has marked a turning point in the evoluti…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.theocharis.dev/blog/loops-are-all-you-need" target="_blank" rel="noreferrer noopener">All You Need is Loops (and Humans) | Jeremy Theocharis</a></h2>
+<p class="reference-note">Title: All You Need is Loops (and Humans) | Jeremy Theocharis
+# All You Need is Loops (and Humans). Half handcraft their…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/topics/llm-usage" target="_blank" rel="noreferrer noopener">llm-usage · GitHub Topics · GitHub</a></h2>
+<p class="reference-note">Title: llm-usage · GitHub Topics · GitHub
+## Navigation Menu. # Search code, repositories, users, issues, pull requests.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://simonwillison.net/2025/Aug/4/llm-openrouter-usage" target="_blank" rel="noreferrer noopener">Usage charts for my LLM tool against OpenRouter</a></h2>
+<p class="reference-note">**Sponsored by:** Sonar — Gartner just named Sonar a Leader in the 2026 Magic Quadrant™ for Technical Debt Management To…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://custom.typingmind.com/tools/estimate-llm-usage-costs/openrouter/glm-4-7" target="_blank" rel="noreferrer noopener">OpenRouter GLM-4.7 API Pricing Calculator</a></h2>
+<p class="reference-note"># GLM-4.7via OpenRouter. OpenRouter is a unified API gateway that provides access to hundreds of AI models from dozens o…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
