@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Context Bombing（文脈爆撃）— プロンプトインジェクション防御</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      position: relative;
+      overflow: hidden;
+      padding: 20px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+    }
+
+    .slide-inner{
+      height: 100%;
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: rgba(0,0,0,0.02);
+    }
+
+    .topbar{
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 22px;
+      height: 1px;
+      background: var(--rust);
+      display: inline-block;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      font-size: 20px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+      margin: 0;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.02;
+      margin: 0;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      margin-top: 4px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .rule-line{
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 10px;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 6px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.02);
+      padding: 14px 14px;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .value{
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .grid-3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .closing{
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .closing .lead{
+      max-width: 860px;
+    }
+
+    @media (max-width: 720px){
+      .slide-inner{ padding: 44px 28px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DEFENSE</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">読める防御の設計思想</p>
+        <h2 class="title">Context <i>Bombing</i></h2>
+        <div class="lead">プロンプトインジェクション（Prompt Injection）を「検知」ではなく「拒否が固定される形」で止める発想です。文脈爆撃（context bombing / 文脈爆撃）では、攻撃者が参照しがちな場所に“危険に見える仕掛け”を置きます。</div>
+        <div class="rule-line"></div>
+        <div class="grid" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">攻撃（要点 / 攻撃の狙い）</div>
+            <div class="value">LLMへ本来させない指示を混ぜる（例：機密の引き出し、危険手順）</div>
+          </div>
+          <div class="cell">
+            <div class="label">防御（要点 / 防御の狙い）</div>
+            <div class="value">参照した瞬間にガードレール拒否を誘発し、進行を止める</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">なぜ今、止めが必要か</p>
+        <h2 class="title">Injection <i>上書き</i></h2>
+        <div class="lead">攻撃（プロンプトインジェクション）は、文章の中に“従わせたい命令”を混ぜて、LLMの本来の指示系をすり替えます。防御が「危険を見つけて警告するだけ」だと、攻撃が先に進む余地が残ります。</div>
+        <div class="rule-line"></div>
+        <div class="grid grid-3" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">典型例（メール）</div>
+            <div class="value">カレンダー招待・メール本文に命令を混入</div>
+          </div>
+          <div class="cell">
+            <div class="label">典型例（探索）</div>
+            <div class="value">ネットワーク内でAI支援型の解析を誘導</div>
+          </div>
+          <div class="cell">
+            <div class="label">課題（警告）</div>
+            <div class="value">検知後も昇格・侵入の完了が間に合う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">IDEA</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">拒否を“勝ち筋”にする</p>
+        <h2 class="title">Refusal <i>固定</i></h2>
+        <div class="lead">context bombingは、ガードレールの“拒否”を攻撃停止のメカニズムとして転用します。攻撃LLMエージェントが参照した文脈で禁止に触れると、拒否モードに入り、その後の進行が難しくなります。</div>
+        <div class="rule-line"></div>
+        <div class="grid" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">従来（単なる検知）</div>
+            <div class="value">危険を見つけても、攻撃はそのまま継続しうる</div>
+          </div>
+          <div class="cell">
+            <div class="label">本手法（停止寄り）</div>
+            <div class="value">拒否が続き、攻撃の“完遂”まで届きにくくする</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">MECHANISM</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">デコイで探索を誘導</p>
+        <h2 class="title">Decoy <i>囮</i></h2>
+        <div class="lead">防御側は、AWSの秘密鍵やパスワード“っぽい”文脈にデコイ（囮）文字列を配置します。攻撃者のエージェントが資源を列挙・参照する流れで、その“仕掛け”に遭遇しやすくするのが狙いです。</div>
+        <div class="rule-line"></div>
+        <div class="grid grid-3" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">トリガ場所</div>
+            <div class="value">秘密鍵 / パスワード周辺の文脈</div>
+          </div>
+          <div class="cell">
+            <div class="label">仕掛け内容</div>
+            <div class="value">禁止に触れる“危険な命令”の混入</div>
+          </div>
+          <div class="cell">
+            <div class="label">結果</div>
+            <div class="value">ガードレール拒否が発火・継続</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">複数モデルで統計的に低下</p>
+        <h2 class="title">152 <i>runs</i></h2>
+        <div class="lead">5種類のモデル（Opus 4.8、Gemini 3.1 Pro、GLM 5.2、DeepSeek 4 Pro、Kimi 2.6）で、152回の攻撃シミュレーションを評価したと報告されています。デコイ文字列を1つ混入するだけで、管理者権限奪取や持続侵入の成功率が大幅に低下しました。</div>
+        <div class="rule-line"></div>
+        <div class="grid" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">評価対象（Models）</div>
+            <div class="value mono">Opus 4.8 / Gemini 3.1 Pro / GLM 5.2 / DeepSeek 4 Pro / Kimi 2.6</div>
+          </div>
+          <div class="cell">
+            <div class="label">実験規模</div>
+            <div class="value">5モデル × 152攻撃シミュレーション</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">RESULT</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">最強クラスでも崩れる</p>
+        <h2 class="title">93% → <i>0%</i></h2>
+        <div class="lead">特にOpus 4.8では、管理者アクセス達成が93%から0%まで落ちたと報告されています。最上位モデルですら“拒否が進行を止める”効果が出た点が強い主張になります。</div>
+        <div class="rule-line"></div>
+        <div class="grid" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">Before（なし）</div>
+            <div class="value">管理者アクセス達成：93%</div>
+          </div>
+          <div class="cell">
+            <div class="label">After（デコイ混入）</div>
+            <div class="value">管理者アクセス達成：0%</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">TIMELINE</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">検知だけだと遅い</p>
+        <h2 class="title">Minutes <i>ぎりぎり</i></h2>
+        <div class="lead">記事では、初期検知が攻撃開始から8分、昇格まで平均14分という“時間の余裕”がある状況が言及されています。canary（カナリア）系は早期警告に寄る一方、context bombingは進行そのものの停止を狙う位置づけです。</div>
+        <div class="rule-line"></div>
+        <div class="grid grid-3" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">初期検知</div>
+            <div class="value">平均 8分</div>
+          </div>
+          <div class="cell">
+            <div class="label">昇格（成功の分岐）</div>
+            <div class="value">平均 14分</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い（本手法）</div>
+            <div class="value">拒否で“完遂”まで到達させない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARE</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">検知 vs 停止</p>
+        <h2 class="title">Canary <i>→</i> Bombing</h2>
+        <div class="lead">従来のcanary（炭鉱のカナリアのような罠資源）は“早期検知”に主眼がありました。context bombingは、それに拒否誘発を組み合わせ、攻撃プロセスの進行確率を下げる設計です。</div>
+        <div class="rule-line"></div>
+        <div class="grid" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">canary（検知）</div>
+            <div class="value">危険の兆候を早めに察知</div>
+          </div>
+          <div class="cell">
+            <div class="label">context bombing（停止）</div>
+            <div class="value">拒否を踏ませて前進を阻む</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">“置くだけ”ではない</p>
+        <h2 class="title">Context <i>トリガ</i></h2>
+        <div class="lead">単に危険文を置いてブロックするのではなく、「攻撃者が参照してしまう文脈」に禁止に触れる命令を埋め込みます。攻撃LLMエージェントが探索・列挙の流れで仕掛けに遭遇すると、拒否が継続して“以後の指示”へ進みにくくなる点が重要です。</div>
+        <div class="rule-line"></div>
+        <div class="grid grid-3" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">ポイント i</div>
+            <div class="value">参照される“文脈”設計</div>
+          </div>
+          <div class="cell">
+            <div class="label">ポイント ii</div>
+            <div class="value">禁止に触れて拒否発火</div>
+          </div>
+          <div class="cell">
+            <div class="label">ポイント iii</div>
+            <div class="value">進行（完遂）を阻害</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">RISKS</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">万能ではない</p>
+        <h2 class="title">Limitations <i>注意</i></h2>
+        <div class="lead">記事上、根本的な解決策はないとされます。また、評価は特定のモデル・特定のテスト環境（シミュレートAWS）での結果です。攻撃者が仕掛けを見抜いて回避する、別環境で効果が落ちる、誤って正当作業まで拒否が増える、といった追加検証が必要になります。</div>
+        <div class="rule-line"></div>
+        <div class="grid" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">回避（適応）</div>
+            <div class="value">デコイ学習・迂回の可能性</div>
+          </div>
+          <div class="cell">
+            <div class="label">副作用（運用）</div>
+            <div class="value">誤拒否（正当エージェント停止）のリスク</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">導入前に見るべき指標</p>
+        <h2 class="title">Deploy <i>チェック</i></h2>
+        <div class="lead">防御としては「攻撃成功率を統計的に押し下げられるか」を最優先で評価します。同時に、拒否が“正当な運用”に波及しないよう、ログ・監査と範囲制御の設計が不可欠です。</div>
+        <div class="rule-line"></div>
+        <div class="grid grid-3" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">成功率（効果）</div>
+            <div class="value">管理者奪取・持続侵入がどれだけ下がるか</div>
+          </div>
+          <div class="cell">
+            <div class="label">誤拒否（影響）</div>
+            <div class="value">正当タスクまで停止しないか</div>
+          </div>
+          <div class="cell">
+            <div class="label">監査（運用）</div>
+            <div class="value">検証ログと説明可能性の確保</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="slide-inner">
+        <p class="eyebrow">参考の置き場（概要）</p>
+        <h2 class="title"><i>References</i></h2>
+        <div class="lead">本デッキは、ユーザー提示の要約（Tracebit文脈のcontext bombing／プロンプトインジェクション／canary）に基づいて整理しています。一次情報（論文・記事・発表資料）としては、Tracebitの該当研究ページ／関連技術解説を参照してください。</div>
+        <div class="rule-line"></div>
+        <div class="grid" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="label">一次情報</div>
+            <div class="value">Tracebitのcontext bombing（文脈爆撃）研究（論文/ブログ/リポジトリ）</div>
+          </div>
+          <div class="cell">
+            <div class="label">周辺概念</div>
+            <div class="value">Prompt Injection（プロンプトインジェクション）／Guardrails（ガードレール）／Canary（カナリア）</div>
+          </div>
+        </div>
+        <div class="closing">
+          <div class="small">※具体URLが必要なら、該当リンク（元記事名や出典）を教えてください。そこからReferencesスライドを確定版に更新できます。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.helpnetsecurity.com/2026/07/14/context-bombs-for-defensive-prompt-injection" target="_blank" rel="noreferrer noopener">&quot;Context bombs&quot; can frustrate AI-driven attacks, researchers found - Help Net Security</a></h2>
+<p class="reference-note">What makes it notable isn’t the technique – prompt injection is old news – but the direction it’s pointed: not to hijack…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://daily.dev/posts/now-defenders-are-embracing-the-prompt-injection-too-mgu0dfkqx" target="_blank" rel="noreferrer noopener">Now, defenders are embracing the prompt injection, too</a></h2>
+<p class="reference-note"># Now, defenders are embracing the prompt injection, too. Researchers at Tracebit have developed a defensive technique c…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.techtimes.com/articles/320600/20260715/prompt-injection-flipped-defender-plants-text-that-stops-ai-attackers.htm" target="_blank" rel="noreferrer noopener">Prompt Injection Flipped: Defender Plants Text That Stops AI Attackers</a></h2>
+<p class="reference-note">#### Tracebit’s context bombs cut Opus 4.8 admin-access success from 93% to zero in AWS tests. Security firm Tracebit pu…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://mallory.ai/stories/019f74b3-9c23-79d6-84df-cc356ee765b1" target="_blank" rel="noreferrer noopener">Tracebit&#39;s &#39;Context Bombs&#39; Disrupted AI Hacking Agents in AWS Tests | Mallory</a></h2>
+<p class="reference-note"># Tracebit&#39;s &#39;Context Bombs&#39; Disrupted AI Hacking Agents in AWS Tests. Tracebit researchers unveiled a defensive techniq…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://agentic.tracebit.com/context-bombs" target="_blank" rel="noreferrer noopener">Context bombs: stopping AI attackers in their tracks | Tracebit Research</a></h2>
+<p class="reference-note">So we tried something more ambitious: a **context bomb** - a short string, hidden in a canary, that trips an AI agent&#39;s …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
