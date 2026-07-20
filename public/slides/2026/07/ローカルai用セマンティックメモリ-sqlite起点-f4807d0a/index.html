@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ローカルAI用セマンティックメモリ：SQLite起点</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display:flex;
+      flex-direction:column;
+      gap: 22px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 18px;
+      border: 1px solid rgba(240, 232, 216, 0.06);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+      display:flex;
+      flex-direction:column;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-inner{
+      position:relative;
+      height:100%;
+      width:100%;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+    .tag{
+      font-family:"Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      position:absolute;
+      top: 22px;
+      left: 28px;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .tag::before{
+      content:"";
+      width: 64px;
+      height: 1px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0);
+    }
+    .num{
+      position:absolute;
+      top: 20px;
+      right: 26px;
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      margin-top: 20px;
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      line-height: 1.1;
+    }
+    .title{
+      font-family:"Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 70px;
+      line-height: 0.95;
+      margin-top: -2px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 6px;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin-top: 4px;
+      width: 100%;
+    }
+    .grid{
+      margin-top: 8px;
+      width: 100%;
+      display:grid;
+      gap: 12px;
+    }
+    .grid.two{grid-template-columns: 1fr 1fr;}
+    .grid.three{grid-template-columns: 1fr 1fr 1fr;}
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.08);
+      border-radius: 14px;
+      padding: 14px 14px;
+      min-height: 78px;
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .fine{
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 860px;
+    }
+    .closing-line{
+      margin-top:auto;
+      font-size: 22px;
+      line-height: 1.6;
+      max-width: 760px;
+    }
+    .center-hero{
+      margin-top: 10px;
+      font-size: 22px;
+      line-height: 1.6;
+      color: var(--ink-2);
+      max-width: 780px;
+    }
+    .center{
+      margin-top:auto;
+      margin-bottom:auto;
+      text-align:left;
+    }
+    .bilingual{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 6px;
+      line-height: 1.45;
+    }
+    a{color: var(--ink-2); text-decoration: underline;}
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" data-slide="1">
+      <div class="slide-inner">
+        <div class="tag">COVER</div>
+        <div class="num">01 / 12</div>
+        <div class="eyebrow">ローカル起点</div>
+        <div class="title">SQLiteで<em>十分</em><span style="color:var(--ink-2); font-style:italic;">—</span>選ぶ線引き</div>
+        <div class="lead">ローカルのAIエージェント用セマンティックメモリは、まずSQLiteで始めるのが合理的なことが多い。PostgreSQLが必要になる条件も明確にする。</div>
+        <div class="center-hero"></div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="2">
+      <div class="slide-inner">
+        <div class="tag">PROBLEM</div>
+        <div class="num">02 / 12</div>
+        <div class="eyebrow">“それっぽさ”罠</div>
+        <div class="title">DB選定の<em>慣習</em></div>
+        <div class="lead">多くの開発者は「セマンティックメモリ＝PostgreSQL（pgvector）」のように、雰囲気でサーバ型を選びがち。だがローカル-firstでは、運用コストが重くなりやすい。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">よくある導入</div>
+            <div class="v">PostgreSQL＋pgvectorを“最初から”</div>
+          </div>
+          <div class="cell">
+            <div class="k">ローカル現実</div>
+            <div class="v">単一マシン・少数プロセス中心で十分なことが多い</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="3">
+      <div class="slide-inner">
+        <div class="tag">METAPHOR</div>
+        <div class="num">03 / 12</div>
+        <div class="eyebrow">記憶は“機能”</div>
+        <div class="title">必要なのは<em>検索</em></div>
+        <div class="lead">AIエージェントの永続化で要点は「後で思い出せること」。データベースは“サーバ”である必然性より、“意味＋キーワード”を回せるかが本質になる。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">永続化</div>
+            <div class="v">会話/作業を保存（意味検索の材料）</div>
+          </div>
+          <div class="cell">
+            <div class="k">意味検索</div>
+            <div class="v">埋め込み（embedding）で近い内容へ</div>
+          </div>
+          <div class="cell">
+            <div class="k">補助</div>
+            <div class="v">FTS5などでキーワードも拾う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="4">
+      <div class="slide-inner">
+        <div class="tag">ARCHITECTURE</div>
+        <div class="num">04 / 12</div>
+        <div class="eyebrow">SQLiteの勝ち筋</div>
+        <div class="title">アプリ内で完結する<em>強さ</em></div>
+        <div class="lead">SQLiteはサーバを立てず、単一ファイルへ読み書きする前提になりやすい。ローカル-firstの開発体験（起動・運用摩擦）と相性が良い。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">オペレーション</div>
+            <div class="v">Docker/サービス起動/接続エラーの回避</div>
+            <div class="bilingual">運用の手間（Operational friction）：低</div>
+          </div>
+          <div class="cell">
+            <div class="k">整合性</div>
+            <div class="v">ACIDでテキストと埋め込みの整合を保ちやすい</div>
+            <div class="bilingual">一貫性（Consistency）：保ちやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="5">
+      <div class="slide-inner">
+        <div class="tag">EVIDENCE</div>
+        <div class="num">05 / 12</div>
+        <div class="eyebrow">検索は分業しない</div>
+        <div class="title">SQLite＋<em>ハイブリッド</em></div>
+        <div class="lead">「ベクトルDBが必須」という前提を崩し、埋め込みを保存しつつベクトル検索（拡張/代替）とFTS5キーワード検索を組み合わせる。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">データ</div>
+            <div class="v">embedding（埋め込み）をDBへ保存</div>
+          </div>
+          <div class="cell">
+            <div class="k">ベクトル</div>
+            <div class="v">sqlite-vecなどの拡張、または in-process類似度</div>
+          </div>
+          <div class="cell">
+            <div class="k">キーワード</div>
+            <div class="v">FTS5で漏れを減らす（ハイブリッド）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="6">
+      <div class="slide-inner">
+        <div class="tag">DISTINCTION</div>
+        <div class="num">06 / 12</div>
+        <div class="eyebrow">単一ライタ問題</div>
+        <div class="title">同時書き込みは<em>常に致命的？</em></div>
+        <div class="lead">SQLiteは基本的に“単一ライタ制約”がある。だがローカル規模なら、ボトルネックはSQLiteではなく埋め込み生成や推論待ちになりやすい。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">読み取り</div>
+            <div class="v">WALモードで読み取りと並行しやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">書き込み</div>
+            <div class="v">トランザクション単位で直列化</div>
+            <div class="bilingual">ただし“高頻度書き込み”なら要再検討</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="7">
+      <div class="slide-inner">
+        <div class="tag">PROCESS</div>
+        <div class="num">07 / 12</div>
+        <div class="eyebrow">選び方手順</div>
+        <div class="title">まずSQLite、<em>必要時だけ移行</em></div>
+        <div class="lead">最初はローカルで回る構成を優先し、性能/同時実行/運用の要求が上がった時点でサーバ型へ切り替える。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">要件を分解：永続化＋意味検索</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">実装：SQLite＋embedding＋FTS5</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">再評価：同時書き込み/規模/検索速度</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="8">
+      <div class="slide-inner">
+        <div class="tag">COMPARISON</div>
+        <div class="num">08 / 12</div>
+        <div class="eyebrow">線引きの軸</div>
+        <div class="title">PostgreSQLは<em>いつ得？</em></div>
+        <div class="lead">SQLiteよりPostgreSQLが合理的になりやすいのは、ローカルの範囲を超えて“サーバ運用の機能”が必要になった場合。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">SQLiteが先</div>
+            <div class="v">単一マシン・少数プロセス・運用摩擦を減らしたい</div>
+          </div>
+          <div class="cell">
+            <div class="k">PostgreSQLが優勢</div>
+            <div class="v">多クライアント同時書き込み、分散、巨大データ運用</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="9">
+      <div class="slide-inner">
+        <div class="tag">ENUMERATION</div>
+        <div class="num">09 / 12</div>
+        <div class="eyebrow">移行条件（例）</div>
+        <div class="title">最初から<em>PostgreSQL</em></div>
+        <div class="lead">入力データの文脈で挙げられた“早期からPostgreSQLを選ぶ条件”は次の通り。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">多クライアントが遠隔から同時に書き込む</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">分散・冗長化（レプリケーション/フェイルオーバー）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">巨大規模の分析・運用標準がPostgreSQL</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="10">
+      <div class="slide-inner">
+        <div class="tag">DISTINCTION</div>
+        <div class="num">10 / 12</div>
+        <div class="eyebrow">前提とリスク</div>
+        <div class="title">性能は<em>条件依存</em></div>
+        <div class="lead">この主張は筋が良い一方、前提（埋め込み/推論が支配的、書き込み頻度が高くない等）に依存する。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">リスク1</div>
+            <div class="v">埋め込みコストが小さい／短時間で大量書き込み → SQLiteの単一ライタが顕在化</div>
+          </div>
+          <div class="cell">
+            <div class="k">リスク2</div>
+            <div class="v">拡張（sqlite-vec等）や実装の差で“十分”の境界がズレる可能性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="11">
+      <div class="slide-inner">
+        <div class="tag">EVIDENCE</div>
+        <div class="num">11 / 12</div>
+        <div class="eyebrow">ベンチは再現確認</div>
+        <div class="title">最後は<em>自分で計る</em></div>
+        <div class="lead">ベンチマークには数値例があるが、データ形状・埋め込み生成・OSキャッシュ・実装差が不明なことがある。傾向の参考に留め、自環境で再現確認が安全。</div>
+        <div class="rule"></div>
+        <div class="fine">
+          チェック観点：①書き込み頻度、②検索方式（embedding＋FTS5）の実装、③データ件数（例：1,000メモリ規模など）、
+          ④検索時間と冷スタート影響。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="12">
+      <div class="slide-inner">
+        <div class="tag">CLOSING</div>
+        <div class="num">12 / 12</div>
+        <div class="eyebrow">結論</div>
+        <div class="title">SQLite起点が<em>合理的</em></div>
+        <div class="lead closing-line">ローカル-firstのセマンティックメモリは、SQLite＋embedding保存＋（必要に応じて）ベクトル検索＋FTS5が現実的な出発点。PostgreSQLは、多クライアント同時書き込み・分散運用・巨大規模などの条件が揃った時に検討する。</div>
+        <div class="grid two" style="margin-top:14px;">
+          <div class="cell">
+            <div class="k">今日の判断</div>
+            <div class="v">まずSQLiteでプロトタイプ → 回るなら段階的に伸ばす</div>
+          </div>
+          <div class="cell">
+            <div class="k">移行の合図</div>
+            <div class="v">同時書き込み/検索速度/運用要件がSQLite前提を超えたらPostgreSQLへ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="13" style="display:none;"></section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openclaw-ai.net/en/blog/ai-agent-memory-systems-2026" target="_blank" rel="noreferrer noopener">AI Agent Memory Systems Compared: RAG vs Local SQLite vs ...</a></h2>
+<p class="reference-note"># AI Agent Memory Systems Compared: RAG vs Local SQLite vs Vector DB (2026). An AI agent without memory is just a chatbo…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.shareuhack.com/en/posts/ai-agent-memory-architecture-indie-maker-2026" target="_blank" rel="noreferrer noopener">Shareuhack | AI Agent Memory Architecture Guide: From SQLite to Vector DBs — Pick the Right Memory Solution (2026)</a></h2>
+<p class="reference-note">AI Agent Memory Architecture Guide: From SQLite to Vector DBs — Pick the Right Memory Solution (2026). # AI Agent Memory…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=48947364" target="_blank" rel="noreferrer noopener">Show HN: Wolbarg – Local-first shared memory for AI agents using SQLite | Hacker News</a></h2>
+<p class="reference-note">| |  |  | | --- | --- | | **Hacker News**new | past | comments | &lt;ask&gt; | &lt;show&gt; | &lt;jobs&gt; | &lt;submit&gt; | login | |. | |  | …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.to/zoricic/sqlite-as-a-vector-database-yes-really-4cm4" target="_blank" rel="noreferrer noopener">SQLite as a Vector Database — Yes, Really</a></h2>
+<p class="reference-note">This article explores a practical approach for local-first AI tools. SQLite is a legitimate choice for embedding storage…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@stephenc211/how-sqlite-vec-works-for-storing-and-querying-vector-embeddings-165adeeeceea" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note"># How sqlite-vec Works for Storing and Querying Vector Embeddings. Vector search has become a foundational tool for mode…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
