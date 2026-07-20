@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AIコーディング×血圧指輪：作業の自動化と“責任”の再設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 28px;
+      display: block;
+      overflow: visible;
+    }
+
+    .slide {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 2px;
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      margin: 18px 0;
+      padding: 56px 72px;
+    }
+
+    .slide-inner {
+      height: 100%;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 14px;
+      margin-bottom: 18px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.12em;
+      font-size: 18px;
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 16px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform:translateY(-50%);
+      width:10px;
+      height:22px;
+      border-left: 2px solid var(--rust);
+      opacity: 0.95;
+    }
+
+    .slide-num {
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.04em;
+      font-size: 22px;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+
+    .eyebrow {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      margin-top: -2px;
+      margin-bottom: 6px;
+      letter-spacing: 0.01em;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      margin: 0 0 14px 0;
+      line-height: 1.02;
+      font-style: italic;
+    }
+
+    .title .jp {
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 56px;
+      display: inline-block;
+      transform: translateY(-2px);
+      letter-spacing: 0.01em;
+    }
+
+    .lead {
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 0;
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 14px;
+      width: 100%;
+    }
+
+    .grid {
+      width: 100%;
+      display: grid;
+      gap: 14px 16px;
+      margin-top: 14px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 14px;
+      border-radius: 2px;
+      min-height: 64px;
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .cell .v {
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .small {
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      font-weight: 300;
+      max-width: 860px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .footer-note {
+      margin-top: auto;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.5;
+      max-width: 100%;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .footer-note .left { flex: 1; }
+    .footer-note .right { flex: 1; text-align: right; }
+
+    @media (max-width: 720px){
+      .slide { padding: 40px 26px; border-width: 14px; }
+      .eyebrow { font-size: 18px; }
+      .title { font-size: 54px; }
+      .title .jp { font-size: 42px; }
+      .lead { font-size: 18px; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+      .footer-note { flex-direction: column; }
+      .footer-note .right { text-align: left; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+
+        <div class="eyebrow">読み替え：作業→責任</div>
+        <h1 class="title">AIと医療 <span class="jp">再設計</span></h1>
+        <p class="lead">
+          AIはソフトウェア開発もウェアラブル医療も「作業」を速く自動化する。
+          しかし品質・安全・評価・規制を“同時に”設計し直さないと、成果は保証されない。
+        </p>
+
+        <div class="footer-note">
+          <div class="left">対象：Bloomberg Businessweekの2事例（AIコーディング／血圧指輪）を統合</div>
+          <div class="right">One message per slide</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+
+        <div class="eyebrow">論点：速さの盲点</div>
+        <h1 class="title">“生産性”は <span class="jp">保証か</span></h1>
+        <p class="lead">
+          AIで開発が速くなるほど、「体感の改善」と「実測の成果」がズレる可能性がある。
+          そのズレは、テスト・レビュー・仕様の渡し方に左右される。
+        </p>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">主張</div>
+            <div class="v">速く“なった気”でも、平均では遅いことがある（METRの例）</div>
+          </div>
+          <div class="cell">
+            <div class="k">分岐点</div>
+            <div class="v">検証設計（手戻り／レビュー／テスト品質）を伴うか</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">教訓：プロセス全体で測る（速度だけで評価しない）</div>
+          <div class="right">実務・技術の共通課題</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+
+        <div class="eyebrow">比喩：指示で操縦</div>
+        <h1 class="title">言語で <span class="jp">開発</span></h1>
+        <p class="lead">
+          これまでの「コードを書く」中心から、「意図を指示して生成・修正する」協業へ移る。
+          AIはコード生成だけでなく、翻訳・デバッグ・テスト反復も分担する。
+        </p>
+
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">旧</div>
+            <div class="v">手作業で実装</div>
+          </div>
+          <div class="cell">
+            <div class="k">新</div>
+            <div class="v">自然言語で指示（例：Claude Code / Codexの流れ）</div>
+          </div>
+          <div class="cell">
+            <div class="k">共通</div>
+            <div class="v">人が監督して品質を担保</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">日本語補助：意図＝仕様（せいさく）</div>
+          <div class="right">自動化は“置換”ではなく“配分変更”</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+
+        <div class="eyebrow">要素：AI開発の流れ</div>
+        <h1 class="title">協業の <span class="jp">分解</span></h1>
+        <p class="lead">
+          AIコーディングの要点は、生成フェーズだけでなく「何を渡し、何を検証するか」を設計すること。
+          ここが品質と安全の境界になる。
+        </p>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">入力</div>
+            <div class="v">自然言語の指示 → 期待仕様・制約・境界条件</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証</div>
+            <div class="v">テスト・レビュー・原因究明 → 破綻を封じる</div>
+          </div>
+        </div>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">拡張</div>
+            <div class="v">エージェント化（ライティングループ）で反復・最適化が進む</div>
+          </div>
+          <div class="cell">
+            <div class="k">リスク</div>
+            <div class="v">長時間監督なし → 誤りの拡大／デバッグ困難</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">結論：設計は“テキスト”ではなく“検証”にある</div>
+          <div class="right">次のスライドへ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+
+        <div class="eyebrow">根拠：導入の熱</div>
+        <h1 class="title">普及：企業と <span class="jp">コミュニティ</span></h1>
+        <p class="lead">
+          AWS・Google・SpotifyなどでAIコード生成が使われ、開発体験は「チャットと協業」に近づいている。
+          スタートアップやハッカソンのプロトタイピングも加速したとされる。
+        </p>
+
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">採用</div>
+            <div class="v">AWS / Google / Spotify</div>
+          </div>
+          <div class="cell">
+            <div class="k">体験</div>
+            <div class="v">一人で長時間書く → 疑似的に協業</div>
+          </div>
+          <div class="cell">
+            <div class="k">波及</div>
+            <div class="v">スタートアップ熱／ハッカソン増</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">重要：成功例が先行しやすい構造</div>
+          <div class="right">だから“失敗モード”も必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+
+        <div class="eyebrow">差：能力より評価軸</div>
+        <h1 class="title">雇用不安は <span class="jp">評価</span></h1>
+        <p class="lead">
+          不安の中心は「能力が不要になる」よりも、「採用・運用の評価軸が変わらない」ことにある。
+          若手がハンドコーディングを求められ、摩擦が残る。
+        </p>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">観測</div>
+            <div class="v">若手中心に採用競争が厳化</div>
+          </div>
+          <div class="cell">
+            <div class="k">ズレ</div>
+            <div class="v">AI前提で育ったスキルが、面接の場で不利</div>
+          </div>
+        </div>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">副作用</div>
+            <div class="v">スキル陳腐化／評価の不整合</div>
+          </div>
+          <div class="cell">
+            <div class="k">示唆</div>
+            <div class="v">育成・採用基準の更新が必要</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">日本語補助：評価軸＝採点基準（さいてんきじゅん）</div>
+          <div class="right">次：AIエージェント化の注意</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+
+        <div class="eyebrow">手順：自律化の落とし穴</div>
+        <h1 class="title">監督を <span class="jp">外す</span></h1>
+        <p class="lead">
+          AIがエージェント化すると、目的→テスト→文書化まで自律的に進む。
+          その分、長時間監督を外したときに誤りが拡大し、原因究明が難しくなる。
+        </p>
+
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">進む</div>
+            <div class="v">目標設定→実装→テスト反復</div>
+          </div>
+          <div class="cell">
+            <div class="k">加速</div>
+            <div class="v">ライティングループで改善が連鎖</div>
+          </div>
+          <div class="cell">
+            <div class="k">破綻</div>
+            <div class="v">巨大化したコードで見失う可能性</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">安全設計：どこで人が“ゲート”を握るか</div>
+          <div class="right">技術＋運用の接点</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+
+        <div class="eyebrow">転換：医療は規制が本体</div>
+        <h1 class="title">血圧指輪 <span class="jp">Signal Ring</span></h1>
+        <p class="lead">
+          Signal Ringはカフなしで血圧に近いデータを出し、クラウド解析とアプリでトレンドを示そうとする。
+          だが医療として信頼されるには、精度・装着・クラウド依存・規制が必須になる。
+        </p>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">上腕カフ（従来基準）に代わる計測</div>
+          </div>
+          <div class="cell">
+            <div class="k">提供</div>
+            <div class="v">クラウド解析＋アプリで表示（トレンド／読み値）</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">日本語補助：精度（せいど）＝どれだけ正確か</div>
+          <div class="right">次：何が成否を決めるか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+
+        <div class="eyebrow">成否：条件が揃うか</div>
+        <h1 class="title">“検証”が <span class="jp">勝負</span></h1>
+        <p class="lead">
+          血圧は健康上の意思決定に直結する指標なので、デモ精度だけでは足りない。
+          例として、リングのフィット要因やFDA未承認（ウェルネス寄り）などが障壁になる。
+        </p>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">精度</div>
+            <div class="v">フィット要因で誤差が出る可能性（装着の影響）</div>
+          </div>
+          <div class="cell">
+            <div class="k">規制</div>
+            <div class="v">FDA未承認のため診断用途には慎重さが必要</div>
+          </div>
+        </div>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">運用</div>
+            <div class="v">クラウド依存（通信・処理設計）</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証</div>
+            <div class="v">臨床データの継続蓄積（ドリフトなどを含む）</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">医療は「実装」より「根拠」</div>
+          <div class="right">技術と法規が一体</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+
+        <div class="eyebrow">共通点：役割の再設計</div>
+        <h1 class="title">“人の代替” <span class="jp">ではない</span></h1>
+        <p class="lead">
+          AIコーディングも血圧指輪も、核心は人の役割を置き換えるより再配分することにある。
+          自動化が進むほど、監督・品質・安全・評価・規制対応が重要になる。
+        </p>
+
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">開発</div>
+            <div class="v">仕様→検証→レビューの“ゲート”設計</div>
+          </div>
+          <div class="cell">
+            <div class="k">医療</div>
+            <div class="v">精度→装着→臨床データ→規制の“根拠”設計</div>
+          </div>
+          <div class="cell">
+            <div class="k">共通</div>
+            <div class="v">自動化＝責任の所在を明確化する</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">日本語補助：根拠＝エビデンス（evidence）</div>
+          <div class="right">次：判断のチェックリスト</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+
+        <div class="eyebrow">判断軸：導入前に見る</div>
+        <h1 class="title">チェック： <span class="jp">速度以外</span></h1>
+        <p class="lead">
+          導入・意思決定では「速さ」ではなく、検証設計とリスクの制御点を先に確認する。
+          その差が、失敗コストと信頼の差になる。
+        </p>
+
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">AIコーディング</div>
+            <div class="v">テスト品質／レビュー回数／手戻り率／監督の境界（どこで止めるか）</div>
+          </div>
+          <div class="cell">
+            <div class="k">血圧指輪</div>
+            <div class="v">精度の再現性／装着フィット／オフライン運用／FDA等の位置づけ</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">リスク理解：AIも医療デバイスも“確実”は後からしか来ない</div>
+          <div class="right">意思決定は検証設計で決まる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+
+        <div class="eyebrow">要点：再設計で勝つ</div>
+        <h1 class="title">自動化の <span class="jp">先</span></h1>
+        <p class="lead">
+          AIの普及で“作業”は置き換わるが、“責任”は移動しない。
+          だからこそ検証・評価・安全・規制を再設計し、体感ではなく実測で前に進む。
+        </p>
+
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">速さ×検証</div>
+          </div>
+          <div class="cell">
+            <div class="k">人</div>
+            <div class="v">監督×評価軸</div>
+          </div>
+          <div class="cell">
+            <div class="k">医療</div>
+            <div class="v">根拠×規制</div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          <div class="left">不足情報は原典で補完推奨（失敗・長期検証の有無を確認）</div>
+          <div class="right">End</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
