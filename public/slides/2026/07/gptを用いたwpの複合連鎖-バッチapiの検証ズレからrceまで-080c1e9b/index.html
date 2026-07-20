@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GPTを用いたWPの複合連鎖—バッチAPIの検証ズレからRCEまで</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 24px;
+      position:relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 22px;
+      height: 2px;
+      background: var(--rust);
+      border-radius: 2px;
+      box-shadow: 0 0 0 2px rgba(232,129,74,0.12);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      opacity: 0.95;
+      font-size: 20px;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+    .intro{
+      position:relative;
+      z-index: 1;
+      margin-top: 18px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 68px;
+      color: var(--ink);
+      margin: 0 0 14px 0;
+      letter-spacing: 0.01em;
+      line-height: 1.02;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+    .content{
+      position:relative;
+      z-index: 1;
+      margin-top: 26px;
+      width: 100%;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 10px;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+    .card .v{
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .note{
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 300;
+      max-width: 760px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 500;
+      color: var(--ink-2);
+      word-break: break-word;
+    }
+    .bottom-fix{
+      position:absolute;
+      left: 72px; right: 72px;
+      bottom: 56px;
+      z-index: 1;
+      pointer-events:none;
+      opacity: 0.75;
+      display:flex;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .small{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    @media (max-width: 860px){
+      .slide{ padding: 44px 40px; }
+      .bottom-fix{ left:40px; right:40px; bottom:44px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .card .v{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-top">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">Research chain / WP</div>
+        <h1 class="title"><i>複合連鎖</i>からRCEへ</h1>
+        <p class="lead">
+          GPT（GPT-5.6 Sol Ultra）を用いた探索により、WordPressの「検証ズレ→SQLi→状態操作→hooks再実行」で、認証なしから任意コード実行級の到達を狙う物語を要約します。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">核心キーワード</div>
+            <div class="v">バッチAPI / 検証不整合 / pre-auth SQLi</div>
+          </div>
+          <div class="card">
+            <div class="k">拡張の形</div>
+            <div class="v">キャッシュ汚染 / customize_changeset / parse_request</div>
+          </div>
+        </div>
+        <div class="note">
+          URLやCVE、修正パッチの詳細が一部マスクされているため、ここでは「攻撃論理と研究手法の構造」を主に扱います（実環境適用は要確認）。
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide" aria-label="Problem slide">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">危険は“連鎖”</div>
+        <h1 class="title"><i>単発</i>では終わらない</h1>
+        <p class="lead">
+          これは「SQLiがある」だけの話ではなく、Webアプリ内部の実行順序と状態（キャッシュ、イベント）をまたいで影響が拡大する設計不備が問題になります。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">攻撃者の狙い</div>
+            <div class="v">入力検証を崩し、危険な処理経路へ運ぶ</div>
+          </div>
+          <div class="card">
+            <div class="k">防御側の盲点</div>
+            <div class="v">“SQLi対策だけ”では連鎖の接続点を塞げない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide" aria-label="Core idea slide">
+      <div class="slide-top">
+        <div class="slide-tag">Core</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">バッチで崩れる</div>
+        <h1 class="title"><i>検証ズレ</i>が土台</h1>
+        <p class="lead">
+          WordPressのバッチAPI（<span class="mono">/wp-json/batch/v1</span>）で、validation結果と実行ハンドラ（matches）が、エラー分岐（<span class="mono">is_wp_error(...)</span>）により対応づかなくなると説明されています。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">本来</div>
+            <div class="v">検証済み入力だけが、対応する実行先に適用される</div>
+          </div>
+          <div class="card">
+            <div class="k">起きること</div>
+            <div class="v">検証の“意味”が反転し、別の実行側へ入力が流れる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide" aria-label="Evidence slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">実装の不整合</div>
+        <h1 class="title"><i>validation</i> vs matches</h1>
+        <p class="lead">
+          validation配列と、実際に対応づけられたhandler（matches）がズレると、サニタイズ済みであるべき入力が別エンドポイント側の実行に混入し得ます。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">危険点</div>
+            <div class="v">エラー分岐（is_wp_error）で対応関係が崩れる</div>
+          </div>
+          <div class="card">
+            <div class="k">連鎖への橋</div>
+            <div class="v">“適切に検証されたはず”が崩れ、pre-auth SQLiへ接続</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide" aria-label="SQLi to state slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">漏えい→状態操作</div>
+        <h1 class="title"><i>SQLi</i>を使い切る</h1>
+        <p class="lead">
+          pre-auth SQLiはデータ漏えいに留まらず、偽の投稿（キャッシュ対象）を作り、整合性処理で「存在しないはずのものを存在させる」方向へ進むと述べられています。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">狙うデータ</div>
+            <div class="v">WPの内部キャッシュ（<span class="mono">WP_Post</span>等）とoEmbedキャッシュ（DB）</div>
+          </div>
+          <div class="card">
+            <div class="k">使い方</div>
+            <div class="v">DB格納とインメモリの食い違いを、矛盾解消のロジックに押し込む</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide" aria-label="Cache and integrity slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">キャッシュが攻面</div>
+        <h1 class="title"><i>矛盾</i>が武器</h1>
+        <p class="lead">
+          アプリが矛盾を“直そうとする”振る舞い（キャッシュ整合性修復）が攻撃者に有利に働き、攻撃対象の世界観を内部状態へ実装していきます。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">並行世界</div>
+            <div class="v">DB側（oEmbed_cache）とメモリ側で整合性がズレる</div>
+          </div>
+          <div class="card">
+            <div class="k">攻撃の勝ち筋</div>
+            <div class="v">修復処理が偽データを採用し、後段の処理条件を満たす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide" aria-label="From state to admin context slide">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">権限を“前提”化</div>
+        <h1 class="title"><i>changeset</i>へ接続</h1>
+        <p class="lead">
+          次に、テーマ編集などに関係する<span class="mono">customize_changeset</span>を介して、管理者権限を一時的に前提とする処理経路へ接続します。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">何が起きる</div>
+            <div class="v">状態操作（偽投稿）が、編集・公開系の条件を満たす</div>
+          </div>
+          <div class="card">
+            <div class="k">何が目的</div>
+            <div class="v">hooksへ拡張し、実行可能なアクション領域に入る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide" aria-label="Hooks and action slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">イベント駆動へ</div>
+        <h1 class="title"><i>hooks</i>で任意へ</h1>
+        <p class="lead">
+          投稿公開イベントに絡むフック（hooks）を“任意のアクション呼び出し”へ拡張する、という方針が説明されています。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">連結の形</div>
+            <div class="v">偽データ→整合性処理→公開・編集経路→hooks</div>
+          </div>
+          <div class="card">
+            <div class="k">本質</div>
+            <div class="v">単なる権限奪取ではなく、権限が有効な“タイミング”へ再生する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide" aria-label="Recursive parse_request slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">決め手の再実行</div>
+        <h1 class="title"><i>parse_request</i>再帰</h1>
+        <p class="lead">
+          最終局面では<span class="mono">parse_request</span>フックを起点としてリクエスト処理を再帰的に再実行し、管理者として成立するはずの操作（例：管理者作成）を成功させたと述べられています。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">攻撃戦略</div>
+            <div class="v">“今は無理”を、ライフサイクル再生で“可能”へ</div>
+          </div>
+          <div class="card">
+            <div class="k">到達点</div>
+            <div class="v">バックドアプラグインのアップロード→RCE</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="End-to-end chain slide">
+      <div class="slide-top">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">チェーン全体像</div>
+        <h1 class="title"><i>到達</i>の流れ</h1>
+        <p class="lead">
+          まとめると、「検証・実行の不整合」→「pre-auth SQLi」→「キャッシュ汚染と整合性」→「changeset・hooks」→「parse_request再実行」でRCEへ至ります。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">段階 i</div>
+            <div class="v">バッチAPI：validation↔matchesズレ（is_wp_error分岐）</div>
+          </div>
+          <div class="card">
+            <div class="k">段階 ii</div>
+            <div class="v">SQLi（pre-auth）：入力が“別の実行側”へ運ばれる</div>
+          </div>
+          <div class="card">
+            <div class="k">段階 iii</div>
+            <div class="v">偽投稿：DBとin-memoryの整合性矛盾を作る</div>
+          </div>
+          <div class="card">
+            <div class="k">段階 iv</div>
+            <div class="v">customize_changeset→hooks：管理者相当の処理へ接続</div>
+          </div>
+          <div class="card">
+            <div class="k">段階 v</div>
+            <div class="v">parse_request再帰：管理者としての操作→バックドア→RCE</div>
+          </div>
+          <div class="card">
+            <div class="k">観点</div>
+            <div class="v">“状態遷移＋イベント再生”で致命度が跳ねる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Research method slide">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">AIは“探索運用”</div>
+        <h1 class="title"><i>GPT</i>で連鎖を探す</h1>
+        <p class="lead">
+          記事ではGPTプロンプトに探索ヒューリスティクス（多様ルート維持、行き詰まり遮断、相互検証など）を埋め込み、連鎖候補の発見を狙ったと説明しています。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">強み（研究）</div>
+            <div class="v">知識だけでなく、探索方針そのものを設計できる</div>
+          </div>
+          <div class="card">
+            <div class="k">価値（実務）</div>
+            <div class="v">“何を試すか／捨てるか”の運用が再現可能になり得る</div>
+          </div>
+        </div>
+        <div class="note">
+          <span class="mono">追試の確実性</span>は別問題のため、AIの主張は第三者検証や追加情報と併用するのが安全です（安全側に倒す）。
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Defense implications slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">防御は多層</div>
+        <h1 class="title"><i>接続点</i>を塞ぐ</h1>
+        <p class="lead">
+          防御側はSQLi対策に加え、バッチの検証・実行対応の整合性、サニタイズ前提（配列/スカラー差）、キャッシュ矛盾の安全化、hooks再実行経路の権限境界を見直す必要があります。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">設計（入力）</div>
+            <div class="v">検証結果と実行先（validation↔matches）を不変にする</div>
+          </div>
+          <div class="card">
+            <div class="k">設計（状態）</div>
+            <div class="v">キャッシュ整合性修復の“矛盾時”挙動を安全側へ</div>
+          </div>
+          <div class="card">
+            <div class="k">設計（イベント）</div>
+            <div class="v">customize_changeset / parse_request 連結の権限境界</div>
+          </div>
+          <div class="card">
+            <div class="k">運用（確認）</div>
+            <div class="v">影響バージョン・公式修正・条件依存性は必ず照合</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="Limitations and caution slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">強いが未確定</div>
+        <h1 class="title"><i>解釈</i>に注意</h1>
+        <p class="lead">
+          CVEや影響範囲、修正状況が十分に示されず、一部がマスクされているため、この内容は「確定的な脅威評価」ではなく「技術洞察」として扱うべきです。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">不確実性</div>
+            <div class="v">バージョン適合・環境依存（構成、プラグイン、キャッシュ挙動等）</div>
+          </div>
+          <div class="card">
+            <div class="k">AI評価の注意</div>
+            <div class="v">第三者検証がなく、能力の断定はできない</div>
+          </div>
+        </div>
+        <div class="note">
+          防御判断は公式アドバイザリと自環境検証で補完してください（安全側の意思決定）。
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="Closing slide">
+      <div class="slide-top">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="intro">
+        <div class="eyebrow">次に読む</div>
+        <h1 class="title"><i>要点</i>まとめ</h1>
+        <p class="lead">
+          この事例が示すのは、「検証・実行のズレ」「状態（キャッシュ）操作」「hooks・ライフサイクル再実行」が組み合わさると、pre-auth SQLiでもRCE級に跳ね得る、という構造です。
+        </p>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">Takeaway</div>
+            <div class="v">連鎖前提で“接続点”を潰す（SQLi単独では不十分）</div>
+          </div>
+          <div class="card">
+            <div class="k">Research</div>
+            <div class="v">AI探索は有用だが、結論は検証と追加情報で固める</div>
+          </div>
+        </div>
+        <div class="note">
+          参照先の形（例）：<br/>
+          <span class="mono">WordPress公式アドバイザリ</span>／<span class="mono">該当バージョンの修正履歴</span>／<span class="mono">CVE</span>／（可能なら）独立追試レポート。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.helpnetsecurity.com/2026/06/29/openai-gpt-5-6-models-preview" target="_blank" rel="noreferrer noopener">GPT-5.6 gets better at cybersecurity - Help Net Security</a></h2>
+<p class="reference-note">OpenAI has started rolling out the GPT-5.6 series models in limited preview to a small group of trusted partners through…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://webiano.digital/gpt-5-6-sol-puts-ais-cyber-risk-argument-into-production" target="_blank" rel="noreferrer noopener">GPT-5.6 Sol puts AI’s cyber risk argument into production</a></h2>
+<p class="reference-note">OpenAI’s June 26, 2026 preview of GPT-5.6 Sol is not a routine model release with a larger benchmark chart and a broader…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/groups/deepseekforum/posts/1423738192891929" target="_blank" rel="noreferrer noopener">GPT-5.6 sol model from OpenAI contains severe security ...</a></h2>
+<p class="reference-note">OpenAI&#39;s newly released GPT-5.6 Sol model contains severe security vulnerabilities. for vulnerability discovery and expl…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://fortune.com/2026/07/10/openai-gpt-5-6-sol-jailbreaks-cyber-attacks-similar-to-security-flaw-that-led-u-s-government-to-force-anthropic-to-disable-fable-5" target="_blank" rel="noreferrer noopener">Jailbreaks to OpenAI&#39;s GPT-5.6 unlock dangerous cyber capabilities, U.K. ...</a></h2>
+<p class="reference-note">![OpenAI CEO Sam Altman sitting next to U.S. President Donald Trump at the G7 Meeting in Evian, France.](https://fortune…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.securityweek.com/openai-unveils-gpt-5-6-sol-as-its-most-advanced-cybersecurity-ai" target="_blank" rel="noreferrer noopener">OpenAI Unveils GPT-5.6 Sol as Its Most Advanced Cybersecurity AI - SecurityWeek</a></h2>
+<p class="reference-note"># OpenAI Unveils GPT-5.6 Sol as Its Most Advanced Cybersecurity AI. The company says Sol matches competing systems like …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
