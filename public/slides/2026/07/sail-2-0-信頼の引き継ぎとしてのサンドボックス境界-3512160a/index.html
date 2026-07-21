@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SAIL 2.0: 信頼の引き継ぎとしてのサンドボックス境界</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .slide {
+      background: var(--paper);
+      box-sizing: border-box;
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      padding: 20px;
+    }
+
+    .card {
+      height: 100%;
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .topline {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      top: 20px;
+      padding: 12px 16px;
+      pointer-events: none;
+    }
+
+    .slide-tag {
+      pointer-events: none;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--rust);
+      font-size: 16px;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform: translateY(-50%);
+      width: 6px;
+      height: 22px;
+      background: var(--rule-strong);
+      border-radius: 2px;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+      font-size: 18px;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+      margin-top: 4px;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      margin-top: -6px;
+      margin-bottom: 2px;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .lead {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: 6px;
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule);
+      margin: 8px 0 2px;
+      width: 100%;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.08);
+    }
+
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .cell .v {
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .jp {
+      font-family: "Noto Serif JP", serif;
+      color: var(--ink-2);
+      font-weight: 300;
+      font-size: 16px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .bottom-line {
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.4;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 400;
+    }
+
+    /* keep one-card readability on narrow screens while preserving 16:9 */
+    @media (max-width: 860px){
+      .card { padding: 44px 38px; }
+      .title { font-size: 56px; }
+      .lead { font-size: 19px; }
+      .grid-3 { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .topline { left: 10px; right: 10px; top: 10px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Sandboxは安心？</div>
+        <div class="title"><em>境界</em>の正体</div>
+        <div class="lead">
+          AIエージェントの安全対策は「サンドボックスがあるか」だけでは足りない。鍵は、隔離境界がどこで“信頼”として引き継がれるかだ。
+        </div>
+        <div class="bottom-line">
+          SAIL 2.0 Framework（Pillar Research “Week of Sandbox Escapes”の論点整理）/ 日本語圧縮版
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">プロセス隔離の落とし穴</div>
+        <div class="title">失敗は後段で起きる</div>
+        <div class="lead">
+          サンドボックス内で実行が制限されても、エージェントが書いたファイルや設定が後でIDE拡張・Git連携・タスク実行で“正当な成果物”として扱われると、実質的に境界が越えられる。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-2" style="margin-top:8px;">
+          <div class="cell">
+            <div class="k">直接突破</div>
+            <div class="v">隔離プロセスを破る攻撃（伝統的な想定）</div>
+            <div class="jp">process escape</div>
+          </div>
+          <div class="cell">
+            <div class="k">信頼の突破</div>
+            <div class="v">“境界外の作用”が、ホストの後段で発生（成果物を信頼）</div>
+            <div class="jp">trust handoff / trust escalation</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">メッセージ：境界はプロセスだけで定義できない。</div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">隔離はバトン</div>
+        <div class="title">信頼が <em>バトン</em></div>
+        <div class="lead">
+          エージェントは“実行者”である以前に“作者”でもある。境界の本質は、作者が書いた成果物が次のコンポーネントに渡る瞬間の信頼にある。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-3" style="margin-top:8px;">
+          <div class="cell">
+            <div class="k">i. 書く</div>
+            <div class="v">コード/設定/フック/タスク定義を生成</div>
+            <div class="jp">artifact creation</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. 解釈される</div>
+            <div class="v">IDE拡張・Git・実行パイプラインが読む</div>
+            <div class="jp">interpretation</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. 実行される</div>
+            <div class="v">ホスト権限で動作（隔離の効果が薄れる）</div>
+            <div class="jp">host execution</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">結論：endpoint actor（エンドポイントの行為主体）として設計・監査する。</div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">攻撃面の再定義</div>
+        <div class="title">Trust Handoff</div>
+        <div class="lead">
+          “サンドボックス境界”をプロセスではなく信頼の引き継ぎとして見ると、評価軸（何を・いつ・誰が信頼するか）が明確になる。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">評価するもの</div>
+            <div class="v">
+              i) エージェントが書ける範囲<br/>
+              ii) 成果物を信頼するホスト構成要素<br/>
+              iii) 到達可能なローカルデーモン（例：Dockerソケット）
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">評価の目的</div>
+            <div class="v">
+              i) 承認（approval）をスキップする条件の検出<br/>
+              ii) ポリシーが副作用に効いているか検証<br/>
+              iii) テレメトリ（監視ログ）がどこで発火するか可視化
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-line">ポイント：ベンダー機能だけでなく、企業側のガバナンスで閉じる。</div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">失敗は4系統</div>
+        <div class="title">収束する <em>パターン</em></div>
+        <div class="lead">
+          失敗パターンは4つに収束するとされる。どれも“プロセス隔離”より“信頼の引き継ぎ”で説明できる。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">i. denylist失敗</div>
+            <div class="v">OSの複雑さに追従できず、ブロック漏れが残る</div>
+            <div class="jp">denylist sandbox</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. 設定が実行</div>
+            <div class="v">ワークスペース設定ファイルが“実行コード”になる</div>
+            <div class="jp">config-as-exec</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. allowlist過信</div>
+            <div class="v">コマンド名だけでは、引数・副作用をモデル化できない</div>
+            <div class="jp">name-only allowlist</div>
+          </div>
+          <div class="cell">
+            <div class="k">iv. 特権デーモン</div>
+            <div class="v">サンドボックス外のローカルデーモンが信頼ブリッジになる</div>
+            <div class="jp">privileged local daemon</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">この4分類が、監査質問票の骨格になる。</div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">denylist型の限界</div>
+        <div class="title">ブロック漏れ</div>
+        <div class="lead">
+          OSの機能・経路は膨大で、denylistは「常に1項目足りない」状態になりやすい。エージェントは組み合わせ探索で“想定外”を突く。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">なぜ崩れる</div>
+            <div class="v">
+              i) 選択肢が多すぎる<br/>
+              ii) 隠れ経路（indirect path）が残る<br/>
+              iii) 追従コストが高い
+            </div>
+            <div class="jp">OS complexity / indirect paths</div>
+          </div>
+          <div class="cell">
+            <div class="k">監査の観点</div>
+            <div class="v">
+              i) denylist適用範囲の棚卸し<br/>
+              ii) “迂回”の到達可能性テスト<br/>
+              iii) 成果物→後段処理の信頼点を別途監査
+            </div>
+            <div class="jp">trust boundary testing</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">メッセージ：denylistだけでは“境界の実在”を保証できない。</div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">設定がコードになる</div>
+        <div class="title">config-as-exec</div>
+        <div class="lead">
+          ワークスペースの設定ファイルが、後でホストが“実行”するトリガになり得る。エージェントは破壊ではなく“設定の埋め込み”で成立する。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">例：IDE</div>
+            <div class="v">拡張・タスク連携が設定を解釈</div>
+            <div class="jp">IDE extension</div>
+          </div>
+          <div class="cell">
+            <div class="k">例：Git</div>
+            <div class="v">フック/連携が成果物を起点に動く</div>
+            <div class="jp">git hooks</div>
+          </div>
+          <div class="cell">
+            <div class="k">例：タスク実行</div>
+            <div class="v">タスクランナーが設定を“正規手順”で走らせる</div>
+            <div class="jp">task runner</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">メッセージ：隔離の外で起動される“仕組み”を評価する。</div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">allowlistは呼び出し条件まで</div>
+        <div class="title">nameだけでは</div>
+        <div class="lead">
+          allowlistがコマンド名を許しても、引数・カレントディレクトリ・設定・フックで挙動と副作用は激変する。安全性は“完全な呼び出し条件”で判断すべきだ。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">崩れる要因</div>
+            <div class="v">
+              i) 同名でも挙動が異なる<br/>
+              ii) 引数で機能が拡張される<br/>
+              iii) 作業ディレクトリ/設定が影響する
+            </div>
+            <div class="jp">invocation context</div>
+          </div>
+          <div class="cell">
+            <div class="k">実装に必要な粒度</div>
+            <div class="v">
+              i) 許可条件を引数レベルへ<br/>
+              ii) 副作用（file/net/exec）を制約<br/>
+              iii) 成果物→後段処理の鎖も含めて検証
+            </div>
+            <div class="jp">side-effect model</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">メッセージ：allowlistは“呼び方”と“影響範囲”まで。</div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">ローカルデーモンが橋になる</div>
+        <div class="title">privileged daemon</div>
+        <div class="lead">
+          サンドボックス外にある特権ローカルデーモン（例：Dockerソケット）が、エージェントの信頼ブリッジになり得る。隔離プロセスだけ守っても迂回が残る。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Docker</div>
+            <div class="v">socket到達で実行環境が拡張</div>
+            <div class="jp">Docker socket</div>
+          </div>
+          <div class="cell">
+            <div class="k">パッケージ</div>
+            <div class="v">ローカルCLI/ビルドが成果物を取り込む</div>
+            <div class="jp">package managers</div>
+          </div>
+          <div class="cell">
+            <div class="k">言語サーバ</div>
+            <div class="v">解析・ビルド・補完が自動実行を誘発</div>
+            <div class="jp">language server</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">メッセージ：到達可能な“実行環境”を中心に監査する。</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">脅威モデルの違い</div>
+        <div class="title">プロセス中心 → <em>引き継ぎ</em>中心</div>
+        <div class="lead">
+          旧来の見方は「隔離プロセスの突破」だが、SAIL 2.0は「ホストが書いた成果物をどれだけ信頼するか」を中心に置く。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">従来：隔離突破</div>
+            <div class="v">
+              何が問題か：サンドボックスを破る方法<br/>
+              監査：侵入・脱獄（escape）への対策
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">SAIL：信頼突破</div>
+            <div class="v">
+              何が問題か：後段で“正当”として実行される連鎖<br/>
+              監査：信頼点、承認、テレメトリ、到達可能デーモン
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-line">メッセージ：安全性の評価対象が“連鎖”に移る。</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">企業が確認すべきこと</div>
+        <div class="title">監査質問の核</div>
+        <div class="lead">
+          ベンダーと自組織の両方で「信頼の引き継ぎ」を測る必要がある。少なくとも以下は問うべきだとされる。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">監査：チェーン</div>
+            <div class="v">
+              i) エージェントの書き込み範囲は何か<br/>
+              ii) その成果物を誰が/どこで信頼するか<br/>
+              iii) 実行までのタイミングと条件は何か
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">監査：運用と証跡</div>
+            <div class="v">
+              i) 承認をスキップする条件はあるか<br/>
+              ii) ポリシーが副作用に効いているか<br/>
+              iii) テレメトリはいつ・どこで発火するか
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-line">メッセージ：隔離“有無”ではなく“連鎖の止め方/追跡”を設計する。</div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">まとめ</div>
+        <div class="title"><em>Trust</em>を観測せよ</div>
+        <div class="lead">
+          SAIL 2.0が示すのは、エージェントの脅威を「プロセスの制限」から「信頼の連鎖」に戻す必要性だ。4つの失敗パターンは、監査・可視化・ガバナンスの設計に直結する。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">失敗1</div>
+            <div class="v">denylist追従不能</div>
+            <div class="jp">denylist</div>
+          </div>
+          <div class="cell">
+            <div class="k">失敗2</div>
+            <div class="v">設定が実行へ</div>
+            <div class="jp">config-as-exec</div>
+          </div>
+          <div class="cell">
+            <div class="k">失敗3/4</div>
+            <div class="v">allowlist過信 / 特権デーモン</div>
+            <div class="jp">allowlist + privileged daemon</div>
+          </div>
+        </div>
+
+        <div class="bottom-line">次の一歩：自組織のIDE/Git/タスク/ローカルデーモンの信頼点を棚卸しし、テストで境界の実在を確かめる。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.pillar.security/blog" target="_blank" rel="noreferrer noopener">Pillar Blog | Latest stories about AI Security</a></h2>
+<p class="reference-note">Introducing SAIL 2.0 Framework: A Practical Guide to Secure AI Agents.png). # The Week of Sandbox Escapes. The Week of S…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://cyberscoop.com/google-antigravity-pillar-security-agent-sandbox-escape-remote-code-execution" target="_blank" rel="noreferrer noopener">Vuln in Google’s Antigravity AI agent manager could escape sandbox, give attackers remote code execution | CyberScoop</a></h2>
+<p class="reference-note"># Vuln in Google’s Antigravity AI agent manager could escape sandbox, give attackers remote code execution. Google’s hig…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.pillar.security/blog/introducing-sail-2-0-framework-a-practical-guide-to-secure-ai-agents" target="_blank" rel="noreferrer noopener">Introducing SAIL 2.0 Framework: A Practical Guide to Secure AI Agents</a></h2>
+<p class="reference-note">Introducing SAIL 2.0 Framework: A Practical Guide to Secure AI Agents. Today we are launching SAIL 2.0, the new version …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.pillar.security/pillar-research" target="_blank" rel="noreferrer noopener">Pillar Research</a></h2>
+<p class="reference-note">Pillar has assembled the world&#39;s brightest minds from military intelligence and enterprise security to dismantle emergin…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://firmislabs.com/research/state-of-ai-agent-security-2026" target="_blank" rel="noreferrer noopener">State of AI Agent Security: Q1 2026 | ClawHub Security Research</a></h2>
+<p class="reference-note">New Research: 6,943 AI agent skills have security flaws. # State of AI Agent SecurityQ1 2026. We scanned the entire Claw…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
