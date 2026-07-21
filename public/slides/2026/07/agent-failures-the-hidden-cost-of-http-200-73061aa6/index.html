@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Failures: The Hidden Cost of HTTP 200</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.06);
+      border-radius: 12px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      border-top: 0;
+      outline: 1px solid rgba(240,232,216,0.04);
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute; inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 18px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      line-height: 1;
+      padding-left: 10px;
+      border-left: 3px solid rgba(232,129,74,0.85);
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 18px;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: 0.95;
+      margin-top: 0px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 14px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 72px;
+      font-weight: 500;
+      margin-top: 10px;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+      position: relative;
+      z-index: 2;
+      line-height: 1.02;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      line-height: 1.35;
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .rule{
+      position:absolute;
+      left: 56px; right: 72px;
+      top: 158px;
+      height: 1px;
+      background: var(--rule);
+      z-index: 1;
+      pointer-events:none;
+    }
+
+    .content{
+      position: relative;
+      z-index: 2;
+      margin-top: 26px;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      border-radius: 12px;
+      padding: 14px 14px;
+      min-height: 88px;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.02em;
+      font-size: 13px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      line-height: 1.2;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 860px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .pairs{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .pair{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px;
+      background: rgba(255,255,255,0.02);
+      min-height: 110px;
+    }
+    .pair .h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 13px;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .pair .t{
+      font-size: 18px;
+      line-height: 1.4;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+    .pair .p{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .listlike{
+      display:grid;
+      gap: 12px;
+    }
+    .li{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .li .idx{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      margin-right: 10px;
+      font-size: 18px;
+    }
+    .li .txt{
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 720px){
+      .slide { padding: 28px 28px; border-radius: 10px; }
+      .slide::after { inset: 12px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .rule{ left: 28px; right: 28px; top: 120px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">COVER / 要約</div>
+        <div class="slide-num">02 / 12</div>
+      </div>
+      <div class="eyebrow">Silent meaning failure</div>
+      <div class="title"><em>HTTP</em> 200</div>
+      <div class="lead">AIエージェントでは「形式上の成功」が“意味の成功”を兼ねないことがあり、検知されないまま下流を汚染します。</div>
+      <div class="content">
+        <div class="pairs">
+          <div class="pair">
+            <div class="h">Key claim / 要点</div>
+            <div class="t">最も危険: サイレント失敗</div>
+            <div class="p">クラッシュやタイムアウトは見えるが、HTTP 200の誤りは見えにくい。</div>
+          </div>
+          <div class="pair">
+            <div class="h">What to build / 目標</div>
+            <div class="t">検証を「状態の意味」に寄せる</div>
+            <div class="p">契約（postcondition）と実行後裏取り（read-after-write / receipt）。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM / 問題</div>
+        <div class="slide-num">03 / 12</div>
+      </div>
+      <div class="eyebrow">Transport vs Semantic</div>
+      <div class="title">成功の <em>誤結合</em></div>
+      <div class="lead">HTTP 200 や JSON 形式の正しさは「配送（transport）の成功」に寄りがちで、「意図どおりの状態変化（semantic / state correctness）」を保証しません。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Transport 成功（移送）</div>
+            <div class="v">HTTP 200・スキーマ整合・レスポンス到達。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Semantic 成功（意味）</div>
+            <div class="v">対象・鮮度・権限・意図と結果の一致、状態遷移の正しさ。</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          下流は「形式が通った＝正しい」と解釈して前進し、後で意味の誤りに気づく確率が下がります（サイレントな失敗）。
+          <span class="mono">/ silent failure</span>：見た目は成功、実態は誤り。
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide" aria-label="Failure Modes">
+      <div class="topbar">
+        <div class="slide-tag">ENUMERATION / 分類</div>
+        <div class="slide-num">04 / 12</div>
+      </div>
+      <div class="eyebrow">Two failure worlds</div>
+      <div class="title">見える失敗と <em>見えない失敗</em></div>
+      <div class="lead">失敗は「クラッシュ/タイムアウト/エラー」と「成功に見える誤り」に分かれます。致命的なのは後者です。</div>
+      <div class="content">
+        <div class="listlike">
+          <div class="li">
+            <div class="idx">i</div>
+            <div class="txt"><strong>可視的な失敗</strong>：クラッシュ / タイムアウト / エラー → アラート・調査入口が明確。</div>
+          </div>
+          <div class="li">
+            <div class="idx">ii</div>
+            <div class="txt"><strong>サイレント失敗</strong>：HTTP 200・JSON正当 → 意味（意図/対象/鮮度/権限）が誤っても完了扱い。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide" aria-label="Why Tags Fail">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION / 差</div>
+        <div class="slide-num">05 / 12</div>
+      </div>
+      <div class="eyebrow">Provenance isn’t proof</div>
+      <div class="title">自己申告の <em>アリバイ化</em></div>
+      <div class="lead">confidence provenance tag のようなタグは直感的ですが、タグがエージェントの自己申告であり、検証側が同じ主体に依存すると“説明最適化”でアリバイ化します。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">Proposal / 提案</div>
+            <div class="v">根拠タグ（confidence provenance）で意思決定の到達経路を添付。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Risk / 懸念</div>
+            <div class="v">自己申告が検証ゲートに影響 → 誤りをもっともらしく覆う方向へ最適化。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Principle / 本質</div>
+            <div class="v">「タグを信じる」より「独立な不変条件で確かめる」。<br>（invariant check）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide" aria-label="Orchestration Flow">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE / 構造</div>
+        <div class="slide-num">06 / 12</div>
+      </div>
+      <div class="eyebrow">Where “done” is decided</div>
+      <div class="title">オーケストレーションが <em>完了を誤る</em></div>
+      <div class="lead">推論→オーケストレーション受理→下流が完了扱い、という典型フローで、成功基準が形式に寄ると意味の誤りが蓄積します。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Upstream / 上流</div>
+            <div class="v">推論（LLM）→ 実行指示 → 応答生成（HTTP 200 / JSON）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Downstream / 下流</div>
+            <div class="v">受理・完了判定 → 状態更新・次ステップへ進む。</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          問題は「transport成功」が「semantic成功」の代用になってしまう点です。<br>
+          → “done” の定義を契約（結果の意味）に寄せる必要があります。
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide" aria-label="Independence">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE / 根拠</div>
+        <div class="slide-num">07 / 12</div>
+      </div>
+      <div class="eyebrow">Independence of inputs</div>
+      <div class="title">コード分離より <em>観測経路分離</em></div>
+      <div class="lead">「検証コードを分けても不十分」です。検証がエージェントの書いたキャッシュや導出データを読むと、同じ嘘に追従します。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Wrong / 誤り</div>
+            <div class="v">検証が <span class="mono">agent-written state</span> / キャッシュ / 導出ログを参照。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Right / 正しさ</div>
+            <div class="v">検証対象を「エージェントが書けない」ソースから取得。<br>（read-path independence）</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          独立性は“ロジックの分離”ではなく“入力（観測経路）の独立”として設計します。
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide" aria-label="Contracts and Postconditions">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS / 対策</div>
+        <div class="slide-num">08 / 12</div>
+      </div>
+      <div class="eyebrow">Contracts + receipt</div>
+      <div class="title">postconditionで <em>意味を縛る</em></div>
+      <div class="lead">有力な方向は、契約としてポストコンディション（invariant / postcondition）を定義し、実行後に世界の状態で確認することです。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">Define / 定義</div>
+            <div class="v">例：$100の引き落としなら「残高が必ず10減る」。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Execute / 実行</div>
+            <div class="v">エージェントがアクションを実施。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Verify / 検証</div>
+            <div class="v">read-after-write / receipt で実状態を確認。</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          重要: 完全な期待差分を全アクションに適用するのは高コスト。リスクに応じて段階化します。
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide" aria-label="Boundaries">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION / 境界</div>
+        <div class="slide-num">09 / 12</div>
+      </div>
+      <div class="eyebrow">Don’t forget the edges</div>
+      <div class="title">鮮度・部分成功・権限まで</div>
+      <div class="lead">検証が遅延・鮮度・部分成功（batch wrongness）・認可ギャップまで扱わないと、別のサイレント失敗が残ります。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Freshness / 鮮度</div>
+            <div class="v">decision_epoch / TTL の一致。stale cache（古い前提）の影響を切る。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Scope / 範囲</div>
+            <div class="v">部分成功・batch の不整合、許可された能力範囲外アクセス。</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          形式上正しい応答でも、境界条件が崩れると意味の誤りになります。
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide" aria-label="Design Checklist">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON / 指針</div>
+        <div class="slide-num">10 / 12</div>
+      </div>
+      <div class="eyebrow">What to change first</div>
+      <div class="title">設計の <em>優先順位</em></div>
+      <div class="lead">理想は「タグ単独」ではなく、(1) postcondition/受理条件を明確化、(2) 独立観測で裏取り、(3) リスクと可逆性で検証強度を段階化、の組み合わせです。</div>
+      <div class="content">
+        <div class="listlike">
+          <div class="li">
+            <div class="idx">i</div>
+            <div class="txt"><strong>受理条件を意味ベース</strong>にする（transport≠semantic）。</div>
+          </div>
+          <div class="li">
+            <div class="idx">ii</div>
+            <div class="txt"><strong>独立オラクル/独立入力</strong>で検証する（read-path independence）。</div>
+          </div>
+          <div class="li">
+            <div class="idx">iii</div>
+            <div class="txt"><strong>可逆性と外部可視性で段階化</strong>する（不可逆は厳格に前倒し/実行後裏取り）。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Closing and References">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING / まとめ</div>
+        <div class="slide-num">11 / 12</div>
+      </div>
+      <div class="eyebrow">Break the link</div>
+      <div class="title">成功≠妥当性</div>
+      <div class="lead">サイレントな意味ズレは、監視が緑でも致命傷になり得ます。鍵は「成功コード」を輸送の成功に留め、意味の成功を契約と実行後検証で担保することです。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Core lesson / 学び</div>
+            <div class="v">HTTP 200は“意図の達成”ではない。検証は状態遷移に結びつける。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Safety / 安全</div>
+            <div class="v">不可逆操作ほど、確認の前倒し＋独立観測＋境界条件（鮮度/権限/部分成功）。</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          （参考）この要約は提示された投稿・コメント内容の論旨を圧縮したものです。<br>
+          Bilingual gloss: <span class="mono">invariant（不変条件）</span> / <span class="mono">postcondition（事後条件）</span> / <span class="mono">read-after-write（書込み後読取り）</span>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 12</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
