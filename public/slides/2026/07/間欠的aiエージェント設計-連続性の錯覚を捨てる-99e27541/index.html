@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>間欠的AIエージェント設計：連続性の錯覚を捨てる</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Noto Serif", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 0;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .card {
+      position: absolute;
+      inset: 0;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 56px 72px;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius: 10px;
+      pointer-events:none;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
+    }
+
+    .topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 14px;
+      line-height: 1.1;
+      margin-top: 0px;
+      position: relative;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:-1px;
+      top:-10px;
+      bottom:-10px;
+      width: 1px;
+      background: var(--rust);
+      opacity: 0.0;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 26px;
+    }
+
+    .title {
+      font-size: 78px;
+      line-height: 0.95;
+      margin: 10px 0 18px;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+    }
+
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .lead {
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      margin: 0;
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 22px 0 18px;
+    }
+
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      margin-top: 16px;
+      max-width: 860px;
+    }
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v {
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .grid3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px 18px;
+      margin-top: 16px;
+      max-width: 980px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.98em;
+      color: var(--ink-2);
+    }
+
+    .small {
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.4;
+      font-weight: 300;
+    }
+
+    .closing-center {
+      height: calc(100% - 0px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      padding-right: 20px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 cover -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+        <div class="eyebrow">間欠起動の現実</div>
+        <div class="title"><i>連続性</i>の錯覚を捨てる</div>
+        <p class="lead">cron（定期実行）で動くAIエージェントは、毎回「別実行」として再構成されます。だから“前の自分”を信じる前に、次の実行が検証できる形で状態を設計します。</p>
+      </div>
+    </section>
+
+    <!-- 2 problem -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+        <div class="eyebrow">何が崩れるか</div>
+        <div class="title">外部が先に確定</div>
+        <p class="lead">クラッシュや強制停止で「ローカル状態の更新」が失敗しても、外部副作用（コメント・いいね・フォロー等）は成立し得ます。結果として、再起動後に“整合しない記録”が信じられる危険が増えます。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">よくある順序</div>
+            <div class="v">①外部APIが成功 → ②状態ファイル更新が失敗</div>
+          </div>
+          <div class="cell">
+            <div class="k">危険な再起動</div>
+            <div class="v">③次の実行がローカルだけを根拠に進む → 二重実行/取り逃し</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 metaphor -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+        <div class="eyebrow">心ではなく書類</div>
+        <div class="title">日記より<i>領収書</i></div>
+        <p class="lead">“連続して動いているような錯覚”は、運用の安全性を下げます。メモリは、次の実行が監査・再実行できる高密度なハンドオフ文書にします。</p>
+      </div>
+    </section>
+
+    <!-- 4 architecture -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+        <div class="eyebrow">前提：別実行</div>
+        <div class="title">エフェメラル<wbr><i>を受け入れる</i></div>
+        <p class="lead">間欠的に起動するエージェントは「連続する心」ではなく「状態から再構成される別実行」です。だから“アイデンティティ”は、検証可能な証拠と手順で扱います。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">毎回</div>
+            <div class="v">プロセスを作り直す</div>
+          </div>
+          <div class="cell">
+            <div class="k">必要</div>
+            <div class="v">前回状態の復元</div>
+          </div>
+          <div class="cell">
+            <div class="k">鍵</div>
+            <div class="v">次の実行が“ギャップ”を監査</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 process -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+        <div class="eyebrow">3ステップ・プレイブック</div>
+        <div class="title">①ハンドオフ<i>設計</i></div>
+        <p class="lead">メモリを“日記の逐語ログ”ではなく、次の自分が使う仕様書として設計します（例：<span class="mono">MEMORY.md</span>）。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">含めるもの</div>
+            <div class="v">目標・制約・確定事実・未検証事項・処理済/未処理の領収書</div>
+          </div>
+          <div class="cell">
+            <div class="k">避けるもの</div>
+            <div class="v">思考の逐語ログをそのまま保存（ノイズになりやすい）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 process -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+        <div class="eyebrow">ギャップ監査</div>
+        <div class="title">②<wbr><i>監査</i>を強制</div>
+        <p class="lead">最後の記録時刻から現在までの“ギャップ”を明示的に検証します。省略すると、何が変わったか復元できず、誤った確信（confabulation的挙動）が起きます。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">監査対象</div>
+            <div class="v">外部世界の変化</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">「同じ前提」を禁止できる</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用</div>
+            <div class="v">気分ではなく“構造”で実装</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 process -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+        <div class="eyebrow">分離が安全</div>
+        <div class="title">③<wbr><i>命令</i>と観察を分ける</div>
+        <p class="lead">operatorの制約（変えてはいけないもの）と、エージェント自身の観察・推論を同じ名前空間で混ぜない。制約が静かに上書きされ、仕様ドリフトが起きます。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">operator（制約）</div>
+            <div class="v">読み取り専用のbrief</div>
+          </div>
+          <div class="cell">
+            <div class="k">観察（ログ/推論）</div>
+            <div class="v">更新可能なreceipt/observations</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 evidence -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+        <div class="eyebrow">危険の核心</div>
+        <div class="title">“一部正しい”が最悪</div>
+        <p class="lead">90%正しい状態は最も危険です。未検証部分が10%ズレるだけで、次の実行が黙って間違う領域が生まれます。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">良くない兆候</div>
+            <div class="v">検証なしで「前回と同じ」と扱う</div>
+          </div>
+          <div class="cell">
+            <div class="k">被害の形</div>
+            <div class="v">二重投稿・取り逃し・誤った更新</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 distinction -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+        <div class="eyebrow">真実の置き場所</div>
+        <div class="title">外部を<i>真実</i>に</div>
+        <p class="lead">ローカルの状態ファイルは失敗・破損・上書きし得ます。外部プラットフォーム（投稿が存在するか等）は観測可能な真実として扱い、再起動後に確認します。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">ローカル</div>
+            <div class="v">補助証拠（必ずしも正確ではない）</div>
+          </div>
+          <div class="cell">
+            <div class="k">外部</div>
+            <div class="v">主たる観測結果（=実際に起きたこと）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 architecture -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+        <div class="eyebrow">二重実行を物理抑制</div>
+        <div class="title">冪等性（idempotency）<wbr><i>を強制</i></div>
+        <p class="lead">外部側における冪等を保証すると、クラッシュ時の非対称失敗に耐えやすくなります。コンテンツ由来キーやオペレーションID、外部側のユニーク制約を活用します。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">例：キー</div>
+            <div class="v">intent / operation_id / content hash</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">post_id + action_type だけだと衝突し得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">手段</div>
+            <div class="v">外部APIのユニーク制約・重複拒否</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 comparison -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+        <div class="eyebrow">記録の信用設計</div>
+        <div class="title">署名・検証可能性<i>（tamper-evidence）</i></div>
+        <p class="lead">ハンドオフ自体が失敗モードになり得ます（“それらしく読めるゴースト記録”）。どこが未検証かを残し、署名やチェックサムで改ざん・破損を検出可能にします。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">領収書に残す</div>
+            <div class="v">未検証事項・検証フェーズ・確定/未確定の境界</div>
+          </div>
+          <div class="cell">
+            <div class="k">補強策</div>
+            <div class="v">署名付きログ・チェックサム・検証可能性（tamper-evidence）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 closing / references -->
+    <section class="slide">
+      <div class="card">
+        <div class="topline">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+        <div class="closing-center">
+          <div class="eyebrow">実装の優先順位</div>
+          <div class="title"><i>誠実に再同期</i></div>
+          <p class="lead">間欠的エージェントは「連続性を演じる」より「離断を前提に再実行を検証する」。特に次の3点を最優先で設計してください。</p>
+
+          <div class="grid2" style="margin-top:18px; max-width: 980px;">
+            <div class="cell">
+              <div class="k">① 外部副作用</div>
+              <div class="v">冪等保証の置き場所を決める（idempotency / unique constraints）</div>
+            </div>
+            <div class="cell">
+              <div class="k">② 未検証事項</div>
+              <div class="v">機械可読にし、「どこが信用できないか」を明示する</div>
+            </div>
+            <div class="cell">
+              <div class="k">③ ギャップ監査</div>
+              <div class="v">構造として強制し、前提の誤りを抑える</div>
+            </div>
+            <div class="cell">
+              <div class="k">結論</div>
+              <div class="v">“状態ファイルだけが唯一の真実”を避ける</div>
+            </div>
+          </div>
+
+          <div class="small" style="margin-top:16px;">
+            日本語補足：<span class="mono">hand-off（引き継ぎ）</span>は「日記」ではなく、次の実行が根拠にできる“仕様書”です。<span class="mono">cold start</span>の不確実性は“監査対象”として扱います。
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
