@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claudeはコンパイラではない</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240,232,216,0.08);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      position: relative;
+      padding: 56px 72px;
+      margin: 0;
+      border-radius: 2px;
+      overflow: hidden;
+
+      /* fixed 16:9 card behavior */
+      width: 100%;
+      flex: 0 0 auto;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topline{
+      position:absolute;
+      left:72px; right:72px; top:26px;
+      height:1px;
+      background: var(--rule);
+    }
+    .slide-tag{
+      position:absolute;
+      top:28px;
+      left:72px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap:10px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width:10px; height:10px;
+      border-left: 3px solid var(--rust);
+      border-bottom: 3px solid var(--rust);
+      transform: rotate(45deg);
+      margin-right: 2px;
+      opacity: 0.95;
+    }
+    .slide-num{
+      position:absolute;
+      top:26px;
+      right:72px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 16px 0;
+      letter-spacing: 0.01em;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      margin: 0;
+      max-width: 760px;
+    }
+    .divider{
+      margin-top: 18px;
+      height:1px;
+      background: var(--rule);
+      width: min(760px, 92%);
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      width: min(760px, 92%);
+      margin-top: 18px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 14px 14px;
+      background: rgba(20,17,13,0.15);
+      min-height: 64px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+    .listish{
+      font-size: 20px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      width: min(760px, 92%);
+      margin-top: 18px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+    }
+    .smallcaps{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-top: 14px;
+    }
+    .callout{
+      width: min(760px, 92%);
+      margin-top: 18px;
+      border: 1px solid var(--rule-strong);
+      background: rgba(232,129,74,0.06);
+      border-radius: 2px;
+      padding: 14px 14px;
+    }
+    .callout .h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      color: var(--rust);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .callout .p{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    /* responsive: keep aspect ratio */
+    @media (max-width: 720px){
+      .deck{ width: calc(100vw - 24px); padding-top: 16px; }
+      .slide{ padding: 44px 18px; }
+      .topline{ left:18px; right:18px; }
+      .slide-tag{ left:18px; top:20px; }
+      .slide-num{ right:18px; top:18px; }
+      .eyebrow{ font-size: 20px; margin-bottom: 8px; }
+      .title{ font-size: 44px; margin-bottom: 12px; }
+      .lead{ font-size: 18px; }
+      .grid, .listish, .callout{ width: 100%; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">Clarity</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">誤分類をほどく</div>
+      <h1 class="title"><em>Claude</em>はコンパイラではない</h1>
+      <p class="lead">重要なのは「言語→コード」ではなく、上位から下位まで“層をまたいだ意思決定”を加速する点だ、という結論。</p>
+      <div class="divider"></div>
+      <div class="smallcaps">Key question</div>
+      <div class="listish"><span style="color:var(--ink)"><em>Is Claude a Compiler?</em></span>（Claudeはコンパイラか？）</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">答えは「いいえ」</div>
+      <h1 class="title"><em>カテゴリ</em>の誤り</h1>
+      <p class="lead">コンパイラという分類自体がカテゴリの誤りだ、と著者は強く確信している。ソフトウェアは「精密だが目標は曖昧」で、その曖昧さを層ごとに仕様へ増幅して解く。</p>
+      <div class="callout">
+        <div class="h">核心</div>
+        <div class="p">層をまたぐ設計判断が主役で、「下層の変換」では終わらない。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">層＝意思決定の増幅器</div>
+      <h1 class="title">“層”をまたぐ</h1>
+      <p class="lead">層は分業のためだけでなく、情報隠蔽と組織スケールのために必要な仕組みだ。だが、断絶すると「何を聞くべきか分からない」状態が起きる。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">うまくいく時</div>
+          <div class="v">学習・分業が進む</div>
+        </div>
+        <div class="cell">
+          <div class="k">崩れる時</div>
+          <div class="v">無知・見落としが増える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Compiler</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">下層の仕事</div>
+      <h1 class="title">コンパイラ</h1>
+      <p class="lead">コンパイラは主に「ソース→バイナリ」の下層で動き、インライン展開・レジスタ割り当て・最適化・警告/拒否など多数の設計判断を行う。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">入力</div>
+          <div class="v">ソースコード</div>
+        </div>
+        <div class="cell">
+          <div class="k">出力</div>
+          <div class="v">機械語（バイナリ）</div>
+        </div>
+        <div class="cell">
+          <div class="k">焦点</div>
+          <div class="v">性能・安定・予測可能性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">LLM</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">上から下まで</div>
+      <h1 class="title"><em>LLM</em>の役割</h1>
+      <p class="lead">LLMは「自然言語→コード」だけでなく、戦略・要件・アーキテクチャ・実装・テスト計画まで複数層をまたいで支援できる。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">扱う層</div>
+          <div class="v">戦略/要件/設計</div>
+        </div>
+        <div class="cell">
+          <div class="k">さらに</div>
+          <div class="v">実装/テスト/レビュー</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">同じ変換でも違う</div>
+      <h1 class="title">勝負ポイントは判断</h1>
+      <p class="lead">コンパイラは下層での判断を代替する。LLMは層をまたいだ判断を“同一の道具”として扱う、というのが本稿の差分。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">コンパイラ</div>
+          <div class="v">下層：最適化・拒否/警告</div>
+        </div>
+        <div class="cell">
+          <div class="k">LLM</div>
+          <div class="v">縦断：戦略〜検証まで支援</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">分散DNSの現場</div>
+      <h1 class="title">DNS最適化</h1>
+      <p class="lead">自社VMのDNSを速く・確実にしたい。結果、分散DNSサーバを自分たちのニーズに最適化して構築する過程が語られる。</p>
+      <div class="callout">
+        <div class="h">絡み合う制約</div>
+        <div class="p">低遅延・高可用性／地域追加での単一拠点問題／デプロイ時DNS障害</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">縦断的に走らせる</div>
+      <h1 class="title">調査→設計→実装→テスト</h1>
+      <p class="lead">LLMは調査、内部や歴史的脆弱性の指摘、実装代替案の比較、障害モードとテスト戦略の検討まで行う。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">調査/比較</div>
+          <div class="v">代替案・脆弱性を整理</div>
+        </div>
+        <div class="cell">
+          <div class="k">設計/検証</div>
+          <div class="v">障害モードとテストへ接続</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Decision</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">並列案で収束</div>
+      <h1 class="title">差分検討</h1>
+      <p class="lead">複数のエージェントループを並列に回し、実装案を作り、対立する決定を比較検証して最終成果へ収束させた。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">機械の落とし穴</div>
+          <div class="v">append-only複製の破綻</div>
+        </div>
+        <div class="cell">
+          <div class="k">別視点の処方</div>
+          <div class="v">timeline再同期の再設計</div>
+        </div>
+        <div class="cell">
+          <div class="k">収束の方法</div>
+          <div class="v">差分分析で選定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Artifact</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">コード量ではない</div>
+      <h1 class="title">設計意図の記録</h1>
+      <p class="lead">価値は「コードを書いた」ことではなく、意思決定を言語化・記録して、将来も説明可能な成果物にする点にある。</p>
+      <div class="callout">
+        <div class="h">この効果</div>
+        <div class="p">チームが質問でき、失敗も少なく運用できる＝持続的な学習資産になる。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">Limits</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">一般化の罠</div>
+      <h1 class="title">免除はない</h1>
+      <p class="lead">成功の理由がLLM単体でなく、テスト・レビュー・設計記録・人の収束能力の組合せである可能性がある。LLMを過信して検証不足になるリスクが残る。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">前提の疑い</div>
+          <div class="v">人と検証投資が効いている</div>
+        </div>
+        <div class="cell">
+          <div class="k">実務の注意</div>
+          <div class="v">shadow-mode / テスト / レビュー</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">結論：層をまたぐ意思決定</div>
+      <h1 class="title">“縦断的コンパイラ”</h1>
+      <p class="lead">「LLM＝コンパイラ」ではなく、「層をまたいだ意思決定を加速する存在」と捉えるのが本稿の要点。強みを活かすには、下層を知る努力と失敗モードの把握を同時に設計する必要がある。</p>
+      <div class="callout">
+        <div class="h">運用の鍵</div>
+        <div class="p">判断を文章化し、対立案を差分検討し、テストで保険をかけて“収束”させる。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.techrxiv.org/doi/10.36227/techrxiv.177205025.54351571" target="_blank" rel="noreferrer noopener">Rediscovering Architectural Decision Records</a></h2>
+<p class="reference-note">by S Kitayama · 2026 — This study proposes &quot;sqlew,&quot; a tool that repurposes Architectural Decision Records (ADRs)-a. LLMs…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://openreview.net/forum?id=48WAZhwHHw" target="_blank" rel="noreferrer noopener">Planning in Natural Language Improves LLM Search for ...</a></h2>
+<p class="reference-note">by EZ Wang · Cited by 146 — PlanSearch improves LLM performance on coding benchmarks significantly, and by a large margi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/list/cs.SE/new" target="_blank" rel="noreferrer noopener">Software Engineering</a></h2>
+<p class="reference-note">Modern agentic systems increasingly rely on skills: installable packages of natural language and code that teach an LLM …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.nec-labs.com/research/data-science-system-security/publications" target="_blank" rel="noreferrer noopener">Publications | Data Science &amp; System Security | NEC Labs</a></h2>
+<p class="reference-note"># Data Science &amp; System Security | Publications. NEC Laboratories America heads to ACL 2026 in San Diego, California, Ju…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://wachter-space.de/2023/02/20/swt2" target="_blank" rel="noreferrer noopener">Software Engineering 2 Lecture Summary - Wachter Space</a></h2>
+<p class="reference-note">It focuses on software architecture, quality and development processes. The first part of this post is a lecture summary…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
