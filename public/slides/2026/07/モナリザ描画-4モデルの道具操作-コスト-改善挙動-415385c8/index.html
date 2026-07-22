@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>モナリザ描画：4モデルの道具操作・コスト・改善挙動</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .inner{
+      padding: 36px 36px 30px;
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: .14em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      padding-left: 14px;
+      border-left: 4px solid rgba(232,129,74,0.55);
+      line-height: 1;
+      margin-top: 2px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 24px;
+      opacity: .95;
+      white-space: nowrap;
+      margin-top: -4px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 12px;
+      margin-bottom: 8px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 78px;
+      letter-spacing: -0.02em;
+      margin: 0 0 10px 0;
+      line-height: 1;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin-top: 8px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 14px;
+      width: 100%;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+      align-items: stretch;
+    }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 14px;
+      border-radius: 10px;
+      height: 100%;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: .08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .card .txt{
+      font-size: 20px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      font-weight: 300;
+      margin:0;
+      white-space: pre-wrap;
+    }
+
+    .bilingual{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 6px;
+      line-height: 1.35;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+
+    .closing{
+      margin-top: auto;
+      padding-top: 14px;
+    }
+    .closing .lead{ max-width: 900px; }
+
+    @media (max-width: 900px){
+      .inner{ padding: 26px 22px 20px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+      .slide-num{ font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">描かせる・見比べる</div>
+        <h1 class="title">モナリザ <em>比較</em></h1>
+        <div class="lead">
+          GPT-5.6 / Claude / Gemini / Grokに同じ「白いキャンバス＋色鉛筆ツール群」を与え、再現と自由描画、そして自己修正の“持続”をSSIMなどで観察した比較レポート。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="card">
+            <div class="label">ターゲット再現</div>
+            <p class="txt">モナリザ / ゴッホ「星月夜」</p>
+            <div class="bilingual">再現（さいげん）: 構図・画素の近さを狙う</div>
+          </div>
+          <div class="card">
+            <div class="label">自由描画</div>
+            <p class="txt">文章プロンプトのみ（正解参照なし）</p>
+            <div class="bilingual">生成（せいせい）: 出力を例として比較</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">何を“測る”のか</div>
+        <h1 class="title"><em>競技</em>の設計</h1>
+        <div class="lead">
+          この実験は「絵の上手さ」コンテストではなく、同一ツール条件で“特定画像へ構造的に近づけられるか／どんな描画が出るか”を、アリーナ型で比較する。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">共通ツール</div>
+            <p class="txt">色選択 / 線の太さ・圧（濃淡） / draw / smudge / erase / view_canvas</p>
+          </div>
+          <div class="card">
+            <div class="label">観測軸</div>
+            <p class="txt">ターゲット再現はSSIM中心（ピークと最終）</p>
+          </div>
+          <div class="card">
+            <div class="label">重要な前提</div>
+            <p class="txt">SSIM＝人の“好み”や“芸術性”を直接測らない</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">描画は“編集”</div>
+        <h1 class="title">手数ではなく <em>方針</em></h1>
+        <div class="lead">
+          モデルは描くたびにキャンバスを見直し（view_canvas）、必要なら戻し・ぼかし・消去を行うが、自己修正は無限に良くなるわけではない。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">良化の形</div>
+            <p class="txt">ピーク（最高点）→ その後は維持できるか</p>
+            <div class="bilingual">ピーク（peak）: 一番近づいた瞬間</div>
+          </div>
+          <div class="card">
+            <div class="label">失速の形</div>
+            <p class="txt">レビュー追加 → 最終が頭打ち／悪化</p>
+            <div class="bilingual">停止（ていし）: いつ止めるかが鍵</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">道具の使い方</div>
+        <h1 class="title">set_*より <em>draw</em></h1>
+        <div class="lead">
+          モデル差は「どのツールに依存するか」で出る。GPT-5.6はdraw/smudge/view_canvas中心、Grokはset_color/set_brush/set_pressureを多用、Claudeはsmudge寄り、Geminiはview_canvas寄り。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">GPT-5.6 Sol</div>
+            <p class="txt">set_*をほぼ使わず、中心は<br/>draw / smudge / view_canvas</p>
+          </div>
+          <div class="card">
+            <div class="label">Grok 4.5</div>
+            <p class="txt">set_color / set_brush / set_pressureの呼び出しが多い<br/>＝手数増</p>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top: 12px;">
+          <div class="card">
+            <div class="label">Claude Fable 5</div>
+            <p class="txt">ぼかし（smudge）依存が強い</p>
+          </div>
+          <div class="card">
+            <div class="label">Gemini 3.6 Flash</div>
+            <p class="txt">view_canvas（レビュー）割合が高い</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">勝者は誰？</div>
+        <h1 class="title"><em>GPT-5.6</em>が最良</h1>
+        <div class="lead">
+          総合ではGPT-5.6 Solが最も良好。星月夜やバラの自由描画で高評価が得られ、ターゲット再現では“ピーク”と“最終”の両面で強い傾向。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">ターゲット再現</div>
+            <p class="txt">ピークも最終も相対的に強い</p>
+            <div class="bilingual">最後まで近づく（さいごまで）</div>
+          </div>
+          <div class="card">
+            <div class="label">自由描画</div>
+            <p class="txt">星月夜 / バラで高評価の出力</p>
+            <div class="bilingual">例として質が安定（あんてい）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">“最終”で差が出る</div>
+        <h1 class="title">GPT以外の <em>特徴</em></h1>
+        <div class="lead">
+          Grokは最終SSIMが極めて低く、自己修正の見かけと成果が噛み合わない。GeminiはSSIMピークが高い場面があるが、最終で伸びが鈍り振れ幅が大きい。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Grok 4.5</div>
+            <p class="txt">描画タスクではほぼ使い物にならない<br/>最終SSIM：極めて低い</p>
+            <div class="bilingual">手数多でも再現できない</div>
+          </div>
+          <div class="card">
+            <div class="label">Gemini 3.6 Flash</div>
+            <p class="txt">SSIMピーク：最高値の場面あり<br/>最終：伸び鈍化・振れ幅大</p>
+            <div class="bilingual">“勝ち切れない”（かちきれない）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">コスト対品質</div>
+        <h1 class="title"><em>Claude</em>は高い</h1>
+        <div class="lead">
+          Claude Fable 5は品質が2位相当だが、コストと時間が突出し費用対効果が最悪クラス。推定トークンコストは他モデルの約20倍。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">品質</div>
+            <p class="txt">2位相当（悪くない）</p>
+            <div class="bilingual">再現の“味”は通る</div>
+          </div>
+          <div class="card">
+            <div class="label">運用面</div>
+            <p class="txt">費用・時間：突出<br/>推定トークン：約20倍</p>
+            <div class="bilingual">到達コストが重い（おもい）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Enumeration</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">観察された核心</div>
+        <h1 class="title">5つの <em>示唆</em></h1>
+        <div class="lead">
+          レポートが示すのは「試行回数」より「どこでどう直すか」「どのツールに寄せるか」「最終まで伸びるか」の違い。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">i. 自己レビュー</div>
+            <p class="txt">増やしても必ず最終品質は上がらない<br/>（頭打ち→悪化あり）</p>
+          </div>
+          <div class="card">
+            <div class="label">ii. ツール癖</div>
+            <p class="txt">道具呼び出しの設計が効率・挙動・品質へ直結</p>
+          </div>
+          <div class="card">
+            <div class="label">iii. コスト不一致</div>
+            <p class="txt">時間・トークンが品質に比例しない</p>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top: 12px;">
+          <div class="card">
+            <div class="label">iv. SSIMの限界</div>
+            <p class="txt">構造近さは測れても“主観の上手さ”とは一致しない</p>
+          </div>
+          <div class="card">
+            <div class="label">v. Grokの失速</div>
+            <p class="txt">手数が多くても自己修正が噛み合っていない可能性</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">なぜ“頭打ち”が起きる？</div>
+        <h1 class="title">停止条件が <em>鍵</em></h1>
+        <div class="lead">
+          早い段階で最適付近に達しても、その後の編集が「最高点を超えないまま崩す」形で現れるため、レビュー回数は万能ではない。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">step 1</div>
+            <p class="txt">描画（draw）で構造を作る</p>
+          </div>
+          <div class="card">
+            <div class="label">step 2</div>
+            <p class="txt">view_canvasで評価（SSIM等）</p>
+          </div>
+          <div class="card">
+            <div class="label">step 3</div>
+            <p class="txt">smudge/eraseで修正するが、<br/>止めどころを誤ると悪化</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">SSIMをどう読む？</div>
+        <h1 class="title">数値は <em>構造</em>の近さ</h1>
+        <div class="lead">
+          SSIMはターゲット画像の構造や画素の近さを測る指標で、人が感じる美しさ・質感・筆致の自然さを直接は表さない。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">SSIMが得意</div>
+            <p class="txt">画素・構造（structural）の一致</p>
+            <div class="bilingual">構造類似（こうぞうるいじ）</div>
+          </div>
+          <div class="card">
+            <div class="label">SSIMが苦手</div>
+            <p class="txt">芸術的表現（筆致の意図、雰囲気）の一致</p>
+            <div class="bilingual">主観（しゅかん）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">実務への読み替え</div>
+        <h1 class="title">“強さ”より <em>到達コスト</em></h1>
+        <div class="lead">
+          企業や制作現場では平均品質より「目標品質に到達するコスト」が重要。Claudeの約20倍コストのように、上位でも運用には不利になり得る。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">Scientific</div>
+            <p class="txt">SSIM/RMSE＋時間・トークンで観測の再現性を上げる</p>
+          </div>
+          <div class="card">
+            <div class="label">Practical</div>
+            <p class="txt">目標到達までの最短経路（コスト最適化）が意思決定に効く</p>
+          </div>
+          <div class="card">
+            <div class="label">Risk</div>
+            <p class="txt">手数だけ多い失敗（Grok型）は品質リスクとして要検証</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">結論</div>
+        <h1 class="title">同じ道具でも <em>戦略が別</em></h1>
+        <div class="lead">
+          同一ツールセットでも、モデルごとの道具呼び出しの癖・自己レビューの運用・コスト構造の違いが、最終品質や改善の持続性を左右する。次は主観評価や停止条件の統制で確からしさを強められる。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two closing">
+          <div class="card">
+            <div class="label">今回の要点</div>
+            <p class="txt">GPT-5.6：ピークと最終が強い<br/>Grok：最終が崩れる（失速）<br/>Gemini：ピークは出るが最終が伸びにくい<br/>Claude：品質は高いがコストが重い</p>
+          </div>
+          <div class="card">
+            <div class="label">次の実験</div>
+            <p class="txt">人間評価の併用／停止条件・探索戦略の統制で、因果に近づける</p>
+            <div class="bilingual">検証（けんしょう）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://benchlm.ai/compare/claude-fable-vs-gpt-5-6-sol" target="_blank" rel="noreferrer noopener">Claude Fable 5 vs GPT-5.6 Sol: Benchmarks, Pricing, Speed (July 2026) | BenchLM.ai</a></h2>
+<p class="reference-note">**1** category wins**2** category wins. Public leaderboard positions: Claude Fable 5#2(Supported); GPT-5.6 Sol#3(Support…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=EthxaDswUFo" target="_blank" rel="noreferrer noopener">I Tested GPT 5.6 Sol vs Fable 5. What You Need To Know.</a></h2>
+<p class="reference-note">I Tested GPT 5.6 Sol vs Fable 5. What You Need To Know.
+Nate Herk | AI Automation
+865000 subscribers
+3966 likes
+203636 v…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pickaxe.co/post/gpt-5-6-sol-vs-claude-fable-5" target="_blank" rel="noreferrer noopener">GPT-5.6 Sol vs Claude Fable 5 (2026)</a></h2>
+<p class="reference-note"># GPT-5.6 Sol vs Claude Fable 5: Which Model for Your AI Agent? Illustration of an adventurer at a forking path under tw…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.layer3labs.io/comparisons/gpt-5-6-sol-vs-claude-fable-5" target="_blank" rel="noreferrer noopener">GPT-5.6 Sol vs Claude Fable 5 (Sol vs Fable) Compared</a></h2>
+<p class="reference-note"># GPT-5.6 Sol vs Claude Fable 5. The flagship-tier matchup: Sol&#39;s $5/$30 top model versus Claude Fable 5 for hard coding…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://artificialanalysis.ai/articles/gpt-5-6-has-landed" target="_blank" rel="noreferrer noopener">GPT-5.6 benchmarks across Intelligence, Speed and Cost</a></h2>
+<p class="reference-note">GPT-5.6 Sol (max) scores 1 point below Claude Fable 5 (max) in the Artificial Analysis Intelligence Index at 59 points, …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
