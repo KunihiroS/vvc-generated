@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Code Modeで“トークンも$も”劇的に削減（MCP / エージェント・スウォーム実測要約）</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 20px 0 48px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.14);
+      box-sizing: border-box;
+      padding: 20px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position:relative;
+      overflow:hidden;
+    }
+
+    .inset{
+      position:absolute; inset: 14px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      box-sizing:border-box;
+    }
+
+    .content{
+      position:relative;
+      height:100%;
+      box-sizing:border-box;
+      display:flex;
+      flex-direction:column;
+      padding: 8px 18px 14px 18px;
+      gap: 10px;
+    }
+
+    .tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--ink);
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .tag:before{
+      content:"";
+      width: 18px;
+      height: 2px;
+      background: var(--rust);
+      display:inline-block;
+      box-shadow: 0 0 0 3px rgba(232,129,74,0.12);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 14px;
+      right: 16px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      opacity: 0.95;
+      font-size: 20px;
+      letter-spacing: 0.01em;
+      margin:0;
+      user-select:none;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+      line-height:1.1;
+    }
+
+    .title{
+      font-size: 74px;
+      line-height: 0.95;
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--rust);
+      text-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      color: var(--ink);
+      letter-spacing: 0;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      margin-top: 2px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+      max-width: 860px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 12px 14px;
+      box-sizing:border-box;
+      background: rgba(240,232,216,0.02);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing:0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+      max-width: 980px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.98em;
+      color: var(--ink-2);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height:1.45;
+      font-weight:300;
+      max-width: 820px;
+    }
+
+    .closing{
+      margin-top:auto;
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+    }
+
+    .center-hero{
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:flex-start;
+      max-width: 980px;
+    }
+
+    .center-title{
+      font-size: 78px;
+      line-height:0.9;
+      margin:0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" style="padding:20px;">
+      <div class="inset"></div>
+      <p class="slide-num">02 / 16</p>
+      <div class="content">
+        <div class="tag">COVER</div>
+        <div class="center-hero">
+          <div class="eyebrow">実測でわかった経路設計の勝ち筋</div>
+          <h1 class="center-title">Code Mode</h1>
+          <div class="lead">
+            MCP（Model Context Protocol）でツールを扱うエージェントにおいて、raw逐次呼び出しより「Code Modeのまとめ処理」が
+            <span style="font-style:italic; color: var(--ink-2);">トークンもコストも</span>劇的に減らせることを報告ベースで整理します。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">03 / 16</p>
+      <div class="content">
+        <div class="tag">PROBLEM</div>
+        <div class="eyebrow">中間データがコンテキストへ</div>
+        <h2 class="title jp" style="font-size:84px; color:var(--rust); font-style:italic;">rawの重さ</h2>
+        <div class="lead">
+          rawなツール呼び出し（JSON等の生データを都度モデルへ入れる）では、
+          ツール結果の再投入が続き、トークン消費と費用が膨らみます。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">Key idea</div>
+            <div class="v">トークン＝請求・計算の単位</div>
+          </div>
+          <div class="cell">
+            <div class="k">Failure mode</div>
+            <div class="v">中間（生）JSONが積み上がる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">04 / 16</p>
+      <div class="content">
+        <div class="tag">METAPHOR</div>
+        <div class="eyebrow">運ぶ量を減らす</div>
+        <h2 class="title jp" style="font-size:84px; color:var(--rust); font-style:italic;">荷物改革</h2>
+        <div class="lead">
+          Code Modeは「実行（処理）は現場でまとめて行い、モデルには要約だけ渡す」発想です。
+          モデルが受け取る“荷物（中間データ）”が小さくなるほど効きます。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">Code Mode（仮）</div>
+            <div class="v">サンドボックス実行 → return（要約のみ）</div>
+          </div>
+          <div class="cell">
+            <div class="k">raw sequential（仮）</div>
+            <div class="v">26回分の生JSONを都度コンテキストへ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">05 / 16</p>
+      <div class="content">
+        <div class="tag">ARCHITECTURE</div>
+        <div class="eyebrow">比較の土台：workflow-triage</div>
+        <h2 class="title jp" style="font-size:72px; color:var(--ink); font-style:italic;">同じ仕事を別経路で</h2>
+        <div class="lead">
+          エージェント・スウォームがcron点検するワークフローを題材に、
+          workflow-triageで「raw逐次 26回」vs「1回スクリプト」で比較しました。
+        </div>
+        <div class="grid3" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">タスク</div>
+            <div class="v">workflow / cron triage（点検）</div>
+          </div>
+          <div class="cell">
+            <div class="k">rawルート</div>
+            <div class="v">Sequential tool calls × 26</div>
+          </div>
+          <div class="cell">
+            <div class="k">Code Modeルート</div>
+            <div class="v">スクリプト1本（要約返却）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">06 / 16</p>
+      <div class="content">
+        <div class="tag">EVIDENCE</div>
+        <div class="eyebrow">文字量：桁違い</div>
+        <h2 class="title jp" style="font-size:82px; color:var(--rust); font-style:italic;">約126倍少ない</h2>
+        <div class="lead">
+          スクリプト経由のモデル到達データは約25,811文字（約6,450 tokens相当）で、
+          raw逐次では約3,259,649文字（約815,000 tokens相当・推定/含む）でした。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">Code Mode</div>
+            <div class="v"><span class="mono">~25,811 chars</span>（~6,450 tokens）</div>
+          </div>
+          <div class="cell">
+            <div class="k">raw sequential</div>
+            <div class="v"><span class="mono">~3,259,649 chars</span>（~815,000 tokens）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">07 / 16</p>
+      <div class="content">
+        <div class="tag">DISTINCTION</div>
+        <div class="eyebrow">削減率：99.2%</div>
+        <h2 class="title jp" style="font-size:86px; color:var(--rust); font-style:italic;">ほぼ全消し</h2>
+        <div class="lead">
+          結論として、モデルに渡る中間データ量は約99.2%削減（=約126倍の差）に収束しました。
+          これは“圧縮”というより“データ経路”の差が本質です。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">削減比率</div>
+            <div class="v">約99.2%（中間生データを渡さない）</div>
+          </div>
+          <div class="cell">
+            <div class="k">根本要因</div>
+            <div class="v">モデルへ入るトークン量が激減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">08 / 16</p>
+      <div class="content">
+        <div class="tag">EVIDENCE</div>
+        <div class="eyebrow">費用：入力単価で換算</div>
+        <h2 class="title jp" style="font-size:78px; color:var(--ink); font-style:italic;">$も差が出る</h2>
+        <div class="lead">
+          Claude Sonnet 5（入力 $3 / 1M tokens）で換算すると、
+          スクリプト側は約$0.02、raw側はfloorで約$2.44と見積もられました。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">モデル単価</div>
+            <div class="v">Claude Sonnet 5：入力 $3 / 1M tokens</div>
+          </div>
+          <div class="cell">
+            <div class="k">換算結果</div>
+            <div class="v">Code Mode ~ $0.02 / raw floor ~ $2.44</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">09 / 16</p>
+      <div class="content">
+        <div class="tag">PROCESS</div>
+        <div class="eyebrow">なぜrawは全部測らない？</div>
+        <h2 class="title jp" style="font-size:74px; color:var(--rust); font-style:italic;">検証の自己矛盾</h2>
+        <div class="lead">
+          raw側を“本番会話のまま”26回分すべて同一コンテキストに入れると、
+          検証が破綻し得るため、サンプル測定→平均→外挿でfloorを作ったと説明しています。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">スクリプト側</div>
+            <div class="v"><span class="mono">durationMs</span>と返却文字数をライブ実測</div>
+          </div>
+          <div class="cell">
+            <div class="k">raw側</div>
+            <div class="v">SDKで生データ量を別測定し外挿（floor）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">10 / 16</p>
+      <div class="content">
+        <div class="tag">DISTINCTION</div>
+        <div class="eyebrow">意思決定の位置が変わる</div>
+        <h2 class="title jp" style="font-size:78px; color:var(--ink); font-style:italic;">導入→磨きへ</h2>
+        <div class="lead">
+          彼らのスウォームは既に、system.agent.context_modeなどのrubricで「大量ツール呼び出しを避け、スクリプトを選ぶ」方針を持っていました。
+          この報告は“Code Mode採用”の正しさではなく、そのrubricを数字で磨く段階に進める材料です。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">以前</div>
+            <div class="v">「Code Modeを使うべきか」議論</div>
+          </div>
+          <div class="cell">
+            <div class="k">今回</div>
+            <div class="v">「いつ/どの条件で選ぶか」を実測で更新</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">11 / 16</p>
+      <div class="content">
+        <div class="tag">COMPARISON</div>
+        <div class="eyebrow">一般化の見取り図</div>
+        <h2 class="title jp" style="font-size:82px; color:var(--rust); font-style:italic;">効く条件</h2>
+        <div class="lead">
+          削減率（約99.2%）の“比”はモデル依存性が小さいと示唆され、主因はトークン量の差です。
+          効果は「ツール結果の大きさ」「モデルへの再投入頻度」「最終要約の圧縮度」に依存します。
+        </div>
+        <div class="grid3" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">大きいほど有利</div>
+            <div class="v">ツール結果が巨大（生JSON）</div>
+          </div>
+          <div class="cell">
+            <div class="k">再投入されるほど</div>
+            <div class="v">後続ターンでコンテキストに残る</div>
+          </div>
+          <div class="cell">
+            <div class="k">最後に圧縮</div>
+            <div class="v">列挙→統計化→要約が相性良</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">12 / 16</p>
+      <div class="content">
+        <div class="tag">EVIDENCE</div>
+        <div class="eyebrow">懸念点：raw floorと外挿</div>
+        <h2 class="title jp" style="font-size:78px; color:var(--ink); font-style:italic;">数字の前提</h2>
+        <div class="lead">
+          raw側の$2.44はfloorで、実際には後続ターンでも生結果が再投入され得るため上振れの可能性があります。
+          また外挿（サンプル→平均→実総数）なので、データ形状が変われば比率も動きます。
+        </div>
+        <div class="grid" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">rawコスト</div>
+            <div class="v">floor推定（実コストは高くなる可能性）</div>
+          </div>
+          <div class="cell">
+            <div class="k">外挿リスク</div>
+            <div class="v">レスポンス/分布が違うと削減比率が変動</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="inset"></div>
+      <p class="slide-num">13 / 16</p>
+      <div class="content">
+        <div class="tag">CLOSING</div>
+        <div class="eyebrow">実務のアクション</div>
+        <h2 class="title jp" style="font-size:78px; color:var(--rust); font-style:italic;">rubricを磨く</h2>
+        <div class="lead">
+          結論は「魔法ではなく経路設計」です。まずは“モデルに渡す中間生データ”を最小化し、
+          rubricでスクリプト選択条件（例：一括処理すべき分量やパターン）を運用ログで調整しましょう。
+        </div>
+
+        <div class="closing">
+          <div class="grid" style="margin-top:0;">
+            <div class="cell">
+              <div class="k">やること</div>
+              <div class="v">中間JSONをモデル経由にしない設計（Code Mode）</div>
+            </div>
+            <div class="cell">
+              <div class="k">測ること</div>
+              <div class="v">入力トークン・実行失敗/リトライ・要約品質</div>
+            </div>
+          </div>
+          <div class="small" style="margin-top:2px;">
+            <span style="color:var(--ink-3); font-style:italic;">Code Mode</span>（コードモード / code execution）という英語用語には短い日本語補助として「コード実行」を付けると理解が揃います。
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/kuldeep_paul/cutting-mcp-tool-call-token-costs-by-50-with-code-mode-4cd" target="_blank" rel="noreferrer noopener">Cutting MCP Tool-Call Token Costs by 50%+ with Code Mode - DEV Community</a></h2>
+<p class="reference-note"># Cutting MCP Tool-Call Token Costs by 50%+ with Code Mode. Code Mode trims token usage 50%+ by letting the model write …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/arushi-garg105_modelcontextprotocol-aiagents-agenticai-activity-7479778988945637376-40FP" target="_blank" rel="noreferrer noopener">Code Mode Cuts AI Agent Costs by 99% with Anthropic and Cloudflare ...</a></h2>
+<p class="reference-note">Anthropic cut a Google Drive to Salesforce workflow from ~150,000 to ~2,000 tokens, a 98.7% drop. → Cloudflare wrapped i…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aitinkerers.org/talks/rsvp_nXh8xYPjl7c" target="_blank" rel="noreferrer noopener">Code Mode: Reduce Token Cost and Increase Efficiency | Boston</a></h2>
+<p class="reference-note">Learn about the efficient method for agents to call MCP functions by writing code, as detailed by Anthropic and Cloudfla…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://blog.cloudflare.com/code-mode-mcp" target="_blank" rel="noreferrer noopener">Code Mode: give agents an entire API in 1,000 tokens | The Cloudflare Blog</a></h2>
+<p class="reference-note"># Code Mode: give agents an entire API in 1,000 tokens. Model Context Protocol (MCP) has become the standard way for AI …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pecollective.com/tools/anthropic-api-pricing" target="_blank" rel="noreferrer noopener">Anthropic API Pricing: Official Token Rates for Every Claude Model (2026)</a></h2>
+<p class="reference-note"># Anthropic API Pricing: Official Token Rates for Every Claude Model (2026). Haiku 4.5 starts at $1/1M input tokens. ###…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
