@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Prompt Cachingの設計論 — コーディングエージェントで壊れやすい重要要素</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      box-sizing: border-box;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: 0.35;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 26px;
+      left: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 16px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      margin: 0 0 14px;
+      color: var(--ink);
+      line-height: 0.98;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 0;
+      width: min(760px, 100%);
+    }
+
+    .grid{
+      width: 100%;
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+    }
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      box-sizing: border-box;
+      background: rgba(0,0,0,0.10);
+      min-height: 62px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-family: "Noto Serif JP", serif;
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.25;
+    }
+    .jp{
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      word-break: break-word;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 44px; border-width: 14px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 20px; }
+      .grid{ gap: 12px 14px; }
+      .cell .v{ font-size: 18px; }
+    }
+    @media (max-width: 520px){
+      .slide{ padding: 34px 26px; border-width: 10px; }
+      .slide-tag{ top: 20px; left: 18px; }
+      .slide-num{ top: 18px; right: 18px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid.grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 01 -->
+    <section class="slide" data-type="cover">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+
+      <div class="eyebrow">Prompt cachingは“設計”だ</div>
+      <h1 class="title">壊れやすい最適化を <em>設計要素</em>へ</h1>
+      <p class="lead">
+        コーディングエージェント（LLMに指示・履歴・ツール定義・結果を毎ターン送る構成）では、Prompt Cachingは速度小技ではなく、
+        コストと体験を左右する設計上の重要要素になり得ます。
+      </p>
+      <div class="rule"></div>
+      <p class="small">
+        日本語メモ：<span class="jp">Prompt Caching（プロンプトキャッシュ）</span>＝prefill（事前計算）で作る内部状態（KVキャッシュ）を再利用し、再計算を減らす仕組み。
+      </p>
+    </section>
+
+    <!-- Slide 02 -->
+    <section class="slide" data-type="problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+
+      <div class="eyebrow">効くはずなのに高い</div>
+      <h1 class="title"><em>キャッシュ</em>が読めない理由</h1>
+      <p class="lead">
+        似た会話でも、内部では“同じ前半トークン列”として扱われないとキャッシュ再利用できず、prefillが丸ごと再計算されます。
+      </p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">核心</div>
+          <div class="v">“意味”ではなく <span class="jp">token prefix</span> 依存</div>
+        </div>
+        <div class="cell">
+          <div class="k">症状</div>
+          <div class="v">キャッシュミス → <span class="jp">再prefill</span> → コスト増・遅延増</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 03 -->
+    <section class="slide" data-type="architecture">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">04 / 16</div>
+
+      <div class="eyebrow">prefill / decode</div>
+      <h1 class="title">内部状態の <em>再利用</em></h1>
+      <p class="lead">
+        LLMの計算は、前半入力をまとめて処理するprefillと、後半を1トークンずつ生成するdecodeに分かれます。
+      </p>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">prefill</div>
+          <div class="v">内部状態計算（KVキャッシュ）</div>
+        </div>
+        <div class="cell">
+          <div class="k">decode</div>
+          <div class="v">次トークン生成</div>
+        </div>
+        <div class="cell">
+          <div class="k">Prompt Caching</div>
+          <div class="v">prefill側のKVを再利用</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 04 -->
+    <section class="slide" data-type="metaphor">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">05 / 16</div>
+
+      <div class="eyebrow">同じ“前半”だけ</div>
+      <h1 class="title">キャッシュは <em>前置き</em>に紐づく</h1>
+      <p class="lead">
+        Prompt Cachingが再利用するのは「完全一致の会話」ではなく、「前半トークン列（プレフィックス）」に対応する計算です。
+      </p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">成立条件</div>
+          <div class="v">次リクエストが前回と同じ <span class="jp">token prefix</span> で開始</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">セッションIDは補助に過ぎない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 05 -->
+    <section class="slide" data-type="enumeration">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">06 / 16</div>
+
+      <div class="eyebrow">壊しやすい変更</div>
+      <h1 class="title">プレフィックス不一致の <em>引き金</em></h1>
+      <p class="lead">
+        下のような変更はsystem prompt等へ畳み込まれ、序盤トークン列を別物にして早期にキャッシュを壊しやすくなります。
+      </p>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">loadout</div>
+          <div class="v">ツール追加/削除/スキーマ変更</div>
+        </div>
+        <div class="cell">
+          <div class="k">順序</div>
+          <div class="v">ツール順の入れ替え</div>
+        </div>
+        <div class="cell">
+          <div class="k">分岐</div>
+          <div class="v">/tree（分岐）やフォーク的操作</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 06 -->
+    <section class="slide" data-type="comparison">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">07 / 16</div>
+
+      <div class="eyebrow">“遅延ロード”の逆転</div>
+      <h1 class="title">短期節約が <em>逆転</em>する</h1>
+      <p class="lead">
+        ツールを遅延ロードする設計は通信量を減らせますが、ツール情報がsystem promptへ畳み込まれると、
+        その後ろが別プレフィックスになって再prefillが増えることがあります。
+      </p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">payload（送信）削減</div>
+        </div>
+        <div class="cell">
+          <div class="k">落とし穴</div>
+          <div class="v">prefill再計算が勝つ（総コスト増）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 07 -->
+    <section class="slide" data-type="evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">08 / 16</div>
+
+      <div class="eyebrow">TTLと運用が効く</div>
+      <h1 class="title">キャッシュは <em>時間</em>と運用に負ける</h1>
+      <p class="lead">
+        TTL（保持期限）が短いと、待機時間だけで失効し、次のリクエストで過去履歴のprefillを再計算する必要が出ます。
+      </p>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">TTL</div>
+          <div class="v">数分で失効 → 次回が再計算</div>
+        </div>
+        <div class="cell">
+          <div class="k">エビクション</div>
+          <div class="v">保持枠から追い出し（Eviction）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ルーティング</div>
+          <div class="v">同入力でも経路違いでミス</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 08 -->
+    <section class="slide" data-type="process">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">09 / 16</div>
+
+      <div class="eyebrow">pruneを慎重に</div>
+      <h1 class="title">途中削除は <em>境界</em>を動かす</h1>
+      <p class="lead">
+        Piはprune（途中削除）をむやみに避けます。削除でプレフィックス境界が変わると、削除以降が再prefill対象になり損になり得るからです。
+      </p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">設計方針</div>
+          <div class="v">安定した追記指向のトランスクリプト</div>
+        </div>
+        <div class="cell">
+          <div class="k">必要時</div>
+          <div class="v">compactionは“キャッシュリセット”として扱い、統計へ反映</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 09 -->
+    <section class="slide" data-type="architecture">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">10 / 16</div>
+
+      <div class="eyebrow">一致は“複合条件”</div>
+      <h1 class="title">セッションだけでは <em>決まらない</em></h1>
+      <p class="lead">
+        キャッシュ再利用は「セッションID」だけでなく、モデル/プロバイダ切替、履歴圧縮（compaction）、動的system prompt（タイムスタンプ/乱数）などで崩れます。
+      </p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">プロバイダ要因</div>
+          <div class="v">モデル切替・保持期限・ルーティング</div>
+        </div>
+        <div class="cell">
+          <div class="k">入力要因</div>
+          <div class="v">compaction/書き換え・動的system prompt</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" data-type="enumeration">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">11 / 16</div>
+
+      <div class="eyebrow">観測して検証する</div>
+      <h1 class="title">推測ではなく <em>可視化</em></h1>
+      <p class="lead">
+        Piはキャッシュ統計や通知（R/W/CH、キャッシュミス通知、/sessionコマンド等）を通じて、性能問題を可視化しようとします。
+      </p>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">R/W/CH</div>
+          <div class="v">読み取り/書き込み/キャッシュ関連</div>
+        </div>
+        <div class="cell">
+          <div class="k">通知</div>
+          <div class="v">キャッシュミスのサイン</div>
+        </div>
+        <div class="cell">
+          <div class="k">/session</div>
+          <div class="v">状態の確認・要因追跡の入口</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" data-type="distinction">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">12 / 16</div>
+
+      <div class="eyebrow">評価軸：強みと限界</div>
+      <h1 class="title">役立つが、<em>不透明</em></h1>
+      <p class="lead">
+        強みは「設計とトレードオフ」を具体メカニズム（キャッシュ再計算）へ接続し、運用判断へ使える観測性を前面に出した点です。
+      </p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">prune回避を“再prefillコスト”で説明</div>
+        </div>
+        <div class="cell">
+          <div class="k">限界</div>
+          <div class="v">再利用率の定量モデル/原因確定は難しい（プロバイダ内部が不透明）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" data-type="process">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">13 / 16</div>
+
+      <div class="eyebrow">最大化の運用セット</div>
+      <h1 class="title">“技術理解”に <em>設計規律</em>
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/earendil-works/pi/issues/967" target="_blank" rel="noreferrer noopener">Add configurable cache retention (for Anthropic and OpenAI) · Issue #967 · earendil-works/pi · GitHub</a></h2>
+<p class="reference-note">You signed in with another tab or window. You switched accounts on another tab or window. * Notifications  You must be s…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ofox.ai/blog/prompt-caching-cost-math-anthropic-vs-openai-2026" target="_blank" rel="noreferrer noopener">Anthropic vs OpenAI Prompt Caching 2026: Cost Math + 3 ...</a></h2>
+<p class="reference-note"># Anthropic vs OpenAI Prompt Caching 2026: Cost Math + 3 Cache-Miss Fixes. Anthropic Claude cache reads: 0.1× input (90%…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.mempko.com/keeping-the-kv-cache-warm-measuring-prompt-cache-eviction-across-anthropic-openai-and-google" target="_blank" rel="noreferrer noopener">Your Agentic Workflow&#39;s Cache Keepalive Costs 8x Too Much</a></h2>
+<p class="reference-note">Everyone pings their prompt cache every 30 seconds. That is 8x too much, and at the ten-minute pause I measured, only on…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://vinidlidoo.github.io/blog/kv-cache-invalidation" target="_blank" rel="noreferrer noopener">vinidlidoo • KV Cache Invalidation</a></h2>
+<p class="reference-note">Everyone&#39;s intuition about context engineering is sensible: if you&#39;re chatting with ChatGPT or Claude and the conversati…</p>
+</article>
+</div>
+</section>
+</div>
+      <p class="lead">
+        Prompt Cachingを最大化するには、ツール定義の変更頻度を抑え、順序/スキーマを安定させ、TTL短さを前提に監視と検証を回す必要があります。
+      </p>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">ツール安定</div>
+          <div class="v">変更頻度を抑える/順序・スキーマを固定寄り</div>
+        </div>
+        <div class="cell">
+          <div class="k">TTL前提</div>
+          <div class="v">アイドル時間を織り込む（失効で再計算）</div>
+        </div>
+        <div class="cell">
+          <div class="k">監視と検証</div>
+          <div class="v">キャッシュ健康を継続監視、再現テスト/A-Bで確かめる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide" data-type="closing">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">16 / 16</div>
+
+      <div class="eyebrow">結論</div>
+      <h1 class="title"><em>最適化</em>ではなく <em>設計</em>で勝つ</h1>
+      <p class="lead">
+        Prompt Cachingは「効けば安い」だけでなく、キャッシュミスが設計・運用判断に跳ね返るため、
+        前半トークンプレフィックスの安定性と可視化をセットで扱うのが要点です。
+      </p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">要点</div>
+          <div class="v">同じ会話ではなく“同じ前半トークン列”を作る</div>
+        </div>
+        <div class="cell">
+          <div class="k">行動</div>
+          <div class="v">prune抑制・ツール安定・TTL前提・R/W/CH等で検証</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</body>
+</html>
