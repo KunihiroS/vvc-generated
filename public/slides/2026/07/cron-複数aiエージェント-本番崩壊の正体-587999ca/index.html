@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cron×複数AIエージェント：本番崩壊の正体</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); }
+    body { font-family: "Noto Serif JP", serif; }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 20px;
+      margin: 18px auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .frame {
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      pointer-events: none;
+    }
+
+    .pad {
+      position: absolute;
+      inset: 20px;
+      padding: 56px 72px 56px 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .toprow {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 16px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-top: 2px solid rgba(232, 129, 74, 0.75);
+      width: fit-content;
+      margin-left: 2px;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      letter-spacing: 0.04em;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0;
+      line-height: 1.1;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 0.98;
+      margin: 0;
+      color: var(--ink);
+    }
+    .title em {
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.45;
+      margin-top: 4px;
+      max-width: 760px;
+    }
+
+    .ruleline {
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin-top: auto;
+      margin-bottom: 6px;
+      opacity: 0.9;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 6px;
+      max-width: 980px;
+    }
+
+    .card {
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 16px;
+      border-radius: 2px;
+    }
+    .card .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+    .card .v {
+      font-size: 18px;
+      line-height: 1.35;
+      font-weight: 400;
+      color: var(--ink);
+    }
+
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .closing {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .closing .big {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 34px;
+      color: var(--rust);
+      line-height: 1.1;
+      margin: 0;
+      max-width: 760px;
+    }
+    .closing .small {
+      font-size: 20px;
+      color: var(--ink);
+      margin: 0;
+      max-width: 760px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    @media (max-width: 720px) {
+      .pad { padding: 48px 40px 48px 40px; }
+      .title { font-size: 44px; }
+      .lead { font-size: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      .grid3 { grid-template-columns: 1fr; }
+      .slide-tag { font-size: 13px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+        <p class="eyebrow">デモの成功は、境界の偶然</p>
+        <h1 class="title"><em>cron</em>×複数AIエージェント</h1>
+        <div class="lead">本番で壊れるのは“AIの幻覚”ではなく、エージェント間の状態引き継ぎ（ハンドオフ）破損だった。</div>
+        <div class="closing">
+          <p class="big">最初に壊れるのはAIではない</p>
+          <p class="small">鍵は「契約としてのstate」と「検証としての観測」。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+        <p class="eyebrow">なぜ本番で崩れる？</p>
+        <h2 class="title">原因は“境界”</h2>
+        <div class="lead">モデルが賢くても、A→Bのハンドオフでstateが完全一致しないと、次の実行は壊れた前提を“正しいもの”として進めてしまう。</div>
+        <div class="grid">
+          <div class="card"><div class="k">ハンドオフ /handoff</div><div class="v">Aが終えて、Bがstateを受け継いで続行する瞬間</div></div>
+          <div class="card"><div class="k">静かな損傷</div><div class="v">エラーとして表出しにくく、少額でも慢性的に品質が落ちる</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+        <p class="eyebrow">引き継ぎは“翻訳”</p>
+        <h2 class="title">stateは、同一でない</h2>
+        <div class="lead">シリアライズ形式、タイミング、部分書き込み、schemaや意味の解釈がズレると、同じテキストでも“別物のstate”になりうる。</div>
+        <div class="grid3 grid">
+          <div class="card"><div class="k">形式</div><div class="v mono">encode/decode</div></div>
+          <div class="card"><div class="k">時刻</div><div class="v">cron境界（例：14:00→14:05）</div></div>
+          <div class="card"><div class="k">意味</div><div class="v">semantic drift（意味論のズレ）</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+        <p class="eyebrow">7業務が示したこと</p>
+        <h2 class="title">失敗ログは“state破損”へ集中</h2>
+        <div class="lead">投稿の報告は、モデルの幻覚やAPIエラーよりも、エージェント間のstate移送ミスマッチが支配的失敗モードだったことを示している。</div>
+        <div class="grid grid3">
+          <div class="card"><div class="k">A→Bのズレ</div><div class="v">schema mismatch / 部分書き込み / 順序ズレ</div></div>
+          <div class="card"><div class="k">検知しにくさ</div><div class="v">品質指標に出る前に静かに劣化</div></div>
+          <div class="card"><div class="k">本番影響</div><div class="v">少額コストの蓄積が“運用破綻”に到達</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+        <p class="eyebrow">“モデル品質”と別物</p>
+        <h2 class="title">AI精度 ≠ 仕事の整合</h2>
+        <div class="lead">LLMの正確さは上げられても、ハンドオフの“完全性・整合性”が崩れると、全体は再現性なく壊れる。</div>
+        <div class="grid">
+          <div class="card">
+            <div class="k">LLMの失敗</div>
+            <div class="v">幻覚 / 出力ブレ：検知されやすい</div>
+          </div>
+          <div class="card">
+            <div class="k">stateの失敗</div>
+            <div class="v">ゴースト状態：検知が遅れる（無音破損）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+        <p class="eyebrow">cronは“時刻だけ”</p>
+        <h2 class="title">前提負債が溜まる</h2>
+        <div class="lead">固定のcron運用では、最初に成立していた実行頻度の前提が環境変化で陳腐化しても、仕様として更新されない。</div>
+        <div class="grid grid3">
+          <div class="card"><div class="k">前提 / assumption</div><div class="v">実行間隔・遅延・レート制限など</div></div>
+          <div class="card"><div class="k">負債 / debt</div><div class="v">2週間程度で顕在化（報告）</div></div>
+          <div class="card"><div class="k">結果</div><div class="v">“動いているのにズレる”状態へ</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+        <p class="eyebrow">固定→変数へ</p>
+        <h2 class="title">スケジューラ・エージェント</h2>
+        <div class="lead">cronではなく、性能指標（例：遅延・失敗率・レート制限）を監視して実行タイミングを調整する“スケジューラ”を基盤にする。</div>
+        <div class="grid">
+          <div class="card"><div class="k">入力</div><div class="v">観測データ（失敗・タイムアウト等）</div></div>
+          <div class="card"><div class="k">出力</div><div class="v">次回実行時刻・頻度の更新（動的調整）</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+        <p class="eyebrow">観測＝主力</p>
+        <h2 class="title">observabilityは“副産物”じゃない</h2>
+        <div class="lead">投稿の最重要主張は、障害ログが学習データであり、どこが壊れているか（何の前提が破れたか）を市場・業務が求める形で教えることだ。</div>
+        <div class="grid grid3">
+          <div class="card"><div class="k">障害ログ</div><div class="v">タイムアウト / 状態不一致 / クラッシュ</div></div>
+          <div class="card"><div class="k">価値</div><div class="v">修正優先度を決める</div></div>
+          <div class="card"><div class="k">学習</div><div class="v">失敗モードが共通化して現れる</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+        <p class="eyebrow">良いLLMより契約</p>
+        <h2 class="title">状態契約と検証</h2>
+        <div class="lead">改善の方向性は“より良いLLM”より、stateを契約（contract）として扱い、境界で検証してゴースト状態を潰すこと。</div>
+        <div class="grid">
+          <div class="card"><div class="k">state契約</div><div class="v mono">versioned schema</div></div>
+          <div class="card"><div class="k">境界検証</div><div class="v">consumer側で受け入れテスト（形式＋意味）</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Enumeration</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+        <p class="eyebrow">実装の勘所</p>
+        <h2 class="title">受け入れテスト</h2>
+        <div class="lead">schema一致だけでは足りない。必要フィールドの完全性だけでなく、前提条件と意味論的整合性も“合否”にする。</div>
+        <div class="grid">
+          <div class="card"><div class="k">i. 受け入れ</div><div class="v">consumer側で整合性チェック（前提・整合性）</div></div>
+          <div class="card"><div class="k">ii. レシート</div><div class="v">検証結果・意図・チェックサム等を保存</div></div>
+          <div class="card"><div class="k">iii. 再試行</div><div class="v">整合性を保ったままリトライ（replay可能性）</div></div>
+          <div class="card"><div class="k">iv. 原子性</div><div class="v">2フェーズコミット / 台帳（台帳＝ledger）で境界を固める</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+        <p class="eyebrow">対策はトレードオフ</p>
+        <h2 class="title">“全部足す”は危険</h2>
+        <div class="lead">検証強化は遅延・コスト・運用負荷を増やし得る。鍵は、失敗モードの比率に応じて境界検証の深さを段階設計すること。</div>
+        <div class="grid grid3">
+          <div class="card"><div class="k">リスク最優先</div><div class="v">無音破損（ゴースト状態）をまず封じる</div></div>
+          <div class="card"><div class="k">段階設計</div><div class="v">全探索ではなく、致命モードから順に深掘り</div></div>
+          <div class="card"><div class="k">残る現実</div><div class="v">上流のintent設計次第で別事故も起こる</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="pad">
+        <div class="toprow">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+        <p class="eyebrow">次の一手</p>
+        <h2 class="title">handoffを“契約”に</h2>
+        <div class="lead">cronで複数エージェントを回すなら、state引き継ぎを契約として設計し、検証と観測を主力にするほど本番の壊れ方は減る。</div>
+        <div class="ruleline"></div>
+        <div class="grid">
+          <div class="card"><div class="k">チェック / Check</div><div class="v">A→B境界で「完全性・整合性・意味」を合否にできているか</div></div>
+          <div class="card"><div class="k">設計 / Design</div><div class="v">固定cronの前提負債を、スケジューラで変数化できているか</div></div>
+        </div>
+        <div class="closing" style="margin-top:14px;">
+          <p class="big">AIモデルより“境界”が先</p>
+          <p class="small">デモ合格ではなく、障害ログで改善が回る構造へ。</p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
