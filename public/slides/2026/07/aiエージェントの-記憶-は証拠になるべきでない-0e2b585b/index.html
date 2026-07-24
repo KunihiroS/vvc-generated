@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIエージェントの“記憶”は証拠になるべきでない</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+      box-sizing: border-box;
+    }
+
+    .slide{
+      position: relative;
+      background: var(--paper);
+      border: 0;
+      padding: 56px 72px;
+      box-sizing: border-box;
+      aspect-ratio: 16 / 9;
+      margin: 18px 0;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events: none;
+    }
+
+    .tag{
+      position:absolute;
+      top: 18px;
+      left: 18px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-weight: 600;
+      z-index: 2;
+      background: rgba(0,0,0,0.0);
+      padding-right: 8px;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-2);
+      z-index: 2;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+      position: relative;
+      z-index: 2;
+      letter-spacing: 0.02em;
+    }
+
+    .title{
+      margin: 0 0 14px 0;
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.0;
+      position: relative;
+      z-index: 2;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      font-weight: 300;
+      color: var(--ink);
+      position: relative;
+      z-index: 2;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      position: relative;
+      z-index: 2;
+      margin: 22px 0 16px;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.06);
+      padding: 14px 14px;
+      box-sizing: border-box;
+      min-height: 72px;
+    }
+
+    .cell .h{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-2);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      font-size: 14px;
+      margin: 0 0 8px 0;
+      text-transform: none;
+    }
+
+    .cell .b{
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      word-break: break-word;
+    }
+
+    .jp-small{
+      font-size: 16px;
+      color: var(--ink-3);
+      margin-left: 6px;
+      font-weight: 300;
+      font-family: "Noto Serif JP", serif;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 40px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 520px){
+      .deck{ width: calc(100vw - 28px); }
+      .slide{ padding: 36px 22px; }
+      .title{ font-size: 40px; }
+      .lead{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <p class="eyebrow">不確実性はラベルではない</p>
+      <h1 class="title"><em>記憶</em>は証拠になるな</h1>
+      <p class="lead">AIエージェントの誤作動は「記憶容量」ではなく、観測・推論・期限切れが同じ重みで扱われる設計に起因します。設計すべきは、実行を止める“権限ゲート”としての不確実性です。</p>
+    </section>
+
+    <section class="slide problem">
+      <div class="tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <p class="eyebrow">静かな昇格バグ</p>
+      <h2 class="title"><em>古い</em>エラーが事実化する</h2>
+      <p class="lead">ツール出力・ユーザー主張・モデル推論・過去のエラーが同一JSON塊に入ると、古い残滓（stale residue）が計画前提（fact）へ“昇格”します。結果として、整った文章ほど危険になります。</p>
+    </section>
+
+    <section class="slide distinction">
+      <div class="tag">DISTINCTION</div>
+      <div class="slide-num">04 / 16</div>
+      <p class="eyebrow">同じ重みは禁止</p>
+      <h2 class="title">混在を <em>分離</em> せよ</h2>
+      <p class="lead">観測（observed）、推論（inferred）、期限切れ（expired）、否定・対立（negation / conflict）を同列に扱わないだけで、誤事実化の確率が下がります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">観測 / Observed <span class="jp-small">観測・ツール出力</span></p>
+          <p class="b">“その瞬間に見えた”事実に近いが、前提は変わり得る。</p>
+        </div>
+        <div class="cell">
+          <p class="h">推論 / Inferred <span class="jp-small">モデルの推測</span></p>
+          <p class="b">更新されるべきが、観測と同じ扱いにすると陳腐化する。</p>
+        </div>
+      </div>
+      <div style="height:12px;"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">期限切れ / Expired <span class="jp-small">鮮度の限界</span></p>
+          <p class="b">TTLが示すのは“古さ”であり“有効性”ではない。</p>
+        </div>
+        <div class="cell">
+          <p class="h">否定・対立 / Conflict <span class="jp-small">反証の種</span></p>
+          <p class="b">競合仮説を捨てると誤収束（premature convergence）する。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor">
+      <div class="tag">METAPHOR</div>
+      <div class="slide-num">05 / 16</div>
+      <p class="eyebrow">AGCの比喩</p>
+      <h2 class="title">固定と <em>書換</em> を分ける</h2>
+      <p class="lead">Apollo Guidance Computer（AGC）の「固定メモリ／書換可能メモリ」にならい、AI側の“記憶の性格”を分離します。固定相当は厳しい根拠が必要、書換相当は更新・取り消し前提です。</p>
+    </section>
+
+    <section class="slide architecture">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="slide-num">06 / 16</div>
+      <p class="eyebrow">不確実性 = 権限</p>
+      <h2 class="title">“I don’t know”は <em>ゲート</em></h2>
+      <p class="lead">不確実性をスコアで表すだけでは不十分です。必要なのは、再検証を要求し、不可逆アクションをブロックし、無理ならエスカレーションする“構造”です。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <p class="h">境界条件 <span class="jp-small">Gate</span></p>
+          <p class="b">実行可能 / 不可能を判定する権限（permission）</p>
+        </div>
+        <div class="cell">
+          <p class="h">再検証 <span class="jp-small">Verify</span></p>
+          <p class="b">足りない根拠（provenance / scope /反証条件）を要求</p>
+        </div>
+        <div class="cell">
+          <p class="h">中断・連携 <span class="jp-small">Escalate</span></p>
+          <p class="b">不可逆なら止める、必要なら人/別系統へ</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="tag">ENUMERATION</div>
+      <div class="slide-num">07 / 16</div>
+      <p class="eyebrow">最小で効く要素</p>
+      <h2 class="title">状態の <em>メタ</em> を持つ</h2>
+      <p class="lead">情報を“事実らしく格納”する代わりに、少なくとも鮮度・適用範囲・反証条件・取り消し・競合・コストを設計に組み込みます。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">鮮度 / Freshness <span class="jp-small">expiry</span></p>
+          <p class="b">“いつ観測されたか”＋“いまも前提が成り立つか”。</p>
+        </div>
+        <div class="cell">
+          <p class="h">適用可能性 / Scope <span class="jp-small">適用条件</span></p>
+          <p class="b">住宅ローンのように個別条件（DTI等）で成立が変わる。</p>
+        </div>
+      </div>
+      <div style="height:12px;"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">反証条件 / Falsification</p>
+          <p class="b">何が揃えば“負け”が確定するか（復活条件も含む）。</p>
+        </div>
+        <div class="cell">
+          <p class="h">リボケーション / Revocation <span class="jp-small">取り消し</span></p>
+          <p class="b">新証拠で信念ランクを格下げ・無効化する状態遷移。</p>
+        </div>
+      </div>
+      <div style="height:12px;"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">競合仮説 / Runner-up <span class="jp-small">第2案</span></p>
+          <p class="b">捨てると誤収束するため保持し、なぜ負けたかも持つ。</p>
+        </div>
+        <div class="cell">
+          <p class="h">検証/取消コスト <span class="jp-small">cost</span></p>
+          <p class="b">verification cost・undo costでゲート強度を決める。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">08 / 16</div>
+      <p class="eyebrow">TTLだけでは足りない</p>
+      <h2 class="title">“見た時刻”は不十分</h2>
+      <p class="lead">タイムスタンプ付き observed でも危険は残ります。市場データや規制要件はイベント駆動で変わり、時間だけのTTLで見逃すことがあるからです。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">TTL <span class="jp-small">expire</span></p>
+          <p class="b">“古い”ことは分かるが、“前提が今も同じ”とは保証しない。</p>
+        </div>
+        <div class="cell">
+          <p class="h">前提チェック <span class="jp-small">scope/falsify</span></p>
+          <p class="b">適用条件・反証条件・更新イベントで有効性を判定する。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="tag">COMPARISON</div>
+      <div class="slide-num">09 / 16</div>
+      <p class="eyebrow">スコア vs ゲート</p>
+      <h2 class="title"><em>confidence</em>だけでは守れない</h2>
+      <p class="lead">confidenceが高くても“古い観測”や“誤った推論”は起こります。重要なのは、鮮度・スコープ・反証条件・検証ゲートを通過する権限です。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">信頼度（confidence）</p>
+          <p class="b">数値は説得力を持つが、行動の可否を止める仕組みになりにくい。</p>
+        </div>
+        <div class="cell">
+          <p class="h">不確実性ゲート</p>
+          <p class="b">再検証・中断・エスカレーションへ接続し、不可逆実行を抑止する。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="tag">PROCESS</div>
+      <div class="slide-num">10 / 16</div>
+      <p class="eyebrow">状態遷移で直す</p>
+      <h2 class="title">昇格を設計で <em>遮断</em></h2>
+      <p class="lead">“stale→fact”への静かな昇格を避けるため、状態遷移規則と取り消し伝播を用意します。監視（invalidation）の購読やカバレッジ不足も、epistemicな劣化として扱います。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <p class="h">i <span style="color:var(--rust); font-style:italic;">取得</span> <span class="jp-small">Observe</span></p>
+          <p class="b">観測を保存し、鮮度・スコープ根拠を結び付ける。</p>
+        </div>
+        <div class="cell">
+          <p class="h">ii <span style="color:var(--rust); font-style:italic;">適用</span> <span class="jp-small">Scope</span></p>
+          <p class="b">成立条件が満たされたときだけ“実行可能”側へ。</p>
+        </div>
+        <div class="cell">
+          <p class="h">iii <span style="color:var(--rust); font-style:italic;">取消</span> <span class="jp-small">Revoke</span></p>
+          <p class="b">新証拠/反証で取り消しを伝播し、下位へ遷移。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">11 / 16</div>
+      <p class="eyebrow">失敗は伝播する</p>
+      <h2 class="title">ファンアウトが <em>損害</em> を決める</h2>
+      <p class="lead">失敗の大きさは操作の複雑さではなく、誤った信念がどれだけ伝播して参照されたかで決まります。誰が先に参照したかで、取り返しの可否が変わります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <p class="h">静的な確からしさ</p>
+          <p class="b">“今の確率”だけを見ると、下流の参照済みを見落とす。</p>
+        </div>
+        <div class="cell">
+          <p class="h">境界（ゲート）× 伝播グラフ</p>
+          <p class="b">参照先・未参照先を区別し、取り消し可能性を境界に反映。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="tag">COMPARISON</div>
+      <div class="slide-num">12 / 16</div>
+      <p class="eyebrow">コストで強度が変わる</p>
+      <h2 class="title">不可逆領域は <em>強い</em> ゲート</h2>
+      <p class="lead">住宅ローン価格・規制対応（例：TRID）・ロボット制御・取引の検証では、誤りのコストが極端に大きいほど強制停止が必要になります。低信頼でも最適化が勝つ設計だと、uncertaintyは“助言”ではなく安全装置になります。</p>
+    </section>
+
+    <section class="slide closing">
+      <div class="tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <p class="eyebrow">結論</p>
+      <h2 class="title"><em>記憶</em>は実行前に検証せよ</h2>
+      <p class="lead">AIエージェントの記憶は容量ではなく認識論とゲート設計の問題です。観測・推論・期限切れ・対立を分離し、鮮度・スコープ・反証・取り消し・競合・コストに基づいて“行動を止める”不確実性を作りましょう。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/The" target="_blank" rel="noreferrer noopener">The - Wikipedia</a></h2>
+<p class="reference-note">It is the [definite article](//en.wikipedia.org/wiki/Definite_article &quot;Definite article&quot;) in English. *The* is the [most…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dictionary.cambridge.org/us/dictionary/english/the" target="_blank" rel="noreferrer noopener">THE | definition in the Cambridge English Dictionary</a></h2>
+<p class="reference-note">*   [select](https://dictionary.cambridge.org/us/dictionary/english/select?topic=extremely-good &quot;select&quot;). *   [hers](ht…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.dictionary.com/browse/the" target="_blank" rel="noreferrer noopener">THE Definition &amp; Meaning</a></h2>
+<p class="reference-note">*   [the](https://www.dictionary.com/browse/the#hdr-headword-dcom-1)the definite article (used, especially before a noun…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=SKZSvtf9D_I" target="_blank" rel="noreferrer noopener">Please, learn the rules! When do we use “THE” in English? ...</a></h2>
+<p class="reference-note">[Video 1](https://www.youtube.com/watch?v=SKZSvtf9D_I). ![Image 4](https://www.youtube.com/watch?v=SKZSvtf9D_I). ![Image…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.merriam-webster.com/dictionary/the" target="_blank" rel="noreferrer noopener">THE Definition &amp; Meaning</a></h2>
+<p class="reference-note">*   [Word of the Day](https://www.merriam-webster.com/word-of-the-day). *   [Word Finder](https://www.merriam-webster.co…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
