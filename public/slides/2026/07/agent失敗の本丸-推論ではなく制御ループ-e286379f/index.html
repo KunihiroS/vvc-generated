@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent失敗の本丸：推論ではなく制御ループ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 16px 0 32px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid rgba(0,0,0,0);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      border-radius: 2px;
+      outline: 1px solid var(--rule);
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: 0.55;
+    }
+
+    .tag{
+      position:absolute;
+      top: 18px;
+      left: 24px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      font-size: 13px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+    }
+    .tag::before{
+      content:"— ";
+      color: var(--rust);
+    }
+
+    .num{
+      position:absolute;
+      top: 18px;
+      right: 24px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+
+    .content{
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-top: 32px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-bottom: -6px;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+      line-height: 1.0;
+      font-style: italic;
+    }
+    .jp-title{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      font-size: 60px;
+      color: var(--rust);
+      margin-top: -6px;
+      margin-bottom: 6px;
+      line-height: 1.0;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 14px;
+      background: rgba(240, 232, 216, 0.03);
+      min-height: 78px;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--ink-3);
+      font-size: 13px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .cell .v{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+    }
+
+    .monoHint{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.02em;
+    }
+
+    .splitLine{
+      margin-top: 6px;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+    }
+
+    .ref{
+      color: var(--ink-2);
+      font-size: 20px;
+      font-weight: 300;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover slide">
+      <div class="tag">COVER</div>
+      <div class="num">01 / 14</div>
+      <div class="content">
+        <div class="eyebrow">失敗の原因</div>
+        <h1 class="title">制御ループ</h1>
+        <div class="jp-title">観測・検証契約</div>
+        <div class="lead">エージェント（自律ツール実行）の失敗は「推論力」より「フィードバック設計」を疑え。決定的な状態差分を返せないと、ログが詩（poet）になり事故に進む。</div>
+        <div class="splitLine"></div>
+        <div class="monoHint">Agent failure ≠ reasoning failure → feedback control loop failure</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem slide">
+      <div class="tag">PROBLEM</div>
+      <div class="num">02 / 14</div>
+      <div class="content">
+        <div class="eyebrow">何が起きるか</div>
+        <h2 class="title">詩が増える</h2>
+        <div class="lead">ツール実行の後に返る結果が曖昧（または遅い）だと、次の行動の根拠が足りない。モデルは「たぶんこう変わったはず」と物語化し、incident channelにpoetが出現する。</div>
+
+        <div class="grid two" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">兆候</div>
+            <div class="v">成功ログは積み上がるのに、状態遷移が現実とズレる</div>
+          </div>
+          <div class="cell">
+            <div class="k">根因</div>
+            <div class="v">観測が遅い／前提が古い／自己申告の成功を採用する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor slide">
+      <div class="tag">METAPHOR</div>
+      <div class="num">03 / 14</div>
+      <div class="content">
+        <div class="eyebrow">制御として見る</div>
+        <h2 class="title">次の一手</h2>
+        <div class="lead">エージェントは「計画して実行する存在」ではなく「状態を観測して更新する制御器」だ。成功とは“実行した”ではなく“状態が契約通りに変化したと検証できる”こと。</div>
+
+        <div class="grid three" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Pre</div>
+            <div class="v">事前状態（pre-state）を同じ基準で観測</div>
+          </div>
+          <div class="cell">
+            <div class="k">Tool</div>
+            <div class="v">ツール実行（API呼び出し、外部ゲート含む）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Post</div>
+            <div class="v">事後状態（post-state）差分で確定</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture slide">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="num">04 / 14</div>
+      <div class="content">
+        <div class="eyebrow">必要な契約</div>
+        <h2 class="title">状態差分</h2>
+        <div class="lead">各ツール境界で「決定的なstate delta（状態差分）」と「境界付きsuccess（成功/失敗/unknown）」を返す。0/1成功ビットだけでは、分岐の契約にならない。</div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">State delta</div>
+            <div class="v">検証可能な差分（observed post-stateが境界）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Bounded signal</div>
+            <div class="v">上限付き成功：success / failure / unknown を型で</div>
+          </div>
+        </div>
+        <div class="monoHint" style="margin-top:8px;">Decision step uses contract, not model “story”</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="enumeration slide">
+      <div class="tag">ENUMERATION</div>
+      <div class="num">05 / 14</div>
+      <div class="content">
+        <div class="eyebrow">型で返す</div>
+        <h2 class="title">三分類</h2>
+        <div class="lead">successだけで前進させない。重要なのは機械が次の行動を選べる分類を返すこと（unknownを“許可なし”として扱う）。</div>
+
+        <div class="grid three" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">success</div>
+            <div class="v">適用が確定（差分が検証可能）</div>
+          </div>
+          <div class="cell">
+            <div class="k">failure</div>
+            <div class="v">差分が検証できず、理由カテゴリも型で</div>
+          </div>
+          <div class="cell">
+            <div class="k">unknown</div>
+            <div class="v">次の意思決定に進む権利なし（再観測/隔離へ）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="evidence slide">
+      <div class="tag">EVIDENCE</div>
+      <div class="num">06 / 14</div>
+      <div class="content">
+        <div class="eyebrow">なぜ0/1不足か</div>
+        <h2 class="title">検証できない</h2>
+        <div class="lead">0/1成功は“理由”も“次の分岐”も足りない。差分が再現可能で、かつ成功の定義が機械検証可能である必要がある。</div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">ダメな例</div>
+            <div class="v">「200 OKだから成功」＝観測不能なまま次へ</div>
+          </div>
+          <div class="cell">
+            <div class="k">必要</div>
+            <div class="v">pre/postの同基準観測＋効果境界で合意</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="distinction slide">
+      <div class="tag">DISTINCTION</div>
+      <div class="num">07 / 14</div>
+      <div class="content">
+        <div class="eyebrow">境界を分ける</div>
+        <h2 class="title">200≠成功</h2>
+        <div class="lead">ツール側の“受け付け（accepted）”と、業務上の“適用（applied/confirmed）”は一致しない。非同期・外部ゲートでは特に、効果境界（effect boundary）で検証が要る。</div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">Tool boundary</div>
+            <div class="v">呼び出し結果（accept、受付、キュー投入）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Effect boundary</div>
+            <div class="v">状態が変わった事実（適用済みの確認）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="process slide">
+      <div class="tag">PROCESS</div>
+      <div class="num">08 / 14</div>
+      <div class="content">
+        <div class="eyebrow">観測の鮮度</div>
+        <h2 class="title">provenance×freshness</h2>
+        <div class="lead">署名（provenance）があっても安全ではない。観測時刻・経路・キャッシュ/サンプル条件（freshness/admissibility）を分離してゲートする。</div>
+
+        <div class="grid three" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">provenance</div>
+            <div class="v">出所の信頼性（誰が/何で観測）</div>
+          </div>
+          <div class="cell">
+            <div class="k">freshness</div>
+            <div class="v">鮮度（sampled_at、期限、整合性）</div>
+          </div>
+          <div class="cell">
+            <div class="k">admissibility</div>
+            <div class="v">意思決定に使ってよいかの適格性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="distinction slide">
+      <div class="tag">DISTINCTION</div>
+      <div class="num">09 / 14</div>
+      <div class="content">
+        <div class="eyebrow">二重のずれ</div>
+        <h2 class="title">観測×効果</h2>
+        <div class="lead">観測レイヤ（何を見たか）と実効レイヤ（何が起きたか）がズレると、検証は意味を失う。だから“検証可能な差分”は観測の出所と効果の境界にまたがる。</div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">観測のズレ</div>
+            <div class="v">古い前提、キャッシュ、サンプル条件の混入</div>
+          </div>
+          <div class="cell">
+            <div class="k">効果のズレ</div>
+            <div class="v">受け付けのみで、業務状態は未確定</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="architecture slide">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="num">10 / 14</div>
+      <div class="content">
+        <div class="eyebrow">不可逆を制御</div>
+        <h2 class="title">effect class</h2>
+        <div class="lead">決定的差分でも、不可逆な結果へ進めば事故になる。rollback可否や効果の種類（idempotent / compensatable / irreversible）を契約として表現し、誤った楽観を遮断する。</div>
+
+        <div class="grid three" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">idempotent</div>
+            <div class="v">再実行しても同一効果</div>
+          </div>
+          <div class="cell">
+            <div class="k">compensatable</div>
+            <div class="v">補償（相殺）が可能</div>
+          </div>
+          <div class="cell">
+            <div class="k">irreversible</div>
+            <div class="v">取り返し不可→ゲート厳格化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="process slide">
+      <div class="tag">PROCESS</div>
+      <div class="num">11 / 14</div>
+      <div class="content">
+        <div class="eyebrow">リトライの契約</div>
+        <h2 class="title">再試行を限定</h2>
+        <div class="lead">リトライは“推論で許す”のでなく、ツール/効果契約に基づき限定する。retriability や lease（期限付き許可）を状態差分・境界と一体で返す。</div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">retriability</div>
+            <div class="v">再試行してよいケースだけを許可</div>
+          </div>
+          <div class="cell">
+            <div class="k">lease</div>
+            <div class="v">許可の期間と失効条件を契約化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="evidence slide">
+      <div class="tag">EVIDENCE</div>
+      <div class="num">12 / 14</div>
+      <div class="content">
+        <div class="eyebrow">規制で必須</div>
+        <h2 class="title">金融・規制</h2>
+        <div class="lead">TRID/ECOA、レートロック、DTI閾値などでは、鮮度のズレや根拠の欠落が違反や損失に直結する。ここでは「思想」ではなく生存条件として、観測・検証契約が要る。</div>
+
+        <div class="grid three" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">TRID/ECOA</div>
+            <div class="v">根拠と時点が意思決定に直結</div>
+          </div>
+          <div class="cell">
+            <div class="k">レートロック</div>
+            <div class="v">期限/条件の鮮度が結果を決める</div>
+          </div>
+          <div class="cell">
+            <div class="k">DTI</div>
+            <div class="v">閾値判定は前提の妥当性が命</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="comparison slide">
+      <div class="tag">COMPARISON</div>
+      <div class="num">13 / 14</div>
+      <div class="content">
+        <div class="eyebrow">導入の注意</div>
+        <h2 class="title">コストも増える</h2>
+        <div class="lead">契約化にはツール実装コストと独立verifier（検証レイヤ）が前提になる。既存APIが境界・差分・型付き失敗を満たさない場合は、アダプタや追加観測が必要。</div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">リスク</div>
+            <div class="v">過度な厳格化で unknown が増え、探索/運用が止まる</div>
+          </div>
+          <div class="cell">
+            <div class="k">追加負担</div>
+            <div class="v">検証の同期/非同期設計、責任分界（SLA/オンコール）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="closing slide">
+      <div class="tag">CLOSING</div>
+      <div class="num">14 / 14</div>
+      <div class="content">
+        <div class="eyebrow">最小単位へ</div>
+        <h2 class="title">漸進的に</h2>
+        <div class="lead">全部を決定的にするより「次の意思決定に影響する部分だけ」を厳密に契約化する。unknown/隔離で誤前進を抑え、効果境界とstate deltaを核に据える。</div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">優先</div>
+            <div class="v">state delta＋bounded success（success/failure/unknown）</div>
+          </div>
+          <div class="cell">
+            <div class="k">抑止</div>
+            <div class="v">effect boundary・effect class・provenance/freshnessで誤進行を遮断</div>
+          </div>
+        </div>
+
+        <div class="splitLine"></div>
+        <div class="ref">（参考）Agent / control loop / feedback design を制御工学・分散システムの視点で見直す</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://agoverify.com" target="_blank" rel="noreferrer noopener">Ago Verify - Home</a></h2>
+<p class="reference-note">Verify accounts, receive SMS, and protect your privacy. It allows you to verify accounts on services like WhatsApp, Tele…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://en.bab.la/conjugation/english/verify" target="_blank" rel="noreferrer noopener">How to conjugate &quot;to verify&quot; in English?</a></h2>
+<p class="reference-note">Full conjugation of &quot;to verify&quot; ; Present · verify · verify · verifies ; Present continuous · am verifying · are verifyi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://forum.figma.com/report-a-problem-6/i-verified-my-student-status-a-few-months-ago-and-i-am-told-to-reverify-it-why-is-it-so-45652" target="_blank" rel="noreferrer noopener">I verified my student status a few months ago and I am told to reverify it ...</a></h2>
+<p class="reference-note">I verified my student status a few months ago and I am told to reverify it Why is it so?</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://support.google.com/google-ads/thread/225543745/completed-financial-services-verification-1-week-ago-and-shows-completed-but-still-showing-up-fix?hl=en" target="_blank" rel="noreferrer noopener">Completed financial services verification 1 week ago and shows ...</a></h2>
+<p class="reference-note">Completed financial services verification 1 week ago and shows completed. Any ideas how to fix it? may not be verified o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=svzOu0FdrIU" target="_blank" rel="noreferrer noopener">Verb of the Day - Verify</a></h2>
+<p class="reference-note">The verb verify used is to prove the truth accuracy or reality of something.</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
