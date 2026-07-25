@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM文体「指紋地図」：交差エントロピーと“tell”</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: block;
+      padding: 24px 0 72px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--paper);
+      margin: 0 0 18px 0;
+      position: relative;
+      padding: 56px 72px;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      background:
+        repeating-linear-gradient(
+          to right,
+          rgba(240,232,216,0.00) 0px,
+          rgba(240,232,216,0.00) 27px,
+          rgba(240,232,216,0.05) 28px,
+          rgba(240,232,216,0.00) 29px
+        );
+      opacity: 0.25;
+      pointer-events:none;
+      mix-blend-mode: overlay;
+    }
+
+    .slide-inner{
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+    }
+
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.12em;
+      font-size: 18px;
+      color: var(--rust);
+      border-top: 2px solid var(--rule-strong);
+      padding-top: 10px;
+      text-transform: uppercase;
+      line-height: 1.1;
+      max-width: 62%;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      margin-top: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+    }
+
+    .title{
+      margin-top: 8px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: clamp(54px, 5.2vw, 84px);
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--ink);
+      line-height: 1.02;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .rule{
+      margin-top: 18px;
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      opacity: 0.8;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+      width: 100%;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+      box-sizing: border-box;
+    }
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Noto Sans JP", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .text{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.4;
+    }
+
+    .twoColInline{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+      width: 100%;
+    }
+    @media (max-width: 900px){
+      .slide { padding: 44px 44px; border-width: 12px; }
+      .title { white-space: normal; }
+      .lead { font-size: 20px; }
+      .cell .text { font-size: 18px; }
+      .slide-tag { font-size: 16px; }
+      .eyebrow { font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 18</div>
+        </div>
+        <div class="eyebrow">文章の指紋地図 / 文体差の定量化</div>
+        <div class="title">Trigram KL地図</div>
+        <div class="lead">
+          LLM同士の「文章スタイルの近さ」を、文字トライグラム分布の交差エントロピーとKLダイバージェンスで可視化する試みです。
+          立場（stance）ではなく語彙・言い回し・形式の癖に焦点を当てます。
+        </div>
+        <div class="rule"></div>
+        <div class="small" style="margin-top:18px;">
+          日本語：文体のズレを距離として地図化 / 英語：style mismatch map
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 18</div>
+        </div>
+        <div class="eyebrow">スタイルと中身の混線</div>
+        <div class="title">何を比べる？</div>
+        <div class="lead">
+          同じ問いでも、結論が似るかどうかより「言葉の癖」が似ているかを測りたい。
+          そのため、モデルの賛否ではなく語彙選好やフォーマット傾向を比較します。
+        </div>
+        <div class="twoColInline">
+          <div class="cell">
+            <div class="label">比べる</div>
+            <div class="text">スタンスではなく文体 / style（語彙・言い回し・レジスター）</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意</div>
+            <div class="text">トピック誘導や安全文面が、スタイルに混入しうる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 18</div>
+        </div>
+        <div class="eyebrow">3文字の統計が指紋に</div>
+        <div class="title">Trigram</div>
+        <div class="lead">
+          文章を文字トライグラム（3文字連続）に落として、各モデルごとの確率分布を作ります。
+          この分布同士のズレを距離として扱うことで、細かな文体癖を掴みます。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">手順</div>
+            <div class="text">文章 → 文字trigram → 確率分布 P, Q</div>
+          </div>
+          <div class="cell">
+            <div class="label">目的</div>
+            <div class="text">別モデル文体で読むとどれだけ“予測困難”かを見る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 18</div>
+        </div>
+        <div class="eyebrow">交差エントロピーの分解</div>
+        <div class="title">交差×KL</div>
+        <div class="lead">
+          交差エントロピーは <span class="mono">H(P,Q)=H(P)+KL(P‖Q)</span> と分解できます。
+          主役は文体不一致としてのKL成分（KLダイバージェンス）として解釈されます。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">交差</div>
+            <div class="text">別分布 Q でPを読む予測の難しさ</div>
+          </div>
+          <div class="cell">
+            <div class="label">分解</div>
+            <div class="text">自己不確実性 H(P) ＋ 不一致 KL(P‖Q)</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">06 / 18</div>
+        </div>
+        <div class="eyebrow">非対称でも読みやすく</div>
+        <div class="title">対称化運用</div>
+        <div class="lead">
+          KLは非対称ですが、観測された方向差が小さいため対称化した値を図に用いる運用です。
+          その狙いは解釈を簡潔にすることです（非対称の元情報は別パネル想定）。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">本来</div>
+            <div class="text">KL(P‖Q) ≠ KL(Q‖P)</div>
+          </div>
+          <div class="cell">
+            <div class="label">運用</div>
+            <div class="text">平均（対称化）で距離として提示</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">KeyIdea</div>
+          <div class="slide-num">07 / 18</div>
+        </div>
+        <div class="eyebrow">同一runで公平に</div>
+        <div class="title">同条件データ</div>
+        <div class="lead">
+          22モデル×同一プロンプト群の「同一評価ラン」の文章だけから比較します。
+          生成条件が揃うため、比較の公平性が大きく上がります。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">規模</div>
+            <div class="text">合計 584,655文字相当（本文が埋め込み再現可能）</div>
+          </div>
+          <div class="cell">
+            <div class="label">利点</div>
+            <div class="text">外部スコアなし / 文章そのものの統計比較に集中</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">08 / 18</div>
+        </div>
+        <div class="eyebrow">tell語で理由を探す</div>
+        <div class="title">手がかり抽出</div>
+        <div class="lead">
+          単に「似ている/似ていない」を色分けするだけでなく、特定ペアが強く共通して用いる“tell”を抽出します。
+          目的は偶然一致を抑え、統計的に意味のある共通傾向を提示することです。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">候補</div>
+            <div class="text">頻度条件＋一般語除外（分野頻出上位から除外）</div>
+          </div>
+          <div class="cell">
+            <div class="label">要件</div>
+            <div class="text">BPEトークン数による語コスト / 再現性（複数回答）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">09 / 18</div>
+        </div>
+        <div class="eyebrow">look-elsewhereとluck</div>
+        <div class="title">偶然補正</div>
+        <div class="lead">
+          “多数の候補語を走査した結果の当たり（look-elsewhere cost）”を補正に組み込みます。
+          さらに“luck alone”の考え方で重要語の順位づけを行います。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">問題</div>
+            <div class="text">候補が多いほど偶然で高く出る語が増える</div>
+          </div>
+          <div class="cell">
+            <div class="label">対策</div>
+            <div class="text">偶然の寄与を補正して“本当に効く癖”を浮かせる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">10 / 18</div>
+        </div>
+        <div class="eyebrow">距離＝スタイル不一致</div>
+        <div class="title">距離の解釈</div>
+        <div class="lead">
+          この地図の距離は「結論の近さ」ではなく、言い回しの予測困難さに近い意味を持ちます。
+          同じ内容でも表現が違えば遠く、内容が違っても文体が似れば近くなり得ます。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">近い</div>
+            <div class="text">共通する語彙・形式の癖が多い</div>
+          </div>
+          <div class="cell">
+            <div class="label">遠い</div>
+            <div class="text">別の文体分布として予測しにくい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Causality</div>
+          <div class="slide-num">11 / 18</div>
+        </div>
+        <div class="eyebrow">矢印は代理変数</div>
+        <div class="title">リリース日</div>
+        <div class="lead">
+          数理指標だけでは「誰が誰から学んだか」は決まりません。
+          そこでリリース日（時系列）を代理変数として用い、解釈の向きを作ります。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">できること</div>
+            <div class="text">“方向っぽさ”の補助（推定の矢印）</div>
+          </div>
+          <div class="cell">
+            <div class="label">できないこと</div>
+            <div class="text">因果や参照関係の確定は不可</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:16px;">方向性は魅力的だが、確証になりにくい</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Opinion</div>
+          <div class="slide-num">12 / 18</div>
+        </div>
+        <div class="eyebrow">堅実だけど境界あり</div>
+        <div class="title">強み</div>
+        <div class="lead">
+          情報理論の距離尺度に加え、tell抽出で偶然補正まで入れている点が方法論として堅実です。
+          同一runで再現可能な文章データに依存しているのも検証可能性を高めます。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Scientifc</div>
+            <div class="text">交差エントロピー / KLで測定を定義</div>
+          </div>
+          <div class="cell">
+            <div class="label">Reproducible</div>
+            <div class="text">元データ埋め込み＋文章のみで検証可能</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Caution</div>
+          <div class="slide-num">13 / 18</div>
+        </div>
+        <div class="eyebrow">スタイル混入の可能性</div>
+        <div class="title">注意点</div>
+        <div class="lead">
+          スタイル比較でも、プロンプトやトピックが誘導する語彙の共通性、安全ポリシーの定型表現が混ざる可能性があります。
+          またBPE由来の語コストは巧妙でも、内部生成単位との対応は完全には切れません。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">混入</div>
+            <div class="text">トピック誘導 / 定型表現が“スタイル”に見える</div>
+          </div>
+          <div class="cell">
+            <div class="label">限界</div>
+            <div class="text">語コストは表面近似で、真の文体差の切り分けに限界</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">Takeaway</div>
+          <div class="slide-num">14 / 18</div>
+        </div>
+        <div class="eyebrow">主張の強度を上げるには</div>
+        <div class="title">次の検証</div>
+        <div class="lead">
+          「似ている＝同じ学習源」と直結させるには、別プロンプトセットや話題制御、サンプリング条件の厳密化などの追加対照が必要です。
+          特に“スタイル”と“コンテンツ誘導”の境界を精緻に切ると説得力が増します。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">追加対照</div>
+            <div class="text">同一話題比率・温度/サンプリング固定・回帰分析</div>
+          </div>
+          <div class="cell">
+            <div class="label">結論の置き方</div>
+            <div class="text">因果・帰属は“傾向”に留める（断定は慎重に）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 References -->
+    <section class="slide" aria-label="references">
+      <div class="slide-inner">
+        <div class="slide-top">
+          <div class="slide-tag">References</div>
+          <div class="slide-num">15 / 18</div>
+        </div>
+        <div class="eyebrow">この要約の根拠（一般的枠組み）</div>
+        <div class="title">用語対応</div>
+        <div class="lead">
+          以下は本文中の概念に対応する、参照すべき一般的キーワードです（特定論文名の提示は元文に含まれていません）。
+        </div>
+        <div class="grid two" style="margin-top:18px;">
+          <div class="cell">
+            <div class="label">情報理論</div>
+            <div class="text">交差エントロピー / KLダイバージェンス / 分解 <span class="mono">H(P,Q)=H(P)+KL(P‖Q)</span></div>
+          </div>
+          <div class="cell">
+            <div class="label">統計運用</div>
+            <div class="text">look-elsewhere（探索コスト） / luck alone / ゼロ確率回避（混合で安定化）</div>
+          </div>
+          <div class="cell">
+            <div class="label">特徴量</div>
+            <div class="text">文字trigram（3文字）確率分布 / BPEトークン数にもとづく語コスト</div>
+          </div>
+          <div class="cell">
+            <div class="label">解釈</div>
+            <div class="text">方向性はリリース日を代理変数にして補う（因果は未確定）</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:16px;">
+          参考：本文にはモデル数（22）、文字量（584,655）、KLの対称化運用、tell抽出の条件（頻度・語除外・語コスト・再現性・偶然補正）が含まれます。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openrouter.ai/openai/gpt-4" target="_blank" rel="noreferrer noopener">GPT-4 - API Pricing &amp; Benchmarks | OpenRouter</a></h2>
+<p class="reference-note">OpenAI&#39;s flagship model, GPT-4 is a large-scale multimodal language model capable of solving difficult problems with gre…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/groups/claudecommunity/posts/1041553088385356" target="_blank" rel="noreferrer noopener">Comparing AI model costs on OpenRouter</a></h2>
+<p class="reference-note">Been playing with some other models via OpenRouter 
+
+I tested Kimi K2.7 vs DeepSeek Pro V4 in a code review against the …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tylerfolkman.substack.com/p/i-tested-6-ai-models-across-3-providers" target="_blank" rel="noreferrer noopener">I Routed 2,415 AI Agent Turns Across 6 Models. It Cost $76.77</a></h2>
+<p class="reference-note"># I Routed 2,415 AI Agent Turns Across 6 Models. ### The full router has 8 model paths. Real usage was 94% cheaper than …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://openrouter.ai/compare/z-ai/glm-4.5" target="_blank" rel="noreferrer noopener">GLM 4.5 compared to other AI models | OpenRouter</a></h2>
+<p class="reference-note">Compare GLM 4.5 from Z.ai to other AI models on key metrics including benchmarks, price, context length, and other model…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://thamizhelango.medium.com/glm-4-6-vs-kimi-k2-vs-deepseek-v3-9850284281bf" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note"># 🤖 GLM-4.6 vs Kimi K2 vs DeepSeek V3. ## The Ultimate Comparison of Open-Weight AI Giants in 2025. 2025 has become the …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
