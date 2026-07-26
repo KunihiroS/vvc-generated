@@ -41,6 +41,7 @@ Expected frontmatter fields:
 - `slideUrl`: public URL path to the generated slide.
 - `kind`: `slide-html` or `visual-summary-deck`.
 - `summary`: optional short description.
+- `featured`: optional boolean that selects an entry for the `Featured` archive filter. It defaults to `false`, so existing entries remain valid.
 - `thumbnailUrl`: optional public URL path for a deck thumbnail or representative image.
 - `sourceSessionId`: optional source session identifier.
 - `objectPath`: repository object path for traceability.
@@ -53,7 +54,7 @@ Image-only publishing does not create a slide entry.
 
 The archive page is titled `Tech info slides` and uses the KUN-377 `05 Warm Charcoal` Gallery Wall direction as the KUN-381 implementation baseline. The page derives its visible controls from entry dates, not from `tags`.
 
-- Month filters show `All months` plus each `YYYY-MM` derived from the archive date.
+- The exclusive archive filters show `All months`, `Featured`, and each `YYYY-MM` derived from the archive date. `Featured` shows only entries whose `featured` value is `true`; `All months` continues to show every entry.
 - The archive date is `generatedAt` when present, otherwise `pubDate`.
 - Initial order is `Newest`; users can switch to `Oldest`.
 - `tags` remain readable in the Content Collection schema for compatibility, but are not exposed as filter buttons.
@@ -74,6 +75,8 @@ npm run dev
 
 `npm run dev` starts a local Astro dev server for checking the archive UI. Generated slide HTML under `public/` can also be opened directly through the dev server.
 
+Tests that exercise archive rendering use localhost or synthetic entries in temporary directories. These fixtures are created only for the check, must be cleaned up afterward, and must never persist under `public/` or `src/content/slides/`.
+
 ## Publishing Flow
 
 1. voicevox-calling generates a local slide or image.
@@ -81,8 +84,8 @@ npm run dev
    - slides to `public/slides/...`
    - images to `public/images/...`
    - archive entries to `src/content/slides/...` for slide HTML and Visual Summary decks
-3. GitHub Actions runs the Pages workflow.
-4. Astro builds the archive UI and deploys it to GitHub Pages.
+3. Pull requests run the read-only CI workflow (`.github/workflows/ci.yml`), which executes the tests and a production Astro build without uploading or deploying Pages artifacts.
+4. Pushes to `main` run the separate Pages workflow. Astro builds the archive UI and deploys it to GitHub Pages.
 
 GitHub Pages must use the GitHub Actions workflow build type. Legacy Pages / Jekyll publishing will serve static files but will not build the Astro archive UI.
 
