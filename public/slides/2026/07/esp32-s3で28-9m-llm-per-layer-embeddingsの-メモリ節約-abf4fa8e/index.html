@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ESP32-S3で28.9M LLM：Per-Layer Embeddingsの“メモリ節約”</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-top: 4px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-2);
+      white-space: nowrap;
+      padding-top: 2px;
+    }
+    .rule{
+      height: 2px;
+      width: 100%;
+      background: rgba(232, 129, 74, 0.65);
+      opacity: 0.0;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 18px;
+      position: relative;
+      z-index: 2;
+    }
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: clamp(54px, 6vw, 84px);
+      line-height: 1.0;
+      position: relative;
+      z-index: 2;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      line-height: 1.35;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+    }
+    .content{
+      margin-top: 22px;
+      position: relative;
+      z-index: 2;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 16px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .val{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .ref-note{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 40px 22px; }
+      .slide::before{ inset: 14px; }
+      .lead{ font-size: 20px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-header">
+        <div class="slide-tag">LOCAL LLM ON MICROC0NTROLLER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">超低資源で“動作”を作る</div>
+      <div class="title"><em>ESP32-S3</em>でLLM</div>
+      <div class="lead">ESP32-S3（約8ドル）上で、TinyStories学習の28.9Mパラメータ規模の言語モデルを動かし、外部サーバなしで文章生成した報告です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Key idea（要点）</div>
+            <div class="val">Per-Layer Embeddings（埋め込み参照の読み出し最適化）</div>
+          </div>
+          <div class="card">
+            <div class="label">Measured（速度）</div>
+            <div class="val">約9–10 tokens/秒（短い物語の逐次出力）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide" aria-label="Problem framing">
+      <div class="slide-header">
+        <div class="slide-tag">THE CORE CONSTRAINT</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">全部載せる誤解</div>
+      <div class="title">SRAM <em>不足</em></div>
+      <div class="lead">言語モデルは「パラメータ＝高速メモリ（SRAM）に丸ごと載せる必要がある」と誤解されがちですが、SRAMが小さいマイコンではそれが成立しません。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">現実</div>
+            <div class="val">SRAMは少ないが、FLASH/（場合により）PSRAMは大容量</div>
+          </div>
+          <div class="card">
+            <div class="label">狙い</div>
+            <div class="val">必要な分だけ参照し、SRAM消費を抑える</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide" aria-label="Key takeaway">
+      <div class="slide-header">
+        <div class="slide-tag">MAIN TAKEAWAY</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">作戦は“読み出し”</div>
+      <div class="title"><em>FLASH</em>に置く</div>
+      <div class="lead">モデルの大部分を高速メモリに載せず、埋め込みテーブル（約25Mパラメータ分）をFLASH側に置き、トークン生成のたびに必要な行だけを読み込む設計が鍵です。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">1</div>
+            <div class="val">埋め込みテーブルをFLASHへ</div>
+          </div>
+          <div class="card">
+            <div class="label">2</div>
+            <div class="val">生成時は“必要な部分のみ”参照</div>
+          </div>
+          <div class="card">
+            <div class="label">3</div>
+            <div class="val">SRAM制約を突破</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide" aria-label="Architecture mapping">
+      <div class="slide-header">
+        <div class="slide-tag">MEMORY HIERARCHY</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">役割分担（SRAM/PSRAM/FLASH）</div>
+      <div class="title">量子化と<em>階層</em></div>
+      <div class="lead">4-bit量子化によりモデルを約14.9MBへ小さくしつつ、SRAM/PSRAM/FLASHというメモリの違いに合わせて配置することで成立しています。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">4-bit</div>
+            <div class="val">モデルサイズ：14.9MB（前提）</div>
+          </div>
+          <div class="card">
+            <div class="label">メモリ例</div>
+            <div class="val">SRAM 512KB / PSRAM 8MB / FLASH 16MB</div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="small">※上記は入力データ中で示された典型値として扱い、「単一の工夫」ではなく組み合わせで成立、という点が重要です。</div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide" aria-label="Per-Layer Embeddings">
+      <div class="slide-header">
+        <div class="slide-tag">PER-LAYER EMBEDDINGS</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">“参照”の粒度を上げる</div>
+      <div class="title">Per-Layer <em>Embeddings</em></div>
+      <div class="lead">Per-Layer Embeddingsは「埋め込みテーブル等の大部分を“必要な分だけ”参照できる形にして、メモリと計算の負担を調整する」という考え方だと説明されています。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">狙い（何を得る）</div>
+            <div class="val">大容量をFLASHに置いても、SRAM枯渇を回避</div>
+          </div>
+          <div class="card">
+            <div class="label">注意（入力データの限界）</div>
+            <div class="val">具体アルゴリズムは省略されており、厳密理解はリポジトリ資料が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide" aria-label="Capabilities and limits">
+      <div class="slide-header">
+        <div class="slide-tag">WHAT IT CAN / CANNOT</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">汎用LLMではない</div>
+      <div class="title">タスク<em>限定</em></div>
+      <div class="lead">推論や“考える部分”が小さいため、質問応答・指示追従・コード生成・事実知識の保持などの汎用的なLLM能力は期待できない、と明言されています。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">できる（期待）</div>
+            <div class="val">短く簡単なストーリー生成（TinyStories由来）</div>
+          </div>
+          <div class="card">
+            <div class="label">できない（明示）</div>
+            <div class="val">Q&amp;A / 命令実行 / コード生成 などはしない（できない）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide" aria-label="Speed evidence">
+      <div class="slide-header">
+        <div class="slide-tag">PERFORMANCE</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">体験速度が鍵</div>
+      <div class="title">約9 <em>tokens/s</em></div>
+      <div class="lead">ESP32-S3上で end-to-end 約9.5 tok/s、純計算部分で約9.7 tok/sという主張があり、理論だけでなく実装の成立を支える材料になっています。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">end-to-end</div>
+            <div class="val">約9.5 tok/s（全体の体感）</div>
+          </div>
+          <div class="card">
+            <div class="label">純計算</div>
+            <div class="val">約9.7 tok/s（計算側の目安）</div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="small">※速度は温度・電源・クロック設定・表示処理やI/Oの影響を受け得るため、条件確認が重要です（入力データからは詳細が欠ける）。</div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide" aria-label="Reproducibility and reliability">
+      <div class="slide-header">
+        <div class="slide-tag">TRUST &amp; NUMBERS</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">自己点検あり</div>
+      <div class="title">数字の<em>透明性</em></div>
+      <div class="lead">パラメータ会計に関する自分のバグがあり、修正後に数字が変わった旨が記載されています。透明性は評価できますが、再現性の厳密検証にはRESULTS.md等の確認が必要です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">良い点</div>
+            <div class="val">バグと修正が明示される（自己点検）</div>
+          </div>
+          <div class="card">
+            <div class="label">不足しがち</div>
+            <div class="val">測定条件・品質指標・比較対象までの詳細は別途必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide" aria-label="Bilingual FAQ Q1-Q3 grid">
+      <div class="slide-header">
+        <div class="slide-tag">FAQ QUICK CHECK</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">理解の前提</div>
+      <div class="title">まず<em>Yes/No</em></div>
+      <div class="lead">入力データのFAQ相当を、読み違えがちなポイントから短く整理します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Q1：サーバなし？（Connectivity）</div>
+            <div class="val">はい：none、すべてデバイス上で実行（オフライン想定）</div>
+            <div class="small">サーバ送信なし：端末内生成</div>
+          </div>
+          <div class="card">
+            <div class="label">Q2：28.9Mは“全部載る”？</div>
+            <div class="val">いいえ：埋め込みテーブル約25MをFLASHへ、必要な行だけ参照</div>
+            <div class="small">全部SRAM保持しない（メモリ節約）</div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="grid2">
+          <div class="card" style="grid-column: span 2;">
+            <div class="label">Q3：Per-Layer Embeddingsは何？</div>
+            <div class="val">大部分を“必要な分だけ”参照できる形にし、メモリ/計算の負担を調整する考え方（詳細はリポジトリ要確認）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide" aria-label="Distinctions">
+      <div class="slide-header">
+        <div class="slide-tag">DISTINCTIONS</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">意義の置き所</div>
+      <div class="title">LLM<em>万能</em>ではない</div>
+      <div class="lead">この報告の核心は「大規模モデルが何でもできる」ではなく、「超低資源環境でも動作可能性を、アーキテクチャとメモリ設計で実現した」点です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">主張（価値）</div>
+            <div class="val">28.9M相当の“動作”を成立させた設計パターン</div>
+          </div>
+          <div class="card">
+            <div class="label">期待しない（限界）</div>
+            <div class="val">汎用の知識保持・指示追従・Q&amp;A の性能は目標外</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide" aria-label="Opinion and risks">
+      <div class="slide-header">
+        <div class="slide-tag">MY OPINION</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">強みとリスク</div>
+      <div class="title">工学の<em>学び</em></div>
+      <div class="lead">最大の価値は、メモリ階層（SRAM/PSRAM/FLASH）を前提にした具体工夫で“成立”まで示したこと。一方、品質評価の比較や測定条件は入力データだけでは判断しづらいです。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">強み（Tech）</div>
+            <div class="val">FLASH参照で成立条件を具体化</div>
+          </div>
+          <div class="card">
+            <div class="label">強み（Ops）</div>
+            <div class="val">端末内完結で体験デモ向き</div>
+          </div>
+          <div class="card">
+            <div class="label">リスク（Quality）</div>
+            <div class="val">品質指標・比較対象・条件の確認が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide" aria-label="References">
+      <div class="slide-header">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">読むべき場所</div>
+      <div class="title">確認<em>ガイド</em></div>
+      <div class="lead">入力データからはリポジトリ本文の詳細が省略されているため、下記を当たると理解が一段深まります（日本語の短い注も併記）。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">RESULTS.md</div>
+            <div class="val">測定条件・速度内訳・数値の修正履歴（パラメータ会計）</div>
+            <div class="small">結果の根拠（測り方）を確認</div>
+          </div>
+          <div class="card">
+            <div class="label">関連コード / docs</div>
+            <div class="val">Per-Layer Embeddingsの実装詳細、メモリアクセス方針</div>
+            <div class="small">実装の“どうやったか”を確認</div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="ref-note">また、品質評価（例：主観/自動指標、TinyStoriesでのテスト範囲）と比較対象（既存の小型モデルや他方式）を、README以外で確認すると「万能性ではなく成立性」の主張をより正確に判断できます。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ai.google.dev/gemma/docs/gemma-3n" target="_blank" rel="noreferrer noopener">Gemma 3n model overview  |  Google AI for Developers</a></h2>
+<p class="reference-note"># Gemma 3n model overview. Gemma 3n is a generative AI model optimized for use in everyday devices, such as. parameter-e…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/antimatter15/reverse-engineering-gemma-3n" target="_blank" rel="noreferrer noopener">GitHub - antimatter15/reverse-engineering-gemma-3n: Reverse Engineering Gemma 3n: Google&#39;s New Edge-Optimized Language Model · GitHub</a></h2>
+<p class="reference-note">The post also mentions &quot;per layer embeddings&quot; which seems to allow them to leave almost half of the parameters of the mo…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://docs.platform.qubrid.com/Model%20Updates" target="_blank" rel="noreferrer noopener">Model Updates | Qubrid Documentation</a></h2>
+<p class="reference-note">## June, 2026. The following model has been deprecated and are no longer available:. * anthropic/claude-opus-4-7. * anth…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://paath.online/announcements" target="_blank" rel="noreferrer noopener">AI Framework &amp; Model Updates (2026): Curated Library + News Index</a></h2>
+<p class="reference-note">This page tracks AI news and libraries. If you want live Python, ML, or RAG mentorship—not just reading—start here:. # A…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.llm4code.org/recent-papers" target="_blank" rel="noreferrer noopener">近期新增论文 - SE Home</a></h2>
+<p class="reference-note">arXiv cs.CRDependability and SecurityarXivotherConfidentialityintegrityprivacycs.DScs.CRarXiv cs.CR. Nikolov and Ullman …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
