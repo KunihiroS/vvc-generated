@@ -84,8 +84,8 @@ Tests that exercise archive rendering use localhost or synthetic entries in temp
    - slides to `public/slides/...`
    - images to `public/images/...`
    - archive entries to `src/content/slides/...` for slide HTML and Visual Summary decks
-3. Pull requests run the read-only CI workflow (`.github/workflows/ci.yml`), which executes the tests and a production Astro build without uploading or deploying Pages artifacts.
-4. Pushes to `main` run the separate Pages workflow. Astro builds the archive UI and deploys it to GitHub Pages.
+3. Pull requests run the read-only CI workflow (`.github/workflows/ci.yml`), which executes the tests and a production Astro build without uploading or deploying Pages artifacts. Pull requests never deploy Pages.
+4. Pushes to `main` or an explicitly started `workflow_dispatch` run invoke the separate Pages workflow. Astro builds the archive UI and deploys it to GitHub Pages.
 
 GitHub Pages must use the GitHub Actions workflow build type. Legacy Pages / Jekyll publishing will serve static files but will not build the Astro archive UI.
 

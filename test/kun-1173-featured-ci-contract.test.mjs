@@ -4,6 +4,8 @@ import { test } from "node:test";
 
 const contentConfig = () => readFileSync("src/content.config.ts", "utf8");
 const archivePage = () => readFileSync("src/pages/index.astro", "utf8");
+const readme = () => readFileSync("README.md", "utf8");
+const pagesWorkflow = () => readFileSync(".github/workflows/pages.yml", "utf8");
 
 function ciWorkflow() {
   const path = ".github/workflows/ci.yml";
@@ -94,4 +96,13 @@ test("CI workflow has read-only contents permission and no Pages deployment capa
   assert.doesNotMatch(workflow, /actions\/upload-pages-artifact/);
   assert.doesNotMatch(workflow, /actions\/deploy-pages/);
   assert.doesNotMatch(workflow, /(?:^|\n)[ \t]{2}deploy:\s*(?:\n|$)/);
+});
+
+test("README distinguishes PR validation from every production Pages trigger", () => {
+  const productionWorkflow = pagesWorkflow();
+
+  assert.match(productionWorkflow, /push:\s*\n\s+branches:\s*\[main\]/);
+  assert.match(productionWorkflow, /workflow_dispatch:/);
+  assert.match(readme(), /Pushes to `main` or an explicitly started `workflow_dispatch` run/);
+  assert.match(readme(), /Pull requests never deploy Pages/);
 });
