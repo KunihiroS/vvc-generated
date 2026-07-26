@@ -39,23 +39,42 @@ test("every archive card exposes its featured value", () => {
 test("Featured selection hides every card not marked featured", () => {
   const page = archivePage();
 
-  assert.match(page, /activeMonth\s*===\s*["']featured["']/);
-  assert.match(page, /getAttribute\(["']data-featured["']\)\s*===\s*["']true["']/);
-  assert.match(
-    page,
-    /activeMonth\s*!==\s*["']featured["'][\s\S]{0,240}getAttribute\(["']data-featured["']\)\s*===\s*["']true["']/,
-    "visibility logic must require data-featured=true only when Featured is selected",
-  );
+  assert.match(page, /import\s+\{\s*matchesArchiveFilter\s*\}/);
+  assert.match(page, /matchesArchiveFilter\(activeMonth,\s*\{/);
+  assert.match(page, /featured:\s*entry\.getAttribute\(["']data-featured["']\)\s*===\s*["']true["']/);
+  assert.match(page, /entry\.hidden\s*=\s*!matchesFilter/);
 });
 
 test("Featured filtering preserves All, month, Newest, and Oldest behavior", () => {
   const page = archivePage();
 
-  assert.match(page, /activeMonth\s*(?:===|!==)\s*["']all["']/);
-  assert.match(page, /getAttribute\(["']data-month["']\)\s*!==\s*activeMonth/);
+  assert.match(page, /month:\s*entry\.getAttribute\(["']data-month["']\)/);
   assert.match(page, /activeSort\s*===\s*["']oldest["']\s*\?\s*1\s*:\s*-1/);
   assert.match(page, /data-sort="newest"/);
   assert.match(page, /data-sort="oldest"/);
+});
+
+test("the live archive explains when the selected filter has no matches", () => {
+  const page = archivePage();
+  const liveArchive = page.match(/<section\s+class="archive-list"\s+aria-live="polite">[\s\S]*?<\/section>/)?.[0] ?? "";
+
+  assert.match(
+    liveArchive,
+    /<p[^>]*data-filter-empty[^>]*hidden[^>]*>No slides match this filter\.<\/p>/,
+    "the aria-live archive must contain a hidden filtered-empty message",
+  );
+  assert.match(page, /(?:const|let)\s+filterEmpty\s*=\s*document\.querySelector\(["']\[data-filter-empty\]["']\)/);
+  assert.match(page, /(?:let|const)\s+visibleCount\s*=\s*0/);
+  assert.match(
+    page,
+    /entry\.hidden\s*=\s*!matchesFilter\s*;[\s\S]{0,160}if\s*\(\s*(?:matchesFilter|!entry\.hidden)\s*\)\s*visibleCount\s*\+=\s*1/,
+    "updateArchive must count cards after applying their visibility state",
+  );
+  assert.match(
+    page,
+    /filterEmpty\.hidden\s*=\s*visibleCount\s*>\s*0/,
+    "the filtered-empty status must be visible exactly when the visible match count is zero",
+  );
 });
 
 test("CI workflow validates pull requests with tests and a production build", () => {
