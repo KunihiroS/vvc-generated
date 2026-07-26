@@ -83,6 +83,8 @@ test("CI workflow validates pull requests with tests and a production build", ()
   const workflow = ciWorkflow();
 
   assert.match(workflow, /(?:^|\n)on:\s*\n(?:[ \t]+[^\n]+\n)*?[ \t]+pull_request:\s*(?:\n|$)/);
+  assert.doesNotMatch(workflow, /(?:^|\n)[ \t]+push:\s*(?:\n|$)/);
+  assert.doesNotMatch(workflow, /(?:^|\n)[ \t]+workflow_dispatch:\s*(?:\n|$)/);
   assert.match(workflow, /(?:^|\n)[ \t]+-[ \t]+run:\s*npm test\s*(?:\n|$)/);
   assert.match(workflow, /(?:^|\n)[ \t]+-[ \t]+run:\s*npm run build\s*(?:\n|$)/);
 });
@@ -91,6 +93,8 @@ test("CI workflow has read-only contents permission and no Pages deployment capa
   const workflow = ciWorkflow();
 
   assert.match(workflow, /(?:^|\n)permissions:\s*\n[ \t]+contents:\s*read\s*(?:\n|$)/);
+  assert.doesNotMatch(workflow, /(?:^|\n)[ \t]*permissions:\s*write-all\s*(?:\n|$)/);
+  assert.doesNotMatch(workflow, /(?:^|\n)[ \t]+contents:\s*write\s*(?:\n|$)/);
   assert.doesNotMatch(workflow, /(?:^|\n)[ \t]+pages:\s*write\s*(?:\n|$)/);
   assert.doesNotMatch(workflow, /(?:^|\n)[ \t]+id-token:\s*write\s*(?:\n|$)/);
   assert.doesNotMatch(workflow, /actions\/upload-pages-artifact/);
@@ -103,6 +107,7 @@ test("README distinguishes PR validation from every production Pages trigger", (
 
   assert.match(productionWorkflow, /push:\s*\n\s+branches:\s*\[main\]/);
   assert.match(productionWorkflow, /workflow_dispatch:/);
+  assert.doesNotMatch(productionWorkflow, /(?:^|\n)[ \t]+pull_request:\s*(?:\n|$)/);
   assert.match(readme(), /Pushes to `main` or an explicitly started `workflow_dispatch` run/);
   assert.match(readme(), /Pull requests never deploy Pages/);
 });
