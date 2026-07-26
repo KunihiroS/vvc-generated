@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { applyArchiveFilterSelection, matchesArchiveFilter } from "../src/lib/archive-filter.mjs";
+import {
+  applyArchiveFilterSelection,
+  applyArchiveSortSelection,
+  matchesArchiveFilter,
+} from "../src/lib/archive-filter.mjs";
 
 test("all matches entries regardless of month or featured status", () => {
   assert.equal(matchesArchiveFilter("all", { month: "2026-07", featured: true }), true);
@@ -26,5 +30,19 @@ test("selecting Featured resets an existing Oldest sort to Newest", () => {
   assert.deepEqual(applyArchiveFilterSelection("oldest", "featured"), {
     activeFilter: "featured",
     activeSort: "newest",
+  });
+});
+
+test("selecting Oldest while Featured is active keeps the sort on Newest", () => {
+  assert.deepEqual(applyArchiveSortSelection("featured", "oldest"), {
+    activeFilter: "featured",
+    activeSort: "newest",
+  });
+});
+
+test("selecting Oldest outside Featured keeps the requested sort", () => {
+  assert.deepEqual(applyArchiveSortSelection("all", "oldest"), {
+    activeFilter: "all",
+    activeSort: "oldest",
   });
 });

@@ -55,6 +55,7 @@ test("Featured filtering preserves All, month, Newest, and Oldest behavior", () 
   assert.match(page, /data-sort="newest"/);
   assert.match(page, /data-sort="oldest"/);
   assert.match(page, /applyArchiveFilterSelection\(activeSort,\s*selectedFilter\)/);
+  assert.match(page, /applyArchiveSortSelection\(activeMonth,\s*selectedSort\)/);
   assert.match(page, /item\.getAttribute\(["']data-sort["']\)\s*===\s*activeSort/);
 });
 
