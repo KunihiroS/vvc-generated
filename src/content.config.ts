@@ -12,6 +12,7 @@ const slides = defineCollection({
     slideUrl: z.string(),
     kind: z.enum(["slide-html", "visual-summary-deck"]),
     summary: z.string().default(""),
+    featured: z.boolean().default(false),
     thumbnailUrl: z.string().nullable().optional(),
     sourceSessionId: z.string().nullable().optional(),
     objectPath: z.string(),
