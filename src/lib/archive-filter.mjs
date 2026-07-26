@@ -10,3 +10,10 @@ export function applyArchiveFilterSelection(activeSort, selectedFilter) {
     activeSort: selectedFilter === "featured" ? "newest" : activeSort,
   };
 }
+
+export function applyArchiveSortSelection(activeFilter, selectedSort) {
+  return {
+    activeFilter,
+    activeSort: activeFilter === "featured" ? "newest" : selectedSort,
+  };
+}
