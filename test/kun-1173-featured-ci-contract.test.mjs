@@ -41,7 +41,7 @@ test("every archive card exposes its featured value", () => {
 test("Featured selection hides every card not marked featured", () => {
   const page = archivePage();
 
-  assert.match(page, /import\s+\{\s*matchesArchiveFilter\s*\}/);
+  assert.match(page, /import\s+\{[^}]*\bmatchesArchiveFilter\b[^}]*\}/);
   assert.match(page, /matchesArchiveFilter\(activeMonth,\s*\{/);
   assert.match(page, /featured:\s*entry\.getAttribute\(["']data-featured["']\)\s*===\s*["']true["']/);
   assert.match(page, /entry\.hidden\s*=\s*!matchesFilter/);
@@ -54,6 +54,8 @@ test("Featured filtering preserves All, month, Newest, and Oldest behavior", () 
   assert.match(page, /activeSort\s*===\s*["']oldest["']\s*\?\s*1\s*:\s*-1/);
   assert.match(page, /data-sort="newest"/);
   assert.match(page, /data-sort="oldest"/);
+  assert.match(page, /applyArchiveFilterSelection\(activeSort,\s*selectedFilter\)/);
+  assert.match(page, /item\.getAttribute\(["']data-sort["']\)\s*===\s*activeSort/);
 });
 
 test("the live archive explains when the selected filter has no matches", () => {
