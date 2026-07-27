@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>依存型×LLM：証明コストは下がるのか</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 16px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      box-sizing: border-box;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      padding: 56px 72px;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .topline{
+      position: absolute;
+      left: 56px;
+      right: 72px;
+      top: 18px;
+      height: 1px;
+      background: var(--rule);
+      pointer-events: none;
+    }
+
+    .slide-tag{
+      position: absolute;
+      top: 24px;
+      left: 56px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      font-size: 16px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content: "";
+      display: inline-block;
+      width: 14px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      position: absolute;
+      top: 24px;
+      right: 72px;
+      font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      margin: 0 0 14px 0;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.01em;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title{
+      margin: 0 0 14px 0;
+      font-size: 72px;
+      line-height: 1.02;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+      font-style: italic;
+      color: var(--rust);
+      position: relative;
+      z-index: 1;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      font-weight: 300;
+      color: var(--ink);
+      position: relative;
+      z-index: 1;
+    }
+
+    .rule{
+      position: absolute;
+      left: 56px;
+      right: 72px;
+      bottom: 64px;
+      height: 1px;
+      background: var(--rule);
+      pointer-events: none;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.10);
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .cell .v{
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 400;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 52px; border-width: 12px; }
+      .slide-tag{ left: 44px; }
+      .slide-num{ right: 52px; }
+      .topline{ left: 44px; right: 52px; }
+      .rule{ left: 44px; right: 52px; bottom: 56px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .cell .v{ font-size: 17px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="1">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">依存型が日常へ</p>
+      <h1 class="title">証明コスト</h1>
+      <p class="lead">依存型言語は不変条件を型で保証できますが、従来は「証明に時間がかかる」ことが最大の壁でした。LLMによる証明補助と組み合わせると、その壁が下がる可能性があります。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="2">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">暗黙の前提ズレ</p>
+      <h2 class="title">不変条件</h2>
+      <p class="lead">バイト列の長さが常に n、分岐のとき配列が空でない、インデックス境界が守られる――こうした微妙な前提は実装外に逃げがちです。依存型はこれを「コンパイル時に検査」できます。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="3">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">強い型＝強い証明</p>
+      <h2 class="title">費用の壁</h2>
+      <p class="lead">強力な型は検証能力を上げますが、対応する証明作業が重くなり開発コストが高くなりがちでした。seL4の回顧では、証明が設計・実装より大きくなることが報告されています。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="4">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">“証拠があれば良い”</p>
+      <h2 class="title">証明の存在</h2>
+      <p class="lead">「主張（仕様）が正しければ、証明の中身は本質的に不要で、“存在”すればよい」という考え方があります。依存型では proof irrelevance が強く意識されますが、現実には証明工学の負荷や計算爆発が残ります。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="5">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">LLMが配線する</p>
+      <h2 class="title">証明自動化</h2>
+      <p class="lead">LLMが証明補助を担うと、証明を組み立てる作業が自動化され「型チェッカーの爆発」を回避しやすい場合があります。結果として、依存型が再び実用圏に戻る余地が生まれます。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="6">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">実例：zstd</p>
+      <h2 class="title">FSEテーブル</h2>
+      <p class="lead">LeanでZstandard（zstd）のデコーダ部品、特にFSEテーブル構築を実装し性質を証明する試みが紹介されています。仕様に対応したユニバーサル性質（サイズ、確率セル対応、到達可能性、一意性、範囲条件）を扱います。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="7">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">証明する中身</p>
+      <h2 class="title">ユニバーサル性質</h2>
+      <div class="grid three" role="presentation">
+        <div class="cell">
+          <div class="k">サイズ</div>
+          <div class="v">テーブル規模が仕様通り</div>
+        </div>
+        <div class="cell">
+          <div class="k">対応関係</div>
+          <div class="v">確率セル ↔ 状態の一致</div>
+        </div>
+        <div class="cell">
+          <div class="k">到達性</div>
+          <div class="v">到達可能・不可能の切り分け</div>
+        </div>
+        <div class="cell">
+          <div class="k">一意性</div>
+          <div class="v">対応が矛盾なく定まる</div>
+        </div>
+        <div class="cell">
+          <div class="k">範囲</div>
+          <div class="v">ビット長・ベースライン範囲条件</div>
+        </div>
+        <div class="cell">
+          <div class="k">内側ループ</div>
+          <div class="v">暗黙前提を機械的に担保</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="8">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">過去の教訓</p>
+      <h2 class="title">seL4 & SMT</h2>
+      <p class="lead">seL4では「設計より証明が重い」ことが現実に起きました（証明コードがCコードより20倍以上などの報告）。SMT自動化も万能ではなく、終わらない／解ける形にする勘が必要な場面があります。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="9">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">万能ではない</p>
+      <h2 class="title">残る制約</h2>
+      <p class="lead">証明不要論（proof irrelevance）に寄せられても、証明工学・型チェッカーの負荷・計算資源は完全には消えません。さらにLLMの有効性は「入力形式・証明方針・探索量」に依存し、定量的な安定性はまだ見えにくいです。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="10">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">正しさは別軸</p>
+      <h2 class="title">性能ギャップ</h2>
+      <p class="lead">LeanでのデコーダはCLIのzstdより10倍遅いと明示されています。依存型は正しさを強く保証できますが、実行性能やスケールは別のトレードオフとして残ります。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="11">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">検証の線形化</p>
+      <h2 class="title">実装が先へ</h2>
+      <p class="lead">配列インデックスなどの危険箇所を「空でないこと」等で型と証明に押し込むことで、実行時の不確実性を減らせます。ZstandardのFSEでは、仕様対応の性質が“内側ループの脆さ”を支える方向性が具体化されています。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="12">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="topline"></div>
+      <p class="eyebrow">次の測定が必要</p>
+      <h2 class="title">結論</h2>
+      <p class="lead">LLMによる証明自動化は、依存型の「証明コスト」を現実的に下げる可能性があります。一方でスケール・再現性・性能トレードオフは未解決で、seL4級の現実データと定量評価が次の段階です。</p>
+      <div class="rule"></div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://stackoverflow.com/questions/75680491/what-is-the-trade-off-between-lazy-and-strict-eager-evaluation" target="_blank" rel="noreferrer noopener">haskell - What is the trade-off between Lazy and Strict/Eager evaluation? - Stack Overflow</a></h2>
+<p class="reference-note">Frequently this is when a computation makes a pass over a very large data set; lazily evaluated code might be able to pr…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/AmberLJC/LLMSys-PaperList" target="_blank" rel="noreferrer noopener">AmberLJC/LLMSys-PaperList: Large Language Model (LLM) Systems ...</a></h2>
+<p class="reference-note">2026 [...] 2026 [...] 2026</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aclanthology.org/2024.nlp4science-1.18.pdf" target="_blank" rel="noreferrer noopener">[PDF] Benchmarking Automated Theorem Proving with Large Language ...</a></h2>
+<p class="reference-note">for large language models (LLMs) due to the requirement for formal proofs to be rig-orously checked by proof assistants,…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.conference-publishing.com/toc/FSE26/abs" target="_blank" rel="noreferrer noopener">FSE – Journal Issue</a></h2>
+<p class="reference-note">|  |  |
+ --- |
+| FSE – Journal Issue | Contents - Abstracts - Authors |
+
+# FSE – Journal Issue
+
+## Frontmatter
+
+## Resea…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.far.ai/publications" target="_blank" rel="noreferrer noopener">All Publications</a></h2>
+<p class="reference-note">Model Evaluations
+
+Persuasion &amp; Influence
+
+Benchmarks &amp; Evaluations
+
+##### TamperBench: Systematically Stress-Testing LL…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
