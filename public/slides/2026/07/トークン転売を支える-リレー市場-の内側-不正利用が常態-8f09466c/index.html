@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>トークン転売を支える「リレー市場」の内側—不正利用が常態化する構造と防御策</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.45;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 24px auto 56px auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 6px;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      position: relative;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      position: relative;
+      z-index: 2;
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+      font-size: 14px;
+      margin-top: -4px;
+      text-transform: uppercase;
+      border-top: 1px solid var(--rust);
+      padding-top: 10px;
+      width: fit-content;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-weight: 500;
+      font-size: 18px;
+      margin-top: -6px;
+    }
+    .content{
+      position: relative;
+      z-index: 2;
+      padding-right: 6px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      letter-spacing: 0.01em;
+      text-transform: none;
+    }
+    .title{
+      font-size: 64px;
+      font-weight: 500;
+      margin: 0 0 12px 0;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.01em;
+      line-height: 1.05;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      margin: 0;
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 0 0;
+    }
+    .grid{
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px 18px;
+      width: 100%;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px 12px 14px;
+      background: rgba(0,0,0,0.06);
+      min-height: 76px;
+    }
+    .cell h4{
+      margin:0 0 8px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .cell p{
+      margin:0;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--ink-2);
+    }
+    .bsub{
+      color: var(--ink-4);
+      font-size: 14px;
+      margin-top: 6px;
+      font-weight: 400;
+    }
+    .refs{
+      margin-top: 18px;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 14px;
+      max-width: 980px;
+    }
+    .ref-list{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.05);
+      padding: 12px 14px;
+      border-radius: 8px;
+    }
+    .ref-item .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--rust-deep);
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .ref-item .v{
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink);
+      margin:0;
+    }
+
+    @media (max-width: 760px){
+      .slide{ padding: 40px 20px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="topbar">
+        <div class="slide-tag">READING DECK</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">リレー市場の内側</p>
+        <h1 class="title">トークン転売を支える<span class="em">「リレー市場」</span></h1>
+        <p class="lead">生成AI APIクレジットの“安さ”を起点に、不正が商流（リレー）で増幅される構造と、現実的な防御の考え方を整理します。</p>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">価格が安すぎる</p>
+        <h2 class="title"><span class="em">不正が続く</span>理由</h2>
+        <p class="lead">KYCや不正検知が強まっても、不正は「入口」ではなく「中継の商流」に移って継続し得ます（いたちごっこ）。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>観測</h4>
+            <p>極端な割引（実効単価が大幅に低い）</p>
+            <div class="bsub">“なぜその価格で成立？”を疑うサイン</div>
+          </div>
+          <div class="cell">
+            <h4>前提</h4>
+            <p>攻撃者は別経路へ移動しながら悪用を継続</p>
+            <div class="bsub">不正は消えず、形を変える</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">商流の四層</p>
+        <h2 class="title">リレーは<span class="em">仲介</span>でありうる</h2>
+        <p class="lead">リレー（proxy/transfer station）は、利用者のリクエストを大手モデル提供者のAPIへ転送し、“安いゲートウェイ”として提供する仕組みです（必ずしも違法ではない）。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>上流</h4>
+            <p>カード・アカウント商（課金チェックを回避しうる供給）</p>
+          </div>
+          <div class="cell">
+            <h4>中流</h4>
+            <p>アカウントプール（キー/レート制限・フェイルオーバーを束ねる）</p>
+          </div>
+          <div class="cell">
+            <h4>下流</h4>
+            <p>リレー/転送所（中国語サービスとして課金・請求・サポートを担当）</p>
+          </div>
+          <div class="cell">
+            <h4>最下層</h4>
+            <p>エンドユーザー（開発者/SaaS/蒸留 distillation目的の事業者）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">97.8%割引の示唆</p>
+        <h2 class="title">“極端な安さ”は<span class="em">調達歪み</span></h2>
+        <p class="lead">最安リレーでは公式価格から約97.8%割引の水準が示され、単なる価格競争より「盗難/漏洩した鍵」や「不正なアカウント混入」を疑う根拠になります。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>重要点</h4>
+            <p>割引が大きすぎる → コスト構造の異常</p>
+          </div>
+          <div class="cell">
+            <h4>示唆</h4>
+            <p>利益より「調達コスト/認証コストの歪み」</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">ソフトは中立</p>
+        <h2 class="title">one-api / new-api は<span class="em">問題の本体</span>ではない</h2>
+        <p class="lead">多くのリレーはOpenAI互換のオープンソースゲートウェイ（one-api / new-api）上に構築されていますが、問題は「鍵・アカウントの出所」と「再販条件」です。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>合法になり得る</h4>
+            <p>ゲートウェイ実装そのものは正当な運用が可能</p>
+          </div>
+          <div class="cell">
+            <h4>違反になり得る</h4>
+            <p>盗難/漏洩/不正調達された認証情報を含み、規約に反して転売する</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="topbar">
+        <div class="slide-tag">HANDLES</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">悪用パターン</p>
+        <h2 class="title">手口は<span class="em">複合</span></h2>
+        <p class="lead">リレー市場では複数の悪用が混ざり、無料トライアル乱用から決済のコスト破壊まで広がります（“まとめて処理される”のが特徴）。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>i</h4>
+            <p>無料トライアルの大量自動登録</p>
+          </div>
+          <div class="cell">
+            <h4>ii</h4>
+            <p>利用後のチャージバック</p>
+          </div>
+          <div class="cell">
+            <h4>iii</h4>
+            <p>事前チャージ型のカード（前払いの歪み）</p>
+          </div>
+          <div class="cell">
+            <h4>iv</h4>
+            <p>ガードレールのないチャットボット経由</p>
+          </div>
+          <div class="cell">
+            <h4>v</h4>
+            <p>“財布を焼く” Denial of wallet：大量同時リクエストでコストを消費</p>
+          </div>
+          <div class="cell">
+            <h4>補足</h4>
+            <p>チャージバックとトライアル乱用は混在し得る</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">入口より“中継”</p>
+        <h2 class="title">検知強化は<span class="em">迂回</span>を呼ぶ</h2>
+        <p class="lead">KYCや不正検知は入口を狭めますが、市場（リレー商流）が分厚いほど、攻撃者は別の調達・代理経路へ“移動”できます。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>入口対策</h4>
+            <p>KYC強化・認証強化で“最初の通過”は難しくなる</p>
+          </div>
+          <div class="cell">
+            <h4>移動先</h4>
+            <p>商流側の鍵調達/プール/転送体制が“出口”を保つ</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">成熟市場の兆候</p>
+        <h2 class="title">“市場”として回っている</h2>
+        <p class="lead">価格比較、アフィリエイト、APIキーの日替わり抽選のような宣伝・誘導があり、リレーが個別事件ではなく継続的な商流になっていることが示唆されます。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>集客</h4>
+            <p>価格比較サイト・アフィリエイト</p>
+          </div>
+          <div class="cell">
+            <h4>誘導</h4>
+            <p>“日替わり抽選”のような仕掛け</p>
+          </div>
+          <div class="cell">
+            <h4>運営</h4>
+            <p>複数層が兼任し、市場の境界が曖昧になりやすい</p>
+          </div>
+          <div class="cell">
+            <h4>情報共有</h4>
+            <p>フォーラム内で用語や手口が語られる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">攻撃の流れ</p>
+        <h2 class="title">検知→被害対応まで<span class="em">前提設計</span></h2>
+        <p class="lead">防御は“完全停止”ではなく、攻撃成立条件を崩し、被害上限を設計する発想が中心になります。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>i</h4>
+            <p>口座作成（攻撃者の参入）</p>
+          </div>
+          <div class="cell">
+            <h4>ii</h4>
+            <p>検知（異常な行動・支出・同時性を見つける）</p>
+          </div>
+          <div class="cell">
+            <h4>iii</h4>
+            <p>被害対応（支出上限・与信の制御）</p>
+          </div>
+          <div class="cell">
+            <h4>結論</h4>
+            <p>見逃し前提で“最大損失”を抑える</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="topbar">
+        <div class="slide-tag">DEFENSE</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">二軸で守る</p>
+        <h2 class="title">攻撃コスト↑ × 被害上限↓</h2>
+        <p class="lead">参入コストを上げる（摩擦や制限）と同時に、被害が出ても支出が致命的にならない設計を組み合わせます。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>攻撃コスト増</h4>
+            <p>口座作成の難化、決済の監視、行動パターン監視</p>
+          </div>
+          <div class="cell">
+            <h4>被害上限</h4>
+            <p>支出キャップ、予約枠、同時実行制限、段階的与信</p>
+          </div>
+          <div class="cell">
+            <h4>摩擦追加</h4>
+            <p>リスク上昇時に追加チェック（CAPTCHA等）</p>
+          </div>
+          <div class="cell">
+            <h4>運用前提</h4>
+            <p>誤検知を減らしつつ“止めるより制御”へ寄せる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“検知すべき差”</p>
+        <h2 class="title">OSS排除より<span class="em">行動と認証</span></h2>
+        <p class="lead">one-api / new-api のようなゲートウェイ自体を排除するより、どの認証情報が裏付けとして使われ、トラフィックがどう振る舞うかを監視する方が筋が良いです。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>見るもの（裏付け）</h4>
+            <p>鍵/アカウントの出所、認証の整合性、再販の形跡</p>
+          </div>
+          <div class="cell">
+            <h4>見るもの（振る舞い）</h4>
+            <p>支出異常、クラスタ性（口座クラスタリング）、同時性</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="topbar">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">核心の一文</p>
+        <h2 class="title">リレーは技術中立、<span class="em">結合</span>で攻撃面になる</h2>
+        <p class="lead">“供給網（キー調達/再販条件）”と“利用行動（支出・同時性・クラスタ性）”が結びついた瞬間に、リスクは顕在化します。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>技術</h4>
+            <p>ゲートウェイ実装（中立にも見える）</p>
+          </div>
+          <div class="cell">
+            <h4>経済・規約</h4>
+            <p>盗難/漏洩/不正調達の混入・規約違反の再販</p>
+          </div>
+          <div class="cell">
+            <h4>行動</h4>
+            <p>無料トライアル乱用、チャージバック、Denial of wallet</p>
+          </div>
+          <div class="cell">
+            <h4>結論</h4>
+            <p>価格だけで判断せず、横断的なリスク管理へ</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="topbar">
+        <div class="slide-tag">DEFENSE PLAYBOOK</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">優先アクション</p>
+        <h2 class="title">今日から設計する<span class="em">“天井”</span></h2>
+        <p class="lead">まずは被害の天井（上限）を作り、その上で参入コストと検知を強めるのが堅実です。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>i</h4>
+            <p>被害上限：支出キャップ / 同時実行制限 / 予約枠</p>
+            <div class="bsub">最大損失を抑える（被害が起きても致命傷にしない）</div>
+          </div>
+          <div class="cell">
+            <h4>ii</h4>
+            <p>参入コスト：口座作成・決済・行動の監視と摩擦追加</p>
+            <div class="bsub">攻撃の成立条件を悪くする（攻撃者の継続を難化）</div>
+          </div>
+          <div class="cell">
+            <h4>iii</h4>
+            <p>相関検知：口座クラスタリング / 支出異常アラート / レート制限</p>
+            <div class="bsub">分散された悪用を“同一群”として捉える</div>
+          </div>
+          <div class="cell">
+            <h4>iv</h4>
+            <p>段階的与信：リスク上昇時に与信を細らせる</p>
+            <div class="bsub">誤検知にも耐える運用に寄せる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">最後に</p>
+        <h2 class="title"><span class="em">不正は消えない</span>前提で守る</h2>
+        <p class="lead">KYCが強まっても不正は移動し得るため、入口対策だけで終わらず、リレー商流と利用行動を横断して“成立条件を崩す”設計が必要です。</p>
+
+        <div class="refs" style="margin-top:18px;">
+          <div class="slide-tag" style="border-top:none; padding-top:0; margin-bottom:10px;">REFERENCES</div>
+          <div class="ref-list">
+            <div class="ref-item">
+              <div class="k">Terminology</div>
+              <p class="v">proxy / transfer station（リレー）・token resale（トークン転売）・Denial of wallet（財布を焼く）</p>
+            </div>
+            <div class="ref-item">
+              <div class="k">Core components</div>
+              <p class="v">one-api / new-api（OpenAI互換ゲートウェイ）と、鍵・アカウント調達/再販の切り分け</p>
+            </div>
+            <div class="ref-item">
+              <div class="k">Defense ideas</div>
+              <p class="v">支出キャップ、予約枠、同時実行制限、口座クラスタリング、支出異常検知、段階的与信</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://stripe.com/resources/more/real-time-api-abuse-prevention-for-saas-and-ai-platforms" target="_blank" rel="noreferrer noopener">How to Prevent API Abuse for SaaS and AI Platforms | Stripe</a></h2>
+<p class="reference-note">Highlights
+
+   Automated scripts can hit your backend endpoints directly, which can create expensive problems before sta…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=sMvIMDWVLmQ" target="_blank" rel="noreferrer noopener">The hidden costs of cheap AI APIs</a></h2>
+<p class="reference-note">server. Same OpenAI compatible format, same model name, same feeling of, &quot;Hey, I hacked the system. Nice.&quot; But now your …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://help.openai.com/en/articles/10910291-api-organization-verification" target="_blank" rel="noreferrer noopener">API Organization Verification</a></h2>
+<p class="reference-note">OpenAI
+
+# API Organization Verification
+
+Learn how to verify your API organization
+
+## What is API Organization Verifica…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/technology/comments/1otlwta/wikipedia_urges_ai_companies_to_use_its_paid_api" target="_blank" rel="noreferrer noopener">Wikipedia urges AI companies to use its paid API, and stop ...</a></h2>
+<p class="reference-note">Though the sound of a chipmunk rattling off megabytes of AI corruption nonsense would be amusing. The first time. These …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://techcrunch.com/2025/11/10/wikipedia-urges-ai-companies-to-use-its-paid-api-and-stop-scraping" target="_blank" rel="noreferrer noopener">Wikipedia urges AI companies to use its paid API, and stop scraping | TechCrunch</a></h2>
+<p class="reference-note">Now Wikipedia is laying out its guidelines for AI developers and providers, saying that generative AI developers should …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
