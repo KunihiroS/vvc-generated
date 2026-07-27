@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cursor-bridge — Claude CodeとCursorをつなぐローカルブリッジ</title>
+  <meta name="description" content="cursor-bridgeの仕組み、便益、セキュリティ、規約上の論点、導入判断を整理したリーディングデッキ">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .deck {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 48px;
+      padding: 48px 0 80px;
+    }
+
+    .slide {
+      position: relative;
+      container-type: inline-size;
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      margin: 0 auto;
+      padding: 5% 6.43%;
+      overflow: hidden;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      isolation: isolate;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 1.79%;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex: 0 0 auto;
+      margin-bottom: 1.8cqw;
+    }
+
+    .slide-tag {
+      display: flex;
+      align-items: center;
+      gap: 0.9cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.98cqw;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      width: 2.7cqw;
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.72cqw;
+      font-style: italic;
+      font-weight: 400;
+      letter-spacing: 0.05em;
+      line-height: 1;
+    }
+
+    .intro {
+      flex: 0 0 auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.55cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.96cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1.05;
+    }
+
+    .title {
+      max-width: 10.7em;
+      margin: 0;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 5.18cqw;
+      font-weight: 500;
+      letter-spacing: -0.035em;
+      line-height: 0.96;
+    }
+
+    .title.jp {
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      font-size: 4.65cqw;
+      letter-spacing: -0.045em;
+      line-height: 1.13;
+    }
+
+    .title.compact {
+      max-width: 14em;
+      font-size: 4.15cqw;
+      line-height: 1.13;
+    }
+
+    .title em {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin: 1.25cqw 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.96cqw;
+      font-weight: 300;
+      letter-spacing: 0.01em;
+      line-height: 1.65;
+    }
+
+    .body {
+      flex: 1 1 auto;
+      min-height: 0;
+      margin-top: 2.35cqw;
+      padding-bottom: 1.5cqw;
+    }
+
+    .body.tight {
+      margin-top: 1.7cqw;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1.45cqw;
+      width: 100%;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      position: relative;
+      padding: 1.45cqw 1.55cqw;
+      border-top: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .card.accent {
+      border-top-color: var(--rust);
+    }
+
+    .card-label {
+      margin: 0 0 0.65cqw;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 1.02cqw;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .card-title {
+      margin: 0 0 0.55cqw;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.62cqw;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      line-height: 1.35;
+    }
+
+    .card-text {
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.18cqw;
+      font-weight: 300;
+      line-height: 1.65;
+    }
+
+    .card-note {
+      margin: 0.65cqw 0 0;
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 0.98cqw;
+      font-weight: 400;
+      line-height: 1.45;
+    }
+
+    .roman {
+      display: block;
+      margin-bottom: 0.45cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.05cqw;
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .code {
+      display: inline-block;
+      padding: 0.18em 0.45em 0.22em;
+      border: 1px solid var(--rule-strong);
+      color: var(--ink);
+      background: rgba(240, 232, 216, 0.035);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.94em;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 1.25cqw;
+      align-items: stretch;
+      width: 100%;
+    }
+
+    .flow-step {
+      position: relative;
+      padding: 1.4cqw 1.05cqw;
+      border-top: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -1.02cqw;
+      z-index: 2;
+      width: 0.8cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.65cqw;
+      font-style: italic;
+      line-height: 1;
+      transform: translateY(-50%);
+    }
+
+    .flow-index {
+      display: block;
+      margin-bottom: 0.6cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.7cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .flow-title {
+      margin: 0 0 0.45cqw;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.28cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .flow-text {
+      margin: 0;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: 0.95cqw;
+      line-height: 1.55;
+    }
+
+    .equation {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1.2fr;
+      gap: 1.3cqw;
+      align-items: center;
+      height: 100%;
+    }
+
+    .equation-box {
+      padding: 1.8cqw 1.45cqw;
+      border-top: 1px solid var(--rule-strong);
+      text-align: left;
+    }
+
+    .equation-box.result {
+      border-top-color: var(--rust);
+    }
+
+    .equation-sign {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 3.2cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .equation-main {
+      display: block;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.65cqw;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .equation-sub {
+      display: block;
+      margin-top: 0.6cqw;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1cqw;
+      line-height: 1.55;
+    }
+
+    .comparison-head {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5cqw;
+      margin-bottom: 0.7cqw;
+    }
+
+    .comparison-name {
+      padding-bottom: 0.65cqw;
+      border-bottom: 1px solid var(--rule-strong);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.55cqw;
+      font-weight: 500;
+    }
+
+    .comparison-name.bridge {
+      border-bottom-color: var(--rust);
+    }
+
+    .comparison-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5cqw;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .comparison-cell {
+      padding: 0.85cqw 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.13cqw;
+      line-height: 1.5;
+    }
+
+    .comparison-cell strong {
+      display: block;
+      margin-bottom: 0.2cqw;
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 0.85cqw;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .statement {
+      display: grid;
+      grid-template-columns: 0.24fr 1fr;
+      gap: 1.5cqw;
+      align-items: start;
+      padding: 1.3cqw 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .statement:first-child {
+      border-top-color: var(--rule-strong);
+    }
+
+    .statement-index {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.15cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .statement-copy h3 {
+      margin: 0 0 0.35cqw;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.45cqw;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .statement-copy p {
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.08cqw;
+      line-height: 1.55;
+    }
+
+    .big-quote {
+      max-width: 14em;
+      margin: 0;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 3.25cqw;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.28;
+    }
+
+    .big-quote em {
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .note-band {
+      display: grid;
+      grid-template-columns: 0.24fr 1fr;
+      gap: 1.25cqw;
+      align-items: center;
+      margin-top: 1.6cqw;
+      padding: 1.05cqw 1.3cqw;
+      border: 1px solid var(--rule);
+    }
+
+    .note-mark {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 2.25cqw;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .note-copy {
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.1cqw;
+      line-height: 1.55;
+    }
+
+    .status {
+      display: inline-block;
+      margin-top: 0.65cqw;
+      padding: 0.28cqw 0.6cqw;
+      border: 1px solid var(--rule-strong);
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 0.85cqw;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .status.attention {
+      border-color: var(--rust);
+      color: var(--rust);
+    }
+
+    .source-line {
+      position: absolute;
+      left: 6.43%;
+      bottom: 3.15%;
+      color: var(--ink-4);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: 0.78cqw;
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      line-height: 1.2;
+    }
+
+    .cover {
+      justify-content: space-between;
+    }
+
+    .cover .cover-center {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding-bottom: 1.5cqw;
+      text-align: center;
+    }
+
+    .cover .eyebrow {
+      font-size: 2.35cqw;
+    }
+
+    .cover .title {
+      max-width: 10.8em;
+      font-size: 6.8cqw;
+      line-height: 0.98;
+      text-align: center;
+    }
+
+    .cover .lead {
+      max-width: 33em;
+      text-align: center;
+    }
+
+    .cover-facts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      width: 100%;
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .cover-fact {
+      padding: 1.05cqw 1.2cqw 0;
+      border-left: 1px solid var(--rule);
+      text-align: left;
+    }
+
+    .cover-fact:first-child {
+      border-left: 0;
+    }
+
+    .cover-fact strong {
+      display: block;
+      margin-bottom: 0.25cqw;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 0.88cqw;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .cover-fact span {
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.03cqw;
+      line-height: 1.4;
+    }
+
+    .closing {
+      justify-content: space-between;
+    }
+
+    .closing .closing-center {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0 3cqw 1.5cqw;
+      text-align: center;
+    }
+
+    .closing .title {
+      max-width: 12.5em;
+      font-size: 5.9cqw;
+      text-align: center;
+    }
+
+    .closing .lead {
+      max-width: 38em;
+      text-align: center;
+    }
+
+    .closing-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      width: 100%;
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .closing-item {
+      padding: 1.05cqw 1.15cqw 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 1.02cqw;
+      line-height: 1.45;
+      text-align: left;
+    }
+
+    .closing-item + .closing-item {
+      border-left: 1px solid var(--rule);
+    }
+
+    .closing-item em {
+      display: block;
+      margin-bottom: 0.25cqw;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.55cqw;
+      font-style: italic;
+    }
+
+    @media (max-width: 520px) {
+      .deck {
+        gap: 24px;
+        padding: 24px 0 48px;
+      }
+
+      .slide {
+        width: calc(100vw - 24px);
+      }
+    }
+
+    @media print {
+      @page {
+        size: landscape;
+        margin: 0;
+      }
+
+      body {
+        background: var(--cream);
+      }
+
+      .deck {
+        gap: 0;
+        padding: 0;
+      }
+
+      .slide {
+        width: 100vw;
+        page-break-after: always;
+        break-after: page;
+        box-shadow: none;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="meta">
+        <div class="slide-tag">CASE REVIEW</div>
+        <div class="slide-num">02 / 25</div>
+      </div>
+      <div class="cover-center">
+        <p class="eyebrow">Repository Brief</p>
+        <h1 class="title">Claude Codeを Cursorへつなぐ <em>Bridge</em></h1>
+        <p class="lead">cursor-bridgeは、Claude CodeのAPI呼び出しをCursor側へ中継する非公式のローカルツールです。利便性だけでなく、認証・権限・規約まで含めて導入可否を読み解きます。</p>
+      </div>
+      <div class="cover-facts">
+        <div class="cover-fact">
+          <strong>FORM</strong>
+          <span>Rust製の単一バイナリ</span>
+        </div>
+        <div class="cover-fact">
+          <strong>MECHANISM</strong>
+          <span>一時的なLocal HTTP proxy</span>
+        </div>
+        <div class="cover-fact">
+          <strong>POSITION</strong>
+          <span>Anthropic・Cursor非公式</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="meta">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">The Friction</p>
+        <h2 class="title jp">欲しいのはCLI。避けたいのは<em>運用負荷</em></h2>
+        <p class="lead">Claude Codeの操作体験を保ちながら、別契約のAPI課金や常駐プロキシ管理を減らしたい。cursor-bridgeは、その摩擦を一つの起動コマンドへ圧縮します。</p>
+      </div>
+      <div class="body">
+        <div class="grid three">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3 class="card-title">CLIはそのまま</h3>
+            <p class="card-text">利用者は使い慣れた <span class="code">claude</span> CLIを入口として、エージェント型の開発作業を続けたい。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">追加課金を抑える</h3>
+            <p class="card-text">既存のCursorサブスクリプションとAutoモデルを活用し、Anthropic APIの追加費用を避ける狙いです。</p>
+          </article>
+          <article class="card accent">
+            <span class="roman">iii</span>
+            <h3 class="card-title">中継運用を隠す</h3>
+            <p class="card-text">ポート、環境変数、サーバ停止、npm依存を手作業で管理しない体験を目指します。</p>
+          </article>
+        </div>
+      </div>
+      <div class="source-line">Scope: 提示されたcursor-bridge READMEの記載に基づく整理</div>
+    </section>
+
+    <section class="slide metaphor">
+      <div class="meta">
+        <div class="slide-tag">CORE IDEA</div>
+        <div class="slide-num">04 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Translation Layer</p>
+        <h2 class="title jp">新しいモデルではなく、呼び出しの<em>翻訳層</em></h2>
+        <p class="lead">Claude Codeが期待するAnthropic API形式を受け取り、CursorのAgent CLIが扱える実行へ変換します。価値の中心はAI能力の追加ではなく、異なる入口と課金環境の接続です。</p>
+      </div>
+      <div class="body">
+        <div class="equation">
+          <div class="equation-box">
+            <span class="equation-main">Claude Code</span>
+            <span class="equation-sub">Anthropic API形式で要求する利用者側のCLI</span>
+          </div>
+          <div class="equation-sign">→</div>
+          <div class="equation-box result">
+            <span class="equation-main">cursor-bridge</span>
+            <span class="equation-sub">Local HTTP proxy（ローカル中継）と形式変換</span>
+          </div>
+          <div class="equation-sign">→</div>
+          <div class="equation-box">
+            <span class="equation-main">Cursor Agent CLI</span>
+            <span class="equation-sub">Cursor認証とバックエンド／Autoモデルを利用</span>
+          </div>
+        </div>
+      </div>
+      <div class="source-line">Interpretation: 「モデルの置換」ではなく「要求経路の変換」と捉える</div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="meta">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Request Path</p>
+        <h2 class="title jp">一時プロキシが実行経路を<em>組み替える</em></h2>
+        <p class="lead">起動時に認証とローカル中継を準備し、Claude Codeの通信先をプロキシへ向けます。受けた要求はCursor Agent CLIの呼び出しへ翻訳されます。</p>
+      </div>
+      <div class="body">
+        <div class="flow">
+          <article class="flow-step">
+            <span class="flow-index">i</span>
+            <h3 class="flow-title">Bridge起動</h3>
+            <p class="flow-text"><span class="code">cursor-bridge</span> を実行</p>
+          </article>
+          <article class="flow-step">
+            <span class="flow-index">ii</span>
+            <h3 class="flow-title">Token取得</h3>
+            <p class="flow-text">Cursor認証情報を読み取る</p>
+          </article>
+          <article class="flow-step">
+            <span class="flow-index">iii</span>
+            <h3 class="flow-title">Proxy作成</h3>
+            <p class="flow-text">ランダムなローカルポートで待受</p>
+          </article>
+          <article class="flow-step">
+            <span class="flow-index">iv</span>
+            <h3 class="flow-title">Claude起動</h3>
+            <p class="flow-text">必要な環境変数を設定</p>
+          </article>
+          <article class="flow-step">
+            <span class="flow-index">v</span>
+            <h3 class="flow-title">要求変換</h3>
+            <p class="flow-text">Anthropic形式を翻訳</p>
+          </article>
+          <article class="flow-step">
+            <span class="flow-index">vi</span>
+            <h3 class="flow-title">Cursor実行</h3>
+            <p class="flow-text">Agent CLI経由でバックエンドへ</p>
+          </article>
+        </div>
+      </div>
+      <div class="source-line">README-described flow; 実コードの通信先・例外処理は別途確認が必要</div>
+    </section>
+
+    <section class="slide process">
+      <div class="meta">
+        <div class="slide-tag">LIFECYCLE</div>
+        <div class="slide-num">06 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Session Bound</p>
+        <h2 class="title jp">プロキシは端末セッションとともに<em>終了</em></h2>
+        <p class="lead">常駐サービスとして別管理するのではなく、起動したセッションの寿命に中継プロセスを結びつけます。終了時のクリーンアップまでを一連の動作に含める設計です。</p>
+      </div>
+      <div class="body">
+        <div class="grid four">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3 class="card-title">準備</h3>
+            <p class="card-text">認証情報を取得し、利用可能なランダムポートを選びます。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">接続</h3>
+            <p class="card-text">Claude Code向けの接続先と必要な環境変数を構成します。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">実行</h3>
+            <p class="card-text">セッション中のAPI要求を受け、Cursor側の実行へ変換します。</p>
+          </article>
+          <article class="card accent">
+            <span class="roman">iv</span>
+            <h3 class="card-title">後始末</h3>
+            <p class="card-text">Claude Code終了後に一時プロキシを停止する想定です。</p>
+          </article>
+        </div>
+      </div>
+      <div class="source-line">Operational intent: “lives and dies with your terminal session”</div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="meta">
+        <div class="slide-tag">AUTHENTICATION</div>
+        <div class="slide-num">07 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Token Sources</p>
+        <h2 class="title jp">認証経路はOSで<em>異なる</em></h2>
+        <p class="lead">macOSはKeychain（キーチェーン）からの自動取得、Linuxは環境変数による明示設定が前提です。どちらもCursorトークンをブリッジが扱う点は共通します。</p>
+      </div>
+      <div class="body">
+        <div class="grid two">
+          <article class="card accent">
+            <p class="card-label">MACOS</p>
+            <h3 class="card-title">Keychainから自動取得</h3>
+            <p class="card-text">READMEでは、Cursorの認証トークンをmacOS Keychainから読み取る動作が説明されています。</p>
+            <p class="card-note">利便性は高いが、アクセス対象・権限・エラー時の挙動をコードで確認したい。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">LINUX</p>
+            <h3 class="card-title"><span class="code">CURSOR_TOKEN</span> が必要</h3>
+            <p class="card-text">Keychainの自動フォールバックはなく、利用者が環境変数へトークンを設定します。</p>
+            <p class="card-note">Shell履歴、CIログ、子プロセスへの継承、診断出力への露出を管理する必要がある。</p>
+          </article>
+        </div>
+      </div>
+      <div class="source-line">Known limitation: Linux requires CURSOR_TOKEN according to the README</div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="meta">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">08 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Operational Difference</p>
+        <h2 class="title jp">差別化は性能より<em>管理の少なさ</em></h2>
+        <p class="lead">READMEが比較対象にするのは、Node.jsで動く常駐サーバ型のプロキシです。cursor-bridgeは依存・ポート・環境変数・停止作業をセッション内へ隠します。</p>
+      </div>
+      <div class="body tight">
+        <div class="comparison-head">
+          <div class="comparison-name">一般的な常駐Nodeプロキシ</div>
+          <div class="comparison-name bridge">cursor-bridge</div>
+        </div>
+        <div class="comparison-row">
+          <div class="comparison-cell"><strong>PROCESS</strong>別ターミナルやバックグラウンドでサーバを維持</div>
+          <div class="comparison-cell"><strong>PROCESS</strong>Claude Codeのセッションに合わせて起動・終了</div>
+        </div>
+        <div class="comparison-row">
+          <div class="comparison-cell"><strong>PORT</strong>固定ポートの設定や競合解消が必要になりやすい</div>
+          <div class="comparison-cell"><strong>PORT</strong>ランダムポートを選択し、競合管理を隠す</div>
+        </div>
+        <div class="comparison-row">
+          <div class="comparison-cell"><strong>RUNTIME</strong>Node.js、npm、依存パッケージを導入</div>
+          <div class="comparison-cell"><strong>RUNTIME</strong>Rust製の単一バイナリとして配布</div>
+        </div>
+        <div class="comparison-row">
+          <div class="comparison-cell"><strong>CONFIG</strong>接続先や環境変数を手動で合わせる</div>
+          <div class="comparison-cell"><strong>CONFIG</strong>起動時に必要な設定を自動構成</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="meta">
+        <div class="slide-tag">PACKAGING</div>
+        <div class="slide-num">09 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">One Binary</p>
+        <h2 class="title jp">導入体験を<em>一コマンド</em>へ圧縮</h2>
+        <p class="lead">単一のRustバイナリにより、ランタイムや常駐サーバの準備を減らすことが主なDX上の価値です。短時間の作業や個人環境では、とくに効果が見えやすくなります。</p>
+      </div>
+      <div class="body">
+        <div class="grid three">
+          <article class="card accent">
+            <p class="card-label">BINARY</p>
+            <h3 class="card-title">約780 KB</h3>
+            <p class="card-text">READMEでは、小さなRust製バイナリとして説明されています。</p>
+            <span class="status">README CLAIM</span>
+          </article>
+          <article class="card">
+            <p class="card-label">DEPENDENCY</p>
+            <h3 class="card-title">npm不要</h3>
+            <p class="card-text">Node.jsランタイムやパッケージ依存の導入・更新管理を避けます。</p>
+            <span class="status">LOWER FRICTION</span>
+          </article>
+          <article class="card">
+            <p class="card-label">OPERATION</p>
+            <h3 class="card-title">待受管理不要</h3>
+            <p class="card-text">利用者が別プロセスの起動確認や停止忘れを管理しない設計です。</p>
+            <span class="status">SESSION SCOPED</span>
+          </article>
+        </div>
+      </div>
+      <div class="source-line">Size and static-compilation characteristics are repository claims, not independently verified here</div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="meta">
+        <div class="slide-tag">ECONOMICS</div>
+        <div class="slide-num">10 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Cost Proposition</p>
+        <h2 class="title jp">経済性の主張は「追加課金を<em>避ける</em>」</h2>
+        <p class="lead">Cursorサブスクリプションに含まれるAutoモデルを利用し、Claude Code用のAnthropic APIクレジットを別途購入しない、というのがREADMEの費用対効果です。</p>
+      </div>
+      <div class="body">
+        <div class="equation">
+          <div class="equation-box">
+            <span class="equation-main">既存のCursor契約</span>
+            <span class="equation-sub">Autoモデルを利用できるサブスクリプション</span>
+          </div>
+          <div class="equation-sign">+</div>
+          <div class="equation-box">
+            <span class="equation-main">Claude CodeのUX</span>
+            <span class="equation-sub">CLIを入口にしたエージェント型開発</span>
+          </div>
+          <div class="equation-sign">=</div>
+          <div class="equation-box result">
+            <span class="equation-main">追加Anthropic課金なし</span>
+            <span class="equation-sub">README上の主張。Cursor契約自体の費用は残る</span>
+          </div>
+        </div>
+      </div>
+      <div class="source-line">Economic claim: “free” means no additional Anthropic charge under stated conditions</div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="meta">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Conditional Benefit</p>
+        <h2 class="title jp">「実質無料」は<em>条件付き</em>の表現</h2>
+        <p class="lead">費用ゼロを保証する言葉ではなく、既存契約の範囲で追加のAnthropic課金を抑えるという意味です。利用枠、仕様変更、規約適合は別の判断軸です。</p>
+      </div>
+      <div class="body">
+        <div class="grid three">
+          <article class="card accent">
+            <span class="roman">i</span>
+            <h3 class="card-title">契約条件</h3>
+            <p class="card-text">Cursorの対象プランでAutoモデルが利用でき、必要な利用枠が残っていること。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">技術的継続性</h3>
+            <p class="card-text">非公式の変換経路が、CLIやバックエンドの変更後も動作すること。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">規約適合</h3>
+            <p class="card-text">対象サービスの利用条件が、この認証・中継・代理実行の方法を許容すること。</p>
+          </article>
+        </div>
+        <div class="note-band">
+          <div class="note-mark">≠</div>
+          <p class="note-copy">「追加のAnthropic API請求がない」という便益と、「完全無料」「無制限」「規約上問題ない」という結論は同じではありません。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="meta">
+        <div class="slide-tag">SECURITY</div>
+        <div class="slide-num">12 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Trust Concentration</p>
+        <h2 class="title jp">利便性の代わりに、信頼がブリッジへ<em>集中</em></h2>
+        <p class="lead">cursor-bridgeは認証トークン、ローカル通信、環境変数、子プロセス起動の交点になります。これは脆弱性の断定ではなく、優先して監査すべき境界を示します。</p>
+      </div>
+      <div class="body tight">
+        <div class="grid three">
+          <article class="card accent">
+            <p class="card-label">TOKEN</p>
+            <h3 class="card-title">取得と保持</h3>
+            <p class="card-text">どの資格情報へアクセスし、メモリ上でいつまで保持し、確実に破棄するか。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">LOGGING</p>
+            <h3 class="card-title">診断出力</h3>
+            <p class="card-text">Token、Header、Prompt、Responseが標準出力やエラーログへ出ないか。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">LOOPBACK</p>
+            <h3 class="card-title">待受範囲</h3>
+            <p class="card-text">ProxyがlocalhostだけへBindされ、第三者プロセスから保護されているか。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">ENVIRONMENT</p>
+            <h3 class="card-title">環境変数の継承</h3>
+            <p class="card-text">設定値が不要な子プロセスやShellへ残らず、終了後に汚染しないか。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">NETWORK</p>
+            <h3 class="card-title">実際の送信先</h3>
+            <p class="card-text">通信先、TLS検証、リダイレクト、Telemetryの有無を追跡できるか。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">SUPPLY CHAIN</p>
+            <h3 class="card-title">配布物の信頼</h3>
+            <p class="card-text">Release artifact、署名、Hash、依存クレートを検証できるか。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="meta">
+        <div class="slide-tag">BLAST RADIUS</div>
+        <div class="slide-num">13 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">No Workspace Sandbox</p>
+        <h2 class="title jp">現在ディレクトリがそのまま<em>作業境界</em></h2>
+        <p class="lead">READMEでは、Workspace sandbox（作業領域の隔離）がないと説明されています。エージェントのファイル編集やコマンド実行は、起動場所の権限を引き継ぎます。</p>
+      </div>
+      <div class="body">
+        <div class="grid two">
+          <article class="card accent">
+            <p class="card-label">LOWER RISK CONTEXT</p>
+            <h3 class="card-title">使い捨ての作業コピー</h3>
+            <p class="card-text">新しいGit branch、限定権限のユーザー、秘密情報を除いたリポジトリ、復元可能な環境で試します。</p>
+            <p class="card-note">変更差分を確認し、破壊的操作の影響を局所化できる。</p>
+          </article>
+          <article class="card">
+            <p class="card-label">HIGH RISK CONTEXT</p>
+            <h3 class="card-title">本番に近い作業場所</h3>
+            <p class="card-text">本番資格情報、ホームディレクトリ、共有Volume、Deploy権限、重要な未追跡ファイルが存在する環境です。</p>
+            <p class="card-note">誤編集やコマンド実行の影響範囲が、プロジェクト外へ広がり得る。</p>
+          </article>
+        </div>
+        <div class="note-band">
+          <div class="note-mark">i</div>
+          <p class="note-copy">「ローカルで動く」ことは「隔離されている」ことを意味しません。安全性は、起動ユーザーの権限と現在ディレクトリの選び方に依存します。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="meta">
+        <div class="slide-tag">LIMITATIONS</div>
+        <div class="slide-num">14 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Known Boundaries</p>
+        <h2 class="title jp">現時点で明記された<em>三つの制約</em></h2>
+        <p class="lead">制約は単なる機能不足ではなく、利用できる環境と運用モデルを決めます。組織導入では、とくに権限分離と認証管理へ直結します。</p>
+      </div>
+      <div class="body">
+        <div class="grid three">
+          <article class="card accent">
+            <span class="roman">i</span>
+            <h3 class="card-title">Sandboxなし</h3>
+            <p class="card-text">エージェントは現在ディレクトリで動き、Workspace単位の強制隔離は提供されません。</p>
+            <span class="status attention">SAFETY IMPACT</span>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">LinuxはToken手動設定</h3>
+            <p class="card-text"><span class="code">CURSOR_TOKEN</span> を利用者側で安全に注入・更新・削除する必要があります。</p>
+            <span class="status">SECRET OPS</span>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">単一アカウント</h3>
+            <p class="card-text">複数アカウントのRotation（切り替え運用）や負荷分散はありません。</p>
+            <span class="status">NO ROTATION</span>
+          </article>
+        </div>
+      </div>
+      <div class="source-line">Explicit constraints reported in the supplied README summary</div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="meta">
+        <div class="slide-tag">POLICY</div>
+        <div class="slide-num">15 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Permission Layer</p>
+        <h2 class="title jp">技術的に動くことと、利用が許されることは<em>別</em></h2>
+        <p class="lead">cursor-bridgeはAnthropicおよびCursor／Anysphereの公式プロジェクトではなく、READMEも自己責任を明記しています。免責文は規約適合を証明しません。</p>
+      </div>
+      <div class="body">
+        <div class="grid three">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3 class="card-title">公式性</h3>
+            <p class="card-text">両サービスの提携、承認、サポートを受けた統合ではありません。</p>
+          </article>
+          <article class="card accent">
+            <span class="roman">ii</span>
+            <h3 class="card-title">契約上の許容</h3>
+            <p class="card-text">認証トークンの利用方法、代理実行、アクセス経路、利用枠の扱いを公式条件で確認します。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">変更リスク</h3>
+            <p class="card-text">規約、API、CLI、Autoモデルの条件変更により、動作や許容範囲が変わり得ます。</p>
+          </article>
+        </div>
+        <div class="note-band">
+          <div class="note-mark">ii</div>
+          <p class="note-copy">法的評価は地域、契約主体、用途、アカウント種別で変わります。READMEだけを根拠に「合法」「規約適合」と断定しないことが安全です。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="meta">
+        <div class="slide-tag">EVIDENCE GAP</div>
+        <div class="slide-num">16 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Known vs Unknown</p>
+        <h2 class="title jp">READMEで分かるのは設計意図。実装保証には<em>足りない</em></h2>
+        <p class="lead">提示資料は機能、狙い、制約を説明しますが、実際のコード挙動までは検証していません。導入判断にはソースと公式条件の追加確認が必要です。</p>
+      </div>
+      <div class="body tight">
+        <div class="grid two">
+          <article class="card accent">
+            <p class="card-label">README CONFIRMS</p>
+            <h3 class="card-title">記載から把握できること</h3>
+            <p class="card-text">一時ローカルプロキシ、Cursor Token取得、Agent CLIへの変換、セッション終了時の後始末、OS別認証、既知の制約。</p>
+            <span class="status">DOCUMENTED</span>
+          </article>
+          <article class="card">
+            <p class="card-label">NOT YET VERIFIED</p>
+            <h3 class="card-title">追加確認が必要なこと</h3>
+            <p class="card-text">通信先、ログ内容、Tokenの保持時間、例外時の停止、設定上書き、依存の脆弱性、Release binaryとSourceの一致。</p>
+            <span class="status attention">REVIEW REQUIRED</span>
+          </article>
+        </div>
+        <div class="note-band">
+          <div class="note-mark">iii</div>
+          <p class="note-copy">「入力データに書かれていない」は「安全でない」の証拠ではありません。ただし、認証を扱うツールでは未確認のまま導入する理由にもなりません。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="meta">
+        <div class="slide-tag">DECISION GATES</div>
+        <div class="slide-num">17 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Before Adoption</p>
+        <h2 class="title jp">導入前に三つの<em>Gate</em>を通す</h2>
+        <p class="lead">Policy、Security、Operationsのどれか一つでも未確認なら、本番利用へ進めません。便利さの評価は、この三条件を満たした後に行います。</p>
+      </div>
+      <div class="body">
+        <div class="grid three">
+          <article class="card accent">
+            <span class="roman">i</span>
+            <p class="card-label">POLICY GATE</p>
+            <h3 class="card-title">利用条件を確認</h3>
+            <p class="card-text">CursorとAnthropicの最新規約、組織ポリシー、契約プランの許容範囲を担当者が確認します。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <p class="card-label">SECURITY GATE</p>
+            <h3 class="card-title">Token経路を監査</h3>
+            <p class="card-text">取得、保存、ログ、送信先、待受範囲、配布物の真正性をソースと実測で確認します。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <p class="card-label">OPERATIONS GATE</p>
+            <h3 class="card-title">被害範囲を限定</h3>
+            <p class="card-text">専用作業コピー、最小権限、秘密情報の分離、更新手順、緊急停止方法を用意します。</p>
+          </article>
+        </div>
+      </div>
+      <div class="source-line">Recommended decision framework; not a claim from the repository</div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="meta">
+        <div class="slide-tag">SOURCE REVIEW</div>
+        <div class="slide-num">18 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Code Inspection</p>
+        <h2 class="title jp">レビューは認証と境界処理へ<em>集中</em></h2>
+        <p class="lead">全コードを均等に読むより、資格情報・HTTP待受・外部プロセス・終了処理を先に追います。READMEの説明と実装が一致するかを確認します。</p>
+      </div>
+      <div class="body tight">
+        <div class="grid three">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3 class="card-title">Token reader</h3>
+            <p class="card-text">Keychain照会条件、環境変数、Fallback、エラー出力を追う。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">HTTP listener</h3>
+            <p class="card-text">Bind address、ランダムポート、認証、同一端末上の攻撃面を確認。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">Request mapper</h3>
+            <p class="card-text">Header、Prompt、Tool call、Responseの変換と欠落を確認。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iv</span>
+            <h3 class="card-title">Process spawn</h3>
+            <p class="card-text">実行するCLI、引数、PATH解決、環境変数の継承範囲を確認。</p>
+          </article>
+          <article class="card">
+            <span class="roman">v</span>
+            <h3 class="card-title">Cleanup path</h3>
+            <p class="card-text">通常終了、Signal、Crash、子プロセス異常時の後始末を確認。</p>
+          </article>
+          <article class="card accent">
+            <span class="roman">vi</span>
+            <h3 class="card-title">Build provenance</h3>
+            <p class="card-text">Source、Lockfile、Release artifact、Hash、再現Buildを照合。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="meta">
+        <div class="slide-tag">CONTROLLED PILOT</div>
+        <div class="slide-num">19 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Safe Trial</p>
+        <h2 class="title jp">試すなら、復元可能な環境で<em>段階導入</em></h2>
+        <p class="lead">最初から重要リポジトリへ入れず、通信・変更差分・Token露出を観測できる小さな実験にします。成功条件と中止条件を先に決めます。</p>
+      </div>
+      <div class="body">
+        <div class="grid four">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3 class="card-title">隔離</h3>
+            <p class="card-text">使い捨てClone、専用Branch、最小権限ユーザーを用意。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">観測</h3>
+            <p class="card-text">Process、Port、DNS、通信先、ログ、環境変数を記録。</p>
+          </article>
+          <article class="card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">検証</h3>
+            <p class="card-text">終了後の待受、残存Process、Token、ファイル差分を確認。</p>
+          </article>
+          <article class="card accent">
+            <span class="roman">iv</span>
+            <h3 class="card-title">判断</h3>
+            <p class="card-text">便益、安定性、規約、リスクを再評価し、許可範囲を限定。</p>
+          </article>
+        </div>
+        <div class="note-band">
+          <div class="note-mark">iv</div>
+          <p class="note-copy">中止条件の例：想定外の通信先、Tokenを含むログ、終了後のProxy残存、作業範囲外の変更、公式条件との不整合。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="meta">
+        <div class="slide-tag">FIT ASSESSMENT</div>
+        <div class="slide-num">20 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Where It Fits</p>
+        <h2 class="title jp">個人検証には合う。統制環境には<em>慎重</em></h2>
+        <p class="lead">価値が出やすいのは、復元可能なローカル作業で運用負荷を減らしたい場面です。強い監査、隔離、公式サポートが必要な環境では追加対策が欠かせません。</p>
+      </div>
+      <div class="body">
+        <div class="grid two">
+          <article class="card accent">
+            <p class="card-label">BETTER FIT</p>
+            <h3 class="card-title">限定された開発・検証</h3>
+            <p class="card-text">個人の試験、短時間セッション、復元可能なOSS作業、機密情報を含まないRepository、Source reviewが可能な利用者。</p>
+            <span class="status">CONDITIONAL YES</span>
+          </article>
+          <article class="card">
+            <p class="card-label">POORER FIT</p>
+            <h3 class="card-title">高統制・高機密の環境</h3>
+            <p class="card-text">本番運用、顧客データ、規制対象情報、強制Sandbox、複数アカウント統制、Vendor supportが必要な組織。</p>
+            <span class="status attention">REVIEW OR AVOID</span>
+          </article>
+        </div>
+        <div class="note-band">
+          <div class="note-mark">v</div>
+          <p class="note-copy">適合性はツール単体では決まりません。データ分類、端末権限、契約条件、監査能力、許容できる停止リスクの組み合わせで判断します。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="meta">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">21 / 25</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Source Boundary</p>
+        <h2 class="title jp">根拠と未確認範囲を<em>分けて読む</em></h2>
+        <p class="lead">本デッキの事実記述は、利用者から提示されたcursor-bridge READMEの要約に限定しています。Repository URL、Commit、取得日、実コード、公式規約本文は入力に含まれていません。</p>
+      </div>
+      <div class="body tight">
+        <div class="grid two">
+          <article class="card accent">
+            <p class="card-label">PRIMARY INPUT</p>
+            <h3 class="card-title">cursor-bridge README要約</h3>
+            <p class="card-text">機能、Local HTTP proxy、Token取得、Cursor Agent CLIへの変換、Rust単一バイナリ、制約、免責に関する提示内容。</p>
+            <p class="card-note">Repository location / commit / retrieval date: not supplied</p>
+          </article>
+          <article class="card">
+            <p class="card-label">REQUIRED FOLLOW-UP</p>
+            <h3 class="card-title">導入前に参照すべき一次資料</h3>
+            <p class="card-text">対象RepositoryのSourceとRelease、Cursor／Anysphereの最新利用条件、Anthropicの最新利用条件、所属組織のSecurity policy。</p>
+            <p class="card-note">Terms and product behavior can change; verify against current official text</p>
+          </article>
+        </div>
+        <div class="note-band">
+          <div class="note-mark">vi</div>
+          <p class="note-copy">この資料は技術・運用上の論点整理であり、法的助言、規約適合の保証、セキュリティ監査の完了を意味しません。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="meta">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">22 / 25</div>
+      </div>
+      <div class="closing-center">
+        <p class="eyebrow">Conditional Recommendation</p>
+        <h2 class="title">便利さは明確。導入は<em>検証後</em>に。</h2>
+        <p class="lead">cursor-bridgeは、Claude Codeの操作性とCursorの利用環境を一コマンドで結ぶ実務的な発想です。ただし、Token・Sandbox・規約という三つの境界を確認できない限り、安全な省コスト策とは断定できません。</p>
+      </div>
+      <div class="closing-strip">
+        <div class="closing-item">
+          <em>i — Policy</em>
+          最新の公式利用条件と組織ポリシーを確認する。
+        </div>
+        <div class="closing-item">
+          <em>ii — Security</em>
+          Source、通信先、ログ、Token処理を監査する。
+        </div>
+        <div class="closing-item">
+          <em>iii — Safety</em>
+          最小権限と復元可能な作業環境から始める。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">23 / 25</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=5E5ByxaOKuo" target="_blank" rel="noreferrer noopener">How to Install Claude in Cursor (Complete Setup Guide 2026)</a></h2>
+<p class="reference-note">folder name will be Cursor dash Cloud. So, you can name the folder anything. Just select this folder, then click here se…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noreferrer noopener">Advanced setup - Claude Code Docs</a></h2>
+<p class="reference-note">Claude Code requires a Pro, Max, Team, Enterprise, or Console account. The free Claude.ai plan does not include Claude C…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">24 / 25</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.datacamp.com/tutorial/claude-code-in-cursor" target="_blank" rel="noreferrer noopener">Claude Code in Cursor: Setup and Workflow Guide | DataCamp</a></h2>
+<p class="reference-note">Claude Code CLI allows developers to integrate AI-powered coding assistance into everyday terminal workflows. This guide…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=kddjxKEeCuM" target="_blank" rel="noreferrer noopener">How to Set Up Claude Code in 2026 (Beginner Tutorial)</a></h2>
+<p class="reference-note">Learn how to install and use Claude Code, the powerful AI coding agent from Anthropic that lets you build apps faster th…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">25 / 25</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.buildcamp.io/blogs/how-to-get-started-with-claude-code" target="_blank" rel="noreferrer noopener">How to get started with Claude Code | Buildcamp</a></h2>
+<p class="reference-note">The key insight for Cursor users is that adding Claude Code to your toolkit doesn&#39;t mean abandoning what you already lov…</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
