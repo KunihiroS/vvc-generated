@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Git subtreeで外部ライブラリを探索可能にする</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      margin: 20px auto;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 20px;
+      border-radius: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      left:20px; right:20px; top:20px; bottom:20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+
+    .inner{
+      position: relative;
+      height: 100%;
+      padding: 56px 72px;
+    }
+
+    .tag{
+      position: absolute;
+      top: 26px;
+      left: 26px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.12em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-style: italic;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 26px;
+      right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 24px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      color: var(--ink);
+      font-style: italic;
+    }
+
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--rust);
+      font-size: 62px;
+      display: inline-block;
+      transform: translateY(4px);
+    }
+
+    .lead{
+      margin-top: 18px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .rulebar{
+      margin-top: 26px;
+      height: 1px;
+      background: var(--rule-strong);
+      max-width: 920px;
+    }
+
+    .grid2, .grid3{
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+      max-width: 980px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240, 232, 216, 0.03);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .v{
+      font-family: "Noto Serif JP", serif;
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+      word-break: break-word;
+    }
+
+    .listgrid{
+      margin-top: 18px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      max-width: 980px;
+    }
+
+    .footer-note{
+      position:absolute;
+      left: 28px;
+      bottom: 26px;
+      color: var(--ink-4);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
+
+    /* References slide formatting */
+    .refbox{
+      margin-top: 18px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px;
+      background: rgba(240, 232, 216, 0.03);
+      max-width: 980px;
+    }
+    .refline{
+      font-family: "Noto Serif JP", serif;
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      margin: 10px 0;
+    }
+
+    @media (max-width: 720px){
+      .inner{ padding: 44px 22px; }
+      .title{ font-size: 52px; }
+      .title .jp{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid2, .grid3, .listgrid{ grid-template-columns: 1fr; }
+      .tag{ font-size: 14px; top: 18px; left: 18px; }
+      .slide-num{ font-size: 18px; top: 18px; right: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide" aria-label="Cover">
+      <div class="inner">
+        <div class="tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+        <p class="eyebrow">探索を“外部”から“ローカル”へ</p>
+        <h1 class="title">AI時代の <span class="jp">ライブラリ取り込み</span></h1>
+        <div class="lead">コーディングエージェントに外部ライブラリを「当てずっぽう」ではなく、ソース探索できる形で渡します。方法の中心は Git subtree（treｅ取り込み）です。</div>
+        <div class="footer-note">Bilingual: ライブラリ = library（ライブラリ） / 探索 = explore（探索）</div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide" aria-label="Problem">
+      <div class="inner">
+        <div class="tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+        <p class="eyebrow">断片情報の限界</p>
+        <h2 class="title">文脈不足</h2>
+        <div class="lead">Web検索や人間向けドキュメントだけでは、ライブラリの設計意図・抽象のつながり・既存パターンが欠けやすいです。結果として推測実装になり、誤った使い方へ寄りがちです。</div>
+        <div class="rulebar"></div>
+        <div class="grid2" role="group" aria-label="Why">
+          <div class="card">
+            <div class="k">欠けるもの（不足）</div>
+            <div class="v">抽象の辿り方 / 既存イディオム / テストでの期待挙動</div>
+          </div>
+          <div class="card">
+            <div class="k">起きること（結果）</div>
+            <div class="v">推測・断片の組み合わせ / 実装ミスマッチ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="inner">
+        <div class="tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+        <p class="eyebrow">地図がない</p>
+        <h2 class="title">切り貼り実装</h2>
+        <div class="lead">エージェントは「コード読解（探索）」が得意です。ですが断片だけ渡すと地図がなく、道路（関係）を推測する状態になります。</div>
+        <div class="grid3" role="group" aria-label="Analogy grid">
+          <div class="card">
+            <div class="k">断片</div>
+            <div class="v">関係が見えない</div>
+          </div>
+          <div class="card">
+            <div class="k">探索可能なソース</div>
+            <div class="v">抽象→実装を辿れる</div>
+          </div>
+          <div class="card">
+            <div class="k">品質</div>
+            <div class="v">設計意図に沿う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide" aria-label="Core Idea">
+      <div class="inner">
+        <div class="tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+        <p class="eyebrow">本物を読ませる</p>
+        <h2 class="title">vendoring</h2>
+        <div class="lead">外部依存先のリポジトリをプロジェクト内に取り込み（vendoring）ます。そうすることで、エージェントはローカルのソース構造を探索できます。</div>
+        <div class="listgrid" role="group" aria-label="Core steps">
+          <div class="card">
+            <div class="k">目的（Goal）</div>
+            <div class="v">探索可能な実装（本物）</div>
+          </div>
+          <div class="card">
+            <div class="k">手段（Means）</div>
+            <div class="v">Git subtree（subtree）で取り込み</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: vendoring = 取り込み（vendoring）</div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide" aria-label="submodule vs subtree">
+      <div class="inner">
+        <div class="tag">COMPARISON</div>
+        <div class="slide-num">06 / 16</div>
+        <p class="eyebrow">運用コスト差</p>
+        <h2 class="title">submoduleよりsubtree</h2>
+        <div class="lead">記事は subtree を推します。submoduleは初期化の見落としや間接参照、.gitmodules等の運用が煩雑になりやすいからです。</div>
+        <div class="grid2" role="group" aria-label="Comparison grid">
+          <div class="card">
+            <div class="k">submodule（欠点）</div>
+            <div class="v">初期化漏れ / 間接化 / .gitmodules管理</div>
+          </div>
+          <div class="card">
+            <div class="k">subtree（利点）</div>
+            <div class="v">サブディレクトリに“通常のコード”として存在</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide" aria-label="Governance">
+      <div class="inner">
+        <div class="tag">DISTINCTION</div>
+        <div class="slide-num">07 / 16</div>
+        <p class="eyebrow">境界線が必須</p>
+        <h2 class="title">AGENTS.md</h2>
+        <div class="lead">vendoredコードがあるだけでは不十分です。AGENTS.md等で参照用途・read-only・編集禁止・import禁止などを明示し、参照の暴走を防ぎます。</div>
+        <div class="grid2" role="group" aria-label="Agent rules">
+          <div class="card">
+            <div class="k">参照（Read）</div>
+            <div class="v">探索して学ぶ / パターンを確認</div>
+          </div>
+          <div class="card">
+            <div class="k">適用（Apply）</div>
+            <div class="v">アプリ側のimport元にしない / 編集しない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide" aria-label="Evidence and patterns">
+      <div class="inner">
+        <div class="tag">EVIDENCE</div>
+        <div class="slide-num">08 / 16</div>
+        <p class="eyebrow">探索を節約する</p>
+        <h2 class="title">パターン化</h2>
+        <div class="lead">重要モジュール（例：Schema）について、vendoredコードから学んだ内容を短い参照ドキュメントとして成果物化します。これで、毎回の再探索を減らし品質を安定させます。</div>
+        <div class="grid3" role="group" aria-label="Pattern output">
+          <div class="card">
+            <div class="k">例</div>
+            <div class="v">Schemaの典型的な組み合わせ</div>
+          </div>
+          <div class="card">
+            <div class="k">例</div>
+            <div class="v">エンコード/デコードの手順</div>
+          </div>
+          <div class="card">
+            <div class="k">例</div>
+            <div class="v">エラーハンドリングの型</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide" aria-label="Process">
+      <div class="inner">
+        <div class="tag">PROCESS</div>
+        <div class="slide-num">09 / 16</div>
+        <p class="eyebrow">導入手順（概略）</p>
+        <h2 class="title">4ステップ</h2>
+        <div class="lead">導入は「取り込み→境界線→パターン化→運用設計」の順で組み立てます。実装探索を“読みやすい状態”として固定します。</div>
+        <div class="grid2" role="group" aria-label="Steps grid">
+          <div class="card">
+            <div class="k">i. 取り込み</div>
+            <div class="v mono">Git subtree でリポジトリをサブディレクトリへ</div>
+          </div>
+          <div class="card">
+            <div class="k">ii. ガバナンス</div>
+            <div class="v">AGENTS.mdで参照目的・編集禁止・import禁止</div>
+          </div>
+          <div class="card">
+            <div class="k">iii. 成果物化</div>
+            <div class="v">agent-patterns等で再探索を削減</div>
+          </div>
+          <div class="card">
+            <div class="k">iv. 運用設計</div>
+            <div class="v">更新頻度・互換性・破壊的変更の扱いを決める</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide" aria-label="FAQ about subtree benefits">
+      <div class="inner">
+        <div class="tag">EVIDENCE</div>
+        <div class="slide-num">10 / 16</div>
+        <p class="eyebrow">Q&Aを圧縮</p>
+        <h2 class="title">subtreeの効果</h2>
+        <div class="lead">subtreeにより改善されるのは、主に「文脈の欠落」です。ローカルで抽象のつながりや期待挙動を確認しやすくなり、断片検索よりイディオムに沿った実装になりやすいです。</div>
+        <div class="refbox" role="group" aria-label="Answer box">
+          <div class="refline"><span style="color: var(--rust); font-style: italic; font-family: 'Cormorant Garamond', serif;">ポイント</span>：探索（code exploration）として理解できる度合いが上がる</div>
+          <div class="refline"><span style="color: var(--rust); font-style: italic; font-family: 'Cormorant Garamond', serif;">Why</span>：設計意図・周辺構造がローカルに存在するため</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="FAQ about node_modules and security">
+      <div class="inner">
+        <div class="tag">DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+        <p class="eyebrow">見落としの典型</p>
+        <h2 class="title">node_modules問題</h2>
+        <div class="lead">npmのnode_modulesにソースがあっても、足りない場合があります。構造が失われる/探索設定でnode_modulesや.gitignore配下が参照されにくい/結果として“読みやすい形”に到達しにくいことがあります。</div>
+        <div class="grid2" role="group" aria-label="Node_modules reasons">
+          <div class="card">
+            <div class="k">理由（1）</div>
+            <div class="v">コンパイルやフラット化で構造が消える</div>
+          </div>
+          <div class="card">
+            <div class="k">理由（2）</div>
+            <div class="v">探索除外（node_modules / .gitignore配下）</div>
+          </div>
+        </div>
+        <div class="footer-note">Security/License：記事本文は深掘り不足（別途運用が必要）</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Tradeoffs and risks">
+      <div class="inner">
+        <div class="tag">PROCESS</div>
+        <div class="slide-num">12 / 16</div>
+        <p class="eyebrow">負債も同時に</p>
+        <h2 class="title">トレードオフ</h2>
+        <div class="lead">vendoringはプロジェクト肥大化と更新責任を伴います。品質向上の見返りはある一方、陳腐化を防ぐ更新フローや破壊的変更への対応設計が必要です。</div>
+        <div class="grid2" role="group" aria-label="Tradeoff grid">
+          <div class="card">
+            <div class="k">コスト</div>
+            <div class="v">サイズ増 / 更新の手間 / CI・レビュー負荷の可能性</div>
+          </div>
+          <div class="card">
+            <div class="k">前提</div>
+            <div class="v">更新ポリシー（頻度・安全性・互換性）を別途用意</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="References">
+      <div class="inner">
+        <div class="tag">REFERENCES</div>
+        <div class="slide-num">13 / 16</div>
+        <p class="eyebrow">参照ガイド（記事要旨）</p>
+        <h2 class="title">読み替え</h2>
+        <div class="lead">以下は本文から抽出した参照ポイントの要約です（外部URLは記載しません）。必要なら、あなたのプロジェクトでのAGENTS.md/更新ポリシー雛形に落とし込んでください。</div>
+
+        <div class="refbox" role="group" aria-label="Reference list">
+          <div class="refline">1) “推測”ではなく“既存実装の探索”で品質を上げる</div>
+          <div class="refline">2) subtreeを推す理由：運用の煩雑さ（submoduleの初期化/間接化/.gitmodules）回避</div>
+          <div class="refline">3) AGENTS.md等で境界線（参照用途・read-only・編集禁止・import禁止）を明示</div>
+          <div class="refline">4) agent-patterns等でパターン集を作り再探索コストを削減</div>
+          <div class="refline">5) トレードオフ：肥大化と更新責任。更新フローを設計して陳腐化を防ぐ</div>
+        </div>
+
+        <div class="footer-note">Bilingual: 境界線 = boundary（境界線） / 更新ポリシー = update policy（更新ポリシー）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://gitprotect.io/blog/managing-git-projects-git-subtree-vs-submodule" target="_blank" rel="noreferrer noopener">Managing Git Projects: Git Subtree vs. Submodule</a></h2>
+<p class="reference-note">Component-based development favors Git submodules, whereas system-based development favors Git subtrees.
+   Git submodul…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://adam-p.ca/blog/2022/02/git-submodule-subtree" target="_blank" rel="noreferrer noopener">Git Submodule vs Subtree | adam-p</a></h2>
+<p class="reference-note">Treating the submodule as a separate entity is easy. You can just do all your usual branching, committing, pushing (the …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://stackoverflow.com/questions/31769820/differences-between-git-submodule-and-subtree" target="_blank" rel="noreferrer noopener">Differences between git submodule and subtree - Stack Overflow</a></h2>
+<p class="reference-note">(
+
+Git subtree is a solution that allows merging one repository into another as a subdirectory, but keeping the entire c…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://opensource.com/article/20/5/git-submodules-subtrees" target="_blank" rel="noreferrer noopener">Managing Git projects with submodules and subtrees | Opensource.com</a></h2>
+<p class="reference-note">Git submodules have a smaller repository size since they are just links that point to a specific commit in the child pro…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.cicoria.com/integrating-external-git-repositories-git-submodules-vs-git-subtree" target="_blank" rel="noreferrer noopener">Git Git Submodules vs. Git Subtree | Shawn Cicoria Phd - CedarLogic, LLC</a></h2>
+<p class="reference-note"># Git Git Submodules vs. Git Subtree
+
+## 2024/05/26
+
+Git Git Submodules vs. Git Subtree
+
+### Integrating External Git Re…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
