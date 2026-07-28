@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Replace Your CI With a Merge Queue（圧縮スライド）</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px 0 56px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border-radius: 8px;
+      position: relative;
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      width: 100%;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border: 2px inset var(--rule);
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      border-radius: 8px;
+      pointer-events:none;
+      box-shadow: inset 0 0 0 1px rgba(240,232,216,0.04);
+    }
+
+    .topline{
+      position:absolute;
+      left: 22px;
+      right: 22px;
+      top: 18px;
+      height: 0;
+      border-top: 1px solid var(--rule);
+      opacity: 0.9;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 22px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 64px;
+      height: 2px;
+      background: var(--rule-strong);
+      border-radius: 2px;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 14px 0;
+      line-height: 1.1;
+    }
+
+    .title{
+      font-size: 78px;
+      margin: 0 0 18px 0;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--rust);
+      line-height: 0.95;
+    }
+
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      color: var(--ink);
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.6;
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    .content-grid{
+      margin-top: 22px;
+      width: 100%;
+    }
+
+    .grid-2, .grid-3{
+      display: grid;
+      gap: 16px 14px;
+      margin-top: 14px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 16px 16px;
+      background: rgba(28,24,19,0.35);
+    }
+    .cell .k{
+      font-family: "Inter Tight", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 400;
+    }
+    .cell .v em{
+      color: var(--ink-2);
+      font-style: italic;
+    }
+
+    .pair{
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 16px;
+      margin-top: 22px;
+      align-items: start;
+    }
+
+    .mini{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 16px;
+      background: rgba(28,24,19,0.35);
+    }
+    .mini .label{
+      font-family: "Inter Tight", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .mini .text{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.55;
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 24px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .slide-tag, .slide-num{ top: 10px; }
+      .slide-tag{ left: 16px; }
+      .slide-num{ right: 16px; }
+      .topline{ left: 16px; right: 16px; top: 10px; }
+      .pair{ grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 520px){
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+    }
+
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 cover -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 14</div>
+
+      <p class="eyebrow">CIの役割を“前倒し”に</p>
+      <h1 class="title">Replace Your CI <span class="jp">CIを置換</span></h1>
+      <p class="lead">AIエージェントが継続的に変更を投げる時代は、「マージ後に検出するCI」より「マージ前に直すマージキュー」が合う。</p>
+    </section>
+
+    <!-- 02 problem -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 14</div>
+
+      <p class="eyebrow">後追いCIの限界</p>
+      <h1 class="title">Why <span class="jp">なぜ壊れる</span></h1>
+      <p class="lead">従来CIは「失敗したら人が原因追跡できる」ことを前提に後追い検出する。しかしAIはコード理解が浅く、テスト結果が返るころにコンテキストが失われやすい。</p>
+
+      <div class="content-grid">
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">人間向け前提</div>
+            <div class="v"><em>長期的な</em>コードベース理解があり、失敗の原因を追いやすい。</div>
+          </div>
+          <div class="cell">
+            <div class="k">AI向け前提</div>
+            <div class="v">暗黙知が薄く、テスト到達までにコンテキスト（参照可能な時間/量）が期限切れになりがち。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 metaphor -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 14</div>
+
+      <p class="eyebrow">検出より“未然修正”</p>
+      <h1 class="title">Before <span class="jp">壊す前に</span></h1>
+      <p class="lead">「壊す人・直す人」を分ける設計では、AIの高頻度変更に対して通知駆動の修正が詰まる。目的は“壊した後の追いかけ”ではなく“壊す前に通す”。</p>
+
+      <div class="content-grid">
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">従来CI</div>
+            <div class="v">PR/コミット <em>マージ後</em> にテストし、失敗ならエンジニアが直す。</div>
+          </div>
+          <div class="cell">
+            <div class="k">マージキュー</div>
+            <div class="v">main反映の <em>前</em> にテストを通して、順序を制御する。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 architecture -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 14</div>
+
+      <p class="eyebrow">マージキューの核</p>
+      <h1 class="title">All Tests <span class="jp">全テスト必須</span></h1>
+      <p class="lead">マージキューでは「マージ前に全テスト」を走らせる。部分テストや遅いテストの後送りは、AIの連続投入に対して未検査領域の事故を残す。</p>
+
+      <div class="content-grid">
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">対象</div>
+            <div class="v">PR UIではなく、スクリプトでmain投入を制御。</div>
+          </div>
+          <div class="cell">
+            <div class="k">時点</div>
+            <div class="v">origin/mainへ反映される <em>前</em>。</div>
+          </div>
+          <div class="cell">
+            <div class="k">要件</div>
+            <div class="v">キュー内で“全テスト”。遅いテストを日次へ逃がさない。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 enumeration -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">06 / 14</div>
+
+      <p class="eyebrow">壊さない設計（4点）</p>
+      <h1 class="title">Design <span class="jp">運用の骨格</span></h1>
+      <p class="lead">AI時代の“壊す前に直す”には、検出タイミングの前倒し・順序制御・全テスト・遅いテスト分離の回避が要点になる。</p>
+
+      <div class="content-grid">
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">i. 前倒し</div>
+            <div class="v">マージ後検出ではなく、main反映前にテストで合否。</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. 順序</div>
+            <div class="v">マージキューがmain更新の順序を制御。</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. 全テスト</div>
+            <div class="v">キュー内で“全テスト”を走らせ、部分検査を捨てる。</div>
+          </div>
+          <div class="cell">
+            <div class="k">iv. 遅いテスト回避</div>
+            <div class="v">日次・週次で後回しすると事故が温存され“後片付け”が増える。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 evidence -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">07 / 14</div>
+
+      <p class="eyebrow">なぜ“遅いテスト”が破綻する</p>
+      <h1 class="title">No Backlog <span class="jp">事故の先送りを禁止</span></h1>
+      <p class="lead">AIが毎日（あるいはより高頻度で）変更を投入するなら、遅いテストをキューから外すと、未検査のまま不具合が増殖する。結果として、日々“ロボットの後片付け”を人が背負う。</p>
+
+      <div class="content-grid">
+        <div class="pair">
+          <div class="mini">
+            <div class="label">部分テストの副作用</div>
+            <div class="text">未検査領域が残り、壊れ方が“常態化”する。</div>
+          </div>
+          <div class="mini">
+            <div class="label">現場の負担</div>
+            <div class="text">テスト運用（再実行・原因調査・隔離）が人の仕事になる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 process -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">process</div>
+      <div class="slide-num">08 / 14</div>
+
+      <p class="eyebrow">エージェント用コマンド</p>
+      <h1 class="title">Test Only <span class="jp">マージせず検証</span></h1>
+      <p class="lead">マージキュー本体に加え、「実マージせずテストだけ実行する」コマンドを渡す。エージェントは自分の変更が壊れないことを先に確認し、壊れたものを押し付けにくくなる。</p>
+
+      <div class="content-grid">
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">通常マージキュー</div>
+            <div class="v"><span class="mono">main投入</span> をテスト合格で進める。</div>
+          </div>
+          <div class="cell">
+            <div class="k">エージェント用（仮）</div>
+            <div class="v"><span class="mono">実マージせず</span> テストだけ実行し、破綻を自律検出。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 comparison -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">09 / 14</div>
+
+      <p class="eyebrow">CIとマージキューの違い</p>
+      <h1 class="title">Timing <span class="jp">時点が本質</span></h1>
+      <p class="lead">違いは“検出するタイミング”と“通過条件”にある。CIは後追いで壊れを検出し、マージキューは反映前に壊れを潰す。</p>
+
+      <div class="content-grid">
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">CI（継続的インテグレーション）</div>
+            <div class="v">変更が入った後にテスト。失敗ならエンジニアが対応。</div>
+          </div>
+          <div class="cell">
+            <div class="k">マージキュー</div>
+            <div class="v">main反映の順序を制御し、反映前にテスト合格を必須化。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 distinction -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">10 / 14</div>
+
+      <p class="eyebrow">よくある代替への回答</p>
+      <h1 class="title">Auto-Retry <span class="jp">オートリバート等</span></h1>
+      <p class="lead">オートリバートは“動く”が、後追いCIの価値（修正を通じた学習と原因到達の機会）を失う。さらにAIはコンテキスト喪失があり、リトライで吸収しきれない可能性が高い。</p>
+
+      <div class="content-grid">
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">オートリトライ</div>
+            <div class="v">失敗を遅らせ、原因の到達を弱める。</div>
+          </div>
+          <div class="cell">
+            <div class="k">オートリバート</div>
+            <div class="v">“通った/戻った”だけになり、設計の前倒しが消える。</div>
+          </div>
+          <div class="cell">
+            <div class="k">AIの弱点</div>
+            <div class="v">テスト結果時点でコンテキストが残りにくい。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 closing + bilingual -->
+    <section class="slide">
+      <div class="topline"></div>
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">11 / 14</div>
+
+      <p class="eyebrow">導入判断の要点</p>
+      <h1 class="title">Go Fast <span class="jp">高速化へ投資</span></h1>
+      <p class="lead">全テストをマージ前に回すには計算資源が必要だが、AI時代の運用負担（後片付け）を減らす投資になる。自組織ではテスト速度・失敗分類・隔離方針を実測して段階導入するのが安全。</p>
+
+      <div class="content-grid">
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">提案の前提（EN / JP）</div>
+            <div class="v"><em>Fast tests</em>（高速テスト）とキュー設計が効く。</div>
+          </div>
+          <div class="cell">
+            <div class="k">あなたの次の一手</div>
+            <div class="v">テスト実測→高速化→失敗種類別の運用（フレーク等）を追加して導入。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/.exe" target="_blank" rel="noreferrer noopener">.exe - Wikipedia</a></h2>
+<p class="reference-note">In Windows, OS/2, and DOS, .exe is the filename extension for a file that is runnable as a native executable computer pr…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://sourceforge.net/projects/exe" target="_blank" rel="noreferrer noopener">eXe download | SourceForge.net</a></h2>
+<p class="reference-note">Join/Login
+ Business Software
+ Open Source Software
+ For Vendors
+ Blog
+ About
+ More
+ + Articles
+  + Create
+  + SourceFor…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://finance.yahoo.com/quote/EXE" target="_blank" rel="noreferrer noopener">Expand Energy Corporation (EXE) Stock Price, News, Quote &amp; History - Yahoo Finance</a></h2>
+<p class="reference-note">Previous Close  87.81
+ Open  88.21
+ Bid  81.77 x 100
+ Ask  94.46 x 100
+ Day&#39;s Range  87.06 - 90.00
+ 52 Week Range  84.99…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=-ojciptvVtY" target="_blank" rel="noreferrer noopener">What&#39;s inside a .EXE File?</a></h2>
+<p class="reference-note">and disabstraction. It&#39;s
+a whole bunch of CPU instructions that aren&#39;t allowed to run in DOS mode. [...] binaries, instr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://intl.webroot.com/nz/en/resources/glossary/what-is-an-exe" target="_blank" rel="noreferrer noopener">Webroot explains what is an .exe | Webroot</a></h2>
+<p class="reference-note"># .exe
+
+## What is an .exe?
+
+An .exe is a very common file type. The .exe file extension is short for “executable.” Thes…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
