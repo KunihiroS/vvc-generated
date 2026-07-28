@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>boffin — 編集単位アーキテクチャ制御レイヤ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: block;
+      padding: 24px 0 40px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      margin: 0 0 18px 0;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+
+    .slide-topline{
+      position:absolute;
+      left: 28px;
+      right: 28px;
+      top: 22px;
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 12px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      text-transform: uppercase;
+      color: var(--rust);
+      position: relative;
+      padding-left: 12px;
+      font-style: italic;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top: 50%;
+      transform: translateY(-50%);
+      width: 4px; height: 16px;
+      background: var(--rust);
+      opacity: 0.35;
+      border-radius: 2px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      opacity: 0.9;
+      letter-spacing: 0.02em;
+      text-align:right;
+      min-width: 86px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 34px;
+      margin-bottom: 10px;
+    }
+
+    .title{
+      margin: 0 0 14px 0;
+      font-size: 74px;
+      line-height: 1.0;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      font-weight: 300;
+      margin: 0;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      padding-top: 70px;
+      height: 100%;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 18px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 6px;
+      background: rgba(28, 24, 19, 0.25);
+    }
+    .cell .k{
+      font-family: "Inter Tight", "Noto Serif JP", serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .mini{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      font-weight: 300;
+      max-width: 860px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+    }
+
+    .rule-text{
+      border-top: 1px solid var(--rule-strong);
+      margin: 16px 0 0 0;
+      padding-top: 14px;
+      max-width: 900px;
+    }
+
+    .closing-center{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 66px;
+      text-align:left;
+      z-index: 1;
+    }
+    .closing-center .lead{ max-width: 980px; }
+
+    .center-hero{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 44%;
+      transform: translateY(-50%);
+      z-index: 1;
+      text-align:left;
+    }
+    .center-hero .title{ font-size: 88px; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-topline">
+        <div class="slide-tag">boffin</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="center-hero">
+          <div class="eyebrow">編集単位</div>
+          <h1 class="title">アーキテクチャ <em>制御</em> レイヤ</h1>
+          <p class="lead">AIコーディングエージェントに「いま編集するファイルに関係する制約だけ」を渡し、編集後は変更量に応じて検証を求める仕組みです。 </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-topline">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">事故の起点</div>
+        <h2 class="title"><em>静的</em> ルール</h2>
+        <p class="lead">AGENTS.md のような全体ルールは、一律に提示されるだけで終わりがちです。<br>その結果、エージェントが境界を崩したり「小さな修正」を巨大改修に膨らませるリスクが残ります。</p>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-topline">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">切り分け</div>
+        <h2 class="title">編集に <em>必要</em> な契約</h2>
+        <p class="lead">boffin は「編集対象の近くにある契約（制約）」だけをその場にルーティングします。<br>さらに“直した後”に、どこまで確認すべきかを変更量に比例させて要求します。</p>
+      </div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-topline">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">2つの柱</div>
+        <h2 class="title">ルーティング × <em>verification</em></h2>
+        <p class="lead">ParselFire Core の考え方として、(1) 当該ファイル向け制約を選別し、(2) 編集結果の検証を変更規模に応じて必須化します。</p>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Routing</div>
+            <div class="v">いま編集するファイルに関係する制約だけを提示</div>
+          </div>
+          <div class="cell">
+            <div class="k">Verification</div>
+            <div class="v">変更量に比例した確認・検証を要求</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: core idea -->
+    <section class="slide" aria-label="core idea">
+      <div class="slide-topline">
+        <div class="slide-tag">core</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">狙い撃ち</div>
+        <h2 class="title"><em>境界</em> の維持</h2>
+        <p class="lead">関係ない論点まで処理対象にしないことで、過剰な改修（スコープ膨張）を抑える狙いがあります。</p>
+
+        <div class="grid three rule-text">
+          <div class="cell">
+            <div class="k">before</div>
+            <div class="v">全体ルールで広く解釈される</div>
+          </div>
+          <div class="cell">
+            <div class="k">boffin</div>
+            <div class="v">編集対象に絞って制約を提示</div>
+          </div>
+          <div class="cell">
+            <div class="k">after</div>
+            <div class="v">境界崩れ・改修膨張の抑制</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: verification -->
+    <section class="slide" aria-label="verification">
+      <div class="slide-topline">
+        <div class="slide-tag">verification</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">確認の義務化</div>
+        <h2 class="title">変更量に <em>比例</em></h2>
+        <p class="lead">ルール提示だけでなく、「編集後にどの程度確認すべきか」を変更規模に応じて求めます。</p>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">小さな変更</div>
+            <div class="v">境界を壊すと致命傷になり得る → 最低限の検証を要求</div>
+          </div>
+          <div class="cell">
+            <div class="k">大きな変更</div>
+            <div class="v">影響範囲が増える → 検証の深さ/量を増やす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: transparency -->
+    <section class="slide" aria-label="transparency">
+      <div class="slide-topline">
+        <div class="slide-tag">transparency</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">読めるルール</div>
+        <h2 class="title"><em>packs</em> と署名</h2>
+        <p class="lead">導入時にブラックボックスな指示を差し込むのではなく、packs/ 配下にバージョン付きでマークダウンとして存在し、GPG署名で管理されると説明されています。</p>
+
+        <div class="grid two rule-text">
+          <div class="cell">
+            <div class="k">packs/</div>
+            <div class="v">読み取り可能なルール（透明性）</div>
+          </div>
+          <div class="cell">
+            <div class="k">GPG</div>
+            <div class="v">改ざん/出所の検証可能性（信頼の担保）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: case study -->
+    <section class="slide" aria-label="case study">
+      <div class="slide-topline">
+        <div class="slide-tag">case study</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">成功の例</div>
+        <h2 class="title">DuckDB / FastAPI / <em>LangChain</em></h2>
+        <p class="lead">公開されているケーススタディでは、テスト通過や API 境界の維持などで成功が報告されています（ただし A/B ベンチではない旨の注意あり）。</p>
+
+        <div class="grid three rule-text">
+          <div class="cell">
+            <div class="k">DuckDB</div>
+            <div class="v">+17 / -17 lines、テスト確認の成功が言及</div>
+          </div>
+          <div class="cell">
+            <div class="k">テスト範囲</div>
+            <div class="v">8つのテストファイルで 2,104 アサーションが通過</div>
+          </div>
+          <div class="cell">
+            <div class="k">価値</div>
+            <div class="v">境界維持を“ガイド＋検証”で支援</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: comparison -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-topline">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">静的 vs 動的</div>
+        <h2 class="title">AGENTS.md との <em>違い</em></h2>
+        <p class="lead">AGENTS.md はリポジトリ全体向けの静的指示になりやすい一方、boffin は編集対象に応じて制約を切り替え、検証までセットで要求します。</p>
+
+        <div class="grid two rule-text">
+          <div class="cell">
+            <div class="k">AGENTS.md</div>
+            <div class="v">一律に提示される（編集文脈に依存しない）</div>
+          </div>
+          <div class="cell">
+            <div class="k">boffin</div>
+            <div class="v">編集文脈に応じて制約をルーティングし、検証を要求</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: faq -->
+    <section class="slide" aria-label="faq">
+      <div class="slide-topline">
+        <div class="slide-tag">faq</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">誤解を防ぐ</div>
+        <h2 class="title">6つの <em>誤解</em> 対策</h2>
+        <p class="lead">boffin の位置づけを誤らないための要点を短く整理します。</p>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Q1</div>
+            <div class="v">AGENTS.md の代替ではない（役割が異なる）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q2</div>
+            <div class="v">隠れていない：packs/ を読み取り可能＋GPG署名</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q5</div>
+            <div class="v">セキュリティツールではない（サンドボックス担当ではない）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q6</div>
+            <div class="v">tests / review の代替ではない（検証の促進と支援）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11: opinion -->
+    <section class="slide" aria-label="opinion">
+      <div class="slide-topline">
+        <div class="slide-tag">opinion</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">評価</div>
+        <h2 class="title"><em>期待</em> と 注意</h2>
+        <p class="lead">編集前に制約を明示し、編集後に確認を要求する流れは合理的で、品質・安全のガバナンス層になり得ます。</p>
+
+        <div class="grid two rule-text">
+          <div class="cell">
+            <div class="k">期待</div>
+            <div class="v">編集文脈に応じた制約＋検証で「境界崩れ」を狙って抑制</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">失敗条件・限界の説明が不足し得る／テスト運用と接続が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: closing -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-topline">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">導入の次</div>
+        <h2 class="title">適用設計が <em>勝負</em></h2>
+        <p class="lead">packs を確認し、どの編集にどれだけ制約が効くかを理解したうえで、外部のテスト/レビュー運用とセットで考えるのが前提です。</p>
+
+        <div class="closing-center">
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">まず確認</div>
+              <div class="v">packs の内容・バージョン・GPG署名</div>
+            </div>
+            <div class="cell">
+              <div class="k">次に設計</div>
+              <div class="v">適用範囲と検証方針をテスト運用に接続</div>
+            </div>
+          </div>
+          <p class="mini" style="margin-top:16px;">
+            使うホスト（Cursor / Claude Code / Codex / OpenCode）、言語、テストの有無、事故りやすい変更種を教えてくれれば、boffin を“効きやすい形”に整理します。 <span style="color: var(--rust); font-style: italic;">（Japanese: 適用設計）</span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pub.towardsai.net/the-rise-and-rise-of-fastapi-97c9d9ba0265" target="_blank" rel="noreferrer noopener">The Rise and Rise of FastAPI</a></h2>
+<p class="reference-note">FastAPI has rapidly become the #1 most-starred backend framework on GitHub, surpassing not only Python giants Flask and …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/datamatiks/building-an-iot-platform-using-modern-data-stack-part-1-02c5460e3f6c" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note"># Building an IoT Platform Using Modern Data Stack — Part 1 (DuckDB + Prefect). Building a platform from scratch is hard…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/sutoiku/puffin" target="_blank" rel="noreferrer noopener">GitHub - sutoiku/puffin: Serverless HTAP cloud data platform powered by Arrow × DuckDB × Iceberg · GitHub</a></h2>
+<p class="reference-note">You signed in with another tab or window. You switched accounts on another tab or window. Accelerate DuckDB with 10,000 …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=KbXcP7wAB-0" target="_blank" rel="noreferrer noopener">Firefly Architecture Series Episode 1: API &amp; Resources</a></h2>
+<p class="reference-note">This is the first video of a six-video series about FireFly, giving an overview of the four main pieces of a FireFly Nod…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pulsar.apache.org/docs/next/concepts-architecture-overview" target="_blank" rel="noreferrer noopener">Architecture Overview | Apache Pulsar</a></h2>
+<p class="reference-note">Get a comprehensive understanding of the architecture of Apache Pulsar. This is documentation for the next unreleased ve…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
