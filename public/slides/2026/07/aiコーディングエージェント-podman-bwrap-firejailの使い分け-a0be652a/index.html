@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIコーディングエージェント：Podman / bwrap / Firejailの使い分け</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px inset var(--rule);
+      padding: 56px 72px 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px inset rgba(240, 232, 216, 0.16);
+      pointer-events:none;
+    }
+
+    .tag {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.16em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 12px;
+      border-left: 3px solid var(--rust);
+      opacity: 0.98;
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 18px;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+    }
+
+    .title {
+      margin: 0 0 14px 0;
+      font-size: 72px;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+      line-height: 0.95;
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 22px 0;
+    }
+
+    .grid2, .grid3 {
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card {
+      border: 1px solid var(--rule);
+      padding: 16px 16px;
+      background: rgba(240, 232, 216, 0.03);
+      border-radius: 10px;
+      min-height: 72px;
+    }
+
+    .label {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .value {
+      font-size: 20px;
+      color: var(--ink);
+      font-weight: 400;
+      line-height: 1.25;
+    }
+
+    .small {
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 300;
+      margin-top: 6px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .footnote {
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 28px;
+      color: var(--ink-4);
+      font-size: 14px;
+      font-weight: 300;
+      line-height: 1.25;
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+    }
+
+    .centerWrap{
+      height: 100%;
+      display: flex;
+      align-items: center;
+    }
+    .centerBlock{
+      width: 100%;
+    }
+    .centerBlock .heroTitle{
+      font-size: 86px;
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+      line-height: 0.95;
+      max-width: 980px;
+    }
+    .centerBlock .heroLead{
+      margin: 0;
+      font-size: 24px;
+      font-weight: 300;
+      max-width: 920px;
+      color: var(--ink);
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .footnote{ left: 22px; right: 22px; }
+      .centerBlock .heroTitle{ font-size: 60px; }
+      .centerBlock .heroLead{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="tag">COVER</div>
+      <div class="slide-num">02 / 18</div>
+
+      <div class="centerWrap">
+        <div class="centerBlock">
+          <p class="heroTitle">AIエージェントの隔離</p>
+          <p class="heroLead">Podman / bwrap（bubblewrap）/ Firejailを、短命実行・秘密保護・起動時間の観点で“使い分け”るための整理。</p>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：隔離（隔離・サンドボックス sandbox）/ 起動時間（start-up time）/ 秘密（秘密情報 secrets）</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="tag">PROBLEM</div>
+      <div class="slide-num">03 / 18</div>
+
+      <p class="eyebrow">危険な自動実行</p>
+      <h2 class="title">前提</h2>
+      <p class="lead">
+        AIコーディングエージェントは「生成→実行→テスト→修正」を回すため、バグだけでなく悪用も起き得る。<br/>
+        だから隔離は“強さ”だけでなく、起動時間とホスト保護の思想まで含めて設計する必要がある。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">脅威（Threat）</div>
+          <div class="value">コード/プロンプト注入</div>
+          <div class="small">意図せぬ危険処理・秘密漏えい・ホスト侵害</div>
+        </div>
+        <div class="card">
+          <div class="label">隔離の評価軸</div>
+          <div class="value">権限・名前空間・capabilities</div>
+          <div class="small">ファイルFS・seccomp・起動時間・GPU/デバイス</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：権限（permissions）/ 名前空間（namespace）/ capabilities（能力）</div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor">
+      <div class="tag">METAPHOR</div>
+      <div class="slide-num">04 / 18</div>
+
+      <p class="eyebrow">大量起動の現実</p>
+      <h2 class="title">短命ワークロード</h2>
+      <p class="lead">
+        エージェントは“長時間稼働のサーバ”ではなく、“短命コマンドを多数”起動する。<br/>
+        そのため、数秒級の起動待ちが積み重なって安全運用コストを押し上げる。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="label">例の感覚</div>
+          <div class="value">3秒 × 20回</div>
+          <div class="small">準備遅延が目に見える</div>
+        </div>
+        <div class="card">
+          <div class="label">体感へ直結</div>
+          <div class="value">起動時間</div>
+          <div class="small">スループット/待ち行列にも影響</div>
+        </div>
+        <div class="card">
+          <div class="label">安全の前提</div>
+          <div class="value">ホスト保護</div>
+          <div class="small">秘密（SSH鍵など）を守る</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：短命（ephemeral）/ 大量起動（many short launches）</div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 18</div>
+
+      <p class="eyebrow">比較は“目的別”</p>
+      <h2 class="title">結論の地図</h2>
+      <p class="lead">
+        3ツールは“解決する問題”が違う。<br/>
+        よって「全部を同じ基準で最強比較」ではなく、運用形態に合わせて層分けする。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="label">Podman（本番）</div>
+          <div class="value">rootless/daemonless</div>
+          <div class="small">OCI準拠・Kubernetes連携向き</div>
+        </div>
+        <div class="card">
+          <div class="label">bwrap（per-command）</div>
+          <div class="value">超高速起動</div>
+          <div class="small">ユーザ名前空間中心（GPU等は別設計）</div>
+        </div>
+        <div class="card">
+          <div class="label">Firejail（GUI/デスクトップ）</div>
+          <div class="value">設定容易</div>
+          <div class="small">SUID前提の隔離プロファイル</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：層分け（layering）/ per-command（コマンド単位）/ 本番（production）</div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide enumeration">
+      <div class="tag">ENUMERATION</div>
+      <div class="slide-num">06 / 18</div>
+
+      <p class="eyebrow">選定観点</p>
+      <h2 class="title">見るべき軸</h2>
+      <p class="lead">
+        隔離は「強さ」だけでなく、セットアップ、性能、攻撃面、計算資源の扱いも同時に見る。<br/>
+        特にAIエージェントでは、起動時間と秘密保護が優先度高い。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">I 起動と回転</div>
+          <div class="value">短命コマンドの大量実行</div>
+          <div class="small">分布/同時実行時のスケールも要確認</div>
+        </div>
+        <div class="card">
+          <div class="label">II 秘密とホスト</div>
+          <div class="value">SSH鍵・ホスト資源</div>
+          <div class="small">名前空間/能力/ファイル制御</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">III 実行時要件</div>
+          <div class="value">GPU・デバイス</div>
+          <div class="small">隔離以外の“穴”が事故要因になる</div>
+        </div>
+        <div class="card">
+          <div class="label">IV 攻撃面</div>
+          <div class="value">SUID有無・実装特性</div>
+          <div class="small">デフォルト/設定/脆弱性影響を比較</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：攻撃面（attack surface）/ 実行時要件（runtime requirements）</div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide comparison">
+      <div class="tag">COMPARISON</div>
+      <div class="slide-num">07 / 18</div>
+
+      <p class="eyebrow">Podmanの得意</p>
+      <h2 class="title">本番基盤</h2>
+      <p class="lead">
+        PodmanはDocker互換のOCI準拠で、daemonlessかつrootlessを前提にした運用向き。<br/>
+        本番・マルチテナント・Kubernetes連携の流れを作りやすい。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="label">要点</div>
+          <div class="value">OCI / rootless / daemonless</div>
+          <div class="small">安全運用の基本設計</div>
+        </div>
+        <div class="card">
+          <div class="label">向く場面</div>
+          <div class="value">本番・マルチテナント</div>
+          <div class="small">CI/CD・監査にも載せやすい</div>
+        </div>
+        <div class="card">
+          <div class="label">注意</div>
+          <div class="value">短命ではオーバーヘッド</div>
+          <div class="small">起動オーバーヘッドが効く可能性</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：daemonless（デーモンレス）/ rootless（root不要）</div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide evidence">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">08 / 18</div>
+
+      <p class="eyebrow">bwrapの強み</p>
+      <h2 class="title">per-command隔離</h2>
+      <p class="lead">
+        bwrapはユーザ名前空間中心で、起動が非常に速い（50ms未満の目安）。<br/>
+        1コマンドごとの隔離に向き、短命実行の回転に合う。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">速度</div>
+          <div class="value">&lt; 50ms（目安）</div>
+          <div class="small">大量起動で効く</div>
+        </div>
+        <div class="card">
+          <div class="label">前提</div>
+          <div class="value">ユーザ名前空間中心</div>
+          <div class="small">リソース制限/イメージ管理は別設計になりがち</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">不足しやすい領域</div>
+          <div class="value">GPUパススルー</div>
+          <div class="small">手動での組み立てが必要になり得る</div>
+        </div>
+        <div class="card">
+          <div class="label">運用の意味</div>
+          <div class="value">“隔離だけ”では完結しない</div>
+          <div class="small">CPU/メモリ/FS/seccomp等を揃える必要</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：per-command（コマンド単位）/ パススルー（pass-through）</div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide distinction">
+      <div class="tag">DISTINCTION</div>
+      <div class="slide-num">09 / 18</div>
+
+      <p class="eyebrow">Firejailの位置</p>
+      <h2 class="title">GUI向け</h2>
+      <p class="lead">
+        FirejailはSUID付きで設定しやすく、ブラウザやデスクトップアプリの隔離に現実的。<br/>
+        ただしSUIDの特性上、bwrapより攻撃面が大きくなり得るため用途判断が要る。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="label">向く場面</div>
+          <div class="value">GUI/ブラウザ連携</div>
+          <div class="small">エージェントでも相性が良い</div>
+        </div>
+        <div class="card">
+          <div class="label">仕組み</div>
+          <div class="value">SUID + プロファイル</div>
+          <div class="small">デスクトップ中心の運用設計</div>
+        </div>
+        <div class="card">
+          <div class="label">注意点</div>
+          <div class="value">攻撃面が増える可能性</div>
+          <div class="small">許容リスクと脅威モデルで評価</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：SUID（set-user-ID）/ プロファイル（profile）</div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide comparison">
+      <div class="tag">COMPARISON</div>
+      <div class="slide-num">10 / 18</div>
+
+      <p class="eyebrow">同じ比較軸で</p>
+      <h2 class="title">ざっくり対照表</h2>
+      <p class="lead">
+        “何を守りたいか”と“どの運用で回すか”で最適が変わる。<br/>
+        3つの目的別マップを、そのまま判断材料にする。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="label">Podman</div>
+          <div class="value">本番・OCI・K8s</div>
+          <div class="small">起動は短命だと重くなる可能性</div>
+        </div>
+        <div class="card">
+          <div class="label">bwrap</div>
+          <div class="value">超高速・1コマンド隔離</div>
+          <div class="small">リソース/GPU/イメージは別途設計</div>
+        </div>
+        <div class="card">
+          <div class="label">Firejail</div>
+          <div class="value">GUI/ブラウザ</div>
+          <div class="small">SUIDにより攻撃面が増え得る</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：Kubernetes（K8s）/ 隔離（isolation）</div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide process">
+      <div class="tag">PROCESS</div>
+      <div class="slide-num">11 / 18</div>
+
+      <p class="eyebrow">導入の勘所</p>
+      <h2 class="title">検証手順</h2>
+      <p class="lead">
+        比較は出発点で、最終判断は自環境での検証が前提。<br/>
+        起動時間分布、隔離設定例、攻撃シナリオ、GPU手順の成熟度を揃えて確かめる。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">I 性能</div>
+          <div class="value">起動時間の実測</div>
+          <div class="small">分布・同時実行時スケール</div>
+        </div>
+        <div class="card">
+          <div class="label">II 隔離設定</div>
+          <div class="value">seccomp/ファイル制御</div>
+          <div class="small">テンプレで要件を満たすか</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">III 脅威</div>
+          <div class="value">攻撃シナリオ検証</div>
+          <div class="small">既知脆弱性・回避可能性も確認</div>
+        </div>
+        <div class="card">
+          <div class="label">IV 実運用</div>
+          <div class="value">ログ/監査/後始末</div>
+          <div class="small">失敗時のクリーンアップも設計</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：実測（measurement）/ テンプレ（template）/ 監査（audit）</div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide evidence">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">12 / 18</div>
+
+      <p class="eyebrow">FAQの核</p>
+      <h2 class="title">よくある論点</h2>
+      <p class="lead">
+        Dockerが必ずしも最適でない理由は、短命プロセスの大量起動で起動遅延が効くこと、そして秘密隔離が中心課題になること。<br/>
+        またbwrapの速さは強みだが、組み込み制限やGPU周りは別途揃える必要がある。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">Q1 Dockerが“必ずしも”？</div>
+          <div class="value">起動待ち + 秘密隔離</div>
+          <div class="small">数秒級の遅れが積み上がる/鍵が焦点</div>
+        </div>
+        <div class="card">
+          <div class="label">Q2 bwrapは速さでOK？</div>
+          <div class="value">速さだけでは不十分</div>
+          <div class="small">リソース制限・イメージ管理・GPUは別途確認</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">Q3 Podman×K8sは？</div>
+          <div class="value">OCI/ pod概念で連携</div>
+          <div class="small">YAML検証など運用に活きる</div>
+        </div>
+        <div class="card">
+          <div class="label">Q4 Firejailは危険？</div>
+          <div class="value">SUIDは攻撃面を増やし得る</div>
+          <div class="small">“危険/安全”は一概に断定不可 → 用途適合で判断</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：YAML検証（YAML validation）/ 用途適合（fit-for-purpose）</div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide distinction">
+      <div class="tag">DISTINCTION</div>
+      <div class="slide-num">13 / 18</div>
+
+      <p class="eyebrow">不足情報の指針</p>
+      <h2 class="title">追加で確かめる</h2>
+      <p class="lead">
+        入力は概要中心のため、定量ベンチや同等条件での比較が不足している。<br/>
+        “攻撃面”もLOC（行数）だけで安全性を断定できないため、検証が必須になる。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">必要な追加</div>
+          <div class="value">実測ベンチマーク</div>
+          <div class="small">起動時間分布/同時実行のスケール</div>
+        </div>
+        <div class="card">
+          <div class="label">必要な追加</div>
+          <div class="value">隔離テンプレの例</div>
+          <div class="small">seccomp/ファイル制御の具体</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="label">必要な追加</div>
+          <div class="value">攻撃検証結果</div>
+          <div class="small">既知脆弱性・回避可能性</div>
+        </div>
+        <div class="card">
+          <div class="label">必要な追加</div>
+          <div class="value">GPU/デバイスの手順</div>
+          <div class="small">成熟度と“穴”の有無</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：回避可能性（bypassability）/ зрелость（maturity）</div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide closing">
+      <div class="tag">CLOSING</div>
+      <div class="slide-num">14 / 18</div>
+
+      <p class="eyebrow">最終判断</p>
+      <h2 class="title">段階的選択</h2>
+      <p class="lead">
+        本番基盤はPodman、ローカルの1コマンド隔離はbwrap、GUI/ブラウザ連携はFirejailが“まずの候補”。<br/>
+        さらに強い隔離が必要なら、マイクロVM（例：Firecracker）へ段階を上げる。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="label">Stage A</div>
+          <div class="value">Podman</div>
+          <div class="small">本番・運用の土台</div>
+        </div>
+        <div class="card">
+          <div class="label">Stage B</div>
+          <div class="value">bwrap</div>
+          <div class="small">短命・大量起動に合う</div>
+        </div>
+        <div class="card">
+          <div class="label">Stage C</div>
+          <div class="value">Firejail</div>
+          <div class="small">デスクトップ/ブラウザ向け</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：マイクロVM（microVM）/ 段階的（staged）</div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide closing">
+      <div class="tag">REFERENCES</div>
+      <div class="slide-num">15 / 18</div>
+
+      <p class="eyebrow">参照のための手がかり</p>
+      <h2 class="title">公式ドキュメント</h2>
+      <p class="lead">
+        最終評価は公式の隔離設定・セキュリティ方針・既知制約を突き合わせ、脅威モデルに沿って自分で検証する。<br/>
+        下は検索の起点（キーワード）として使える項目。
+      </p>
+
+      <div class="rule"></div>
+
+      <div class="grid3">
+        <div class="card">
+          <div class="label">Podman</div>
+          <div class="value">rootless / daemonless / OCI</div>
+          <div class="small">podman play kube / systemd連携</div>
+        </div>
+        <div class="card">
+          <div class="label">bwrap</div>
+          <div class="value">user namespaces / seccomp</div>
+          <div class="small">GPU &amp; resource limits の扱い</div>
+        </div>
+        <div class="card">
+          <div class="label">Firejail</div>
+          <div class="value">SUID / profile / sandbox</div>
+          <div class="small">攻撃面と既知脆弱性の確認</div>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:14px;">
+        <div class="card">
+          <div class="label">追加</div>
+          <div class="value">seccomp / namespace / capabilities</div>
+          <div class="small">隔離の構成要素を共通言語で理解</div>
+        </div>
+        <div class="card">
+          <div class="label">上位案</div>
+          <div class="value">FirecrackerなどのマイクロVM</div>
+          <div class="small">OS隔離より強い分離が必要な場合</div>
+        </div>
+      </div>
+
+      <div class="footnote">bilingual：既知脆弱性（known vulnerabilities）/ 脅威モデル（threat model）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://grigio.org/docker-alternatives-for-ai-agents-podman-bwrap-and-firejail" target="_blank" rel="noreferrer noopener">Docker alternatives for AI agents: Podman, bwrap and Firejail</a></h2>
+<p class="reference-note">bubblewrap-ai — Runs Claude, Gemini, Goose in a bwrap sandbox.
+ sandbox-bwrap-nix — Allows to run Opencode or other AI h…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=46874139" target="_blank" rel="noreferrer noopener">Sandboxing AI Agents in Linux | Hacker News</a></h2>
+<p class="reference-note">sacrificed. I might switch to LXC to reduce the weight somewhat (easy with incus) but this requires providing a more lim…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/novotnyllc/ContainAI/blob/main/docs/security-comparison.md" target="_blank" rel="noreferrer noopener">ContainAI/docs/security-comparison.md at main · novotnyllc/ContainAI · GitHub</a></h2>
+<p class="reference-note">What this means for you: SRT is great for simple agent isolation - restricting filesystem and network access for agents …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.to/uenyioha/os-level-sandboxing-kernel-isolation-for-ai-agents-3fdg" target="_blank" rel="noreferrer noopener">OS-Level Sandboxing: Kernel Isolation for AI Agents - DEV Community</a></h2>
+<p class="reference-note">```
+const BACKEND_RESTRICTIVENESS: Record&lt; Backend, number&gt; ={none: 0, &quot;sandbox-exec &quot;: 1, namespace: 1, bwrap: 2, gviso…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://jai.scs.stanford.edu/comparison.html" target="_blank" rel="noreferrer noopener">Comparison | jai - easy containment for AI agents</a></h2>
+<p class="reference-note">bubblewrap is more flexible and works without root. jai is more opinionated and requires far less ceremony for the commo…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
