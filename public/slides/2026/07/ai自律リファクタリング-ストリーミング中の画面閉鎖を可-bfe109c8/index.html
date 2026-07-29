@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI自律リファクタリング：ストリーミング中の画面閉鎖を可能にした事例</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      padding: 56px 72px;
+      border-radius: 0px;
+      overflow: hidden;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      inset: 0;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag:before{
+      content:"";
+      width: 42px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.02em;
+      color: var(--ink-3);
+      font-size: 22px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 2px 0 6px;
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 64px;
+      line-height: 1.02;
+      margin: 0 0 10px;
+      font-weight: 500;
+      position: relative;
+      z-index: 1;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      margin-top: 6px;
+      position: relative;
+      z-index: 1;
+      color: var(--ink);
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 0;
+      position: relative;
+      z-index: 1;
+      width: 100%;
+    }
+    .content{
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 12px 14px;
+      align-items: start;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.04);
+      min-height: 62px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .value{
+      font-family: "Noto Serif JP", serif;
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      line-height: 1.4;
+      color: var(--ink-2);
+    }
+    .footnote{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .refitem{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.04);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 COVER -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">Case Study</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">Streaming閉鎖の壁を突破</div>
+      <h1 class="title"><span class="em">AI</span>改修報告</h1>
+      <div class="lead">ストリーミング中にユーザーがチャット/画面を閉じても生成を止めず、再オープン時に状態と混在UIを復元する大規模リファクタリングの事例。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">対象</div>
+            <div class="value">大規模TSコードベース</div>
+          </div>
+          <div class="card">
+            <div class="label">主役</div>
+            <div class="value">ChatGPT 5.6 Sol（MAX reflection）</div>
+          </div>
+          <div class="card">
+            <div class="label">核心要件</div>
+            <div class="value">画面寿命≠生成寿命</div>
+          </div>
+        </div>
+        <div class="footnote">用語：refinement（仕様磨き込み）/ verification（検証）/ invariant（不変条件）。</div>
+      </div>
+    </section>
+
+    <!-- 02 PROBLEM -->
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">“閉じても続ける”難所</div>
+      <h2 class="title">不変条件の衝突</h2>
+      <div class="lead">従来は「リクエスト開始時からウィンドウ（画面）が開いている」前提で設計されていたため、閉鎖を許すと契約が破れる。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">従来前提（旧）</div>
+            <div class="value">画面が開いている間だけ安全に状態を持つ</div>
+          </div>
+          <div class="card">
+            <div class="label">新要件（新）</div>
+            <div class="value">画面を閉じても生成ストリームは継続／再開時に復元</div>
+          </div>
+        </div>
+        <div class="small">これにより、非同期処理・レースコンディション・状態復元（キャッシュ/履歴/ツール呼び出し/UI要素再構成）が“本丸”になる。</div>
+      </div>
+    </section>
+
+    <!-- 03 METAPHOR -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="topbar">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">台所と食器棚</div>
+      <h2 class="title">生成と表示を分離</h2>
+      <div class="lead">“料理（生成ストリーム）”は台所で続け、“食器（UI要素）”は食器棚（再オープン時）で組み直す発想に近い。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">生成寿命</div>
+            <div class="value">台所：処理継続（中断しない）</div>
+          </div>
+          <div class="card">
+            <div class="label">画面寿命</div>
+            <div class="value">食器：復元（推論痕跡/ツール/UI）</div>
+          </div>
+        </div>
+        <div class="small">単なる表示の工夫ではなく、状態の“持つ場所”と“契約”を再定義する必要がある。</div>
+      </div>
+    </section>
+
+    <!-- 04 ARCHITECTURE -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topbar">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">liveSessionへ抽出</div>
+      <h2 class="title">責務分離の中心</h2>
+      <div class="lead">EasyAgentsに埋め込まれていたライブ表示/復元ロジックを切り出し、汎用ライブラリ <span class="mono">liveSession</span> として再設計した。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">抽出対象</div>
+            <div class="value">ライブ表示・復元契約</div>
+          </div>
+          <div class="card">
+            <div class="label">新コンポーネント</div>
+            <div class="value mono">liveSession</div>
+          </div>
+          <div class="card">
+            <div class="label">狙い</div>
+            <div class="value">画面制御（開閉）を生成から独立</div>
+          </div>
+        </div>
+        <div class="small">加えてメイン側へ「開閉」制御を実装し、WebView/ウィンドウ寿命と生成寿命を切り離す。</div>
+      </div>
+    </section>
+
+    <!-- 05 DETAILS -->
+    <section class="slide" aria-label="Details">
+      <div class="topbar">
+        <div class="slide-tag">Scope</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">巨大改修の規模感</div>
+      <h2 class="title">717,725行</h2>
+      <div class="lead">TS換算約717,725行・3,648ファイル、カスタムオーケストレータ/Reactフロント/RPCデータバスを含む複雑系を改修したとされる。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">コード量</div>
+            <div class="value">TypeScript換算 717,725行</div>
+          </div>
+          <div class="card">
+            <div class="label">ファイル</div>
+            <div class="value">3,648ファイル</div>
+          </div>
+          <div class="card">
+            <div class="label">構成</div>
+            <div class="value">Orchestrator + React + RPC</div>
+          </div>
+        </div>
+        <div class="small">ストリーミングとUI復元はレイヤ横断（バックエンド/フロント/通信/状態）なので、局所修正では済まない領域。</div>
+      </div>
+    </section>
+
+    <!-- 06 PROCESS -->
+    <section class="slide" aria-label="Process">
+      <div class="topbar">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">仕様→実装→検証</div>
+      <h2 class="title">Refinement &amp; Verification</h2>
+      <div class="lead">“仕様策定→仕様のrefinement（磨き込み）→実装→verification（検証）→テスト”の流れで、約200件規模の問題を修正した主張。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">Phase i</div>
+            <div class="value">仕様策定</div>
+          </div>
+          <div class="card">
+            <div class="label">Phase ii</div>
+            <div class="value">refinement 14回（85件の仕様修正）</div>
+          </div>
+          <div class="card">
+            <div class="label">Phase iii</div>
+            <div class="value">実装+verification（17回）</div>
+          </div>
+        </div>
+        <div class="small">ここでいう refinement（仕様磨き込み）は、曖昧さやズレを実装前に収束させるための反復として位置づけられている。</div>
+      </div>
+    </section>
+
+    <!-- 07 EVIDENCE -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">修正数の提示</div>
+      <h2 class="title">収束の主張</h2>
+      <div class="lead">作業は3日間、仕様refinement後に実装（160ファイル規模）と、合計201のバグ/欠陥/曖昧さを是正したとされる。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">期間</div>
+            <div class="value">3日間</div>
+          </div>
+          <div class="card">
+            <div class="label">実装</div>
+            <div class="value">160ファイル規模</div>
+          </div>
+          <div class="card">
+            <div class="label">是正総数</div>
+            <div class="value">合計 201（バグ/欠陥/曖昧さ）</div>
+          </div>
+        </div>
+        <div class="small">さらに初回の実運用テスト（手動）で目に見える不具合や回帰はなかった、と報告されている。</div>
+      </div>
+    </section>
+
+    <!-- 08 DISTINCTION -->
+    <section class="slide" aria-label="Distinction">
+      <div class="topbar">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">UI復元の複雑さ</div>
+      <h2 class="title">テキスト以上</h2>
+      <div class="lead">復元対象は応答テキストだけでなく、推論トレース・ツール呼び出し・コードブロックなど“混在UI”の整合性も含む。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">復元しないと崩れるもの</div>
+            <div class="value">推論トレース（推論痕跡）</div>
+          </div>
+          <div class="card">
+            <div class="label">復元しないと崩れるもの</div>
+            <div class="value">ツール呼び出し/コードブロック（混在UI）</div>
+          </div>
+        </div>
+        <div class="small">これがレース（タイミング差）や状態の取り違えに直結し、invariant（不変条件）維持が難しくなる。</div>
+      </div>
+    </section>
+
+    <!-- 09 PROCESS -->
+    <section class="slide" aria-label="Mechanisms">
+      <div class="topbar">
+        <div class="slide-tag">Mechanism</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">失敗経路を“潰す”</div>
+      <h2 class="title">レース対策</h2>
+      <div class="lead">理解→不変条件保持→レイヤ横断追跡→非同期レース対応→検証可能な推論→失敗経路テスト→自己訂正、という工程で品質を狙ったとされる。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">i</div>
+            <div class="value">不変条件（invariant）保持</div>
+          </div>
+          <div class="card">
+            <div class="label">ii</div>
+            <div class="value">非同期レース対応（開閉タイミング）</div>
+          </div>
+          <div class="card">
+            <div class="label">iii</div>
+            <div class="value">失敗経路テスト（閉じる瞬間等）</div>
+          </div>
+        </div>
+        <div class="small">ストリーム停止・再開・再構成の連鎖は、メモリリークや状態不一致を生みやすい領域。</div>
+      </div>
+    </section>
+
+    <!-- 10 COMPARISON -->
+    <section class="slide" aria-label="Comparison">
+      <div class="topbar">
+        <div class="slide-tag">Risk</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">レビュー無しの重み</div>
+      <h2 class="title">信頼性の境界</h2>
+      <div class="lead">本件はログ（PDF）と“検証した”説明に依存する一方、テスト指標や性能/メモリ/タイミング範囲の詳細が本文だけでは追いにくい。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">読み手が確認すべき</div>
+            <div class="value">テストの種類・網羅率・性能劣化有無</div>
+          </div>
+          <div class="card">
+            <div class="label">ガバナンス</div>
+            <div class="value">段階リリース/ロールバック/監視/危険変更ゲート</div>
+          </div>
+        </div>
+        <div class="small">“短期間成功”でも一般化には注意が必要で、再現手順と失敗モードの扱いが鍵になる。</div>
+      </div>
+    </section>
+
+    <!-- 11 PRACTICAL -->
+    <section class="slide" aria-label="Takeaway">
+      <div class="topbar">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">移植するなら条件</div>
+      <h2 class="title">学びの核</h2>
+      <div class="lead">“AIが速い”よりも、形式化された仕様の反復（refinement）と検証（verification）を工程に組み込み、状態と契約を分離する設計が主な示唆。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">設計面</div>
+            <div class="value">画面寿命と生成寿命を切り離す</div>
+          </div>
+          <div class="card">
+            <div class="label">工程面</div>
+            <div class="value">仕様修正→実装→検証の反復で収束</div>
+          </div>
+        </div>
+        <div class="small">他プロジェクトへ移すには、コードのアクセス性、仕様粒度、テスト基盤、変更の可制御性が前提になる。</div>
+      </div>
+    </section>
+
+    <!-- 12 CLOSING / REFERENCES -->
+    <section class="slide" aria-label="Closing and References">
+      <div class="topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">一次情報の確認を</div>
+      <h2 class="title">ログと検証の中身</h2>
+      <div class="lead">本ケースの主張はログ（PDF）と“検証した”記述に基づくため、再現性判断にはテスト条件・指標・失敗シナリオを一次で確認するのが必須。</div>
+      <div class="content">
+        <div class="refs">
+          <div class="refitem">
+            <div class="label">確認項目</div>
+            <div class="value">テスト種類（ユニット/統合/E2E）、網羅率、タイミング差の観測範囲、性能/メモリ指標、再現手順</div>
+          </div>
+          <div class="refitem">
+            <div class="label">用語（JP補助）</div>
+            <div class="value">refinement（仕様磨き込み）/ verification（検証）/ invariant（不変条件）</div>
+          </div>
+          <div class="refitem">
+            <div class="label">技術的チェック</div>
+            <div class="value">開閉タイミングのレース、状態復元の契約、<span class="mono">liveSession</span>の永続化/再構成仕様</div>
+          </div>
+        </div>
+        <div class="footnote">※本スライドは提示された要約テキストのみから圧縮要約しており、原ログ内容の引用は行っていません。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.layer3labs.io/comparisons/gpt-5-6-sol-vs-claude-fable-5" target="_blank" rel="noreferrer noopener">GPT-5.6 Sol vs Claude Fable 5 (Sol vs Fable) Compared</a></h2>
+<p class="reference-note">Claude Fable 5 is Anthropic&#39;s most capable public model for software engineering and pairs with Claude Code and Cowork f…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://emergingai.substack.com/p/chatgpt-56-vs-claude-fable-5-i-tested" target="_blank" rel="noreferrer noopener">ChatGPT 5.6 vs Claude Fable 5: I Tested Both</a></h2>
+<p class="reference-note">Sol performs extremely well when the work is measurable, tool-heavy, structured, and carried through an agent harness. F…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=44827101" target="_blank" rel="noreferrer noopener">GPT-5 for Developers | Hacker News</a></h2>
+<p class="reference-note">over long-running tasks with GPT-5 since getting access a few weeks ago. We ran an eval to solve 10 real Github issues s…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.mindstudio.ai/blog/gpt-5-6-sol-vs-claude-fable-5-planning-code-review" target="_blank" rel="noreferrer noopener">GPT-5.6 Sol vs Claude Fable 5: Which Frontier Model Wins ...</a></h2>
+<p class="reference-note">GPT-5.6 Sol is faster, better at structured output, and more reliable for high-throughput planning and code review tasks…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.lennysnewsletter.com/p/gpt-56-sol-vs-claude-fable-why-openais" target="_blank" rel="noreferrer noopener">GPT-5.6 Sol vs. Claude Fable: Why OpenAI&#39;s new model ...</a></h2>
+<p class="reference-note">with Chrome that burned through 500 LinkedIn replies while I did literally nothing. [...] (28:02) Fable’s pedantry probl…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
