@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>エージェントを壊れにくくする：Queue×Workflow設計パターン</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+    .slide{
+      position: relative;
+      background: var(--paper);
+      border: 2px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:18px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topline{
+      position:absolute; left:72px; top:46px; right:72px;
+      height: 0;
+      border-top: 1px solid var(--rule);
+      opacity: .85;
+    }
+    .slide-tag{
+      position:absolute;
+      left:72px; top:24px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: .16em;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+    .slide-num{
+      position:absolute;
+      right:72px; top:24px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-style: italic;
+      font-size: 18px;
+      opacity: .95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 12px 0 10px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 68px;
+      line-height: 1.0;
+      margin: 0 0 14px;
+      color: var(--ink);
+      font-style: italic;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 760px;
+      margin: 0;
+    }
+    .content{
+      position:absolute;
+      left:72px; right:72px; top:90px; bottom:72px;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+    .divider{
+      width: 100%;
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0;
+    }
+    .lead strong{ color: var(--ink); }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      width: 100%;
+      margin-top: 16px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.02);
+      min-height: 68px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--rust);
+      letter-spacing:.08em;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      width: 100%;
+      margin-top: 16px;
+    }
+    .quote{
+      border-left: 4px solid rgba(232,129,74,.9);
+      padding-left: 16px;
+      color: var(--ink-2);
+      font-size: 22px;
+      line-height: 1.55;
+      margin-top: 10px;
+      max-width: 900px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" style="--slideIndex:1;">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 17</div>
+      <div class="topline"></div>
+      <div class="content">
+        <div class="eyebrow">本番の壁を越える</div>
+        <div class="title">Agent × 分散設計</div>
+        <p class="lead">エージェントはHTTPの寿命に閉じ込めると壊れやすい。QueueとWorkflowで「実行の寿命」と「意思決定の履歴」を分けて、復旧可能にする。</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 17</div>
+      <div class="content">
+        <div class="eyebrow">HTTP待ちが危険</div>
+        <div class="title">タイムアウト地獄</div>
+        <div class="lead">
+          エージェントは長時間稼働・状態保持・非決定的（同じ入力でも分岐し得る）。この性質をHTTPリクエストの“待ち”に結び付けると、信頼性が崩れる。
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">起きること</div>
+            <div class="v">タイムアウト / 接続寿命 / 中断 / 途中クラッシュ</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">重複実行 / 復旧不能 / 期待と違う挙動</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">04 / 17</div>
+      <div class="content">
+        <div class="eyebrow">寿命を分離する</div>
+        <div class="title">Web-Queue-Worker</div>
+        <p class="lead">APIは実行開始だけを行い、ジョブをQueueに投入する。ワーカーが非同期に実行し、進捗はDBへ記録することでHTTPと寿命を切り離す。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">API</div>
+            <div class="v">開始受付 → Queue投入 → 即応（HTTP）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Worker</div>
+            <div class="v">実行・ツール呼び出し・進捗更新（非同期）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">05 / 17</div>
+      <div class="content">
+        <div class="eyebrow">Queueは正しさをくれない</div>
+        <div class="title">冪等性が要る</div>
+        <p class="lead">Queueは“ある程度”の実行を保証するだけで、論理的に何を途中までやったかまでは面倒を見ない。at-least-onceでは重複実行が起きる前提で冪等性が必須になる。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">前提</div>
+            <div class="v">at-least-once（重複実行し得る）</div>
+          </div>
+          <div class="cell">
+            <div class="k">設計</div>
+            <div class="v">副作用に“同じ結果になる境界”を設ける（idempotency）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">06 / 17</div>
+      <div class="content">
+        <div class="eyebrow">失敗時の巻き戻し</div>
+        <div class="title">補償（Saga）</div>
+        <p class="lead">途中停止や部分成功に備えて、補償（compensation）を設計する。サーガ（Saga）では「戻す/整える」手順を副作用ごとに用意する。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">ステップ</div>
+            <div class="v">外部操作・課金・通知などを副作用として分離</div>
+          </div>
+          <div class="cell">
+            <div class="k">失敗</div>
+            <div class="v">どこまで成功したかを基に分岐</div>
+          </div>
+          <div class="cell">
+            <div class="k">補償</div>
+            <div class="v">部分失敗の扱い（全部巻き戻す/続行する）を要件化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">07 / 17</div>
+      <div class="content">
+        <div class="eyebrow">分岐が増える</div>
+        <div class="title">Workflow導入</div>
+        <p class="lead">分岐と復旧が増える局面ではWorkflowが必要になる。実行履歴を保持し、クラッシュ後に“同じ履歴に基づいて”再実行できるようにする。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">履歴</div>
+            <div class="v">実行ログ / ステップ結果 / 意思決定の根拠</div>
+          </div>
+          <div class="cell">
+            <div class="k">再開</div>
+            <div class="v">再起動しても履歴と矛盾しない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">08 / 17</div>
+      <div class="content">
+        <div class="eyebrow">意思決定と副作用</div>
+        <div class="title">分離が鍵</div>
+        <p class="lead">Workflowでは「意思決定（コーディネータ）」と「副作用（ステップ）」を分ける。コーディネータは同じ履歴なら同じ判断をするべきだと強調される。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">コーディネータ</div>
+            <div class="v">履歴から次アクションを決める（clock/乱数は注意）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ステップ</div>
+            <div class="v">モデル呼び出し・外部操作は記録される副作用</div>
+          </div>
+        </div>
+        <div class="quote">
+          再開時に、外部時間や揺らぎへ依存すると履歴と矛盾し得る（＝再現性の設計が必要）。
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">09 / 17</div>
+      <div class="content">
+        <div class="eyebrow">並列は一筋縄でない</div>
+        <div class="title">fan-out / fan-in</div>
+        <p class="lead">並列化（fan-out / fan-in）では成功基準・失敗方針・統合の設計が重要になる。単に多重投入すると、待ち続けたり、結果の統合が壊れる。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">失敗方針</div>
+            <div class="v">成功しきい値 / 続行 / 中断を明示</div>
+          </div>
+          <div class="cell">
+            <div class="k">同期</div>
+            <div class="v">失敗が混ざる統合（Promise.allSettled相当の発想）</div>
+          </div>
+          <div class="cell">
+            <div class="k">競合制御</div>
+            <div class="v">レート制限・DB接続プール・バックオフ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">10 / 17</div>
+      <div class="content">
+        <div class="eyebrow">自作配線 vs 構築済み</div>
+        <div class="title">Render Workflows</div>
+        <p class="lead">Render Workflowsは、実行配線（キュー/ワーカー/ステータス/リトライ等）を抽象化する。タスク関数として書いたものをプラットフォームがチェーン実行する。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">あなたが書く</div>
+            <div class="v">タスク（関数）と、必要な意味論</div>
+          </div>
+          <div class="cell">
+            <div class="k">平台が担う</div>
+            <div class="v">実行・可観測性・再試行・分離の配線</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">11 / 17</div>
+      <div class="content">
+        <div class="eyebrow">肩代わりには限界</div>
+        <div class="title">Semanticsは残る</div>
+        <p class="lead">Renderが簡素化しても、冪等性・補償・アーティファクト保管・承認境界・コスト上限・レート制御など“何を進捗とみなすか”はアプリ側の責務として残る。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">プラットフォーム側</div>
+            <div class="v">実行・履歴・リトライの運用レイヤ</div>
+          </div>
+          <div class="cell">
+            <div class="k">アプリ側</div>
+            <div class="v">意味論（整合性/安全性/ビジネス要件）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">12 / 17</div>
+      <div class="content">
+        <div class="eyebrow">成熟した責務分担</div>
+        <div class="title">三つの役割</div>
+        <p class="lead">成熟したアプローチは「インフラは運ぶ」「ワークフローは進捗を保存」「エージェントは次の行動を選ぶ」。責務の違いを保ったまま、運用負担を減らす。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Queue / infra</div>
+            <div class="v">実行寿命の切り離し、配送</div>
+          </div>
+          <div class="cell">
+            <div class="k">Workflow</div>
+            <div class="v">履歴・再開・意思決定の再現</div>
+          </div>
+          <div class="cell">
+            <div class="k">Agent</div>
+            <div class="v">次のツール/行動を選ぶ（非決定性と向き合う）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 17</div>
+      <div class="content">
+        <div class="eyebrow">チェック姿勢</div>
+        <div class="title">設計を詰める</div>
+        <p class="lead">パターンは“そのまま適用”ではなく、要件（部分失敗の許容、課金/通知の一貫性、承認、コスト上限）に合わせて責務分担を決める必要がある。</p>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Q（要件）</div>
+            <div class="v">何を成功とし、何を巻き戻すか？（idempotency / compensation）</div>
+          </div>
+          <div class="cell">
+            <div class="k">S（運用）</div>
+            <div class="v">再開時に同じ履歴で同じ判断になるか？（再現性）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://thinking.inc/en/blue-ocean/agentic/agent-orchestration-patterns" target="_blank" rel="noreferrer noopener">AI Agent Orchestration Patterns (2026 Guide) - The Thinking Company</a></h2>
+<p class="reference-note">Agent orchestration patterns are the architectural blueprints that define how multiple AI agents coordinate, communicate…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.chronoinnovation.com/resources/agentic-ai-workflows-architecture" target="_blank" rel="noreferrer noopener">Agentic AI Workflows: Architecture Patterns That Scale | Chrono</a></h2>
+<p class="reference-note">Key Takeaway
+
+Production agentic AI workflows require five architecture patterns: right execution model (sequential vs p…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/agentic-ai-patterns/introduction.html" target="_blank" rel="noreferrer noopener">Agentic AI patterns and workflows on AWS - AWS Prescriptive Guidance</a></h2>
+<p class="reference-note">Agentic workflow patterns – Workflow patterns describe how multiple agents, tools, and environments interact to form aut…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.stackai.com/insights/ai-agent-architecture-patterns-sequential-parallel-and-hierarchical-workflows" target="_blank" rel="noreferrer noopener">AI Agent Architecture Patterns: Sequential, Parallel, and Hierarchical Workflows - StackAI · AI Agents for the Enterprise</a></h2>
+<p class="reference-note">In 2026, the shift is clear: enterprises are moving beyond simple chat interfaces toward agentic workflow design that re…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.uturndata.com/insights/choosing-the-right-agentic-ai-pattern-for-genai-implementation" target="_blank" rel="noreferrer noopener">Choosing the Right Agentic AI Pattern: A… | UTurn Data Solutions</a></h2>
+<p class="reference-note">## Most AI implementations don&#39;t fail because the model was wrong. They fail because the architecture was. Choosing betw…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
