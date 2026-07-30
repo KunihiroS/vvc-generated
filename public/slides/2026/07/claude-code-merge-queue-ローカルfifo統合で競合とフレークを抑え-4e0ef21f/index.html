@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude Code Merge Queue：ローカルFIFO統合で競合とフレークを抑える</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.12);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+      border: none;
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .slide-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+      letter-spacing: 0.10em;
+      font-size: 18px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      text-transform: uppercase;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 34px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 6px 0;
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      font-size: 78px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      margin: 0 0 10px 0;
+      position: relative;
+      z-index: 1;
+      line-height: 1;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      margin: 0;
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+      line-height: 1.35;
+    }
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 22px;
+      height: calc(100% - 160px);
+      display:flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .rulebar{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 16px;
+      position: relative;
+      z-index: 1;
+    }
+    .grid{
+      display:grid;
+      gap: 12px 14px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 2px;
+      background: rgba(240, 232, 216, 0.02);
+      min-height: 62px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .text{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 300;
+      margin: 0;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .list-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+      width: 100%;
+    }
+    .mini{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.35;
+      margin: 0;
+    }
+    .nowrap{ white-space: nowrap; }
+    @media (max-width: 900px){
+      .slide{ padding: 44px 28px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .slide-tag{ font-size: 14px; }
+      .slide-num{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="slide-header">
+        <div class="slide-tag">Local Merge Queue</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <p class="eyebrow">並列AI開発の“統合待ち行列”</p>
+      <h1 class="title"><em>Merge</em> Queue</h1>
+      <p class="lead">Claude Code エージェントが同時に変更を出しても、ローカルでFIFO直列化して land（リベース＋push）し、競合・無駄なビルド・フレークを抑えます。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Core idea</div>
+            <p class="text">統合を“順番制”にして衝突を構造的に回避</p>
+          </div>
+          <div class="card">
+            <div class="label">Pitch（和訳）</div>
+            <p class="text">GitHubの思想（直列テスト）をPC上で$0コスト化</p>
+          </div>
+        </div>
+        <div class="rulebar"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">FIFO</div>
+            <p class="text">番号付き lane で順番を固定</p>
+          </div>
+          <div class="card">
+            <div class="label">worktree</div>
+            <p class="text">laneごとに作業ツリー分離</p>
+          </div>
+          <div class="card">
+            <div class="label">checkCommand</div>
+            <p class="text">合否ゲートはテスト/解析コマンド</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Problem">
+      <div class="slide-header">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <p class="eyebrow">pushレースと重複実行</p>
+      <h2 class="title">なぜ必要？</h2>
+      <p class="lead">複数の Claude Code エージェントが同じリポジトリへ“同時に”反映しようとすると、競合（pushレース）や重いビルド・テストの二重実行が起きやすくなります。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">競合（conflict）</div>
+            <p class="text">同一更新タイミングで取り込み順が崩れる</p>
+          </div>
+          <div class="card">
+            <div class="label">重複コスト</div>
+            <p class="text">“統合前”に同種のビルド/テストが何度も走る</p>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">テストフレーク</div>
+            <p class="text">共有リソース依存で不安定に失敗（不確実性）</p>
+          </div>
+          <div class="card">
+            <div class="label">人手での回避</div>
+            <p class="text">レビューや調整に時間が溶ける（自動化の利点が減る）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Metaphor">
+      <div class="slide-header">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <p class="eyebrow">統合は“改札”を通る</p>
+      <h2 class="title">lane（レーン）</h2>
+      <p class="lead">各エージェントは自分専用の番号付きレーンに入ります。順番が来たときだけ統合ブランチへ land されます。</p>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="label">受付（Queue）</div>
+            <p class="text">並列作業→統合待ちに登録</p>
+          </div>
+          <div class="card">
+            <div class="label">直列（FIFO）</div>
+            <p class="text">順番どおりに処理を確定</p>
+          </div>
+          <div class="card">
+            <div class="label">通過（Land）</div>
+            <p class="text">リベース＋pushで反映</p>
+          </div>
+        </div>
+        <div class="card" style="margin-top:12px;">
+          <div class="label">重要な差</div>
+          <p class="text">GitHub Actions の従量課金なし・ローカルで完結（プライベートなら任意プランでも）</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture">
+      <div class="slide-header">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <p class="eyebrow">ロック＋worktree分離</p>
+      <h2 class="title"><em>FIFO</em>統合</h2>
+      <p class="lead">直列化は“ロック”と“作業分離”で支えられます。laneごとに <span class="mono">git worktree</span> を使い、同じチェックアウトの同時書き換えを避けます。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">lane（分離）</div>
+            <p class="text">番号ごとに作業ツリーを分ける</p>
+          </div>
+          <div class="card">
+            <div class="label">worktree（隔離）</div>
+            <p class="text">laneが並列に動いても衝突しにくい</p>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">land（反映）</div>
+            <p class="text">統合の瞬間だけリベース＋push</p>
+          </div>
+          <div class="card">
+            <div class="label">PID liveness（回収）</div>
+            <p class="text">タイムアウトではなくPIDの生存確認でロックを回収</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Gating">
+      <div class="slide-header">
+        <div class="slide-tag">Gate</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <p class="eyebrow">合否は一本勝負</p>
+      <h2 class="title">checkCommand</h2>
+      <p class="lead">統合（land）の可否は <span class="mono">checkCommand</span> が通るかどうかだけで決まります。曖昧な後工程の破綻を減らせます。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">ゲート（Gate）</div>
+            <p class="text">通過＝統合、失敗＝統合しない（人の承認工程は意図的に無し）</p>
+          </div>
+          <div class="card">
+            <div class="label">品質の所在</div>
+            <p class="text">テスト戦略の成熟度が直接リスクを左右する</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">設計の勘所（強調）</div>
+          <p class="text">合格時/非合格時の実挙動が“本当に同じ”に見えることを重視（例：単なる echo ok は薄い）</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Comparison">
+      <div class="slide-header">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <p class="eyebrow">GitHubとローカルの違い</p>
+      <h2 class="title">何が違う？</h2>
+      <p class="lead">発想は同じ（統合前に直列化してテスト）ですが、ローカルで動くため Actions のコストやPR必須の運用が不要になります。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">GitHub Merge Queue</div>
+            <p class="text">クラウドで直列テスト→統合（実行コスト・運用要件が増えやすい）</p>
+          </div>
+          <div class="card">
+            <div class="label">Claude Code Merge Queue</div>
+            <p class="text">ローカルで FIFO land（$0コスト志向、プライベート任意プラン対応）</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">両者の共通点</div>
+          <p class="text">“本番統合の前に”テストで合否を判断し、破綻を先回りする</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Worktree">
+      <div class="slide-header">
+        <div class="slide-tag">worktree</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <p class="eyebrow">同時作業の衝突回避</p>
+      <h2 class="title">lane×worktree</h2>
+      <p class="lead">lane は“分離単位”です。 <span class="mono">git worktree</span> により作業ツリーを分け、複数エージェントが同時に進めても同一チェックアウトを奪い合いません。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">複数エージェント</div>
+            <p class="text">並列で開発・検証を走らせられる</p>
+          </div>
+          <div class="card">
+            <div class="label">衝突の種類</div>
+            <p class="text">同じ状態（同一作業ツリー）へ同時書き換えを避ける</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">結果</div>
+          <p class="text">競合とデバッグ時間を減らし、統合前検証の安定性を上げる</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Reproducibility">
+      <div class="slide-header">
+        <div class="slide-tag">Stability</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <p class="eyebrow">ロック事故を抑える</p>
+      <h2 class="title">PID liveness</h2>
+      <p class="lead">ロックの回収はタイムアウトではなく、PID の生存確認で行います。CIのタイミングずれや「ロックが永遠に残る」事故を抑える意図です。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">狙い</div>
+            <p class="text">障害時でもロックを自然に解放しやすくする</p>
+          </div>
+          <div class="card">
+            <div class="label">注意</div>
+            <p class="text">PID管理や障害時ログの運用方針が必要（“安全に見える”だけでは不十分）</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">運用の要点</div>
+          <p class="text">障害時の回復手順・ログ確認を手順書化しておく</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="No Human Review">
+      <div class="slide-header">
+        <div class="slide-tag">Automation</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <p class="eyebrow">レビューなしで進む</p>
+      <h2 class="title">承認工程を消す</h2>
+      <p class="lead">設計上の前提は「人間レビューなし」です。通過した変更だけが land されるため、品質保証はテストスイートに強く依存します。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">メリット</div>
+            <p class="text">待ち時間を減らし、統合を高速に回せる</p>
+          </div>
+          <div class="card">
+            <div class="label">責任</div>
+            <p class="text">checkCommand を真に信頼できる内容にする必要がある</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">必要なら別戦略</div>
+          <p class="text">人間承認を入れたい場合は、別ブランチ運用や別テスト工程が要る</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Distinction-Security">
+      <div class="slide-header">
+        <div class="slide-tag">Guardrails</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <p class="eyebrow">セキュリティではない</p>
+      <h2 class="title">安全の範囲</h2>
+      <p class="lead">ガードレールは「ミスや慣習の逸脱」を防ぐ目的で、悪意ある操作への防御としては不十分です。シェルアクセスがあるなら回避され得ます。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">想定</div>
+            <p class="text">安全対策＝手順逸脱の防止（誤操作寄り）</p>
+          </div>
+          <div class="card">
+            <div class="label">結論</div>
+            <p class="text">権限分離・ブランチ保護・権限設計は別レイヤーで担保</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">誤解リスク</div>
+          <p class="text">ブランチ保護の代替だと考えると期待外れになり得る</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Emergency Hatch">
+      <div class="slide-header">
+        <div class="slide-tag">Emergency</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <p class="eyebrow">抜け道＝emergency hatch</p>
+      <h2 class="title">強制push</h2>
+      <p class="lead">緊急回避として環境変数を使った「保護ブランチへの強制push」という抜け道があります。これは“安全”ではなく、誤操作を避ける慣習として用意されています。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">位置づけ</div>
+            <p class="text">保護ブランチへの強制反映（環境変数）</p>
+          </div>
+          <div class="card">
+            <div class="label">明示された限界</div>
+            <p class="text">敵対的状況や権限奪取への強い防御策ではない</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">運用の宿題</div>
+          <p class="text">乱用防止（手順・権限・監査ログ・監視）を別途設計</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="My Opinion">
+      <div class="slide-header">
+        <div class="slide-tag">Assessment</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <p class="eyebrow">効く理由／危ない条件</p>
+      <h2 class="title">導入の見立て</h2>
+      <p class="lead">最大の強みは、FIFO直列化と lane 分離で「統合タイミング競合」「重いビルドの二重実行」「テストフレーク」を構造的に抑えることです。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Practical（実務）</div>
+            <p class="text">AI並列開発の“事故りやすい部分”を機械的に削減</p>
+          </div>
+          <div class="card">
+            <div class="label">Quality（品質）</div>
+            <p class="text">checkCommandへの依存が強い＝テスト戦略次第</p>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Risk/Safety</div>
+            <p class="text">ロック回収や強制pushは便利だが、理解と運用統制が要る</p>
+          </div>
+          <div class="card">
+            <div class="label">Governance</div>
+            <p class="text">人間レビューなし→承認をどこで担保するかが鍵</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Checklist">
+      <div class="slide-header">
+        <div class="slide-tag">Checklist</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <p class="eyebrow">導入前の最小設計</p>
+      <h2 class="title">成功条件</h2>
+      <p class="lead">導入するなら、checkCommandの強化、回避手順の統制、セキュリティは別レイヤー確保、の3点を前提にします。</p>
+      <div class="content">
+        <div class="list-grid">
+          <div class="card">
+            <div class="label">i. checkCommand強化</div>
+            <p class="mini">信頼できるテスト/解析を入れる。形だけのゲートを避ける</p>
+          </div>
+          <div class="card">
+            <div class="label">ii. 回避手順の統制</div>
+            <p class="mini">PIDロック回収・emergency hatch の使い分けとログ確認</p>
+          </div>
+          <div class="card">
+            <div class="label">iii. セキュリティは別途</div>
+            <p class="mini">権限分離・ブランチ保護・監査ログを設計して“本丸”を守る</p>
+          </div>
+          <div class="card">
+            <div class="label">iv. 運用ルール</div>
+            <p class="mini">キュー詰まり時の方針、待ち行列の監視、ログ運用を決める</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="References/Closing">
+      <div class="slide-header">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <p class="eyebrow">結論：安定性を買う設計</p>
+      <h2 class="title">ローカルで統合を制御</h2>
+      <p class="lead">Claude Code Merge Queueは、ローカルFIFO統合と lane分離で競合・重複・フレークを抑えます。品質と安全は checkCommand と運用設計が担います。</p>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Takeaway（要点）</div>
+            <p class="text">直列化（FIFO）＋分離（worktree）＋ゲート（checkCommand）が核</p>
+          </div>
+          <div class="card">
+            <div class="label">Bilingual（要約）</div>
+            <p class="text"><span class="nowrap">English:</span> reduce integration conflicts and flakiness locally.</p>
+            <p class="text" style="margin-top:8px;"><span class="nowrap">日本語:</span> 競合と不安定さをPC上で抑える。</p>
+          </div>
+        </div>
+        <div class="rulebar"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">強み</div>
+            <p class="text">統合の衝突を仕組みで抑える</p>
+          </div>
+          <div class="card">
+            <div class="label">注意</div>
+            <p class="text">品質保証はテスト依存</p>
+          </div>
+          <div class="card">
+            <div class="label">前提</div>
+            <p class="text">セキュリティ境界の代替ではない</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.mergify.com/improve-your-code-safety-with-a-merge-queue" target="_blank" rel="noreferrer noopener">Improve Your Code Safety With a Merge Queue</a></h2>
+<p class="reference-note">the merged code is compatible with the main branch and reduces the chances of introducing instabilities or build failure…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://trunk.io/blog/merge-fast-or-merge-cheap-fine-tuning-merge-queues-to-handle-an-increase-in-prs-f" target="_blank" rel="noreferrer noopener">Fine-tuning merge queues to handle an increase in PRs from AI agents</a></h2>
+<p class="reference-note">Simulations were run with batch sizes of 1, 4, 8, and 16, and parallel queues were used for batch sizes greater than 1. …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=6qpE4dU9GZQ" target="_blank" rel="noreferrer noopener">Pull requests with Claude Code: create and merge</a></h2>
+<p class="reference-note">each parallel workstream visible as a distinct chunk. Pick one and be consistent. After merging, delete the branch. GitH…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://levelup.gitconnected.com/how-merge-queues-made-my-life-easier-1d8ea6384eca" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">```
+pull_request_rules: - name: merge using the merge queue conditions: - base=main - &quot;#approved-reviews-by&gt;=1&quot; - check-…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/anthropics/claude-code-action/blob/main/docs/capabilities-and-limitations.md" target="_blank" rel="noreferrer noopener">claude-code-action/docs/capabilities-and-limitations.md at main · anthropics/claude-code-action · GitHub</a></h2>
+<p class="reference-note">33 lines (26 loc) · 2.25 KB
+
+Copy raw file
+
+Download raw file
+
+Outline
+
+Edit and raw actions
+
+# Capabilities and Limitat…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
