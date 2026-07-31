@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Git worktreeは隔離境界にならない</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    *{ box-sizing: border-box; }
+    body{
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 44px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid transparent;
+      outline: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute;
+      left: 72px; right: 72px; top: 40px;
+      height: 1px;
+      background: var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      left: 72px; top: 34px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      letter-spacing: 0.14em;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 14px; height: 2px;
+      background: var(--rust);
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.12);
+    }
+
+    .slide-num{
+      position:absolute;
+      right: 72px; top: 34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-3);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 20px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      margin: 10px 0 10px;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      line-height: 1.02;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      text-decoration: none;
+    }
+
+    .lead{
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 10px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 22px 0;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: repeat(3, 1fr); }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(255,255,255,0.02);
+      min-height: 80px;
+    }
+    .card h3{
+      margin: 0 0 6px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+    .card p{
+      margin: 0;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .listgrid{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      width: 100%;
+      margin-top: 16px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink);
+      background: rgba(240,232,216,0.06);
+      border: 1px solid rgba(240,232,216,0.14);
+      padding: 2px 8px;
+      border-radius: 8px;
+      display: inline-block;
+    }
+
+    .bignote{
+      margin-top: 18px;
+      padding: 14px 16px;
+      border: 1px solid var(--rule-strong);
+      background: rgba(232,129,74,0.06);
+      border-radius: 14px;
+      max-width: 760px;
+    }
+    .bignote .noteTitle{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--rust);
+      font-weight: 700;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .bignote p{
+      margin: 0;
+      font-weight: 300;
+      font-size: 19px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    @media (max-width: 920px){
+      .slide{ padding: 44px 52px; border-width: 0; }
+      .slide-tag{ left: 52px; }
+      .slide-num{ right: 52px; }
+      .topline{ left: 52px; right: 52px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover" aria-label="Slide 1">
+      <div class="slide-tag">隔離境界</div>
+      <div class="slide-num">02 / 17</div>
+      <div class="eyebrow">worktreeは“境界”じゃない</div>
+      <div class="title"><em>Git</em> worktree</div>
+      <div class="lead">AIコーディングエージェントを並列実行するなら、worktreeを隔離境界として扱うのは危険です。</div>
+      <div class="bignote">
+        <div class="noteTitle">結論</div>
+        <p>隔離したいなら <span class="mono">clone（特に --shared）</span> を選ぶべき、という主張が中心です。</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem" aria-label="Slide 2">
+      <div class="slide-tag">問題設定</div>
+      <div class="slide-num">03 / 17</div>
+      <div class="eyebrow">並列エージェント</div>
+      <div class="title">事故の種</div>
+      <div class="lead">複数のエージェントが同じリポジトリ由来で動くと、共有部分があるだけで“普通の操作”が他者に波及し得ます。</div>
+
+      <div class="listgrid">
+        <div class="card">
+          <h3>期待</h3>
+          <p>worktreeで作業ディレクトリやHEADは分かれるはず。</p>
+        </div>
+        <div class="card">
+          <h3>実際</h3>
+          <p>共有される <span class="mono">.git</span> の中身が隔離にならない。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor" aria-label="Slide 3">
+      <div class="slide-tag">見かけ</div>
+      <div class="slide-num">04 / 17</div>
+      <div class="eyebrow">境界の錯覚</div>
+      <div class="title"><em>worktree</em>の穴</div>
+      <div class="lead">worktreeは分離しているように見えますが、隔離境界は <span class="mono">“worktreeの外側にある .git 側”</span> で決まります。</div>
+
+      <div class="grid two" style="margin-top:16px;">
+        <div class="card">
+          <h3>分離される</h3>
+          <p>作業ツリー、HEAD/index、チェックアウト先の状態など。</p>
+        </div>
+        <div class="card">
+          <h3>分離されない</h3>
+          <p><span class="mono">objects</span>、<span class="mono">refs</span>、<span class="mono">config</span>、<span class="mono">stash</span>、<span class="mono">hooks</span>。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture" aria-label="Slide 4">
+      <div class="slide-tag">核構造</div>
+      <div class="slide-num">05 / 17</div>
+      <div class="eyebrow">.git が支配する</div>
+      <div class="title">共有 .git</div>
+      <div class="lead">hooksやrefsなどは <span class="mono">.git側の状態</span>として存在するため、worktree内の操作が他者に波及し得ます。</div>
+
+      <div class="grid three" style="margin-top:16px;">
+        <div class="card">
+          <h3>hooks</h3>
+          <p>共通の実行入口。書き換えが危険。</p>
+        </div>
+        <div class="card">
+          <h3>refs</h3>
+          <p>ブランチや参照の共有。更新が波及。</p>
+        </div>
+        <div class="card">
+          <h3>config/stash</h3>
+          <p>作者情報や退避が混入・衝突し得る。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide evidence" aria-label="Slide 5">
+      <div class="slide-tag">最大リスク</div>
+      <div class="slide-num">06 / 17</div>
+      <div class="eyebrow">コード実行</div>
+      <div class="title"><em>hooks</em>共有</div>
+      <div class="lead">worktreeから共有hooksを書き換えると、次回のコミット操作でホスト側権限で実行され得ます。</div>
+
+      <div class="bignote">
+        <div class="noteTitle">なぜ危険？</div>
+        <p>hooksは“コミット等のトリガー”なので、隔離したはずのエージェントがホスト上でコード実行を誘発し得る点が致命的です。</p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide evidence" aria-label="Slide 6">
+      <div class="slide-tag">データ汚染</div>
+      <div class="slide-num">07 / 17</div>
+      <div class="eyebrow">configの混入</div>
+      <div class="title">作者情報</div>
+      <div class="lead">共有configにより、エージェントが <span class="mono">user.email</span> などを上書きすると“あなたのコミット”に混入する可能性があります。</div>
+
+      <div class="grid two" style="margin-top:16px;">
+        <div class="card">
+          <h3>期待</h3>
+          <p>エージェント用の設定で完結。</p>
+        </div>
+        <div class="card">
+          <h3>実際</h3>
+          <p>共有configを通じて利用者リポジトリへ影響。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide evidence" aria-label="Slide 7">
+      <div class="slide-tag">作業衝突</div>
+      <div class="slide-num">08 / 17</div>
+      <div class="eyebrow">stashの争奪</div>
+      <div class="title"><em>refs/stash</em></div>
+      <div class="lead">stashはリポジトリ単位で共有（<span class="mono">refs/stash</span>）に近く、別エージェントの <span class="mono">stash pop</span> が作業を奪取・上書きし得ます。</div>
+
+      <div class="listgrid">
+        <div class="card">
+          <h3>起こること</h3>
+          <p>退避スタックの共有で、復元先がズレる。</p>
+        </div>
+        <div class="card">
+          <h3>結果</h3>
+          <p>意図しない差分の適用・作業損失。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide distinction" aria-label="Slide 8">
+      <div class="slide-tag">波及範囲</div>
+      <div class="slide-num">09 / 17</div>
+      <div class="eyebrow">refsの連鎖</div>
+      <div class="title">強制更新</div>
+      <div class="lead">refsやブランチ名が共有されると、強制更新や <span class="mono">reset</span>、<span class="mono">gc</span> など“普通のコマンド”で他worktreeへ影響が及び得ます。</div>
+
+      <div class="grid two" style="margin-top:16px;">
+        <div class="card">
+          <h3>例</h3>
+          <p><span class="mono">branch -f</span> / <span class="mono">reset --hard</span></p>
+        </div>
+        <div class="card">
+          <h3>例</h3>
+          <p><span class="mono">git gc</span> / 参照の削除</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide comparison" aria-label="Slide 9">
+      <div class="slide-tag">反論処理</div>
+      <div class="slide-num">10 / 17</div>
+      <div class="eyebrow">コスト神話</div>
+      <div class="title">cloneは重い？</div>
+      <div class="lead">「cloneは重いからworktree」は誤解で、ローカルclone（hardlink）や <span class="mono">--shared</span> を使えばworktreeと同等レベルの負担で済む、という反証が提示されています。</div>
+
+      <div class="bignote">
+        <div class="noteTitle">選ぶ基準</div>
+        <p>性能ではなく“隔離境界の正しさ”を優先する、という方向性です。</p>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide process" aria-label="Slide 10">
+      <div class="slide-tag">推奨策</div>
+      <div class="slide-num">11 / 17</div>
+      <div class="eyebrow">隔離の境界</div>
+      <div class="title">clone（推奨）</div>
+      <div class="lead">並列エージェントの隔離には、worktreeより clone（特に <span class="mono">git clone --shared</span>）を推奨する、というのが結論です。</div>
+
+      <div class="grid two" style="margin-top:16px;">
+        <div class="card">
+          <h3>目的</h3>
+          <p>共有される状態が減り、衝突面を縮小。</p>
+        </div>
+        <div class="card">
+          <h3>注意</h3>
+          <p>完全無条件ではない（オブジェクト寿命など）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide enumeration" aria-label="Slide 11">
+      <div class="slide-tag">運用チェック</div>
+      <div class="slide-num">12 / 17</div>
+      <div class="eyebrow">落とし穴</div>
+      <div class="title">--sharedの条件</div>
+      <div class="lead">clone（特に <span class="mono">--shared</span>）でも、オブジェクトストアへの参照依存があるため、寿命管理を要します。</div>
+
+      <div class="grid three" style="margin-top:16px;">
+        <div class="card">
+          <h3>影響</h3>
+          <p>参照元が削除されると不整合の余地。</p>
+        </div>
+        <div class="card">
+          <h3>注意</h3>
+          <p>強い <span class="mono">gc</span> が巻き込む可能性。</p>
+        </div>
+        <div class="card">
+          <h3>選択肢</h3>
+          <p><span class="mono">--dissociate</span> 等で独立させる余地。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide closing" aria-label="Slide 12">
+      <div class="slide-tag">まとめ</div>
+      <div class="slide-num">13 / 17</div>
+      <div class="eyebrow">Takeaway</div>
+      <div class="title">境界は .git</div>
+      <div class="lead">worktreeは作業面を分けても、共有される <span class="mono">.git</span>（hooks/config/stash/refs）が隔離を壊し得ます。</div>
+
+      <div class="bignote">
+        <div class="noteTitle">最短指針</div>
+        <p>並列エージェントの隔離境界は worktree ではなく clone（特に <span class="mono">--shared</span>、必要なら dissociate）として設計する。</p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=49110389" target="_blank" rel="noreferrer noopener">Git worktrees are not an isolation boundary for coding agents | Hacker News</a></h2>
+<p class="reference-note">|  |  | alchaplinsky 38 minutes ago  | prev | next (javascript:void(0))   Worktrees are the obvious pick, and I get why.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ideia.me/git-worktrees-deep-dive" target="_blank" rel="noreferrer noopener">Git Worktrees: What They Actually Are and Why They Beat Stashing</a></h2>
+<p class="reference-note"># Git Worktrees: What They Actually Are and Why They Beat Stashing
+
+March 13, 2026 •  8 min read  •  programming, tools,…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://stackoverflow.com/questions/31935776/what-would-i-use-git-worktree-for" target="_blank" rel="noreferrer noopener">What would I use git-worktree for? - Stack Overflow</a></h2>
+<p class="reference-note">&gt;
+&gt; I&#39;m aware of local git clone solutions (the default, which is to hardlink shared objects, and the `--shared` option,…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/matthewperrins_git-worktree-git-worktrees-are-a-feature-activity-7380404046941179904-elUT" target="_blank" rel="noreferrer noopener">git worktree ! Git worktrees are a feature that lets you have multiple working directories (with different branches checked out) from the same repository simultaneously. In the context of Claude… | Matthew Perrins</a></h2>
+<p class="reference-note">Instead of cloning, you can create worktrees: # In your main repo git worktree add ../feature-branch feature-branch git …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/mattbrailsford/mattbrailsford.dev/discussions/54" target="_blank" rel="noreferrer noopener">Replacing My Custom Git Worktree Skill with Claude Code ...</a></h2>
+<p class="reference-note">| ---  slug: replacing-my-custom-git-worktree-skill-with-claude-code-hooks  published: 2026-02-24 If you&#39;ve been followi…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
