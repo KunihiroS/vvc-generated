@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZeroShot（v0.10.0）— スキル再利用とセッション監視</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); }
+    body { font-family: "Noto Serif JP", serif; }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border: 1px solid var(--rule);
+      border-radius: 0px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    @media (max-width: 720px) {
+      .slide { padding: 32px 22px; }
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .tag {
+      position: absolute;
+      left: 72px;
+      top: 34px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      color: var(--ink-2);
+      border-left: 4px solid var(--rust);
+      padding-left: 10px;
+      text-transform: uppercase;
+      line-height: 1;
+      max-width: calc(100% - 120px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .num {
+      position: absolute;
+      right: 72px;
+      top: 34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1;
+    }
+    @media (max-width: 720px) {
+      .tag { left: 22px; top: 26px; }
+      .num { right: 22px; top: 26px; }
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 8px 0;
+      letter-spacing: 0.01em;
+    }
+    .title{
+      margin: 0 0 18px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.95;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      font-size: 74px;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.45;
+      max-width: 760px;
+    }
+    .ruleline{
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 22px 0 18px 0;
+    }
+
+    .grid2{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      width: 100%;
+      margin-top: 16px;
+    }
+    .grid3{
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      width: 100%;
+      margin-top: 14px;
+    }
+    @media (max-width: 860px) {
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 0px;
+      background: rgba(28,24,19,0.25);
+      min-height: 72px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      color: var(--ink-4);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .bilingual{
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bilingual .en{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: none;
+    }
+    .bilingual .ja{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.35;
+    }
+
+    .bottom{
+      margin-top: auto;
+      padding-top: 18px;
+      color: var(--ink-4);
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+    }
+    .smallcaps{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      font-size: 12px;
+      color: var(--ink-3);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide">
+      <div class="tag">cover</div>
+      <div class="num">01 / 12</div>
+      <div class="eyebrow">セッションは資産にする</div>
+      <h1 class="title"><em>ZeroShot</em><span class="jp">（v0.10.0）</span></h1>
+      <p class="lead">AIコーディングエージェントの“単発実行”をやめ、実行ログ（セッション）から再利用できる“スキル”へ育て、手戻りとコストを減らす仕組みです。</p>
+      <div class="bottom">
+        <div class="smallcaps">Reading deck</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide">
+      <div class="tag">problem</div>
+      <div class="num">02 / 12</div>
+      <div class="eyebrow">同じ無駄が再発</div>
+      <h1 class="title"><span class="jp">手戻り</span><em>反復</em></h1>
+      <p class="lead">エージェントは毎回ゼロから学び直しがちで、同じ行き詰まり・同じ試行錯誤が“トークン費用”として積み上がります。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">コスト増（トークン）／再試行増／品質のばらつき</div>
+        </div>
+        <div class="cell">
+          <div class="k">現場</div>
+          <div class="v">PRレビューで同じ観点・同じコメントが繰り返されやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide">
+      <div class="tag">metaphor</div>
+      <div class="num">03 / 12</div>
+      <div class="eyebrow">学習する業務手順</div>
+      <h1 class="title"><span class="jp">“実行”が</span><em>“教材”</em></h1>
+      <p class="lead">ZeroShotは、セッション監視→スキル抽出→次の実行で適用、という学習ループで“同じ失敗の再発”を抑えます。</p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v"><span class="mono">セッション</span>を記録・観測</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">そこから<span class="mono">スキル</span>を作る</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">必要時に<span class="mono">適用</span>して手戻り削減</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide">
+      <div class="tag">architecture</div>
+      <div class="num">04 / 12</div>
+      <div class="eyebrow">中核3要素</div>
+      <h1 class="title">監視 ×<em>スキル</em> × 適用</h1>
+      <p class="lead">“監視（可観測性）”で何が起きたかを集め、“スキル”として再利用し、“PRで強制適用”することで慣習を運用に埋め込みます。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Observability（可観測性）</div>
+          <div class="v">トークン／コスト／タイミング／ツール呼び出し／スキル発火</div>
+        </div>
+        <div class="cell">
+          <div class="k">Skill（スキル）</div>
+          <div class="v">定型手順・ガード・レビュー草案など“再利用可能な単位”</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide">
+      <div class="tag">process</div>
+      <div class="num">05 / 12</div>
+      <div class="eyebrow">動きの流れ</div>
+      <h1 class="title"><em>セッション</em>→スキル→PR</h1>
+      <p class="lead">過去の実行履歴を起点に、チームで必要な手順をスキル化し、次のPRで“やるべきこと”を機械的に満たします。</p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">01</div>
+          <div class="v">エージェントがコーディング／調査／修正を実行</div>
+        </div>
+        <div class="cell">
+          <div class="k">02</div>
+          <div class="v">セッションレシート的に、消費・呼び出し・発火を追跡</div>
+        </div>
+        <div class="cell">
+          <div class="k">03</div>
+          <div class="v">未実行ならPRをブロック、実行済ならスキルを再利用</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide">
+      <div class="tag">enumeration</div>
+      <div class="num">06 / 12</div>
+      <div class="eyebrow">“強制”の意味</div>
+      <h1 class="title"><em>必須スキル</em>で止める</h1>
+      <p class="lead">「必須スキルが実行されなかった場合にPRをブロック」し、属人化しがちなレビュー観点を前提条件として固定します。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">期待されること</div>
+          <div class="v">暗黙知を“判定”に置き換え、手戻りとレビュー時間を削減</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意点</div>
+          <div class="v">どのスキルを必須にするか／判定粒度は情報不足（要確認）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide">
+      <div class="tag">distinction</div>
+      <div class="num">07 / 12</div>
+      <div class="eyebrow">レビュー慣習の引用</div>
+      <h1 class="title">同じコメントを<br><em>自動化</em></h1>
+      <p class="lead">例えば<span class="mono">/bb-review</span>のような形でレビュー草案を作り、既存の慣習（チームのコメント）を引用して再利用します。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">利点</div>
+          <div class="v">レビューの一貫性が上がり、繰り返し手作業が減る</div>
+        </div>
+        <div class="cell">
+          <div class="k">リスク</div>
+          <div class="v">誤った慣習の固定化を防ぐ更新ガバナンスが重要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide">
+      <div class="tag">evidence</div>
+      <div class="num">08 / 12</div>
+      <div class="eyebrow">数値は“目安”</div>
+      <h1 class="title">3.7倍速／<em>90%</em>削減</h1>
+      <p class="lead">提示文では「3.7倍速」「トークン90%削減」「レビュー67%削減」などの主張がありますが、対象・期間・比較条件・測定方法が不足しています。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">読み取れる証拠の方向</div>
+          <div class="v">同一操作の“なし vs あり”比較、セッションレシート形式で可視化</div>
+        </div>
+        <div class="cell">
+          <div class="k">導入前に必要</div>
+          <div class="v">自チームの代表作業でベースライン測定（再現性の確認）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide">
+      <div class="tag">distinction</div>
+      <div class="num">09 / 12</div>
+      <div class="eyebrow">プライバシー設計</div>
+      <h1 class="title">“ローカル実行”意図</h1>
+      <p class="lead">提示文は「コードは一度もあなたのマシンの外に出ません」を示唆し、外部送信を抑える姿勢が読み取れます。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">確認したい範囲</div>
+          <div class="v">ローカルで完結する範囲、ログ保持期間、依存コンポーネント、例外</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用の要点</div>
+          <div class="v">監査・セキュリティ要件（SOC2/GDPR/HIPAA言及など）との整合性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="tag">comparison</div>
+      <div class="num">10 / 12</div>
+      <div class="eyebrow">導入効果の源泉</div>
+      <h1 class="title">“AI呼び出し”<br><em>から脱却</em></h1>
+      <p class="lead">ZeroShotの価値は、単に推論を高速化することではなく、学習資産（スキル）化と運用強制で、無駄の発生自体を減らす点にあります。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">従来寄り</div>
+          <div class="v">実行するたびに同じ手順を再現／レビュー観点も都度</div>
+        </div>
+        <div class="cell">
+          <div class="k">ZeroShot寄り</div>
+          <div class="v">セッション監視→スキル更新→PRで必須化し継続適用</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="tag">process</div>
+      <div class="num">11 / 12</div>
+      <div class="eyebrow">導入チェックリスト</div>
+      <h1 class="title"><em>小さく検証</em>してから</h1>
+      <p class="lead">効果最大化のために、必須スキル設定・ブロック判定・ログ保持・効果測定条件を先に固めるのが安全です。</p>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">1</div>
+          <div class="v">代表PRでベースライン（トークン／時間／再試行）測定</div>
+        </div>
+        <div class="cell">
+          <div class="k">2</div>
+          <div class="v">必須スキルの粒度と判定ロジックを明文化（誤判定対策）</div>
+        </div>
+        <div class="cell">
+          <div class="k">3</div>
+          <div class="v">スキルの更新・ロールバック／古い慣習の固定化を管理</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="tag">closing</div>
+      <div class="num">12 / 12</div>
+      <div class="eyebrow">結論</div>
+      <h1 class="title"><em>学習する</em>開発運用へ</h1>
+      <p class="lead">ZeroShotは“セッション監視”と“スキル再利用”でコストと手戻りを減らす方向性が魅力です。ただし数値と運用ガードの詳細は不明なので、自チームでの検証が必須です。</p>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">観測性 × スキル化 × PRでの必須運用</div>
+        </div>
+        <div class="cell">
+          <div class="k">要確認</div>
+          <div class="v">必須スキル定義／ブロック判定／ログ保持／効果測定条件</div>
+        </div>
+      </div>
+
+      <div class="bottom">
+        <div class="smallcaps">References</div>
+        <div class="mono">Provided source: user text (ZeroShot v0.10.0 summary & opinions)</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://note.com/_heartyfluid/n/n89f73d5904a2" target="_blank" rel="noreferrer noopener">オライリー学習プラットフォーム新刊『実践 AIエージェント開発 ―マルチエージェントシステムの設計と実装』｜ykagata@_heartyfluid</a></h2>
+<p class="reference-note">Title: オライリー学習プラットフォーム新刊『実践 AIエージェント開発 ―マルチエージェントシステムの設計と実装』｜ykagata@_heartyfluid
+# オライリー学習プラットフォーム新刊『実践 AIエージェント開発 ―マルチ…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tech-seminar.jp/seminar/2024-10-15-%E4%BA%BA%E5%B7%A5%E7%9F%A5%E8%83%BD%E3%81%AE%E6%9C%80%E6%96%B0%E6%8A%80%E8%A1%93%E5%8B%95%E5%90%91-CVPR-KDD" target="_blank" rel="noreferrer noopener">人工知能の最新技術動向 (CVPR/KDD) (2024年10月15日 開催) - セミナー・研修 | tech-seminar.jp</a></h2>
+<p class="reference-note">Title: 人工知能の最新技術動向 (CVPR/KDD) (2024年10月15日 開催) - セミナー・研修 | tech-seminar.jp
+技術セミナー・研修・出版・書籍・通信教育・eラーニング・講師派遣の テックセミナー ジェー…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tech-seminar.jp/node/58296/similar" target="_blank" rel="noreferrer noopener">「Deep Learning研究動向の最前線」の関連セミナー・出版物 | tech-seminar.jp</a></h2>
+<p class="reference-note">Title: 「Deep Learning研究動向の最前線」の関連セミナー・出版物 | tech-seminar.jp
+技術セミナー・研修・出版・書籍・通信教育・eラーニング・講師派遣の テックセミナー ジェーピー. ## セミナー. ##…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://bizaidea.com/press-release/48202" target="_blank" rel="noreferrer noopener">日立、制御工学とAI・ソフトウェア工学を融合し、「Physical AI」の実現に向けた制御ソフトウェアの開発効率化と再利用技術を開発 - BizAIdea</a></h2>
+<p class="reference-note"># 日立、制御工学とAI・ソフトウェア工学を融合し、「Physical AI」の実現に向けた制御ソフトウェアの開発効率化と再利用技術を開発. * 日立、制御工学とAI・ソフトウェア工学を融合し、「Physical AI」の実現に向けた制御ソ…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://sponto.co.jp/services/ai-driven-development" target="_blank" rel="noreferrer noopener">AI駆動開発支援 - 生成AIを活用した効率的なソフトウェア開発 | SPONTO Inc.</a></h2>
+<p class="reference-note"># AI駆動開発で開発効率を 革新. GitHub Copilot、ChatGPT、Claude等を活用して開発効率を飛躍的に向上させ、品質とスピードを両立した開発体制を構築します。. ## AI開発ツールの活用. ### GitHub C…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
