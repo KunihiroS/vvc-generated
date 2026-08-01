@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tailscale Mullvad exit nodes（ベータ）—条件・DNS・運用の注意</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.5;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border-radius: 0px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 16px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .topbar{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 44px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: .16em;
+      color: var(--rust);
+      font-size: 12px;
+      text-transform: uppercase;
+      padding-left: 14px;
+      border-left: 3px solid var(--rust);
+      line-height: 1;
+      margin-top: -6px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 18px;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+    .content{
+      position: relative;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+      padding-top: 18px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 12px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      margin-top: -6px;
+      color: var(--ink);
+      letter-spacing: .01em;
+    }
+    .title em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 4px;
+    }
+    .hr{
+      margin-top: 8px;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      flex: 0 0 auto;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      margin-top: 8px;
+      width: 100%;
+      max-width: 900px;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.10);
+      padding: 14px 14px;
+      border-radius: 2px;
+      min-height: 62px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: .06em;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .value{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .bul{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 16px;
+      margin-top: 6px;
+      width: 100%;
+      max-width: 980px;
+    }
+    .item{
+      border-left: 2px solid rgba(232,129,74,0.65);
+      padding-left: 12px;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 400;
+    }
+    .item span{
+      display:block;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: .06em;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .closingNote{
+      margin-top:auto;
+      max-width: 860px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 28px 26px; }
+      .topbar{ left: 26px; right: 26px; top: 22px; }
+      .slide-tag{ font-size: 11px; }
+      .slide-num{ font-size: 16px; }
+      .eyebrow{ font-size: 18px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid, .bul{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Tailscale 拡張（ベータ）</div>
+        <div class="title">Mullvad <em>exit nodes</em></div>
+        <div class="lead">Tailscale の出口ノードとして Mullvad VPN サーバーを使うために必要な条件、DNSの注意点、運用の制約を一望します。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">対象</div>
+            <div class="value">Tailscale テールネット（tailnet）でのインターネット経路制御</div>
+          </div>
+          <div class="card">
+            <div class="label">焦点</div>
+            <div class="value">導入要件／制限・DNS／プライバシー／ガバナンス／ライセンス運用</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“出口”は簡単そうで難しい</div>
+        <div class="title">落とし穴</div>
+        <div class="lead">Mullvad exit nodes は機能拡張ですが、DNS設定の失敗や既存構成（DERP、ACL、管理方式）との不整合が致命傷になり得ます。</div>
+        <div class="hr"></div>
+        <div class="bul">
+          <div class="item">
+            <span>DNS</span>
+            ローカルDNS挙動がバージョン依存で、設定ミスで DNS 喪失 → 実質的なインターネット途切れ
+          </div>
+          <div class="item">
+            <span>運用</span>
+            管理コンソールとテールネットポリシーファイルの併用不可（統制が崩れるとズレる）
+          </div>
+          <div class="item">
+            <span>制限</span>
+            すべての機能が “通常exit node同等” ではなく制限がある
+          </div>
+          <div class="item">
+            <span>枠</span>
+            Mullvad add-on とライセンス枠（プール・先着割当）が可用性に直結
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">暗号トンネルの“先”</div>
+        <div class="title">出口は<br/><em>第三者</em></div>
+        <div class="lead">Tailscale の WireGuard トンネル先にある“出口”を Mullvad 側に置き換えるイメージです（出口先があなたの機器ではなく Mullvad）。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">Tailscale</div>
+            <div class="value">tailnet 内で暗号化して経路を制御（DNS/経路も設計対象）</div>
+          </div>
+          <div class="card">
+            <div class="label">Mullvad exit</div>
+            <div class="value">VPN サーバー経由でインターネットへ（ログ把握の可能性あり）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">何を満たせば動く？</div>
+        <div class="title">導入要件</div>
+        <div class="lead">Mullvad add-on（アドオン）を購入し、管理方式と署名/割当の流れを満たすことで利用できます。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">必須</div>
+            <div class="value">Mullvad VPN add-on（ベータ）購入</div>
+          </div>
+          <div class="card">
+            <div class="label">管理</div>
+            <div class="value">管理コンソール or ポリシーファイル（どちらか一方が正）</div>
+          </div>
+          <div class="card">
+            <div class="label">割当</div>
+            <div class="value">ライセンス枠が必要（プールは先着で割当）</div>
+          </div>
+          <div class="card">
+            <div class="label">運用</div>
+            <div class="value">有効化/無効化/削除/移行/署名の手順を前提化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">制限：全部同じではない</div>
+        <div class="title">利用できない</div>
+        <div class="lead">通常の exit node に近い動作でも、構成によって “動かない/効かない” があり、事前整合性確認が必要です。</div>
+        <div class="hr"></div>
+        <div class="bul">
+          <div class="item">
+            <span>DERP</span>
+            カスタム DERP サーバーは非対応（制限）
+          </div>
+          <div class="item">
+            <span>ACL</span>
+            Google-synced groups の ACL が動かない（制限）
+          </div>
+          <div class="item">
+            <span>端末UI</span>
+            Windows でリスト表示が不完全な場合がある
+          </div>
+          <div class="item">
+            <span>挙動</span>
+            提案された/必須（mandatory）exit node は概ね対応（ただし制限あり）
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">DNSが主戦場</div>
+        <div class="title">DNS注意</div>
+        <div class="lead">特定バージョン（例：1.48.1/1.48.2）でローカルDNSの使い方が変わり、誤ると DNS が失われます。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">失敗の症状</div>
+            <div class="value">DNS喪失 → 名前解決不能 → インターネット利用が困難（実質的に停止）</div>
+          </div>
+          <div class="card">
+            <div class="label">上書きの影響</div>
+            <div class="value">Tailscale接続中は全クライアントのDNSクエリが指定DNSへ向かう（経路変化はexitの有無に関係し得る）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">設計チェックの要点</div>
+        <div class="title">DNS設計</div>
+        <div class="lead">“ローカルネットワークアクセス”と“グローバル名解決”を同時に成立させる必要があります（DNSリーク対策を含む）。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">原則</div>
+            <div class="value">exit node 利用有無に関わらず、DNS経路/上書きの影響を確認する</div>
+          </div>
+          <div class="card">
+            <div class="label">対策</div>
+            <div class="value">ローカルネットワークアクセス許可、必要ならグローバルDNSの上書き設計</div>
+          </div>
+          <div class="card">
+            <div class="label">検証</div>
+            <div class="value">設定変更前に “名前解決” と “外部到達” をテスト（復旧手順も用意）</div>
+          </div>
+          <div class="card">
+            <div class="label">前提</div>
+            <div class="value">Tailscaleバージョン差を織り込む（特にローカルDNS挙動）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">統治（Governance）</div>
+        <div class="title">二択運用</div>
+        <div class="lead">Mullvad access を管理コンソールとテールネットポリシーファイルで併用できず、どちらかを正に固定します。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">選択肢 i</div>
+            <div class="value">管理コンソールを正（UI運用を徹底）</div>
+          </div>
+          <div class="card">
+            <div class="label">選択肢 ii</div>
+            <div class="value">ポリシーファイルを正（例：GitOpsで管理）</div>
+          </div>
+          <div class="card">
+            <div class="label">禁止</div>
+            <div class="value">両方で同時に設定・編集（意図しないズレの温床）</div>
+          </div>
+          <div class="card">
+            <div class="label">推奨</div>
+            <div class="value">正系を決め、変更フロー（誰が何をいつ）を明文化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">匿名性：完全ではない</div>
+        <div class="title">プライバシー</div>
+        <div class="lead">Tailscale はトラフィック内容を復号できませんが、“どのユーザーがどの Mullvad サーバーへ接続したか” の対応がログとして把握され得ます。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">Tailscale 側</div>
+            <div class="value">ユーザーと Mullvad アカウントの紐づき、WireGuardトンネル単位の接続先の把握があり得る</div>
+          </div>
+          <div class="card">
+            <div class="label">Mullvad 側</div>
+            <div class="value">ユーザーの身元情報（渡る前提の情報）は受け取らない（利点）</div>
+          </div>
+          <div class="card">
+            <div class="label">結論</div>
+            <div class="value">匿名性は“設計次第で強化できるがゼロではない”</div>
+          </div>
+          <div class="card">
+            <div class="label">読み方</div>
+            <div class="value">脅威モデル（誰が何を見得るか）を前提に評価する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ライセンス：枠が可用性を決める</div>
+        <div class="title">枠と割当</div>
+        <div class="lead">Mullvad exit nodes はライセンス枠が必要で、アドオンにはベースで5ライセンス分が含まれ、追加購入で拡張できます。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">ベース枠</div>
+            <div class="value">Mullvad add-on：5ライセンス分を含む</div>
+          </div>
+          <div class="card">
+            <div class="label">拡張</div>
+            <div class="value">追加購入でライセンス枠を増やせる</div>
+          </div>
+          <div class="card">
+            <div class="label">プール共有</div>
+            <div class="value">枠を共有すると “先着順” で接続時に割当</div>
+          </div>
+          <div class="card">
+            <div class="label">注意</div>
+            <div class="value">余剰端末があると、想定外の割当が起こり得る（結果として利用可否が変わる）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">安全に進める段取り</div>
+        <div class="title">導入の順序</div>
+        <div class="lead">最短で失敗しないために、(1)前提確認 → (2)DNS検証 → (3)管理方式固定 → (4)枠と制限の確認 の順で進めます。</div>
+        <div class="hr"></div>
+        <div class="bul">
+          <div class="item">
+            <span>i 前提</span>
+            DERP/ACL/OS差など “制限” をリスト化して合否を先に判断
+          </div>
+          <div class="item">
+            <span>ii DNS</span>
+            1.48.1/1.48.2 等を含めバージョン別に名前解決をテスト
+          </div>
+          <div class="item">
+            <span>iii 統治</span>
+            管理コンソール or ポリシーファイルのどちらかを正に固定
+          </div>
+          <div class="item">
+            <span>iv 枠</span>
+            必要端末数と同時接続を見積もり、枠が埋まる状況も想定
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論</div>
+        <div class="title">成功条件は<br/><em>DNS×統制</em></div>
+        <div class="lead closingNote">Mullvad exit nodes は強力ですが、DNS設計と管理方式の統制を誤らなければ、運用事故を大きく減らせます。</div>
+        <div class="hr"></div>
+        <div class="grid">
+          <div class="card">
+            <div class="label">最優先</div>
+            <div class="value">DNS（ローカル/上書き/リーク）を先に固めて検証</div>
+          </div>
+          <div class="card">
+            <div class="label">次点</div>
+            <div class="value">制限（DERP/ACL/OS差）と枠（先着割当）を計画に組み込む</div>
+          </div>
+        </div>
+        <div style="margin-top:14px; max-width: 900px;" class="small">
+          参考：用語ミニ（例）：exit node（出口ノード）/ tailnet（テールネット）/ WireGuard（暗号トンネル）/ DERP（中継）/ nodeAttrs（ポリシー）。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tailscale.com/docs/features/exit-nodes/mullvad-exit-nodes" target="_blank" rel="noreferrer noopener">Mullvad exit nodes · Tailscale Docs</a></h2>
+<p class="reference-note">This feature is currentlyin beta. To try it, follow the steps below to enable it for your network using Tailscale v1.48.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tailscale.com/blog/mullvad-integration" target="_blank" rel="noreferrer noopener">Mullvad on Tailscale: Privately browse the web</a></h2>
+<p class="reference-note">Continue through the checkout flow to purchase Mullvad licenses. Licenses cost $5 per month for every 5 devices you wish…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://joshspicer.com/tailscale-lock-mullvad" target="_blank" rel="noreferrer noopener">Tailscale Lock &amp; Mullvad Exit Nodes</a></h2>
+<p class="reference-note">Neither the Mullvad admin page nor the `tailscale exit-node` command provide any hints. The `tailscale lock` command pro…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://discourse.pi-hole.net/t/dns-leak-with-tailscale-and-the-mullvad-exit-node/86502" target="_blank" rel="noreferrer noopener">DNS leak with Tailscale and the Mullvad exit node. - Help - Pi-hole Userspace</a></h2>
+<p class="reference-note">In particular, their documentation points out that DNS leaks could be expected to occur in certain exit node configurati…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://serverascode.com/2024/11/23/tailscale-mulladvpn.html" target="_blank" rel="noreferrer noopener">Tailscale, Mullvad, and More | Server As Code Dot Com</a></h2>
+<p class="reference-note">$ tailscale exit-node list IP HOSTNAME COUNTRY CITY STATUS 100.91.198.95 al-tia-wg-001.mullvad.ts.net Albania Tirana - 1…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
