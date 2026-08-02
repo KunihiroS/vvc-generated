@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM/エージェントのドリフト検知：入力ではなく制御フロー</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: "Noto Serif JP", serif; }
+    .deck { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 24px 0 48px; display: flex; flex-direction: column; gap: 24px; }
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 0;
+      overflow: hidden;
+      border-color: transparent;
+    }
+    .slide .frame {
+      position: absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 56px 72px;
+      box-sizing: border-box;
+      background: var(--paper);
+    }
+    .slide .rule-top { position: absolute; left: 20px; right: 20px; top: 20px; height: 1px; background: var(--rule); }
+    .slide .tag {
+      position: absolute; left: 20px; top: 18px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--rust);
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .slide .num {
+      position: absolute; right: 24px; top: 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      margin: 0 0 14px 0;
+      color: var(--ink);
+      font-style: italic;
+    }
+    .title.jp {
+      font-family: "Noto Serif JP", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      font-size: 78px;
+    }
+    .lead {
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .muted { color: var(--ink-3); }
+    .grid2, .grid3 { display: grid; gap: 14px; }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+    .cell {
+      border: 1px solid var(--rule);
+      padding: 14px 14px 12px;
+      box-sizing: border-box;
+      background: rgba(0,0,0,0.06);
+      border-radius: 2px;
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--rust);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .cell .v {
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .small {
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+    }
+    .listnum {
+      display: grid; gap: 14px;
+    }
+    .li {
+      border: 1px solid var(--rule);
+      padding: 14px 14px 12px;
+      border-radius: 2px;
+      background: rgba(0,0,0,0.06);
+    }
+    .li .head {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 20px;
+      margin-bottom: 6px;
+    }
+    .li .body {
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .caps { text-transform: uppercase; letter-spacing: 0.08em; }
+    @media (max-width: 980px) {
+      .slide .frame { padding: 48px 54px; }
+      .title { font-size: 58px; }
+      .title.jp { font-size: 64px; }
+      .lead { font-size: 20px; }
+    }
+    @media (max-width: 640px) {
+      .deck { width: calc(100vw - 24px); }
+      .slide .frame { inset: 12px; padding: 40px 36px; }
+      .title { font-size: 46px; }
+      .title.jp { font-size: 52px; }
+      .lead { font-size: 18px; }
+      .slide .tag { font-size: 12px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 cover -->
+    <section class="slide" aria-label="cover">
+      <div class="tag">LLM Drift</div>
+      <div class="num">01 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">煙を見て止める</div>
+        <h1 class="title">Detect</h1>
+        <div class="lead">入力の埋め込み変化ではなく、エージェントの制御フロー（decision path）変化を監視して、事故の予兆に直結させます。</div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 problem -->
+    <section class="slide" aria-label="problem">
+      <div class="tag">Problem</div>
+      <div class="num">02 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">ドリフト＝挙動の変化</div>
+        <h2 class="title jp">なぜ検知が要る</h2>
+        <div class="lead">学習が原因でなくても、運用の中で「以前と同じように動かない」ことが起きます。特に重要なのは“境界”が変わる兆候です。</div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 metaphor -->
+    <section class="slide" aria-label="metaphor">
+      <div class="tag">Metaphor</div>
+      <div class="num">03 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">煙警報の罠</div>
+        <h2 class="title jp">埋め込みは煙</h2>
+        <div class="lead">プロンプトの言い換えやembedding分布の変化は拾いやすい一方、実被害に直結しにくく、誤報が増えがちです。</div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 architecture -->
+    <section class="slide" aria-label="architecture">
+      <div class="tag">Core</div>
+      <div class="num">04 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">本質は制御フロー</div>
+        <h2 class="title jp">境界→経路→結果</h2>
+        <div class="lead">エージェントでは「どのツールを選ぶか」「権限が拒否されるか」「リトライ回数が増えるか」「キャッシュを迂回するか」が事件の中心になります。</div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 comparison -->
+    <section class="slide" aria-label="comparison">
+      <div class="tag">Compare</div>
+      <div class="num">05 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">何を監視するか</div>
+        <h2 class="title jp">入力 vs 経路</h2>
+        <div class="grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="k">Input drift</div>
+            <div class="v">embedding/言い回しの変化を検知。検知はしやすいが「煙警報」化しやすい。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Control-flow drift</div>
+            <div class="v">ツール選択・拒否・リトライ・キャッシュ迂回を監視。事故に結びつく変化を捉えやすい。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 enumeration -->
+    <section class="slide" aria-label="enumeration">
+      <div class="tag">Signals</div>
+      <div class="num">06 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">見たい兆候</div>
+        <h2 class="title jp">4つの観測</h2>
+        <div class="grid2" style="margin-top:16px;">
+          <div class="li">
+            <div class="head">i* ツール選択</div>
+            <div class="body">同一要求でも選ぶツールが変わる（tool routingの揺れ）</div>
+          </div>
+          <div class="li">
+            <div class="head">ii* 権限拒否</div>
+            <div class="body">拒否発生パターンの増加（拒否→回避の連鎖も含む）</div>
+          </div>
+          <div class="li">
+            <div class="head">iii* リトライ深度</div>
+            <div class="body">retry回数/深度の分布が変化（探索コスト増）</div>
+          </div>
+          <div class="li">
+            <div class="head">iv* キャッシュ迂回</div>
+            <div class="body">キャッシュ起点の状態更新が実行の代替になっている可能性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 distinction -->
+    <section class="slide" aria-label="distinction">
+      <div class="tag">Distinction</div>
+      <div class="num">07 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">適応と逸脱を分ける</div>
+        <h2 class="title jp">Authority drift</h2>
+        <div class="small" style="margin-top:14px;">
+          拒否や経路の変化には「環境由来の正当な適応（例：プロバイダ障害）」があり得ます。<br/>
+          しかし復旧後も境界を広げたまま恒常化するなら、それは“authority drift”です。
+        </div>
+        <div class="grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="k">適応（OK寄り）</div>
+            <div class="v">障害時に一時的に経路が変わるが、回復条件で元に戻る。</div>
+          </div>
+          <div class="cell">
+            <div class="k">逸脱（NG）</div>
+            <div class="v">境界を拡張したまま維持する。リース（回復）として扱う必要がある。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 evidence -->
+    <section class="slide" aria-label="evidence">
+      <div class="tag">Edge Cases</div>
+      <div class="num">08 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">監視の死角</div>
+        <h2 class="title jp">単発では足りない</h2>
+        <div class="grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="k">等価経路置換</div>
+            <div class="v">各ステップは許可内に見えても、実質的に能力境界を越える。</div>
+          </div>
+          <div class="cell">
+            <div class="k">組み合わせ突破</div>
+            <div class="v">複数呼び出しの組み合わせで境界を突破（capability intersectionの変化）。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 evidence -->
+    <section class="slide" aria-label="evidence2">
+      <div class="tag">Provenance</div>
+      <div class="num">09 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">成功に見えて危険</div>
+        <h2 class="title jp">Provenance drift</h2>
+        <div class="lead">“成功したように見える”のに、キャッシュ起点の状態更新が実行の代替になっている場合があります。監視は結果だけでなく、実行の根拠の流れにも向けるべきです。</div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 process -->
+    <section class="slide" aria-label="process">
+      <div class="tag">Pipeline</div>
+      <div class="num">10 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">検知→制御へ</div>
+        <h2 class="title jp">enforcement 接続</h2>
+        <div class="grid3" style="margin-top:16px;">
+          <div class="cell">
+            <div class="k">監視</div>
+            <div class="v">境界（権威・コスト）に関わる経路指標を集計。</div>
+          </div>
+          <div class="cell">
+            <div class="k">アラーム</div>
+            <div class="v">異常をバケット化して、誤報を減らす。</div>
+          </div>
+          <div class="cell">
+            <div class="k">制御</div>
+            <div class="v">サーキットブレーカー/段階的絞り込み/人手承認/ロールバック。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 comparison -->
+    <section class="slide" aria-label="opinion">
+      <div class="tag">My Take</div>
+      <div class="num">11 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">筋は良いが較正が要る</div>
+        <h2 class="title jp">閾値と要件</h2>
+        <div class="lead">監視の目的が「誤差」ではなく「事故の予兆」になっている点は強いです。一方で、threshold設計・許容する適応範囲・shadow replayの範囲はシステム依存で、誤報プロファイルを見ながら段階導入が必要です。</div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 closing -->
+    <section class="slide" aria-label="closing">
+      <div class="tag">Closing</div>
+      <div class="num">12 / 12</div>
+      <div class="frame">
+        <div class="eyebrow">最後に一言</div>
+        <h2 class="title jp">監視は監査劇場にしない</h2>
+        <div class="lead">入力類似度ではなく「境界→経路→結果」を追い、検知後に止められる（回路遮断・再承認・ロールバック）設計へ落とすことが価値になります。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://learntalk.org/en/blog/talking-about-time-ago-back-before-and-earlier" target="_blank" rel="noreferrer noopener">Learntalk | Talking About Time: Ago, Back, Before, and Earlier</a></h2>
+<p class="reference-note">You use ago to refer to a past time from the present time. For example, if an action happened &quot;three days ago,&quot; three da…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.collinsdictionary.com/us/dictionary/english/ago" target="_blank" rel="noreferrer noopener">AGO definition in American English | Collins English Dictionary</a></h2>
+<p class="reference-note">adverb
+
+You use ago when you are referring to past time. For example, if something happened one year ago, it is one year…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=cO8SlvoW6fE" target="_blank" rel="noreferrer noopener">using &quot;ago&quot; to talk about the past</a></h2>
+<p class="reference-note">An English teacher explains how the word &quot;ago&quot; is used when talking about things that happened in the past.</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/groups/learnenglishwithratul/posts/4085844024970822" target="_blank" rel="noreferrer noopener">What is the correct usage of ago and before in English grammar?</a></h2>
+<p class="reference-note">I had finished the task an hour ___ . 
+1) ago 
+2) before
+
+Ans : 2 (before) 
+1) “ago” means a time point in the past. It …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/grammar/comments/37423g/what_part_of_speech_is_ago" target="_blank" rel="noreferrer noopener">What part of speech is &#39;ago&#39;? : r/grammar</a></h2>
+<p class="reference-note">It&#39;s an adverb (or an adjective) functioning as part of a time adverbial, and meaning the same as the phrase &quot;in the pas…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
