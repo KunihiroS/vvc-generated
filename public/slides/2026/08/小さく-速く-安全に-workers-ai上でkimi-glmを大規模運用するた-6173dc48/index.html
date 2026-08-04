@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>小さく・速く・安全に：Workers AI上でKimi/GLMを大規模運用するための最適化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px inset var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px auto;
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 104px;
+      height:1px;
+      background: var(--rule);
+      pointer-events:none;
+    }
+
+    .top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 12px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 16px;
+      color: var(--rust);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 18px;
+      background: var(--rust);
+      border-radius: 2px;
+      opacity: .95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: .95;
+      font-size: 22px;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 10px;
+      line-height: 1.15;
+    }
+
+    .title{
+      font-size: 62px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      margin: 0 0 18px;
+      line-height: 1.0;
+      font-family: "Cormorant Garamond", serif;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: 10px;
+    }
+
+    .muted{
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    .grid{
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+      min-height: 84px;
+    }
+
+    .k{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .jp{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink-2);
+      margin-top: 6px;
+    }
+
+    .listgrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .mini{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      white-space: nowrap;
+    }
+
+    .numline{
+      font-family: "Inter Tight", sans-serif;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+      margin: 0;
+    }
+
+    .closing{
+      display:flex;
+      height: 100%;
+      align-items:flex-end;
+    }
+    .closing .block{
+      max-width: 820px;
+    }
+
+    @media (max-width: 920px){
+      .slide{
+        padding: 34px 40px;
+        width: 100%;
+        margin: 12px auto;
+      }
+      .slide::before{
+        left: 40px;
+        right: 40px;
+      }
+      .slide-title-wrap{ padding-right: 0; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 19px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+      .listgrid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="top">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+
+      <div class="eyebrow">小さく・速く・安全に</div>
+      <div class="title">Workers AIで <em>長文</em> を支える</div>
+      <div class="lead">
+        Kimi（Moonshot）/ GLM（Z.ai）級の大規模・長文脈・MoEモデルを、GPUメモリ制約と精度・安全性の両立で運用する最適化を整理します。
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+
+      <div class="eyebrow">メモリが先に尽きる</div>
+      <div class="title">KVキャッシュが <em>ボトルネック</em></div>
+      <div class="lead">
+        長文脈では生成中に保持されるKVキャッシュ（AttentionのKey/Value）が急増し、計算より先にGPUメモリが尽きます。さらに複数リクエスト同時実行では、共有キャッシュの「取り違え」が誤応答リスクになります。
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="k">現象</div>
+          <p class="v">長文 → KVが肥大化</p>
+          <div class="jp">長い入力ほど保存領域が増える</div>
+        </div>
+        <div class="card">
+          <div class="k">運用課題</div>
+          <p class="v">同時性↑ → 安全性↓</p>
+          <div class="jp">共有領域の参照ミスを防ぐ必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="top">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+
+      <div class="eyebrow">読み込みと生成は別物</div>
+      <div class="title"><em>prefill</em> と <em>decode</em></div>
+      <div class="lead">
+        推論は「prefill（文脈を読み込む）」と「decode（1トークンずつ生成）」に分かれ、律速（計算/メモリ）も最適化方針も変わります。そこで、KVキャッシュと重みの圧縮を段階ごとに使い分けます。
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="k">prefill（入力処理）</div>
+          <p class="v">計算支配になりやすい</p>
+          <div class="jp">重み展開コストが目立つ</div>
+        </div>
+        <div class="card">
+          <div class="k">decode（生成）</div>
+          <p class="v">メモリ帯域が律速</p>
+          <div class="jp">ストリーミングが効く</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+
+      <div class="eyebrow">三つの最適化を重ねる</div>
+      <div class="title">KV + 重み + 安全策</div>
+      <div class="lead">
+        この記事の核は、(1) KVキャッシュ量子化、(2) 重み圧縮、(3) 共有キャッシュの整合性チェックを重ねて、性能・コスト・誤応答防止を同時に狙う点です。
+      </div>
+
+      <div class="grid three">
+        <div class="card">
+          <div class="k">KV量子化</div>
+          <p class="v">BF16 → FP8（e4m3）</p>
+          <div class="jp">保持長と同時性を増やす</div>
+        </div>
+        <div class="card">
+          <div class="k">重み圧縮</div>
+          <p class="v">FP8 → INT4（例：GLM）</p>
+          <div class="jp">GPUメモリをKVへ回す</div>
+        </div>
+        <div class="card">
+          <div class="k">安全性</div>
+          <p class="v">KV整合性チェック</p>
+          <div class="jp">取り違えで中断/回避</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="evidence">
+      <div class="top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+
+      <div class="eyebrow">FP8でKVが小さくなる</div>
+      <div class="title">Kimi K2.6：保持長が <em>倍</em></div>
+      <div class="lead">
+        KVキャッシュをBF16からFP8（e4m3）へ量子化するとキャッシュサイズが半減し、保持可能トークン数が約686,000→約1.37Mへ増えるとしています。価値は「計算が速い」だけでなく、メモリ制約まで同時処理できる点です。
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="k">量子化</div>
+          <p class="v">BF16 → FP8（e4m3）</p>
+          <div class="jp">KV保存領域の削減</div>
+        </div>
+        <div class="card">
+          <div class="k">効果（例）</div>
+          <p class="v">686,000 → 1.37M tokens</p>
+          <div class="jp">Kimi K2.6の主張値</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="comparison">
+      <div class="top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+
+      <div class="eyebrow">速さはトレードオフで決まる</div>
+      <div class="title">FP8：少し処理増でも <em>勝つ</em></div>
+      <div class="lead">
+        FP8注意カーネルでは読み出し時に変換が生じ、1トークン当たりの処理は増え得ます。ですがBF16は同時数でメモリ不足になりやすく、FP8はより高い同時性でも維持できるため、全体のスループットが伸びる構造です。
+      </div>
+
+      <div class="listgrid">
+        <div class="card">
+          <div class="mini">FP8のコスト</div>
+          <p class="numline">読み出し変換 → 多少の増加</p>
+        </div>
+        <div class="card">
+          <div class="mini">FP8の勝ち筋</div>
+          <p class="numline">メモリ残量が勝つ → 同時性↑でも継続</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+
+      <div class="eyebrow">重みをINT4へ</div>
+      <div class="title">GLM 5.2：decodeに効く <em>理由</em></div>
+      <div class="lead">
+        GLM 5.2で重みをINT4に圧縮すると、チェックポイントサイズは705GB→421GB（約40%減）、8-wayテンソル並列で1GPUメモリ約88GB→52GBになり、KVキャッシュ増の余地が生まれるとしています。decodeは重みをGPUメモリからストリーミングしやすく、データ量減が生成速度に効きやすい、という設計意図です。
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="k">モデルサイズ</div>
+          <p class="v">705GB → 421GB（約40%）</p>
+          <div class="jp">FP8→INT4（主張）</div>
+        </div>
+        <div class="card">
+          <div class="k">1GPUメモリ</div>
+          <p class="v">88GB → 52GB</p>
+          <div class="jp">KVへ空き領域を確保</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+
+      <div class="eyebrow">decode / prefillで精度を変える</div>
+      <div class="title">INT4をdecode、FP8をprefillへ</div>
+      <div class="lead">
+        この記事では、decodeはINT4（重み圧縮）を採用し、prefillはFP8を有利に設計すると述べています。prefillは計算支配で、INT4展開コストが相対的に不利になり得るためです。
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="k">decode（生成）</div>
+          <p class="v">重み：INT4</p>
+          <div class="jp">帯域支配に効きやすい</div>
+        </div>
+        <div class="card">
+          <div class="k">prefill（文脈）</div>
+          <p class="v">重み：FP8</p>
+          <div class="jp">展開コストを抑える方針</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="process">
+      <div class="top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+
+      <div class="eyebrow">共有KVで取り違えを想定</div>
+      <div class="title">整合性チェックで <em>安全に中断</em></div>
+      <div class="lead">
+        多数リクエストが同じKVキャッシュ領域を読書きするため、稀な不整合が誤応答になり得ます。そこで各ページに変化するタグを持たせ、リクエストが期待するページとタグの対応を検証し、不一致なら当該リクエストを中断します。
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="k">仕組み</div>
+          <p class="v">ページタグ + 検証</p>
+          <div class="jp">期待値と一致するか確認</div>
+        </div>
+        <div class="card">
+          <div class="k">挙動</div>
+          <p class="v">不一致 → 中断/回避</p>
+          <div class="jp">誤応答を抑える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="evidence">
+      <div class="top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+
+      <div class="eyebrow">コストはp95で小さく</div>
+      <div class="title">整合性チェック：影響 <em>~1%</em></div>
+      <div class="lead">
+        コスト評価として、p95レイテンシとスループットへの影響が概ね1%未満という数値を提示しています。精度と安全性を落とさず、運用可能な範囲に収める狙いです。
+      </div>
+
+      <div class="grid three">
+        <div class="card">
+          <div class="k">対象</div>
+          <p class="v">p95レイテンシ</p>
+        </div>
+        <div class="card">
+          <div class="k">対象</div>
+          <p class="v">スループット</p>
+        </div>
+        <div class="card">
+          <div class="k">主張</div>
+          <p class="v">影響：1%未満</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="distinction">
+      <div class="top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+
+      <div class="eyebrow">精度・速度・前提の読み方</div>
+      <div class="title">“必ず速い”ではなく <em>運用領域</em> で勝つ</div>
+      <div class="lead">
+        主張の中心は「量子化/圧縮＝常に高速」ではなく、同時性やメモリ制約を含む条件でスループットが伸びることです。FP8の精度差は、評価スイートでは区別できないとされますが、ベンチ外や極端条件での頑健性は本文抜粋だけでは断定できません。
+      </div>
+
+      <div class="listgrid">
+        <div class="card">
+          <div class="mini">速度の意味</div>
+          <p class="numline">“同時数で頭打ち”を回避して総量を押し上げる</p>
+        </div>
+        <div class="card">
+          <div class="mini">精度の意味</div>
+          <p class="numline">ベンチ上は差が小さいが、全タスク一般化は要確認</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="top">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+
+      <div class="eyebrow">まとめ：設計は測定で固める</div>
+      <div class="title"><em>KV</em> と <em>decode</em> を中心に再設計</div>
+
+      <div class="closing">
+        <div class="block">
+          <div class="lead">
+            優先すべきボトルネック（長文KV・decodeの帯域）に対して、FP8のKV量子化、INT4の重み圧縮、そして共有KVの整合性チェックを組み合わせることで、コスト・性能・精度・安全性を同時に成立させる道筋が示されています。
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <div class="k">要点i</div>
+              <p class="v">KV：BF16→FP8（保持長↑）</p>
+            </div>
+            <div class="card">
+              <div class="k">要点ii</div>
+              <p class="v">重み：decodeはINT4、prefillはFP8</p>
+            </div>
+          </div>
+          <div class="grid two" style="margin-top:12px;">
+            <div class="card">
+              <div class="k">要点iii</div>
+              <p class="v">安全：KV整合性チェック（中断/回避）</p>
+            </div>
+            <div class="card">
+              <div class="k">実務メッセージ</div>
+              <p class="v">同時性とメモリ制約で再評価する</p>
+            </div>
+          </div>
+          <div class="muted" style="margin-top:14px;">
+            Bilingual terms（用語）: KVキャッシュ <span style="color:var(--ink-2);">KV cache</span>（注意の保存領域） / 量子化 <span style="color:var(--ink-2);">quantization</span>（表現を低精度化） / 整合性チェック <span style="color:var(--ink-2);">integrity check</span>（不一致検出）
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
