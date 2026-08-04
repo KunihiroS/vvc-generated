@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AirLLM：低メモリで巨大LLMを動かす</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP","Cormorant Garamond", Georgia, serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      position: relative;
+      border: 1px solid rgba(240,232,216,0.06);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 14px;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius: 10px;
+    }
+    .tag{
+      position:absolute; top:22px; left:22px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-left: 0;
+    }
+    .tag::before{
+      content:"";
+      position:absolute;
+      left:-14px; top: 50%;
+      transform: translateY(-50%);
+      width: 10px; height: 1px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.0);
+    }
+    .slide-num{
+      position:absolute; top:22px; right:26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      font-size: 22px;
+    }
+    .content{
+      position:relative;
+      width:100%;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 6px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 1.0;
+      margin-top: -6px;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 600;
+    }
+    .lead{
+      font-family: "Noto Serif JP","Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      color: var(--ink);
+      line-height: 1.45;
+      margin-top: 4px;
+    }
+    .grid{
+      margin-top: 8px;
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      color: var(--ink-3);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+    .mini{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .divider{
+      height: 1px;
+      background: var(--rule);
+      margin: 8px 0 2px;
+      width: 100%;
+    }
+    .note{
+      border-left: 3px solid rgba(232,129,74,0.9);
+      padding-left: 14px;
+      margin-top: 10px;
+      max-width: 760px;
+    }
+    .note .small{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+    .heroCenter{
+      margin-top: 18px;
+      display:flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .centerBlock{
+      position:absolute;
+      left: 72px; right: 72px; top: 140px;
+      display:flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .wideHeroTitle{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 92px;
+      line-height: 0.98;
+      margin:0;
+      font-weight: 500;
+    }
+    .wideHeroTitle em{ color: var(--rust); font-style: italic; }
+    .heroSub{
+      font-family: "Noto Serif JP", serif;
+      font-size: 26px;
+      font-weight: 300;
+      max-width: 860px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 38px 22px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .wideHeroTitle{ font-size: 54px; }
+      .heroSub{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide">
+      <div class="tag">COVER</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="content">
+        <div class="centerBlock">
+          <div class="wideHeroTitle">AirLLM—<em>低メモリ</em>で巨大LLMを動かす</div>
+          <div class="heroSub">層（layer）を最小限だけGPUへ載せ替える発想と、compression（モデル圧縮）で「VRAM不足」を越える仕組み。</div>
+          <div class="mini" style="margin-top:10px;">
+            読み物：README抜粋ベースの整理 / 推論中心（inference）<span style="opacity:.7">・</span>学習（training）は主題外
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide">
+      <div class="tag">PROBLEM</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="content">
+        <div class="eyebrow">LLMの壁</div>
+        <div class="title"><em>VRAM</em>問題</div>
+        <div class="lead">通常のLLMはモデル全体をGPUメモリへ載せがちで、大型化するほど必要VRAMが跳ね上がります。結果として高価なGPUや量子化・分割が前提になりやすいです。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">従来の詰まり</div>
+            <div class="v">モデル全体の常時保持 → VRAM容量がボトルネック</div>
+          </div>
+          <div class="cell">
+            <div class="k">現場の代替</div>
+            <div class="v">量子化（quantization）/ 圧縮 / 分割 / 高価GPU</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide">
+      <div class="tag">METAPHOR</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="content">
+        <div class="eyebrow">全部持たない</div>
+        <div class="title">AirLLMの<em>発想</em></div>
+        <div class="lead">AirLLMの主張は「GPUに常に必要な層だけを保持する」運用です。モデル全体を同時に載せないことで、必要VRAMを層サイズのスケールに寄せます。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Key idea</div>
+            <div class="v">常時保持するのは “必要最小限のlayer” のみ</div>
+          </div>
+          <div class="cell">
+            <div class="k">効果</div>
+            <div class="v">必要VRAMは “総サイズ” ではなく “層のサイズ” に依存</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="content">
+        <div class="eyebrow">層のストリーミング</div>
+        <div class="title">layer-by-layer</div>
+        <div class="lead">推論時にモデルを層（layer）単位で分解し、必要に応じて保存（キャッシュ）からロードします。ここでGPUは“計算”に必要な分だけ持ち、残りはディスクへ逃がします。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">モデル分解（分割）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">layerの保存 / キャッシュ</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">必要層だけ逐次ロード</div>
+          </div>
+        </div>
+        <div class="note">
+          <div class="small">VRAMが減る代償として、ロード元（Hugging Faceキャッシュ / ディスク）の容量・I/Oが効きやすいです。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="content">
+        <div class="eyebrow">大きいほど有利？</div>
+        <div class="title">70B級・<em>4GB</em></div>
+        <div class="lead">README抜粋では、70B級モデルでも4GB GPU単体で動かせる方向性が示されています。さらにMoEでは、ルーティングされたエキスパートだけを逐次ロードして、より少ないVRAMを狙えると説明されています。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">主張例</div>
+            <div class="v">70B級 → 4GB GPU単体で推論を狙う</div>
+          </div>
+          <div class="cell">
+            <div class="k">MoE（Sparse MoE）</div>
+            <div class="v">必要エキスパートのみロード（逐次）→ VRAM節約</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide">
+      <div class="tag">COMPRESSION</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="content">
+        <div class="eyebrow">速くする手</div>
+        <div class="title">compression</div>
+        <div class="lead">速度改善オプションとして、block-wise量子化ベースの圧縮（compression）を指定できます。最大で約3倍の推論速度向上を狙えると記載があります。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">compressionの狙い</div>
+            <div class="v">主にディスクロードのボトルネックを緩和</div>
+          </div>
+          <div class="cell">
+            <div class="k">期待値</div>
+            <div class="v">最大 “約3倍” の速度向上</div>
+          </div>
+        </div>
+        <div class="note">
+          <div class="small">一般的量子化と異なり、活性化まで含む前提ではなく「ロードサイズを小さくして精度劣化を抑える」立て付けです。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide">
+      <div class="tag">DISTINCTION</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="content">
+        <div class="eyebrow">量子化じゃない</div>
+        <div class="title">quantizationと<em>別物</em></div>
+        <div class="lead">AirLLMのcompressionは「モデル圧縮」として位置づけられ、通常のquantization（重み＋活性化の量子化で速度化）とは違うと説明されています。少なくともREADME抜粋の範囲では、ディスクロード削減が主目的です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">一般的 quantization（量子化）</div>
+            <div class="v">重み＋活性化も量子化 → 推論高速化</div>
+          </div>
+          <div class="cell">
+            <div class="k">AirLLM compression（圧縮）</div>
+            <div class="v">ロードサイズ削減（block-wise）→ I/Oボトルネック緩和</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="content">
+        <div class="eyebrow">ディスクが鍵</div>
+        <div class="title">cache容量</div>
+        <div class="lead">AirLLMは推論前に層分解し、キャッシュへ保存するため、ディスク容量が実質的なボトルネックになります。FAQでは、safetensors_rustのMetadataIncompleteBufferの原因としてディスク不足が挙げられています。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">何が増える？</div>
+            <div class="v">layer-wise保存（Hugging Faceキャッシュ等）</div>
+          </div>
+          <div class="cell">
+            <div class="k">起きがちな失敗</div>
+            <div class="v">ディスク不足 → safetensors_rust MetadataIncompleteBuffer</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide">
+      <div class="tag">PROCESS</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="content">
+        <div class="eyebrow">使い方の筋道</div>
+        <div class="title">Quickstartの核</div>
+        <div class="lead">実装は「Hugging Faceのrepo ID（またはローカルパス）」を渡すだけで開始できる設計だとされています。さらにAutoModelがモデル種別を自動検出して、適切なクラス運用を助けます。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">入力</div>
+            <div class="v">Hugging Face repo ID（またはローカルパス）</div>
+          </div>
+          <div class="cell">
+            <div class="k">補助</div>
+            <div class="v">AutoModelでモデル種別を自動検出</div>
+          </div>
+        </div>
+        <div class="note">
+          <div class="small">推論例は generate（テキスト生成）を用いる、とREADME抜粋では読み取れます（trainingは主題外）。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide">
+      <div class="tag">DISTINCTION</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="content">
+        <div class="eyebrow">環境依存の罠</div>
+        <div class="title">CUDA/flash-attn</div>
+        <div class="lead">対応は広い一方で、環境依存（CUDA/transformers/flash-attn等）や正しい初期化が重要です。README抜粋では、Kimi K3対応の条件（transformers 4.56.x、CUDA 12ビルド、flash-attn等）が細かく要求されるとされています。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">前提1</div>
+            <div class="v">transformers 4.56.x</div>
+          </div>
+          <div class="cell">
+            <div class="k">前提2</div>
+            <div class="v">CUDA 12ビルド</div>
+          </div>
+          <div class="cell">
+            <div class="k">前提3</div>
+            <div class="v">flash-attn / 構成</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide">
+      <div class="tag">COMPARISON</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="content">
+        <div class="eyebrow">よくある詰まり</div>
+        <div class="title">FAQで学ぶ</div>
+        <div class="lead">README抜粋のFAQでは、ディスク・モデルクラス・gatedモデル・トークンが典型原因として挙げられています。自分の環境のどこがズレているかを素早く切り分けできます。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">ディスク</div>
+            <div class="v">MetadataIncompleteBuffer：ディスク不足が有力</div>
+          </div>
+          <div class="cell">
+            <div class="k">モデルクラス</div>
+            <div class="v">Qwen/ChatGLMでmax()空配列：AutoModel推奨</div>
+          </div>
+          <div class="cell">
+            <div class="k">gatedモデル</div>
+            <div class="v">401 Client Error：hf_token指定でダウンロード</div>
+          </div>
+          <div class="cell">
+            <div class="k">MacOS</div>
+            <div class="v">可能と記載：mlx と torch（Apple silicon前提）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide">
+      <div class="tag">CLOSING</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="content">
+        <div class="eyebrow">結論</div>
+        <div class="title"><em>VRAM</em>だけ見ない</div>
+        <div class="lead">AirLLMは「層ストリーミング」で低VRAM実行の道を広げますが、成功にはディスク容量と環境依存（CUDA/flash-attn等）の管理が欠かせません。評価（compressionの品質劣化）も含め、ワークロードでの確認が現実的です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">メリット</div>
+            <div class="v">低価格GPUでも巨大LLMに到達しやすい / AutoModelで導入が速い</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意点</div>
+            <div class="v">ディスクI/O・キャッシュ容量・依存ライブラリの整合がボトルネック</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="mini">用語（EN + JP）：layer（層）/ inference（推論）/ compression（圧縮）/ quantization（量子化）/ cache（キャッシュ）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
