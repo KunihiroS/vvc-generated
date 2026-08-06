@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DeltaDB：コミットから会話へ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.4;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 20px 0 60px;
+      display: block;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 18px auto;
+      position: relative;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+
+    .topbar{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 14px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-2);
+      white-space: nowrap;
+      margin-top: -6px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      margin: 6px 0 10px;
+      position: relative;
+      z-index: 1;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+      margin-top: 6px;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+      width: 100%;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 22px;
+      margin-top: 12px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 12px;
+    }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      border-radius: 10px;
+      padding: 14px 14px;
+      min-height: 70px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .text{
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    table{
+      width:100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    td, th{
+      border: 1px solid var(--rule);
+      padding: 10px 12px;
+      vertical-align: top;
+    }
+    th{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 500;
+      width: 28%;
+    }
+    td{
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    .roman{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .ref-list{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: rgba(240,232,216,0.03);
+    }
+    .ref-title{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .ref-body{
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    .jp{
+      color: var(--ink-2);
+      font-size: 18px;
+      margin-top: 6px;
+      font-weight: 300;
+    }
+
+    .centerHero{
+      position: relative;
+      z-index: 1;
+      display:flex;
+      flex-direction: column;
+      justify-content:center;
+      align-items:flex-start;
+      gap: 10px;
+      flex: 1;
+      max-width: 820px;
+    }
+
+    /* Responsive */
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; }
+      .slide:before{ inset: 14px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .card .text{ font-size: 16px; }
+      td{ font-size: 16px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover">
+      <div class="topbar">
+        <div class="slide-tag">DeltaDB</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="centerHero">
+        <div class="eyebrow">会話で作る履歴</div>
+        <div class="title"><em>Commit</em>から<em>Conversation</em>へ</div>
+        <div class="lead">Zedが構想する新しいバージョン管理基盤「DeltaDB」は、ソフトウェア開発を“コミット単位”ではなく“会話と編集の連続”として扱います。</div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">議論が後でズレる</div>
+      <div class="title"><em>Git</em>の限界</div>
+      <div class="lead">Gitは基本的に「コミット＝スナップショット」で履歴を結びます。ところが、重要な会話は“実装の途中”に起き、コードとして語れる状態になるのは後になりやすい。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">発生タイミング</div>
+            <div class="text">会話：作業中（進行中）<div class="jp">会話が先 / 編集が途中</div></div>
+          </div>
+          <div class="card">
+            <div class="label">接続のズレ</div>
+            <div class="text">コード：後で（コミット/PR後）<div class="jp">会話と実装がドリフト</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="metaphor">
+      <div class="topbar">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">地点ではなく軌跡</div>
+      <div class="title">履歴は<em>軌跡</em></div>
+      <div class="lead">コミットは点です。しかしDeltaDBが扱いたいのは、点を結ぶ線——会話と編集が同じ“参照軸”で連続する軌跡です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Gitの見え方</div>
+            <div class="text">点：コミットごと<div class="jp">差分は参照されるが連続性が弱い</div></div>
+          </div>
+          <div class="card">
+            <div class="label">DeltaDBの見え方</div>
+            <div class="text">線：操作（デルタ）単位<div class="jp">会話→編集の流れを保持</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="topbar">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">DeltaIDが軸になる</div>
+      <div class="title">デルタDB</div>
+      <div class="lead">DeltaDBでは、作業の“間”に起きるあらゆる操作を細粒度のデルタとして記録し、各デルタに安定したIDを与えます。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">単位</div>
+            <div class="text">操作（デルタ）</div>
+          </div>
+          <div class="card">
+            <div class="label">参照ID</div>
+            <div class="text"><span class="mono">DeltaID</span></div>
+          </div>
+          <div class="card">
+            <div class="label">目的</div>
+            <div class="text">会話↔コード整合</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">双方向に辿れる</div>
+      <div class="title">トレーサビリティ</div>
+      <div class="lead">デルタIDにアンカーできるため、過去の会話のどの行からでも当時のコードへジャンプでき、逆に現行コードから“それを生んだ会話”へ辿れます。</div>
+      <div class="content">
+        <table aria-label="bidirectional tracing">
+          <tr>
+            <th>会話 → コード</th>
+            <td>会話（いつ・どこ）から、その時点のコードへジャンプ</td>
+          </tr>
+          <tr>
+            <th>コード → 会話</th>
+            <td>現行の変更点から、「触れた会話／関与したエージェント」へ追跡</td>
+          </tr>
+        </table>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="topbar">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">ドリフトを抑える</div>
+      <div class="title">会話×編集を同時記録</div>
+      <div class="lead">メッセージ（会話）と編集結果を並行して保存し、後付けの議論や“ズレ”が生まれる余地を減らす設計思想です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Git的な運用</div>
+            <div class="text">会話：後から紐づけ<div class="jp">PR/コメント接続が遅れやすい</div></div>
+          </div>
+          <div class="card">
+            <div class="label">DeltaDBの狙い</div>
+            <div class="text">会話と編集：同じ文脈で参照<div class="jp">最初から対応関係を保持</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="topbar">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">待たない参加</div>
+      <div class="title">フロー中心</div>
+      <div class="lead">pull requestやpush待ちで議論を再接続するのではなく、作業中に参加し、その場で必要な注釈を行えることを目指します。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label"><span class="roman">i</span> 発生</div>
+            <div class="text">編集が進む</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="roman">ii</span> 会話</div>
+            <div class="text">参加して意図を補足</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="roman">iii</span> 接続</div>
+            <div class="text">会話↔デルタが同軸に</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="topbar">
+        <div class="slide-tag">Key</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">協働を前提に設計</div>
+      <div class="title">AI時代の必須条件</div>
+      <div class="lead">人間に加えてAIエージェントが継続的に編集するなら、編集の連続性と意図の追跡がより重要になります。DeltaDBはこの前提で整合を作り込みます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label"><span class="roman">i</span> 同時編集</div>
+            <div class="text">複数人・複数エージェントが同じファイルを編集</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="roman">ii</span> 参照の一貫性</div>
+            <div class="text">編集が変化しても会話の対応が崩れにくい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="topbar">
+        <div class="slide-tag">Concurrency</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">衝突を“扱える”形に</div>
+      <div class="title">コンフリクトフリー</div>
+      <div class="lead">DeltaDBは「コンフリクトフリー・レプリケートされたワークツリー」を組み込み、分散環境でも同時編集と参照の整合を狙います。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">狙い</div>
+            <div class="text">会話と編集の乖離を減らす</div>
+            <div class="jp">ズレが“履歴の都合”で増えないこと</div>
+          </div>
+          <div class="card">
+            <div class="label">含意</div>
+            <div class="text">合成（整合）をワークツリー側で吸収</div>
+            <div class="jp">衝突解決を開発者の儀式にしない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="topbar">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">中心座標が移る</div>
+      <div class="title">Git vs DeltaDB</div>
+      <div class="lead">DeltaDBは、共同作業の中心を「コミット経由」から「会話と編集を同一の参照軸で扱う」方向へ移します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Git（従来）</div>
+            <div class="text">履歴：コミット（スナップショット）</div>
+            <div class="jp">参照：コミットや差分に依存</div>
+          </div>
+          <div class="card">
+            <div class="label">DeltaDB（構想）</div>
+            <div class="text">履歴：操作（デルタ）＋DeltaID</div>
+            <div class="jp">会話：同軸で追跡可能</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="topbar">
+        <div class="slide-tag">Caveats</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">期待と未確証</div>
+      <div class="title">評価ポイント</div>
+      <div class="lead">記事の思想は筋が良い一方で、本文だけでは実装の具体・検証結果が不足しています。特に運用（性能、セキュリティ、監査、承認）での限界が鍵です。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">実務</div>
+            <div class="text">移行コスト・運用再設計</div>
+          </div>
+          <div class="card">
+            <div class="label">技術</div>
+            <div class="text">デルタ粒度/性能/ストレージ</div>
+          </div>
+          <div class="card">
+            <div class="label">ガバナンス</div>
+            <div class="text">承認・監査・責任分界</div>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:14px;">
+          <div class="card">
+            <div class="label">セキュリティ</div>
+            <div class="text">会話データの機密情報混入</div>
+            <div class="jp">アクセス制御・ログ保持が未提示</div>
+          </div>
+          <div class="card">
+            <div class="label">倫理/品質</div>
+            <div class="text">エージェント発話の誤りの扱い</div>
+            <div class="jp">誤った理由として誤用しない設計が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="closing">
+      <div class="topbar">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">結論：会話が座標になる</div>
+      <div class="title"><em>ベータ</em>を待つ</div>
+      <div class="lead">DeltaDBは「コミットを介した共同作業」から「会話と編集を同一の参照軸で扱う共同作業」への移行を狙うバージョン管理基盤です。短期的にはベータ提供と早期利用が計画されています。</div>
+      <div class="content">
+        <div class="ref-list" aria-label="summary">
+          <div class="ref-item">
+            <div class="ref-title">One message</div>
+            <div class="ref-body">DeltaDB＝デルタで会話と編集を同時に結び、AI時代の“連続性”と“意図追跡”を成立させる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://shapeof.com/archives/2025/8/deltadb_from_zed.html" target="_blank" rel="noreferrer noopener">DeltaDB From Zed (the Code Editor) - Gus Mueller</a></h2>
+<p class="reference-note">&gt; Our vision is turn your IDE into a collaborative workspace where humans and AI agents work together across a range of …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://zed.dev/blog/sequoia-backs-zed" target="_blank" rel="noreferrer noopener">Sequoia Backs Zed&#39;s Vision for Collaborative Coding — Zed&#39;s Blog</a></h2>
+<p class="reference-note">DeltaDB uses CRDTs to incrementally record and synchronize changes as they happen. It&#39;s designed to interoperate with Gi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.techtimes.com/articles/318322/20260613/zed-opens-deltadb-waitlist-crdt-version-control-records-every-edit-not-just-commits.htm" target="_blank" rel="noreferrer noopener">Zed Opens DeltaDB Waitlist: CRDT Version Control Records Every Edit, ...</a></h2>
+<p class="reference-note">DeltaDB is a version control system from Zed Industries that stores code history as a stream of fine-grained edit operat…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://zed.dev/blog/introducing-deltadb" target="_blank" rel="noreferrer noopener">Software Is Made Between Commits — Zed&#39;s Blog</a></h2>
+<p class="reference-note">DeltaDB breaks your work into a stream of fine-grained deltas. Where Git captures a snapshot at each commit, DeltaDB cap…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/michaelfreedman/status/1958621426178826557" target="_blank" rel="noreferrer noopener">Mike Freedman on X: &quot;Intrigued by @zeddotdev&#39;s announcement of DeltaDB, which mentions using CRDTs to synchronize code changes. The details are thin, but it touches on a deep and fascinating frontier.
+
+For decades we’ve searched for better ways to manage concurrency.
+
+— Databases solved it with&quot; / X</a></h2>
+<p class="reference-note">into an agent loop that compiles, runs tests, reasons about correctness, and repairs what’s broken. I don’t know if that…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
