@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>LLMエージェントのキャッシュkeepalive最適化</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--paper);
+      border: 20px solid transparent;
+      outline: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+    }
+
+    /* required: inset 20px border in --rule */
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 1px;
+    }
+
+    .topline {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 4px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-size: 18px;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 26px;
+      height: 0;
+      border-top: 2px solid var(--rust);
+      transform: translateY(-4px);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      position: relative;
+      z-index: 1;
+      line-height: 1.15;
+      margin-top: -2px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0;
+      position: relative;
+      z-index: 1;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.5;
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+      margin-top: 0;
+      color: var(--ink);
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule);
+      position: relative;
+      z-index: 1;
+      margin: 6px 0 0;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 12px 14px;
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      margin-top: 6px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--ink-3);
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 20px;
+      line-height: 1.35;
+      margin-top: 6px;
+      color: var(--ink);
+    }
+    .cell .v small{
+      color: var(--ink-3);
+      font-size: 16px;
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .note{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 20px;
+      line-height: 1.6;
+      color: var(--ink-2);
+      position: relative;
+      z-index: 1;
+      max-width: 980px;
+    }
+
+    .refs{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 20px;
+      line-height: 1.6;
+      color: var(--ink);
+      margin-top: 6px;
+      position: relative;
+      z-index: 1;
+    }
+    .ref-item{
+      padding: 10px 0;
+      border-top: 1px solid var(--rule);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      letter-spacing: 0.01em;
+    }
+
+    .center-hero{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:flex-start;
+      flex: 1 1 auto;
+      gap: 14px;
+    }
+    .center-hero .lead{ max-width: 920px; }
+    .closing-center{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:flex-start;
+      flex: 1 1 auto;
+      gap: 14px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" data-slide="1">
+      <div class="topline">
+        <div class="slide-tag">キャッシュ keepalive</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="center-hero">
+        <div class="eyebrow">慣習が高くつく</div>
+        <h1 class="title">最適は <em>提供者</em>ごと</h1>
+        <p class="lead">LLMエージェントのプロンプトキャッシュは、TTL（有効期限）とping（keepalive）コストの釣り合いで得にも損にもなります。</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" data-slide="2">
+      <div class="topline">
+        <div class="slide-tag">問題</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="eyebrow">30秒の“常識”</div>
+      <h2 class="title">30秒 ping</h2>
+      <p class="lead">待機（アイドル）中に一定間隔で問い合わせして、キャッシュを暖め続ける運用が広まっています。  
+しかしその間隔が短すぎると、節約のつもりが過払いになります。</p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">狙い（目的）</div>
+          <div class="v">warm率を維持（暖機）<small>warm rate</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">副作用（費用）</div>
+          <div class="v">pingごとに読み出しコスト<small>+再プリフィル誘発</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" data-slide="3">
+      <div class="topline">
+        <div class="slide-tag">前提</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="eyebrow">TTLが境界線</div>
+      <h2 class="title">死ぬと再計算</h2>
+      <p class="lead">プロンプトキャッシュはTTL（time-to-live：有効期限）があり、時間が経つと再利用できなくなります。  
+エージェントは「考える→行動→待つ→再問い合わせ」になりやすく、待機がTTLをまたぎやすいです。</p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">before TTL</div>
+          <div class="v">warm継続で削減</div>
+        </div>
+        <div class="cell">
+          <div class="k">at TTL</div>
+          <div class="v">勝負の分岐点</div>
+        </div>
+        <div class="cell">
+          <div class="k">after TTL</div>
+          <div class="v">再プリフィル（満額）に寄る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" data-slide="4">
+      <div class="topline">
+        <div class="slide-tag">核心</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="eyebrow">損益分岐が答え</div>
+      <h2 class="title">paying band</h2>
+      <p class="lead">keepaliveが得になるのは、「キャッシュが死ぬ前」かつ「pingが再プリフィル回避の価値を超えない」待機時間帯だけです。  
+その帯を著者はpaying band（支払う価値のある帯）と呼びます。</p>
+      <div class="rule"></div>
+      <div class="note">
+        pingはwarm率を上げますが、同時にコストも増えます。  
+つまり“暖めるほど得”ではなく、“正しい範囲だけ得”です。
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" data-slide="5">
+      <div class="topline">
+        <div class="slide-tag">結果</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="eyebrow">提供者ごとに最適が違う</div>
+      <h2 class="title">最適間隔</h2>
+      <p class="lead">測定の結論は、最適なping間隔がプロバイダごとに異なることです。  
+そのため「全員30秒」は少なくとも一部で過払いになりやすいです。</p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Anthropic</div>
+          <div class="v">最適は約4分<small>(TTL公称5分ベース)</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">OpenAI</div>
+          <div class="v">最適は約8分<small>(4分より遅めが得)</small></div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-top:12px;">
+        <div class="cell">
+          <div class="k">DeepSeek / Gemini</div>
+          <div class="v">コスト削減は成立しにくい<small>遅延目的なら別</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">警告</div>
+          <div class="v">一律設計はズレる<small>（最適が分岐）</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" data-slide="6">
+      <div class="topline">
+        <div class="slide-tag">定義</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="eyebrow">keepaliveの3つの費目</div>
+      <h2 class="title">何を比べるか</h2>
+      <p class="lead">keepaliveの経済性は、(1)warm維持（warm率）(2)pingによる再読み出しコスト (3)キャッシュ死後の再プリフィル費用を比較して決まります。</p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">(1) warm率</div>
+          <div class="v">維持できる割合</div>
+        </div>
+        <div class="cell">
+          <div class="k">(2) pingコスト</div>
+          <div class="v">再読み出しのたび課金</div>
+        </div>
+        <div class="cell">
+          <div class="k">(3) 再プリフィル</div>
+          <div class="v">死んだ後は満額寄り</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" data-slide="7">
+      <div class="topline">
+        <div class="slide-tag">警告</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="eyebrow">TTL超過は“毒”</div>
+      <h2 class="title">toxic ping</h2>
+      <p class="lead">TTLを超えた死んだキャッシュ前提でpingを続けると、再投入（re-prefill）を誘発し、節約のつもりが満額課金を招きます。  
+つまり単なる無駄ではなく、損失を増幅し得ます。</p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">悪化メカニズム</div>
+          <div class="v">死後の“暖め直し”が発生<small>再プリフィル</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">運用の教訓</div>
+          <div class="v">止めどころが重要<small>（境界を越えない）</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" data-slide="8">
+      <div class="topline">
+        <div class="slide-tag">比較</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="eyebrow">“30秒”は過払いに転びやすい</div>
+      <h2 class="title">待機が変わる</h2>
+      <p class="lead">著者の測定では、30秒運用はプロバイダや待機時間の条件によって、より適切な間隔（約4分/約8分）より高くつくことがあります。  
+特に待機が“支払う価値の帯”から外れると損になります。</p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">帯内（得）</div>
+          <div class="v">死ぬ前に更新できる</div>
+        </div>
+        <div class="cell">
+          <div class="k">帯外（損）</div>
+          <div class="v">pingの回数だけ増える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" data-slide="9">
+      <div class="topline">
+        <div class="slide-tag">実装指針</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="eyebrow">開始と停止を設計</div>
+      <h2 class="title">“いつもping”しない</h2>
+      <p class="lead">設計の要点は「開始する条件」と「止める条件」を分けることです。  
+最適間隔はプロバイダ依存で、TTL境界も越えない前提になります。</p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">開始</div>
+          <div class="v">待機がTTL近辺になりそう</div>
+        </div>
+        <div class="cell">
+          <div class="k">間隔</div>
+          <div class="v">提供者の最適値に合わせる</div>
+        </div>
+        <div class="cell">
+          <div class="k">停止</div>
+          <div class="v">“帯外”に入る前に止める</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" data-slide="10">
+      <div class="topline">
+        <div class="slide-tag">例外</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="eyebrow">コスト以外の用途もある</div>
+      <h2 class="title">遅延目的</h2>
+      <p class="lead">DeepSeek / Geminiでは、コスト削減としては成立しにくい可能性がある一方、初回トークン到達（レイテンシ）改善の目的では有効になり得ます。  
+つまり目的を分けて評価します。</p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Cost最適化</div>
+          <div class="v">成立しにくい</div>
+        </div>
+        <div class="cell">
+          <div class="k">Latency最適化</div>
+          <div class="v">目的によっては有効<small>体感重視</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" data-slide="11">
+      <div class="topline">
+        <div class="slide-tag">限界</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="eyebrow">再計算が必要になる</div>
+      <h2 class="title">固定しない</h2>
+      <p class="lead">料金体系・TTL実効性・モデルや実装の変更・prefix長や待機パターンの違いで、break-even（損益分岐）や最適間隔は変わり得ます。  
+そのため、設定を“永続固定”せず再評価が安全です。</p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">変わる要素</div>
+          <div class="v">価格/仕様/保持挙動/prefix長</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用の安全策</div>
+          <div class="v">監視 + 自環境で検証前提</div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:12px;">
+        まずは平均待機時間（ツール実行・人間承認など）とプロバイダを前提に、本文のpaying bandに沿って間隔を再推定するのが近道です。
+      </div>
+    </section>
+
+    <!-- 12 References -->
+    <section class="slide" data-slide="12">
+      <div class="topline">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="eyebrow">出典・追試の入口</div>
+      <h2 class="title"><em>自己検証</em>が鍵</h2>
+      <p class="lead">以下は本要約の情報源として想定される種類の参照先です（プロンプトキャッシュの仕様・料金・TTL・保持挙動・計測結果）。</p>
+      <div class="rule"></div>
+      <div class="refs">
+        <div class="ref-item">
+          <div><span class="mono">Anthropic</span> prompt caching / TTL / pricing（キャッシュ仕様と課金）</div>
+        </div>
+        <div class="ref-item">
+          <div><span class="mono">OpenAI</span> prompt caching / TTL / pricing（キャッシュ仕様と課金）</div>
+        </div>
+        <div class="ref-item">
+          <div><span class="mono">Google Gemini</span> caching / TTL / pricing（保持と読み出し単価の前提）</div>
+        </div>
+        <div class="ref-item">
+          <div><span class="mono">DeepSeek</span> caching / TTL / pricing（再プリフィルが相対的に安いか等）</div>
+        </div>
+        <div class="ref-item">
+          <div>複数プロバイダでの keepalive 計測（warm率・pingコスト・再プリフィル費用の比較）</div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:12px; max-width: 980px;">
+        実運用では、本文で使われたprefix長（例：100k）や待機パターン、料金前提が自環境と一致するかを確認してください。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
