@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM脆弱性パッチの安全性検証：FLAWEDとは何か</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      letter-spacing: 0.01em;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 0 0 64px;
+      display: block;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--cream);
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      margin: 24px 0 0;
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:first-child{ margin-top: 0; }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 24px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", serif;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 24px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 18px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px;
+      letter-spacing: 0.01em;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+      margin: 0 0 18px;
+      font-size: 74px;
+      line-height: 1.05;
+      letter-spacing: 0.01em;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--rust);
+      font-size: 74px;
+      margin: 0 0 18px;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.55;
+      margin-top: 0;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 22px;
+      width: 100%;
+      max-width: 860px;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px 16px;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+    }
+    .cell-h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", serif;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      font-weight: 600;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .cell-b{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+
+    .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .refs-list{
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 12px;
+    }
+    .refs-list li{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(240,232,216,0.02);
+      color: var(--ink-2);
+      font-size: 16px;
+      line-height: 1.45;
+    }
+    a{ color: var(--ink); text-decoration: none; border-bottom: 1px solid rgba(240,232,216,0.25); }
+    a:hover{ border-bottom-color: var(--rust); }
+
+    @media (max-width: 720px){
+      .slide{ padding: 46px 22px; border-radius: 12px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 54px; }
+      .title.jp{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ left: 16px; }
+      .slide-num{ right: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">02 / 14</div>
+      <p class="eyebrow">LLM修正は本当に安全？</p>
+      <h1 class="title">FLAWED</h1>
+      <p class="lead">LLMが脆弱性パッチを自動生成したとき、「直したように見えるが欠陥を含む」修正（FLAWED）がどれくらい起きるのかを、6つの複雑なCVEで検証した研究を整理します。</p>
+    </section>
+
+    <section class="slide" aria-label="Problem framing slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 14</div>
+      <p class="eyebrow">何を“安全”と呼ぶ？</p>
+      <h1 class="title">条件</h1>
+      <p class="lead">パッチは「脆弱性を消す」だけでは不十分で、<span class="em">意図した挙動を変えない</span>ことと、<span class="em">新しい欠陥を生まない</span>ことが必要です。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">必須 i</div>
+          <div class="cell-b">脆弱性が解消される（根本原因に対応）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">必須 ii</div>
+          <div class="cell-b">挙動変更が起きない（互換性・境界が維持）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">必須 iii</div>
+          <div class="cell-b">新規脆弱性を導入しない（副作用の回避）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">なぜ難しい？</div>
+          <div class="cell-b">複雑修正ほど、入力空間の漏れやロジック副作用が起きやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Metaphor slide">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 14</div>
+      <p class="eyebrow">“塞いだ”だけ？</p>
+      <h1 class="title">見かけ</h1>
+      <p class="lead">LLMの修正は、テストやPoCに対しては通っても、別の入力で同じ欠陥が再露出することがあります。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="cell-h">S1</div>
+          <div class="cell-b">脆弱性解消 × 挙動不変（理想）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">S2</div>
+          <div class="cell-b">脆弱性解消 × でも挙動変更（互換性問題）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">S3+</div>
+          <div class="cell-b">未解消／新規欠陥／両方（FLAWEDが混ざる領域）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 14</div>
+      <p class="eyebrow">検証の骨格</p>
+      <h1 class="title">評価</h1>
+      <p class="lead">研究では、最近公開された複雑脆弱性6件（合計6つのCVE/アドバイザリ）に対して、フロンティア級サイバー推論モデル2種類で合計6,080件のパッチを生成し分類します。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">入力</div>
+          <div class="cell-b">CVE（公表された脆弱性ID）/アドバイザリ × 6件</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">出力</div>
+          <div class="cell-b">生成パッチ 6,080件（モデル2種類）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">判定</div>
+          <div class="cell-b">挙動変更の有無、解消の成否、新規欠陥の混入</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">狙い</div>
+          <div class="cell-b">“速い生成”ではなく“採用して安全か”を測る</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">06 / 14</div>
+      <p class="eyebrow">成功率は低め</p>
+      <h1 class="title">26.0%</h1>
+      <p class="lead">平均すると、「脆弱性を完全に解消し、しかも挙動を実質的に変えない」パッチは<span class="em">26.0%</span>にとどまりました。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">成功（理想）</div>
+          <div class="cell-b"><span class="mono">26.0%</span>：解消 × 挙動不変</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">解消するが…</div>
+          <div class="cell-b"><span class="mono">20.1%</span>：解消 × 挙動変更</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence slide 2">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">07 / 14</div>
+      <p class="eyebrow">半数以上が危うい</p>
+      <h1 class="title">53.9%</h1>
+      <p class="lead">「未解消／新たな脆弱性を作る／両方」が<span class="em">53.9%</span>で、LLM修正は“期待通り”に機能しないケースが半数超でした。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="cell-h">分類 i</div>
+          <div class="cell-b">未解消（根本原因が残る）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">分類 ii</div>
+          <div class="cell-b">新規脆弱性（副作用で欠陥が増える）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">分類 iii</div>
+          <div class="cell-b">未解消 × 新規（両方起きる）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Distinction slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">08 / 14</div>
+      <p class="eyebrow">FLAWEDの典型</p>
+      <h1 class="title">対症療法</h1>
+      <p class="lead">根本原因に踏み込まず、入力の一部だけを“回避”する修正が混ざります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">例：SpringAI</div>
+          <div class="cell-b">モデルが頻繁に「危険文字のエスケープ」程度で終わる</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">リスク</div>
+          <div class="cell-b">特定PoC文字列はブロックされても、別入力で本質的欠陥が再露出し得る</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Comparison slide">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">09 / 14</div>
+      <p class="eyebrow">“修正”と“安全化”は別物</p>
+      <h1 class="title">断面</h1>
+      <p class="lead">LLM生成パッチは、表面上は正しく見えても、挙動変更や脆弱性温存（fragile）が起きるため、防御の目的に対して一致しないことがあります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">見かけOK</div>
+          <div class="cell-b">ビルド成功、簡易テスト通過、PoCに対して拒否</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">実態NG</div>
+          <div class="cell-b">挙動変更、未解消、別入力で再露出、新規欠陥の混入</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Process slide">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">10 / 14</div>
+      <p class="eyebrow">ボトルネックは検証</p>
+      <h1 class="title">検証</h1>
+      <p class="lead">生成は速くなっても、採用に必要な検証が追いつかないのが問題です。Anthropicからのフィードバックでも「レビュー（目視）ではなく実行ベースへ」が示されています。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="cell-h">問題</div>
+          <div class="cell-b">生成速度 &gt; 検証能力</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">方向性</div>
+          <div class="cell-b">実行に基づく“地に足のついた”検証</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">手段</div>
+          <div class="cell-b">テスト強化、AIハーネス、ガードレール 等</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Distinction slide 2">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">11 / 14</div>
+      <p class="eyebrow">運用面の副作用</p>
+      <h1 class="title">挙動変更</h1>
+      <p class="lead">挙動変更があると、セキュリティ境界だけでなく機能要件や互換性、利用者体験にも影響します。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">例</div>
+          <div class="cell-b">allow list を deny list に変えるなどのロジック変更</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">起きること</div>
+          <div class="cell-b">正当な処理が拒否される・機能停止・安全性境界の意図せぬ変化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Closing slide">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">12 / 14</div>
+      <p class="eyebrow">結論：採用は設計で決まる</p>
+      <h1 class="title">要レビュー</h1>
+      <p class="lead">LLMパッチを“全面的に信頼”するのは危険で、研究が示す通り最終的には専門家レビューと、実行ベースの検証・テスト強化が中核になります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">学べる点</div>
+          <div class="cell-b">“成功”を曖昧にせず、挙動変更・未解消・新規欠陥で分類して定量化できる</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">実務の指針</div>
+          <div class="cell-b">AIを脅威だけでなく、品質保証プロセス再設計の材料として扱う</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="References slide">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">13 / 14</div>
+      <p class="eyebrow">参考</p>
+      <h1 class="title">Sources</h1>
+      <p class="lead">本デッキは、ユーザー提供テキスト（Off-by-1 Labs のブログ内容の要約）に基づき構成しています。元記事の確認で、詳細（5シナリオ分類など）を補ってください。</p>
+      <ul class="refs-list" aria-label="Reference list">
+        <li><strong>Off-by-1 Labs（1Password研究チーム）ブログ：</strong>「LLMが脆弱性の修正パッチを自動生成した場合、それは本当に安全に機能するのか？」（ユーザー提示の内容を要約）</li>
+        <li><strong>用語：</strong> <span class="mono">CVE</span>（Common Vulnerabilities and Exposures / 公表された脆弱性ID）</li>
+        <li><strong>概念：</strong> <span class="mono">FLAWED</span>（Fix-Like Artifacts：欠陥を埋め込んだ修正）</li>
+      </ul>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
