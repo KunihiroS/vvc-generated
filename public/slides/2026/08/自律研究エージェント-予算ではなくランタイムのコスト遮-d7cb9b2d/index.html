@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自律研究エージェント：予算ではなくランタイムのコスト遮断</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 0px;
+      border: inset 20px var(--rule) ;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow:hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      left:0; right:0; top:0; height:1px;
+      background: var(--rule);
+      opacity:0.9;
+      pointer-events:none;
+    }
+    .pad{
+      padding: 56px 72px;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1.1;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 18px;
+      letter-spacing: 0.03em;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: -8px;
+      letter-spacing: 0.01em;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.95;
+      margin-top: -10px;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin-top: 2px;
+    }
+    .grid{
+      margin-top: 6px;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      width: 100%;
+    }
+    .grid-2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+    }
+    .grid-3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 16px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 6px;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.98em;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+    .subtle-rule{
+      border-top: 1px solid var(--rule-strong);
+      margin-top: 6px;
+    }
+    .center-hero{
+      margin-top: auto;
+      margin-bottom: auto;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 100%;
+      align-items: flex-start;
+    }
+    .closing{
+      margin-top: auto;
+      margin-bottom: auto;
+      display:flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 100%;
+      align-items: flex-start;
+    }
+    .closing .lead{
+      font-size: 24px;
+      max-width: 860px;
+    }
+    @media (max-width: 980px){
+      .pad{ padding: 40px 44px; }
+      .title{ font-size: 62px; }
+      .lead{ font-size: 20px; }
+    }
+    @media (max-width: 520px){
+      .pad{ padding: 34px 22px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid-3{ grid-template-columns: 1fr; }
+      .grid-2{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">cover / 表紙</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+        <div class="center-hero">
+          <div class="eyebrow">予算ではなく遮断</div>
+          <div class="title">自律研究の <em>コスト</em> 制御</div>
+          <div class="lead">重要なのは「事後で見積もる予算」より、実行中の分岐・リトライ連鎖を止める<strong> ランタイムのコスト遮断（cost circuit breaker）</strong>です。</div>
+          <div class="grid">
+            <div class="grid-2">
+              <div class="cell">
+                <div class="k">要点 / Core</div>
+                <div class="v">価格変動 × fan-out × retry</div>
+              </div>
+              <div class="cell">
+                <div class="k">目的 / Goal</div>
+                <div class="v">次のツール呼び出しを <span class="mono">許可/拒否</span> する</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">problem / 問題</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+        <div class="eyebrow">火災は予算表の外</div>
+        <div class="title">事後監査が <em>制御</em> にならない</div>
+        <div class="lead">予算スプレッドシートは「何にいくら使ったか」を説明しやすい一方、被害を広げる<strong>次の分岐を止められません</strong>。</div>
+        <div class="grid">
+          <div class="grid-2">
+            <div class="cell">
+              <div class="k">予算スプレッド</div>
+              <div class="v">観測中心（post-hoc）</div>
+            </div>
+            <div class="cell">
+              <div class="k">コスト遮断</div>
+              <div class="v">許可の不変条件（pre-hoc）</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          価格が固定の“設定値”ではなく、実行中に変わり得る“ランタイム状態”になることが本質です。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">metaphor / 比喩</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+        <div class="eyebrow">請求書の分散生成</div>
+        <div class="title">分岐とリトライが <em>暴走</em> を作る</div>
+        <div class="lead">fan-out（枝分かれ）と retry が連鎖すると、価格変動と結びついて<strong>分散請求書（distributed invoice）</strong>のように費用が膨らむ失敗が起こり得ます。</div>
+        <div class="grid">
+          <div class="grid-3">
+            <div class="cell">
+              <div class="k">入力 / Input</div>
+              <div class="v">経済前提が変動</div>
+            </div>
+            <div class="cell">
+              <div class="k">実行 / Execution</div>
+              <div class="v">fan-out × retry storm</div>
+            </div>
+            <div class="cell">
+              <div class="k">結果 / Output</div>
+              <div class="v">「安い」想定が崩壊</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          そこで必要なのは、計算の更新（re-price）よりも先に<strong>実行前に権限で止める</strong>ことです。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">architecture / 構造</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+        <div class="eyebrow">予約→実行</div>
+        <div class="title">遮断の設計原則</div>
+        <div class="lead">各ノード（研究単位）は開始前に<strong>最大支出（max spend）を予約</strong>し、予約がなければツール呼び出しを行いません。</div>
+        <div class="grid">
+          <div class="grid-3">
+            <div class="cell">
+              <div class="k">i. 予約</div>
+              <div class="v"><span class="mono">max spend</span> を確保</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii. 判定</div>
+              <div class="v">条件未達なら拒否</div>
+            </div>
+            <div class="cell">
+              <div class="k">iii. 失効</div>
+              <div class="v">価格変化で前提を無効化</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          失敗として上流（planner）へ伝播し、同じ前提での再試行を禁止します。</div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">process / 手順</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+        <div class="eyebrow">前提のズレを封じる</div>
+        <div class="title">価格ドリフトへの対応</div>
+        <div class="lead">価格が実行中に変わったら、予約や見積もりを失効させ<strong>失敗を型付きで伝播</strong>し、再試行ループを断ちます。</div>
+        <div class="grid">
+          <div class="grid-2">
+            <div class="cell">
+              <div class="k">やること / Do</div>
+              <div class="v">予約（envelope）を破棄して再計画へ</div>
+            </div>
+            <div class="cell">
+              <div class="k">やらないこと / Don’t</div>
+              <div class="v">古い前提で fan-out を継続</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          遮断は「観測」ではなく「許可（authorization）」の問題として扱うべきです。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">evidence / 証拠</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+        <div class="eyebrow">ドルだけでは足りない</div>
+        <div class="title">止める条件は複合</div>
+        <div class="lead">遮断のトリガは合計ドルだけでなく、<strong>限界費用</strong>、fan-out深度、さらに検証可能な進捗（claim-level delta）も組み合わせるべきです。</div>
+        <div class="grid">
+          <div class="grid-3">
+            <div class="cell">
+              <div class="k">費用速度</div>
+              <div class="v"><span class="mono">dCost/dt</span></div>
+            </div>
+            <div class="cell">
+              <div class="k">構造</div>
+              <div class="v">fan-out 深度</div>
+            </div>
+            <div class="cell">
+              <div class="k">質</div>
+              <div class="v">反証可能性の増分</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          「総額が未達」でも、増殖した限界費用状態なら危険です（information利得がないのに支出だけ増える）。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">distinction / 区別</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+        <div class="eyebrow">価値とコストを同じ尺度へ</div>
+        <div class="title">限界価値と限界費用</div>
+        <div class="lead">遮断は「ドル」ではなく、情報の増分（未解決対立の解消、反証可能性など）と<strong>限界費用</strong>を同一の尺度で比較し、見合わない作業を止めます。</div>
+        <div class="grid">
+          <div class="grid-2">
+            <div class="cell">
+              <div class="k">見るべき価値 / Value</div>
+              <div class="v">claim-level delta（主張の差分）</div>
+            </div>
+            <div class="cell">
+              <div class="k">見るべきコスト / Cost</div>
+              <div class="v">限界費用（次の枝で増える分）</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          代理指標（要約長など）だけだと、費用対効果が見えず「良さそうなバイビリオグラフィ」になる恐れがあります。</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">comparison / 比較</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+        <div class="eyebrow">ローカル停止の限界</div>
+        <div class="title">止めるだけでは足りない</div>
+        <div class="lead">エージェントを停止しても、plannerが同じ誤り前提で再試行し続ける可能性があります。</div>
+        <div class="grid">
+          <div class="grid-2">
+            <div class="cell">
+              <div class="k">ローカル停止</div>
+              <div class="v">同じ前提で再実行されやすい</div>
+            </div>
+            <div class="cell">
+              <div class="k">原因伝播</div>
+              <div class="v">型付き（price drift / retry storm / 低エビデンス）で上流修正</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          遮断はヒューズではなく<strong>統治（governance）の一部</strong>として設計します。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">enumeration / 列挙</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+        <div class="eyebrow">予約の落とし穴</div>
+        <div class="title">実装エッジケース</div>
+        <div class="lead">予約やエスクロー（escrow）には、リトライ時の課金オーバージや、再予約で抜ける抜け穴など難しさがあります。</div>
+        <div class="grid">
+          <div class="grid-3">
+            <div class="cell">
+              <div class="k">課金の丸め</div>
+              <div class="v">料金体系の誤差</div>
+            </div>
+            <div class="cell">
+              <div class="k">失敗中の課金</div>
+              <div class="v">失敗でもコストが発生</div>
+            </div>
+            <div class="cell">
+              <div class="k">再予約抜け</div>
+              <div class="v">リトライが新しい予約を作る</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          UNKNOWNのような状態は「取り返しのつく失敗」ではなく、<strong>制御上別クラス</strong>として扱うべきです。</div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">architecture / 構造</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+        <div class="eyebrow">第一級のエピステミック差分</div>
+        <div class="title">進捗をデータ化する</div>
+        <div class="lead">停止判定は抽象的な自信スコアより、主張グラフの差分や矛盾集合の変化、独立な証拠の増分など“検証可能な差分”に寄せるべきです。</div>
+        <div class="grid">
+          <div class="grid-2">
+            <div class="cell">
+              <div class="k">見る差分 / Delta</div>
+              <div class="v">未解決矛盾、主張グラフの変化</div>
+            </div>
+            <div class="cell">
+              <div class="k">獲得するもの / Gain</div>
+              <div class="v">独立証拠の増分（反証可能性）</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          ただし、構造化（エピステミック状態を第一級データ化）自体がコストになるため、現実実装は段階導入が必要です。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">process / 導入</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+        <div class="eyebrow">段階導入の順</div>
+        <div class="title">現実のロードマップ</div>
+        <div class="lead">複雑な全要素を一気に導入するより、まず予約-before-call、次にfan-out制限、最後にエピステミック差分を加える流れが現実的です。</div>
+        <div class="grid">
+          <div class="grid-3">
+            <div class="cell">
+              <div class="k">Step i</div>
+              <div class="v">予約-before-tool-call（許可条件）</div>
+            </div>
+            <div class="cell">
+              <div class="k">Step ii</div>
+              <div class="v">fan-out / 深度の上限</div>
+            </div>
+            <div class="cell">
+              <div class="k">Step iii</div>
+              <div class="v">claim-level delta 等で停止判断</div>
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          「どの指標が正しい停止を示すか」はタスクと成功定義に依存します（測定・ガバナンスが中心課題）。</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="pad">
+        <div class="slide-top">
+          <div class="slide-tag">closing / まとめ</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+        <div class="closing">
+          <div class="eyebrow">結論</div>
+          <div class="title">自律を <em>安全に枠付ける</em></div>
+          <div class="lead">コスト遮断は“節約策”ではなく、実行中の不確実性増幅構造（fan-out・retry storm・引用/要約の自己増殖）を制御するための<strong> 実行ガバナンス</strong>です。</div>
+          <div class="grid">
+            <div class="grid-2">
+              <div class="cell">
+                <div class="k">キーメッセージ</div>
+                <div class="v">事後の説明（予算）でなく、事前の許可（遮断）</div>
+              </div>
+              <div class="cell">
+                <div class="k">設計の方向</div>
+                <div class="v">原因を型付きで上流へ伝播し、再試行を止める</div>
+              </div>
+            </div>
+          </div>
+          <div class="small" style="margin-top:6px;">
+            英語用語：cost circuit breaker（コスト遮断） / fan-out（枝分かれ） / retry storm（再試行嵐） / authorization（許可）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
