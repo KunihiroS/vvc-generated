@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inside vLLM — 高速・高スループット推論システムの解剖</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 16px;
+      margin: 20px auto;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: block;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      pointer-events: none;
+    }
+    .slide-tag{
+      position:absolute; left:22px; top:18px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: .16em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-weight: 600;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 44px; height: 0;
+      border-top: 2px solid var(--rust);
+      opacity: .9;
+    }
+    .slide-num{
+      position:absolute; right:22px; top:18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 8px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 1.0;
+      margin: 10px 0 14px;
+      color: var(--ink);
+      font-style: italic;
+    }
+    .title.emph{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      color: var(--ink-2);
+    }
+    .small{
+      color: var(--ink-3);
+      font-size: 18px;
+      font-weight: 300;
+      max-width: 880px;
+      line-height: 1.5;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 12px;
+      letter-spacing: .08em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .value{
+      font-size: 20px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.35;
+    }
+    .value i{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .rule-line{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 14px;
+      border-radius: 999px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="eyebrow">Inside vLLM 解剖</div>
+      <div class="title">高速推論<br/><span class="emph">vLLM</span></div>
+      <div class="lead">「トークンを返すまで」をシステム部品に分解し、どこでスピードとスループットが決まるかを一気に見通します。</div>
+      <div class="small" style="margin-top:18px;">
+        日本語訳：<i style="color:var(--rust);font-style:italic;">エンジン内</i>（スケジューラ・KV）× <i style="color:var(--rust);font-style:italic;">エンジン外</i>（分散・API）が連鎖して性能が出る。
+      </div>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="eyebrow">速くしたい</div>
+      <div class="title">だけど<br/><span class="emph">難しい</span></div>
+      <div class="lead">LLM推論は単一最適化では伸びず、prefill（入力一括計算）とdecode（1トークンずつ＋KV再利用）の性質差がボトルネックになります。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">prefill（プロンプト計算）</div>
+          <div class="value">compute-bound（計算律速）になりがち</div>
+        </div>
+        <div class="cell">
+          <div class="label">decode（生成進行）</div>
+          <div class="value">memory-bound（メモリ帯域律速）になりがち</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="eyebrow">工場の流れ</div>
+      <div class="title">スケジュール<br/><span class="emph">とKV</span></div>
+      <div class="lead">vLLMは「どのリクエストを次に回すか」と「KVキャッシュをどう配るか」を設計の中心に置き、GPUの手待ちを減らします。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">部品 i</div>
+          <div class="value"><i>Scheduler</i>：実行順を決める</div>
+        </div>
+        <div class="cell">
+          <div class="label">部品 ii</div>
+          <div class="value"><i>KV cache manager</i>：paged attentionの心臓</div>
+        </div>
+        <div class="cell">
+          <div class="label">部品 iii</div>
+          <div class="value"><i>Forward executor</i>：実際にモデルを回す</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="eyebrow">上流→下流</div>
+      <div class="title">エンジン<br/><span class="emph">コア</span></div>
+      <div class="lead">リクエストは processor で検証・トークナイズされ、EngineCoreRequestになってから scheduler と KV 管理、forward 実行へ渡ります。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">1. Processor</div>
+          <div class="value">入力検証 → トークナイズ → 要求生成</div>
+        </div>
+        <div class="cell">
+          <div class="label">2. Scheduler</div>
+          <div class="value">次の計算ステップへ振り分け</div>
+        </div>
+        <div class="cell">
+          <div class="label">3. KV管理＋Forward</div>
+          <div class="value">paged attentionで参照しながら計算</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="eyebrow">混ぜて回す</div>
+      <div class="title">continuous<br/><span class="emph">batching</span></div>
+      <div class="lead">複数リクエストを同じステップにまとめ、GPUをアイドルにしにくくします。系列は注意マスク等で独立性を維持します。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">発想（1行）</div>
+          <div class="value">「フラットなスーパーシーケンス化」で混在処理</div>
+        </div>
+        <div class="cell">
+          <div class="label">効果</div>
+          <div class="value">prefill/decodeの混在スケジューリングを実現しやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="eyebrow">参照の正体</div>
+      <div class="title">paged<br/><span class="emph">attention</span></div>
+      <div class="lead">KVをブロック化し、必要な分だけ参照・割当てます。allocate_slots が paged attention と強く結び付いて動きます。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">KVを分割</div>
+          <div class="value">ブロックプール（必要量だけ使う）</div>
+        </div>
+        <div class="cell">
+          <div class="label">参照を最小化</div>
+          <div class="value">参照できるブロックのみ参照</div>
+        </div>
+        <div class="cell">
+          <div class="label">割当て制御</div>
+          <div class="value">allocate_slotsで必要量推定→割当</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="eyebrow">効く場所が違う</div>
+      <div class="title">prefill最適化<br/><span class="emph">中心</span></div>
+      <div class="lead">chunked prefill と prefix caching は「待ち時間」と「計算重複」を減らしますが、decodeへの効きは限定的です。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">chunked prefill（分割）</div>
+          <div class="value">長いprefillが占有し続ける問題を緩和</div>
+        </div>
+        <div class="cell">
+          <div class="label">prefix caching（再利用）</div>
+          <div class="value">同一接頭辞のKVを再計算せず再利用（ただしdecodeは効きにくい）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="eyebrow">生成を制御する</div>
+      <div class="title">guided × speculative<br/><span class="emph"> </span></div>
+      <div class="lead">guided decodingは許可トークンをFSMで段階的に制限し、speculative decodingはドラフト方式ではなく別の提案器で加速します。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">guided decoding</div>
+          <div class="value">FSMで <i>許可</i> 以外を -∞ マスク</div>
+        </div>
+        <div class="cell">
+          <div class="label">ユースケース</div>
+          <div class="value">JSON/構文/キーワード列など形式制約</div>
+        </div>
+        <div class="cell">
+          <div class="label">speculative（V1）</div>
+          <div class="value">n-gram / EAGLE / Medusa等（draft model方式は未対応）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="eyebrow">分けて伸ばす</div>
+      <div class="title">disaggregated<br/><span class="emph">P/D</span></div>
+      <div class="lead">prefillとdecodeは性能特性が違うため、同居より分離して別々にスケールした方がレイテンシ管理しやすい、という設計思想です。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">なぜ分離？</div>
+          <div class="value">prefill=compute-bound / decode=memory-bound</div>
+        </div>
+        <div class="cell">
+          <div class="label">拡張性</div>
+          <div class="value">Connector抽象（例：SharedStorageConnector）でKV転送差を隠蔽</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="eyebrow">分散のライフサイクル</div>
+      <div class="title">エンジン外で決まる<br/><span class="emph"> </span></div>
+      <div class="lead">オンライン提供では MultiProcExecutor / DP（データ並列） / ロードバランシング が動き、FastAPI/Uvicornからの並行処理と一体になります。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">並列化</div>
+          <div class="value">TP（テンソル並列）でモデル分割</div>
+        </div>
+        <div class="cell">
+          <div class="label">同時実行</div>
+          <div class="value">DPレプリカでリクエストをさばく</div>
+        </div>
+        <div class="cell">
+          <div class="label">制御</div>
+          <div class="value">キュー状態に基づくスコアリング（待機×4＋実行）など</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="eyebrow">測ると見える</div>
+      <div class="title">SLOとトレードオフ<br/><span class="emph"> </span></div>
+      <div class="lead">性能評価では TTFT / ITL / TPOT / E2E latency とスループット（goodput含む）を見て、バッチサイズとrooflineモデルから設定探索します。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">見るべき指標</div>
+          <div class="value">TTFT / ITL（またはTPOT）/ E2E / goodput</div>
+        </div>
+        <div class="cell">
+          <div class="label">本質</div>
+          <div class="value">バッチ増加でレイテンシとスループットがトレードオフ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="eyebrow">結論</div>
+      <div class="title">高速化は<br/><span class="emph">設計の連鎖</span></div>
+      <div class="lead">vLLMの根拠はGPUカーネルだけでなく、スケジューリング・paged attention・continuous batching・prefill/decode特性・分散制御を段階的に統合する点にあります。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">強い理解</div>
+          <div class="value">「万能最適化」ではなく、効く工程が分かれている（prefill中心・decode限定など）</div>
+        </div>
+        <div class="cell">
+          <div class="label">注意点</div>
+          <div class="value">speculative/guided/prefix cachingは品質・失敗モード・前提条件を検証が必要</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
