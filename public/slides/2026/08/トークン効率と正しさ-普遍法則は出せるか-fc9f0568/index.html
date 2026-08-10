@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>トークン効率と正しさ：普遍法則は出せるか</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border-radius: 16px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .card{
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      background: var(--paper);
+      padding: 56px 72px;
+      display:flex;
+      flex-direction:column;
+    }
+    .rule-top{
+      position:absolute; left: 20px; right: 20px; top: 16px;
+      height: 1px;
+      background: var(--rule-strong);
+      opacity: .9;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      position:absolute; top: 26px; left: 34px;
+      letter-spacing: .16em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex; gap:10px; align-items:center;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 18px; height: 2px;
+      background: var(--rust);
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.15);
+    }
+    .slide-num{
+      position:absolute; top: 26px; right: 34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 26px;
+      letter-spacing: .02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      line-height: 1.1;
+    }
+    .title{
+      margin: 0 0 16px 0;
+      font-size: 70px;
+      font-weight: 500;
+      letter-spacing: .01em;
+      color: var(--ink);
+      line-height: 0.98;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 0;
+      line-height: 1.35;
+    }
+    .divider{
+      margin-top: 22px;
+      height:1px;
+      width: 100%;
+      background: var(--rule);
+      flex: 0 0 auto;
+    }
+
+    .grid{
+      margin-top: 18px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(20,17,13,0.14);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: .12em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.25;
+      font-weight: 400;
+    }
+
+    .footnote{
+      margin-top: auto;
+      padding-top: 16px;
+      border-top: 1px solid var(--rule);
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.4;
+    }
+
+    @media (max-width: 900px){
+      .card{ padding: 46px 44px; inset: 16px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 20px; }
+      .slide-tag{ top: 22px; left: 26px; font-size: 11px; }
+      .slide-num{ top: 22px; right: 26px; font-size: 22px; }
+      .grid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="rule-top"></div>
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="card">
+        <p class="eyebrow">Token効率と正しさ</p>
+        <h1 class="title">両立しない</h1>
+        <p class="lead">LLMにコードを生成させるとき、「短い＝得（トークン効率）」と「合っている＝得（correctness）」は常に同じ方向を向くとは限りません。</p>
+        <div class="divider"></div>
+        <div class="footnote">（英）Token efficiency：短い入力/出力でどれだけ進むか（トークン消費）／（日）正確性：仕様・テストを満たすか</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="rule-top"></div>
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="card">
+        <p class="eyebrow">強い一般化は危険</p>
+        <h1 class="title">動的が常勝</h1>
+        <p class="lead">「動的言語（または記述が密な言語）は、LLMで常にトークン効率も正しさも有利」という強い主張は、少なくとも強い形では成り立ちにくい、と述べられています。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">直感</div>
+            <div class="v">短い仕様 → 短いコード → トークン少</div>
+          </div>
+          <div class="cell">
+            <div class="k">問題</div>
+            <div class="v">短くても不正解、長くても当たる</div>
+          </div>
+        </div>
+        <div class="footnote">タスクが小さいほど差が誇張され、大きいほど一般化が難しくなる。</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="evidence">
+      <div class="rule-top"></div>
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="card">
+        <p class="eyebrow">引用ベンチの限界</p>
+        <h1 class="title">小さすぎる</h1>
+        <p class="lead">Rosetta Codeのような「小課題中心」の比較では、出力整形や定型記述が支配しやすく、言語差が過大に見える可能性があると指摘されます。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">例</div>
+            <div class="v">J：70トークン、Clojure：109トークンのような極端</div>
+          </div>
+          <div class="cell">
+            <div class="k">解釈の落とし穴</div>
+            <div class="v">“短い形”が活きるだけで一般則にならない</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">強い断定には不十分</div>
+          </div>
+          <div class="cell">
+            <div class="k">次の一手</div>
+            <div class="v">より大きめタスクで評価する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="rule-top"></div>
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="card">
+        <p class="eyebrow">評価を拡張</p>
+        <h1 class="title">大タスク</h1>
+        <p class="lead">トークン効率と正しさを同時に見るために、独自評価としてより大きめの課題（例：zstdデコーダ、Pandoc相当）を用いたと述べています。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">“短さ”だけでなく合否も測る</div>
+          </div>
+          <div class="cell">
+            <div class="k">対象</div>
+            <div class="v">zstdデコーダ実装／Pandoc相当のプログラム</div>
+          </div>
+        </div>
+        <div class="footnote">小課題で見える差が、大きい実装でどう崩れるかを確認する。</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="comparison">
+      <div class="rule-top"></div>
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="card">
+        <p class="eyebrow">努力で順位が反転</p>
+        <h1 class="title">medium→ultra</h1>
+        <p class="lead">努力量（medium/ultra）の増加で、「動的が常に上」と言えるほど単純ではなくなり、順位が入れ替わる傾向が観察されます。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">medium</div>
+            <div class="v">動的クラスタが相対的に良く見えることがある</div>
+          </div>
+          <div class="cell">
+            <div class="k">ultra</div>
+            <div class="v">静的のほうが上位に来る場合がある</div>
+          </div>
+        </div>
+        <div class="footnote">固定の優劣（常勝）より、条件依存の挙動が前面に出る。</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="distinction">
+      <div class="rule-top"></div>
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="card">
+        <p class="eyebrow">トレードオフ</p>
+        <h1 class="title">短さ≠正しさ</h1>
+        <p class="lead">短くても間違う（誤答リスク）こともあり、長く書いても当たることもあるため、トークン効率と正しさはトレードオフになり得ます。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">短くする</div>
+            <div class="v">トークンは得になりやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">でも</div>
+            <div class="v">仕様充足・境界条件で失敗する可能性</div>
+          </div>
+          <div class="cell">
+            <div class="k">長くする</div>
+            <div class="v">記述の余地で当たりやすくなることも</div>
+          </div>
+          <div class="cell">
+            <div class="k">ただし</div>
+            <div class="v">常に得になるわけではない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="rule-top"></div>
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="card">
+        <p class="eyebrow">ハーネスが歪む</p>
+        <h1 class="title">測定バグ</h1>
+        <p class="lead">評価環境・テスト設計の不整合が「言語のせい」に見える誤差を生み得る、と具体例つきで説明されています。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">例</div>
+            <div class="v">Rustの失敗が「存在しない実行ファイル」由来</div>
+          </div>
+          <div class="cell">
+            <div class="k">誤解</div>
+            <div class="v">“静的言語は難しい”と解釈してしまう</div>
+          </div>
+        </div>
+        <div class="footnote">比較研究では、テストが本質的に比較になっているかが必須。</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="rule-top"></div>
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="card">
+        <p class="eyebrow">何が結果を動かす</p>
+        <h1 class="title">要因</h1>
+        <p class="lead">「言語設計＝原因」と決め打ちする前に、少なくとも次の要因がスコアを動かし得ます。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">i. タスク規模</div>
+            <div class="v">小さいほど差が誇張される／大きいほど一般化しにくい</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. 努力量</div>
+            <div class="v">medium/ultraで順位が反転しうる</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. テスト頑健性</div>
+            <div class="v">ハーネスや実行整合が崩れると“測定バグ”になる</div>
+          </div>
+          <div class="cell">
+            <div class="k">iv. 学習データ</div>
+            <div class="v">人気（主流）言語は良い結果と弱〜中程度の相関</div>
+          </div>
+          <div class="cell">
+            <div class="k">v. 運用</div>
+            <div class="v">コンパイル、実行、ツールチェーン、テスト時間も影響</div>
+          </div>
+          <div class="cell">
+            <div class="k">vi. 品質の外れ</div>
+            <div class="v">メモリ安全や境界条件など“測定されない品質”がある</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="distinction">
+      <div class="rule-top"></div>
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="card">
+        <p class="eyebrow">密な言語は…</p>
+        <h1 class="title">一般化難</h1>
+        <p class="lead">Jのような「奇妙で密な言語」は、少ないトークンで書けたとしても、一般化しにくく勝ち筋が再現されにくい可能性が示唆されます。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">仮説</div>
+            <div class="v">特殊言語はモデルが学習・微調整で十分に遭遇していない</div>
+          </div>
+          <div class="cell">
+            <div class="k">評価依存</div>
+            <div class="v">小タスク中心だと“たまたま”が勝ちやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">密＝常勝とは言いづらい</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">勝利を“普遍法則”に変換しない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="comparison">
+      <div class="rule-top"></div>
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="card">
+        <p class="eyebrow">人気は味方し得る</p>
+        <h1 class="title">相関</h1>
+        <p class="lead">zstdやPandocの評価では、言語の人気（学習データが豊富な可能性）と、より正確でより安い結果との弱〜中程度の正の相関が見られた、と述べています。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">観察</div>
+            <div class="v">人気 → 正しさ・コストで有利に出ることがある</div>
+          </div>
+          <div class="cell">
+            <div class="k">含意</div>
+            <div class="v">稀な（奇妙な）言語ほど苦手になり得る</div>
+          </div>
+        </div>
+        <div class="footnote">因果を断定せず、「学習されやすさ」が影響し得る、という解釈。</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="process">
+      <div class="rule-top"></div>
+      <div class="slide-tag">process</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="card">
+        <p class="eyebrow">実務の落とし所</p>
+        <h1 class="title">手元評価</h1>
+        <p class="lead">言語を「動的/静的」だけで選ばず、自分のタスクに近い条件で小規模評価を行い、コスト/時間/正しさ/一般化の優先順位を決めるのが現実的です。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">優先軸</div>
+            <div class="v">コスト（トークン）より、合否（正しさ）を先にする/両方見る</div>
+          </div>
+          <div class="cell">
+            <div class="k">統制</div>
+            <div class="v">ハーネス・テストの整合性（測定バグ）を潰す</div>
+          </div>
+          <div class="cell">
+            <div class="k">一般化</div>
+            <div class="v">複数タスク・十分なサンプル・努力量の違いも検討</div>
+          </div>
+          <div class="cell">
+            <div class="k">判断</div>
+            <div class="v">1つのランキングを“勝利宣言”にしない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="rule-top"></div>
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="card">
+        <p class="eyebrow">結論</p>
+        <h1 class="title">普遍はない</h1>
+        <p class="lead">トークン効率と正しさの関係は「動的が常に有利」のような固定則ではなく、タスク規模・努力量・テスト設計・学習データの影響で揺れます。</p>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">要点</div>
+            <div class="v">短さと合否は別物。評価環境は信頼性を左右する。</div>
+          </div>
+          <div class="cell">
+            <div class="k">次の質問</div>
+            <div class="v">あなたの運用では、生成回数が多い？修正ループが長い？</div>
+          </div>
+        </div>
+        <div class="footnote">（提案）前提（どんな“トークン効率が効く場面”か）を教えてください。最適な評価軸の優先順位を整理します。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
