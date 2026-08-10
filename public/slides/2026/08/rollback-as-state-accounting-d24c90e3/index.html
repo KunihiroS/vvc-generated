@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rollback as State Accounting</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 16px 0 80px;
+      display: block;
+      overflow: visible;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      margin: 18px auto;
+      background: var(--paper);
+      position: relative;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+
+    .slide-tag{
+      position: absolute;
+      top: 28px;
+      left: 36px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      font-size: 16px;
+      font-weight: 600;
+      text-transform: uppercase;
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      position: absolute;
+      top: 26px;
+      right: 36px;
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      margin: 2px 0 10px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      margin: 0 0 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--rust);
+      line-height: 1.0;
+    }
+    .jp-title{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 54px;
+      color: var(--ink);
+      margin-top: -8px;
+      line-height: 1.05;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+      line-height: 1.55;
+    }
+
+    .divider{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin: 26px 0;
+    }
+
+    .grid-2{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 18px;
+      margin-top: 18px;
+      align-items: start;
+      max-width: 880px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 16px 16px;
+      background: rgba(0,0,0,0.06);
+    }
+    .cell h4{
+      margin: 0 0 8px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+      font-weight: 300;
+    }
+    .cell .jp{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 6px;
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .grid-3{
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin-top: 18px;
+      align-items: start;
+      max-width: 980px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+      font-weight: 400;
+      letter-spacing: 0.01em;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+    }
+
+    .center-hero{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 50%;
+      transform: translateY(-55%);
+      max-width: 980px;
+    }
+    .hero-title{
+      margin: 0 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 84px;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+      line-height: 1.0;
+    }
+    .hero-lead{
+      margin: 0;
+      font-size: 24px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 860px;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 44px 44px; }
+      .slide-tag{ top: 22px; left: 22px; }
+      .slide-num{ top: 18px; right: 22px; }
+      .title{ font-size: 58px; }
+      .jp-title{ font-size: 44px; }
+      .lead{ font-size: 20px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide" aria-label="cover" style="border-color: var(--rule);">
+      <div class="slide-tag">State Accounting</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="center-hero">
+        <div class="eyebrow">障害復旧の再定義</div>
+        <h1 class="hero-title">Rollback<br/>is Accounting</h1>
+        <p class="hero-lead">
+          「元に戻す」ではなく、<span style="font-style: italic; color: var(--rust-deep);">状態（state）と副作用（side effects）</span>を補償で帳尻合わせし、証拠（レシート）で締める。
+          <span class="small" style="display:block; margin-top:10px;">(元の発想に“巻き戻し”は要らない)</span>
+        </p>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="eyebrow">コード ≠ 現実</div>
+      <div class="title">戻しても</div>
+      <p class="lead">
+        コードをロールバックしても、キュー・キャッシュ・権限・決済・Webhooks・部分書き込みなどは先に進んでいることがある。
+        だから「実体（現実）も戻る」とは限らない。
+      </p>
+      <div class="divider"></div>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>見えている</h4>
+          <p>バイナリ／コードの戻し（見た目はグリーン）</p>
+          <div class="jp">戻した“つもり”だけが強調される</div>
+        </div>
+        <div class="cell">
+          <h4>進んでいる</h4>
+          <p>外部副作用（通知、課金、権限ローテ等）</p>
+          <div class="jp">現実はログの外で積み上がる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="eyebrow">Voyager 2 の学び</div>
+      <div class="title">延命の現実</div>
+      <p class="lead">
+        「過去の“最後に動いていた状態”にノスタルジーで戻る」のではなく、<span style="font-style: italic; color: var(--rust-deep);">現在残っている資源・稼働</span>で成立する範囲を回復する。
+        復旧は現在の会計（state &amp; effects）に従う。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>× 過去への復元</h4>
+          <p>古いバイナリへ再現主義で戻す</p>
+          <div class="jp">副作用の“現実”が追いつかない</div>
+        </div>
+        <div class="cell">
+          <h4>○ 現在の成立</h4>
+          <p>成立する最小の被害修復を会計する</p>
+          <div class="jp">証明できる範囲だけ進める</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Core Idea</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="eyebrow">補償取引とレシート</div>
+      <div class="title">補償会計</div>
+      <p class="lead">
+        結論：ロールバックは「元に戻すボタン」ではなく、<span style="font-style: italic; color: var(--rust-deep);">状態に応じた補償トランザクション（compensating transaction）</span>であり、レシート（receipt）がその会計を証明する。
+      </p>
+      <div class="grid-3">
+        <div class="cell">
+          <h4>Compensate<br/>補償</h4>
+          <p>成立させるために“足りない分”を埋める</p>
+          <div class="jp">逆操作ではなく帳尻合わせ</div>
+        </div>
+        <div class="cell">
+          <h4>State<br/>状態</h4>
+          <p>内部の状態だけでなく外部も含めて評価</p>
+          <div class="jp">inflight/partial を織り込む</div>
+        </div>
+        <div class="cell">
+          <h4>Receipt<br/>証拠</h4>
+          <p>何が着地し、何を補償し、何を隔離したかを記録</p>
+          <div class="jp">後から検証可能にする</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: enumeration -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">Failure Trap</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="eyebrow">“成功に見える罠”</div>
+      <div class="title">グリーン事故</div>
+      <p class="lead">
+        ロールバックが成功したように見える最大の罠は、<span style="font-style: italic; color: var(--rust-deep);">副作用を反映せず</span>にコードだけ戻し、整合が崩れたまま画面だけ回復してしまう点。
+      </p>
+      <div class="divider"></div>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>副作用の例</h4>
+          <p>キュー投入、部分的な書き込み、資格（credential）のローテーション、キャッシュ汚染、インフライト処理</p>
+          <div class="jp">side effects（外部世界の更新）</div>
+        </div>
+        <div class="cell">
+          <h4>判断の落とし穴</h4>
+          <p>“コードが戻った＝現実も戻った”へ飛躍する</p>
+          <div class="jp">検証なしの見た目復旧</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: evidence -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="eyebrow">証明できるだけ補償</div>
+      <div class="title">LANDED 以外</div>
+      <p class="lead">
+        重要なのは、補償が必要な副作用を列挙し、実際に着地（landed）したものを証明し、<span style="font-style: italic; color: var(--rust-deep);">証明できたものだけを補償</span>すること。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>LANDED<br/>着地</h4>
+          <p>外部観測で“起きた”と確かめられる副作用</p>
+          <div class="jp">この部分は会計対象</div>
+        </div>
+        <div class="cell">
+          <h4>UNKNOWN<br/>不明</h4>
+          <p>観測不能・タイムアウト・証明不足の副作用</p>
+          <div class="jp">隔離して期限・責任を与える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: distinction -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="eyebrow">UNKNOWN を溶かさない</div>
+      <div class="title">ABSENT 禁止</div>
+      <p class="lead">
+        UNKNOWN（不明）は勝手に失敗（ABSENT）や成功（LANDED）へ自然減衰させない。
+        UNKNOWN は“証明できない事実”として隔離し、所有者と期限を与えて解決へ導く。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>なぜ危険？</h4>
+          <p>二重課金や不整合の固定化が起き得る</p>
+          <div class="jp">補償が重なってしまう</div>
+        </div>
+        <div class="cell">
+          <h4>どう扱う？</h4>
+          <p>quarantine（隔離）＋ 人手エスカレーション／再照会</p>
+          <div class="jp">“未確定”を状態として残す</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: comparison -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">Log vs Receipt</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="eyebrow">意図は証拠じゃない</div>
+      <div class="title">Intent≠Effect</div>
+      <p class="lead">
+        intent log は「何をしたかったか」を示しがちで、プロバイダ側が何をコミットしたか（真の効果）を証明しない。
+        レシートは効果の観測（side-effect の到達）を含む必要がある。
+      </p>
+      <div class="divider"></div>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>Intent log<br/>意図ログ</h4>
+          <p>発行した／実行した“つもり”の証跡</p>
+          <div class="jp">self の観測が中心</div>
+        </div>
+        <div class="cell">
+          <h4>Receipt<br/>レシート</h4>
+          <p>相手の台帳・外部観測として裏付け可能な“着地”証明</p>
+          <div class="jp">コミット結果を裏取りする</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: process -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="eyebrow">補償で締める流れ</div>
+      <div class="title">会計手順</div>
+      <p class="lead">
+        復旧の中心は「副作用を列挙→着地を証明→補償→UNKNOWN を隔離」の順に、状態と証拠で収束させること。
+      </p>
+      <div class="grid-3">
+        <div class="cell">
+          <h4>i 列挙</h4>
+          <p>必要な補償が発生し得る side effects を洗い出す</p>
+          <div class="jp">queues, cache, credentials…</div>
+        </div>
+        <div class="cell">
+          <h4>ii 証明</h4>
+          <p>何が landed したかを外部観測で裏付ける</p>
+          <div class="jp">業務不変条件で検証</div>
+        </div>
+        <div class="cell">
+          <h4>iii 補償</h4>
+          <p>証明できた範囲だけ compensating transaction を実行</p>
+          <div class="jp">UNKNOWN は quarantine</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: evidence -->
+    <section class="slide" aria-label="evidence 2">
+      <div class="slide-tag">Verification</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="eyebrow">ヘルスより不変条件</div>
+      <div class="title">検証対象</div>
+      <p class="lead">
+        復旧の成功判定をヘルスチェック（青）に置かず、<span style="font-style: italic; color: var(--rust-deep);">業務不変条件</span>が満たされたことを証明する。
+        例：請求の二重化が起きていない、通知が整合している 等。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>What to prove<br/>何を証明？</h4>
+          <p>請求（二重課金なし）、通知整合（Exactly-once に近い状態）</p>
+          <div class="jp">見た目ではなく台帳の真偽</div>
+        </div>
+        <div class="cell">
+          <h4>How to prove<br/>どう証明？</h4>
+          <p>外部観測・相手側アテステーション（receipt の核）</p>
+          <div class="jp">自分の出力ログだけで終わらせない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11: closing -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="eyebrow">結論の圧縮</div>
+      <div class="title">Rollback＝会計</div>
+      <p class="lead">
+        ロールバックは「元に戻す操作」ではなく、状態と副作用を補償で帳尻合わせすること。
+        そしてレシートで“何が着地し、何が補償され、何がUNKNOWNか”を証明して、二度目の事故を防ぐ。
+      </p>
+      <div class="divider"></div>
+      <div class="grid-3">
+        <div class="cell">
+          <h4>State（状態）</h4>
+          <p>内部だけでなく外部の進みも見る</p>
+          <div class="jp">state &amp; side effects</div>
+        </div>
+        <div class="cell">
+          <h4>Compensation（補償）</h4>
+          <p>成立する範囲で最小被害へ</p>
+          <div class="jp">compensating transaction</div>
+        </div>
+        <div class="cell">
+          <h4>Receipt（証拠）</h4>
+          <p>着地の証明だけ補償する</p>
+          <div class="jp">UNKNOWN は隔離</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: references -->
+    <section class="slide" aria-label="references">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="eyebrow">参照（入力に基づく）</div>
+      <div class="title">用語整理</div>
+      <p class="lead">
+        このスライドは、ユーザー提供の一次情報（障害復旧をstate/side-effectsの会計として捉える議論）を圧縮したものです。追加の一次資料やリンクは入力に含まれていません。
+      </p>
+      <div class="divider"></div>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>Key Terms<br/>主要語</h4>
+          <p>
+            compensating transaction（補償トランザクション）／ receipt（レシート）／ intent log（意図ログ）／
+            UNKNOWN（不明）／ landed（着地）／ ABSENT（欠落扱い）／ quarantine（隔離）
+          </p>
+          <div class="jp">日本語は読み手向け短縮（必要に応じて本文で定義）</div>
+        </div>
+        <div class="cell">
+          <h4>Claim Focus<br/>焦点</h4>
+          <p>
+            コードの巻き戻しだけでは不十分。外部副作用の“真の効果”を観測・証明し、証明できた範囲だけ補償する。
+          </p>
+          <div class="jp">UNKNOWN の扱いが安全性を左右する</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
