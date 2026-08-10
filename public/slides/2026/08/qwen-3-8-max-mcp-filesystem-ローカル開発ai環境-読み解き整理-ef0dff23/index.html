@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Qwen 3.8-Max + MCP Filesystem：ローカル開発AI環境（読み解き整理）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 20px 0 64px;
+      display: block;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 12px;
+      margin: 18px 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .inset{
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 56px 72px 56px;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+
+    .tag{
+      position:absolute;
+      top: 18px;
+      left: 22px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: .12em;
+      font-size: 18px;
+      text-transform: uppercase;
+    }
+    .tag:before{
+      content:"";
+      display:inline-block;
+      width: 10px;
+      height: 1px;
+      background: var(--rule-strong);
+      margin-right: 10px;
+      transform: translateY(-4px);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 16px;
+      right: 22px;
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: .02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 6px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 76px;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      line-height: 1.02;
+      margin-top: -6px;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      font-weight: 500;
+      font-size: 66px;
+      color: var(--ink);
+      font-style: normal;
+      letter-spacing: 0;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.35;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: 2px;
+    }
+    .rule{
+      margin-top: 8px;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      width: 100%;
+      margin-top: 6px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      width: 100%;
+      margin-top: 6px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink-3);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .codebox{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: rgba(240, 232, 216, 0.02);
+      width: 100%;
+      margin-top: 10px;
+    }
+    .codebox .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink-3);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .codebox pre{
+      margin:0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .footnote{
+      margin-top:auto;
+      color: var(--ink-4);
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    /* Responsive: keep aspect ratio */
+    @media (max-width: 720px){
+      .inset{ padding: 34px 28px 28px; inset: 14px; }
+      .tag{ left: 14px; font-size: 15px; }
+      .slide-num{ right: 14px; font-size: 18px; }
+      .title{ font-size: 52px; }
+      .title .jp{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .cell .v{ font-size: 16px; }
+      .mono{ font-size: 15px; }
+      .codebox pre{ font-size: 15px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="tag">Cover</div>
+      <div class="slide-num">02 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">無料で“ローカル体験”</div>
+        <div class="title"><span style="font-style:italic;color:var(--rust)">Qwen</span> 3.8-Max</div>
+        <div class="lead">Qwen Studio（クラウド実行）＋ MCP Filesystem（ローカル実行）で、AIが手元ファイルを読み書きしながらコーディング支援する環境を、注意点込みで整理します。</div>
+        <div class="rule"></div>
+        <div class="footnote">Bilingual（用語）: MCP = Model Context Protocol（モデル文脈プロトコル）/ Filesystem = ファイル操作</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="tag">Problem</div>
+      <div class="slide-num">03 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">便利さと引き換え</div>
+        <div class="title"><span class="jp" style="font-style:italic;color:var(--rust)">データ境界</span></div>
+        <div class="lead">モデルはクラウドで動き、MCP Filesystem側はローカルでも、読み取ったファイル内容がクラウドへ送信される可能性があります。</div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">できること</div>
+            <div class="v">ファイルの読み取り・書き込み・編集（ローカル開発フローを拡張）</div>
+          </div>
+          <div class="cell">
+            <div class="k">気をつけること</div>
+            <div class="v">機密/著作権/社内データは、プライバシーポリシーと送信範囲を確認してから扱う</div>
+          </div>
+        </div>
+        <div class="footnote">結論: “ローカルっぽい”体験でも、情報統制は必須です。</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="architecture">
+      <div class="tag">Architecture</div>
+      <div class="slide-num">04 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">分業が鍵</div>
+        <div class="title"><span style="font-style:italic;color:var(--rust)">クラウド</span> × <span style="font-style:italic;color:var(--rust)">ローカル</span></div>
+        <div class="lead">Qwen 3.8-MaxはQwen Studio経由でクラウド実行し、MCPのFilesystemサーバーだけを手元PCで起動します。</div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Qwen Studio</div>
+            <div class="v">AI推論はクラウド<br/><span style="color:var(--ink-3);font-size:16px;">(入力/文脈が送られる可能性)</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">MCP</div>
+            <div class="v">外部ツール連携で文脈を拡張<br/>(Model Context Protocol)</div>
+          </div>
+          <div class="cell">
+            <div class="k">Filesystem MCP</div>
+            <div class="v">ローカルでファイル操作<br/><span style="color:var(--ink-3);font-size:16px;">(アクセス範囲を絞れる)</span></div>
+          </div>
+        </div>
+        <div class="footnote">安全設計の主役は、Filesystemが触れるフォルダの“絞り込み”です。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="tag">Metaphor</div>
+      <div class="slide-num">05 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">“手”はローカル</div>
+        <div class="title">AIは<span style="font-style:italic;color:var(--rust)">読者</span>、触るのは<span style="font-style:italic;color:var(--rust)">手元</span></div>
+        <div class="lead">AI（読者）が質問し、Filesystem（手元）がファイルを取得して返すことで、編集まで進みます。</div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">流れ i</div>
+            <div class="v">AIが「必要なファイル/差分」を要求（文脈が形成される）</div>
+          </div>
+          <div class="cell">
+            <div class="k">流れ ii</div>
+            <div class="v">Filesystemがローカルから読み取り→変更→差分を返す（ただし内容はクラウド側で扱われ得る）</div>
+          </div>
+        </div>
+        <div class="footnote">誤解しがちポイント: “手元で動く＝機密が外へ出ない”ではありません。</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="process">
+      <div class="tag">Process</div>
+      <div class="slide-num">06 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">最小手順</div>
+        <div class="title">設定は<span style="font-style:italic;color:var(--rust)">2段</span></div>
+        <div class="lead">Qwen StudioでQwen 3.8-Maxを選び、次にMCP設定でFilesystemサーバーを有効化します。</div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">段 i（モデル）</div>
+            <div class="v">Qwen StudioでQwen 3.8-Maxを利用開始</div>
+          </div>
+          <div class="cell">
+            <div class="k">段 ii（MCP）</div>
+            <div class="v">Filesystem MCPを起動し、アクセス対象フォルダを指定</div>
+          </div>
+        </div>
+        <div class="codebox">
+          <div class="label">起動の要点（例）</div>
+          <pre>Node.js が必要
+npx で Filesystem MCP サーバーを起動
+args でアクセス範囲（フォルダ）を絞る</pre>
+        </div>
+        <div class="footnote">導入ボトルネック: Node.js未導入だと止まります。</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="tag">Enumeration</div>
+      <div class="slide-num">07 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">運用ベスト</div>
+        <div class="title"><span style="font-style:italic;color:var(--rust)">3つ</span>の統制</div>
+        <div class="lead">この環境は強力ですが、誤変更・情報漏えいの両方を抑える統制が必要です。</div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i（範囲）</div>
+            <div class="v">アクセスを必要最小限のフォルダへ限定</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii（確認）</div>
+            <div class="v">プライバシーポリシー/利用規約で送信範囲を確認</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii（品質）</div>
+            <div class="v">変更は必ず差分レビュー（必要ならテスト/検証も）</div>
+          </div>
+        </div>
+        <div class="footnote">結論: “自動化”より前に“人間の承認”を設計します。</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="comparison">
+      <div class="tag">Comparison</div>
+      <div class="slide-num">08 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">得意と限界</div>
+        <div class="title"><span style="font-style:italic;color:var(--rust)">速い</span>が<span style="font-style:italic;color:var(--rust)">保証</span>は別</div>
+        <div class="lead">README/入力要約から分かる範囲では、AI編集の速度と便利さは高い一方、品質保証の自動化までは読み取れません。</div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">向いている</div>
+            <div class="v">読み取り→理解、新規作成、既存コードの文脈に応じた編集、ファイルナビゲーション</div>
+          </div>
+          <div class="cell">
+            <div class="k">不確実/要追加</div>
+            <div class="v">依存関係解決、テスト実行、ビルド、静的解析などの品質工程は別途設計が必要</div>
+          </div>
+        </div>
+        <div class="footnote">結論: “作業は速くなるが、検証工程は別途”が現実的です。</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="evidence">
+      <div class="tag">Evidence</div>
+      <div class="slide-num">09 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">FAQ要点</div>
+        <div class="title">重要な<span style="font-style:italic;color:var(--rust)">5問</span></div>
+        <div class="lead">入力データに基づく、判断に直結する要点だけを抜粋します。</div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Q1 無料？</div>
+            <div class="v">無料とされるが、Free tierはポリシーに従い変動し得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q4 自分のコード？</div>
+            <div class="v">クラウド実行が前提で、MCP経由のファイル内容が送信される可能性</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q3 MCPの役割</div>
+            <div class="v">AIが外部ツール（今回はFilesystem）と連携し文脈を拡張</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q5 得意タスク</div>
+            <div class="v">読み取り理解〜文脈編集、ただし依存/テスト自動化は要確認</div>
+          </div>
+        </div>
+        <div class="footnote">Q2（モデル詳細）とQ6（セキュリティ）は、実運用前に公式情報で補完が必要です。</div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="closing">
+      <div class="tag">Closing</div>
+      <div class="slide-num">10 / 13</div>
+      <div class="inset">
+        <div class="eyebrow">最終結論</div>
+        <div class="title"><span style="font-style:italic;color:var(--rust)">試す価値</span>は高い</div>
+        <div class="lead">セットアップの道筋は分かりやすく、無料枠でローカル開発体験を拡張できる可能性が高いです。</div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">導入前</div>
+            <div class="v">プライバシーポリシー/規約で送信範囲を確認し、扱うデータを限定する</div>
+          </div>
+          <div class="cell">
+            <div class="k">導入後</div>
+            <div class="v">変更は必ず差分レビュー、必要な検証工程（テスト等）を別で用意する</div>
+          </div>
+        </div>
+        <div class="footnote">運用判断に不足: データ保持期間、送信粒度、MCPログ挙動、テスト/検証連携は入力データだけでは確定できません。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">11 / 13</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://qwenlm-qwen-code.mintlify.app/configuration/settings" target="_blank" rel="noreferrer noopener">Settings.json Reference - Qwen Code</a></h2>
+<p class="reference-note">```
+{{ &quot;mcpServers&quot;: { &quot;mcpServers&quot;: { &quot;filesystem&quot;: { &quot;filesystem&quot;: { &quot;command&quot;: &quot;npx&quot;,  &quot;command&quot;: &quot;npx&quot;, &quot;args&quot;: [&quot;-y…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.penligent.ai/hackinglabs/qwen3-8-jailbreak" target="_blank" rel="noreferrer noopener">Qwen3.8 Jailbreak Risk — What the First Public Claim Does and Does Not Prove</a></h2>
+<p class="reference-note">This CVE matters to Qwen3.8 risk analysis because it separates two conditions:
+
+1. The model or agent is influenced by u…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 13</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://qwen.ai/blog?id=qwen3.8" target="_blank" rel="noreferrer noopener">Qwen3.8-Max: A New Bar for Coding and Cowork</a></h2>
+<p class="reference-note">## Citation#
+
+bibtex
+
+`@misc{qwen38,    title = {{Qwen3.8}: A New Bar for Coding and Cowork},    url = {    author = {{Q…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://qwen.ai/research" target="_blank" rel="noreferrer noopener">Qwen3.8-Max: A New Bar for Coding and Cowork</a></h2>
+<p class="reference-note">Read more
+
+Load more
+
+Explore cutting-edge model technologies
+
+Go to Github
+
+Try Qwen Studio
+
+Web
+
+iOS
+
+Android
+
+macOS
+
+…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 13</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://qwenlm.github.io/qwen-code-docs/en/developers/tools/mcp-server" target="_blank" rel="noreferrer noopener">MCP servers with Qwen Code</a></h2>
+<p class="reference-note">`qwen mcp add`
+
+The `add` command configures a new MCP server in your `settings.json`. Based on the scope (`-s, --scope`…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
