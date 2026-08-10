@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Local-first AI Agents：再現可能な決定記録で監査を成立させる</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display: block;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 10px;
+      border-radius: 2px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: 0.75;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 22px;
+      left: 22px;
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 76px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+      transform: translateY(1px);
+    }
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+    }
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 66px;
+      line-height: 1.05;
+      color: var(--ink);
+    }
+    .title .em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      margin-top: 6px;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .section-divider{
+      height:1px;
+      background: var(--rule-strong);
+      margin: 14px 0 6px;
+      width: 100%;
+      opacity: 0.6;
+    }
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.10);
+      border-radius: 2px;
+      min-height: 72px;
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell p{
+      margin:0;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .note{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      max-width: 860px;
+    }
+    .tagline{
+      margin-top: 6px;
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.55;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+    .ref-list{
+      margin-top: 6px;
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.10);
+      padding: 14px;
+      border-radius: 2px;
+    }
+    .ref-title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink);
+      font-size: 20px;
+      margin: 0 0 6px 0;
+      line-height: 1.2;
+    }
+    .ref-meta{
+      font-family: "Inter Tight", sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slide-tag">FOUNDATION</div>
+      <div class="slide-num">02 / 13</div>
+      <div class="eyebrow">監査の本体は“再現”</div>
+      <h1 class="title">Local-firstは土台<span class="em">。</span></h1>
+      <div class="lead">データをクラウドに預けないだけでは監査は成立しません。“なぜその行動が起きたか”を同じ条件で検証できる因果の記録が必要です。</div>
+      <div class="tagline">監査＝ログではない：監査＝再実行できる決定記録</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 13</div>
+      <div class="eyebrow">ログは証拠にならない</div>
+      <h1 class="title"><span class="em">タイムスタンプ</span>罠</h1>
+      <div class="lead">イベントログは“何が起きたか”を示せても、“なぜ起きたか”を再注入できないなら因果束（causal bundle）になりません。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">体裁ログ</div>
+          <p>時刻付きの出来事を保存しても、状態遷移・外部観測が再構成不能なら検証不能。</p>
+        </div>
+        <div class="cell">
+          <div class="label">再現可能ログ</div>
+          <p>入力・モデル/政策・外部観測・状態変化を固定し、同じ開始点から同じ決定へ到達可能。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">CORE IDEA</div>
+      <div class="slide-num">04 / 13</div>
+      <div class="eyebrow">“入力から因果へ”</div>
+      <h1 class="title">決定を<span class="em">凍結</span>する</h1>
+      <div class="lead">最低限、(1)入力、(2)モデル/ツール/政策、(3)retrievalやツール結果、(4)状態遷移前後を同一の因果束として保持します。</div>
+      <div class="grid four" style="grid-template-columns: 1fr 1fr; gap:14px; margin-top:10px;">
+        <div class="cell"><div class="label">i</div><p>入力（何を与えたか）</p></div>
+        <div class="cell"><div class="label">ii</div><p>決定装置（モデル/ツール/政策のバージョンと状態）</p></div>
+        <div class="cell"><div class="label">iii</div><p>外部観測（retrieval集合/順位条件、ツール応答）</p></div>
+        <div class="cell"><div class="label">iv</div><p>状態遷移（前後の差分）</p></div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">MISSING PIECES</div>
+      <div class="slide-num">05 / 13</div>
+      <div class="eyebrow">“hash”は不十分</div>
+      <h1 class="title">改ざん耐性≠<span class="em">再現性</span></h1>
+      <div class="lead">ハッシュチェーンは編集されていないことを示しても、“同じ条件で同じ決定を再生できるか”を保証しません。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">必要</div>
+          <p>入力/モデル/政策/外部観測/状態遷移を固定。</p>
+        </div>
+        <div class="cell">
+          <div class="label">不足</div>
+          <p>promptのハッシュのみでは外部観測と状態が欠落。</p>
+        </div>
+        <div class="cell">
+          <div class="label">別軸</div>
+          <p>integrity（真正性）と reproducibility（再生）を分けて設計。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">FIELDS</div>
+      <div class="slide-num">06 / 13</div>
+      <div class="eyebrow">決定記録に入れるもの</div>
+      <h1 class="title">“最低限セット”</h1>
+      <div class="lead">モデル/政策のバージョンと状態、resolvedされたツール入力、retrievalスナップショット、外部ツール応答、クロックや乱数条件（可能な範囲）を含めます。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">決定側</div>
+          <p>モデルバージョン / policyスナップショット（状態含む） / ツール入力（引数の確定）</p>
+        </div>
+        <div class="cell">
+          <div class="label">観測側</div>
+          <p>retrieval結果（候補集合・順位付け/タイブレーク条件） / ツール応答 / 状態遷移前後（差分）</p>
+        </div>
+      </div>
+      <div class="note">さらに、許容できない変動（ツール選択や状態遷移）と、許容できる変動（文言など）を明文化します。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">REPLAY MODES</div>
+      <div class="slide-num">07 / 13</div>
+      <div class="eyebrow">完全一致？境界付き？</div>
+      <h1 class="title">再現には<span class="em">2種類</span></h1>
+      <div class="lead">完全一致（bit-for-bit）を目指すのか、境界付きの再現（bounded variance）を許すのかは争点です。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">i  完全一致</div>
+          <p>文言や選択まで同一を要求。実装コストと“再現不能”率が上がる。</p>
+        </div>
+        <div class="cell">
+          <div class="label">ii  境界付き</div>
+          <p>許容変動の種類を定義し、再現判定で分岐。例：文言は許すがツール選択は不可。</p>
+        </div>
+      </div>
+      <div class="tagline">どちらでも“判定基準”がないと監査になりません（再現できた/できないの裁定が必要）。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROVENANCE</div>
+      <div class="slide-num">08 / 13</div>
+      <div class="eyebrow">誰が見た？何が由来？</div>
+      <h1 class="title">Provenance<span class="em">問題</span></h1>
+      <div class="lead">ローカルに保存しても、表示値が後から作った説明や別経路の推論投影なら、値の由来（provenance）が崩れます。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">欠陥例</div>
+          <p>“説明文”が尤もらしく、実行値や入力根拠に一貫しない。</p>
+        </div>
+        <div class="cell">
+          <div class="label">要求</div>
+          <p>書き込み経路だけでなく、読み取り・派生（derivation）経路も再現可能にする。</p>
+        </div>
+      </div>
+      <div class="small">監査は「整合しているように見える」ではなく「由来が追える」ことが鍵です。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">MULTI-AGENT</div>
+      <div class="slide-num">09 / 13</div>
+      <div class="eyebrow">並行性は“状態遷移”</div>
+      <h1 class="title">マルチエージェント<span class="em">再現</span>の崩壊</h1>
+      <div class="lead">どのエージェントが選ばれたか、候補スコア、拒否（rejected alternatives）、並行ツール呼び出し順序（スケジューラ相互作用）を含めないと再現性が崩れます。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">ルーティング</div>
+          <p>勝者の選定自体が決定。</p>
+        </div>
+        <div class="cell">
+          <div class="label">並行実行</div>
+          <p>順序が状態差分を変える。</p>
+        </div>
+        <div class="cell">
+          <div class="label">共有チャネル</div>
+          <p>共有状態のスナップショットが必要。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">AUTHORIZATION</div>
+      <div class="slide-num">10 / 13</div>
+      <div class="eyebrow">権限と証拠は別系統</div>
+      <h1 class="title">Authorization<span class="em">↔</span>Evidence</h1>
+      <div class="lead">同じ行動でも、許可（authorization）がその時点で有効だったかは再現しないと判断できません。</div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">integrityの話</div>
+          <p>記録が改ざんされていないことは示せる。</p>
+        </div>
+        <div class="cell">
+          <div class="label">authorizationの話</div>
+          <p>grantの時限性・状態を“受領証（receipt）”として同時コミット。</p>
+        </div>
+      </div>
+      <div class="note">承認チェーンと証拠チェーンを分けて、同じタイムライン上で結び直す設計が要点です。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">TAKEAWAY</div>
+      <div class="slide-num">11 / 13</div>
+      <div class="eyebrow">結論：必要条件＋十分条件</div>
+      <h1 class="title">Local-firstは<span class="em">必要</span>、だが監査は要件不足</h1>
+      <div class="lead">ローカルファーストは土台ですが十分条件ではありません。“再現可能な決定記録”と、観測境界・承認境界の明示がないと、監査は体裁（compliance souvenir）になります。</div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">要求A</div>
+          <p>因果束：入力・モデル/政策・外部観測・状態遷移。</p>
+        </div>
+        <div class="cell">
+          <div class="label">要求B</div>
+          <p>provenance：派生まで追える。</p>
+        </div>
+        <div class="cell">
+          <div class="label">要求C</div>
+          <p>境界：観測（retrieval/ツール）と承認（authorization）を分離し再構成。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">REFERENCES</div>
+      <div class="slide-num">12 / 13</div>
+      <div class="eyebrow">参考：再現性・監査・因果ログ</div>
+      <h1 class="title">Further reading</h1>
+      <div class="lead">原文の議論と直結する包括論点（reproducibility / auditability / causal logging / provenance / authorization）に関する代表的トピック群です。</div>
+      <div class="ref-list">
+        <div class="ref-item">
+          <div class="ref-meta">Reproducibility</div>
+          <div class="ref-title">Causal / deterministic replay</div>
+          <div class="small">同一条件から同一決定に到達できる記録（入力・外部観測・状態遷移）という観点。</div>
+        </div>
+        <div class="ref-item">
+          <div class="ref-meta">Audit & Forensics</div>
+          <div class="ref-title">Auditability vs integrity</div>
+          <div class="small">改ざん耐性（integrity）と、監査の本体である再現可能性（reproducibility）の分離。</div>
+        </div>
+        <div class="ref-item">
+          <div class="ref-meta">Provenance</div>
+          <div class="ref-title">Data provenance & derivation</div>
+          <div class="small">“表示値がどこ由来か”を、書き込みだけでなく派生・読み取り経路まで追う必要。</div>
+        </div>
+        <div class="ref-item">
+          <div class="ref-meta">Authorization</div>
+          <div class="ref-title">Receipt-based accountability</div>
+          <div class="small">行動の証拠（evidence）と、その時点での許可（authorization）を同時にコミットする設計。</div>
+        </div>
+      </div>
+      <div class="small" style="margin-top:12px; color:var(--ink-4);">
+        注：このスライドはユーザー提示テキストに含まれない外部文献の特定は行っていません（書誌情報の指定があれば置換可能）。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 13</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
