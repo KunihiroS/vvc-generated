@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>patchloom：AIエージェントの安全な構造化ファイル編集</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 56px;
+      display: block;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      padding: 20px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::after{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      pointer-events:none;
+      margin: 0;
+    }
+    .slide-inner{
+      height: 100%;
+      width: 100%;
+      padding: 56px 72px;
+    }
+    .topline{
+      display:flex; align-items:flex-start; justify-content:space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--rust);
+      padding-left: 12px;
+      position: relative;
+      margin-top: 4px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top: 50%;
+      transform: translateY(-50%);
+      width: 8px; height: 26px;
+      border-left: 3px solid var(--rust);
+      opacity: 0.95;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      font-size: 20px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 8px;
+      line-height: 1.05;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 78px;
+      margin: 0 0 14px;
+      line-height: 0.98;
+      letter-spacing: 0.01em;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 78px;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      max-width: 760px;
+      margin-top: 0;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 22px 0 18px;
+      max-width: 760px;
+    }
+    .grid{
+      display:grid;
+      gap: 12px 12px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(20,17,13,0.10);
+      min-height: 92px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.3;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .pair{
+      display:flex; flex-direction:column; gap: 8px;
+      margin-top: 6px;
+    }
+    .bilingual{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:baseline;
+    }
+    .bilingual .en{ font-style: italic; color: var(--rust); font-weight: 500; }
+    .bilingual .jp{ color: var(--ink-2); font-weight: 400; }
+    .closing-center{
+      position:absolute;
+      left:72px; right:72px; bottom:56px;
+      text-align:left;
+      max-width: 900px;
+    }
+    .closing-center h2{
+      font-size: 28px; margin:0 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .closing-center p{
+      margin:0;
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">cover</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+        <div class="eyebrow">AI編集の「壊れ」を減らす</div>
+        <div class="title"><i>patchloom</i><span class="jp">（パッチルーム）</span></div>
+        <p class="lead">
+          patchloomは、AIコーディングエージェントがファイルを編集する際の失敗パターンを、<span class="bilingual"><span class="en">selector-based</span><span class="jp">セレクタ指定</span></span>と<span class="bilingual"><span class="en">transaction</span><span class="jp">トランザクション</span></span>で抑えるためのCLIです。
+        </p>
+        <div class="rule"></div>
+        <div class="small">
+          対象：JSON / YAML / TOML。<span class="mono">regex</span>ではなくパス（例：<span class="mono">database.port</span>）で編集します。
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+        <div class="eyebrow">3つの失敗モード</div>
+        <div class="title"><i>壊れる</i><span class="jp">と</span><i>遅い</i><span class="jp">問題</span></div>
+        <p class="lead">
+          AIが「テキスト編集」をすると、(1) 設定ファイルの破損、(2) LLM往復（ラウンドトリップ）増大、(3) OS差による運用複雑化が起きやすくなります。
+        </p>
+
+        <div class="grid three" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">Failure i</div>
+            <div class="v">構文破損（invalid JSON/YAML）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Failure ii</div>
+            <div class="v">往復増（1変更＝1呼び出し）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Failure iii</div>
+            <div class="v">OS差（sed/jq/シェル差）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+        <div class="eyebrow">置換は「彫刻」ではない</div>
+        <div class="title"><i>regex</i><span class="jp">は彫れない</span></div>
+        <p class="lead">
+          正規表現の置換は、コメント・インデント・順序に依存しがちです。patchloomはパーサベースで「構造」を保った編集へ寄せます。
+        </p>
+
+        <div class="grid two" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">Text replace</div>
+            <div class="v">崩れやすい：整形・コメント欠落・無効構文</div>
+          </div>
+          <div class="cell">
+            <div class="k">Selector edit</div>
+            <div class="v">狙い撃ち：<span class="mono">path</span>（例：<span class="mono">database.port</span>）で変更</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+        <div class="eyebrow">patchloomの核</div>
+        <div class="title"><i>構造化編集</i><span class="jp">×</span><i>安全適用</i></div>
+        <p class="lead">
+          patchloomは、構造化ファイルを「セレクタ指定で変更」し、dry-runプレビュー、検証、ロールバック付きで複数ファイルを安全に適用します。
+        </p>
+
+        <div class="grid three" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">1</div>
+            <div class="v">セレクタで編集（パス指定）</div>
+          </div>
+          <div class="cell">
+            <div class="k">2</div>
+            <div class="v">dry-run / プレビュー</div>
+          </div>
+          <div class="cell">
+            <div class="k">3</div>
+            <div class="v">batch / txで検証・ロールバック</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+        <div class="eyebrow">AI編集の“往復”を削る</div>
+        <div class="title"><i>batch</i><span class="jp">と</span><i>tx</i><span class="jp">で一括化</span></div>
+        <p class="lead">
+          設定変更が複数ファイルにまたがる場合、patchloomは<span class="mono">batch</span> / <span class="mono">tx</span>で編集を1回にまとめ、部分適用リスクを下げます。
+        </p>
+
+        <div class="grid two" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">従来</div>
+            <div class="v">1変更＝1ツール呼び出し→往復増</div>
+          </div>
+          <div class="cell">
+            <div class="k">patchloom</div>
+            <div class="v">複数操作を単一適用→<span class="mono">strict: true</span>で整合性重視</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">enumeration</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+        <div class="eyebrow">編集を保証へ近づける</div>
+        <div class="title"><i>検証</i><span class="jp">と</span><i>ロールバック</i></div>
+        <p class="lead">
+          <span class="mono">tx</span>では、フォーマット／バリデーション失敗時にロールバックする考え方が示されています。中途で壊れる状態を避けます。
+        </p>
+
+        <div class="grid two" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k"><i>i</i></div>
+            <div class="v">plansの生成（複数編集）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>ii</i></div>
+            <div class="v">strictモードで検証→失敗なら撤回</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+        <div class="eyebrow">OS依存を薄くする</div>
+        <div class="title"><i>単一バイナリ</i><span class="jp">で統一</span></div>
+        <p class="lead">
+          patchloomはLinux/macOS/Windowsで同一のCLI体験・オプション体系を狙い、依存ツール（sed/jq/grep等）を前提にしません。
+        </p>
+
+        <div class="grid three" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">Linux</div>
+            <div class="v">同一コマンド体系</div>
+          </div>
+          <div class="cell">
+            <div class="k">macOS</div>
+            <div class="v">同一オプション体系</div>
+          </div>
+          <div class="cell">
+            <div class="k">Windows</div>
+            <div class="v">同一挙動を狙う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+        <div class="eyebrow">MCPは“構造化ツール呼び出し”</div>
+        <div class="title"><i>MCP</i><span class="jp">でクォート地獄を回避</span></div>
+        <p class="lead">
+          MCP対応により、ホストシェルの文字列組み立てに依存せず、エージェントが構造化された呼び出しとしてpatchloomを利用できます。
+        </p>
+
+        <div class="grid two" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">シェル依存</div>
+            <div class="v">クォート/エスケープ失敗・解釈ズレ</div>
+          </div>
+          <div class="cell">
+            <div class="k">MCPモード</div>
+            <div class="v">入力をJSON等の構造で渡す（例：<span class="mono">{path, selector, value}</span>）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+        <div class="eyebrow">“速さ”は場面次第</div>
+        <div class="title"><i>ネイティブ優位</i><span class="jp">vs</span><i>エージェント優位</i></div>
+        <p class="lead">
+          単一ファイルの単純編集ならネイティブが速い場合がありますが、AI文脈ではbatch/txが往復回数を減らし、体感とコストを改善します。
+        </p>
+
+        <div class="grid two" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">単一編集</div>
+            <div class="v">ネイティブが有利になり得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">複数編集</div>
+            <div class="v">patchloomが一括化→往復削減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+        <div class="eyebrow">よくある疑問の要点</div>
+        <div class="title"><i>FAQ</i><span class="jp">の結論</span></div>
+        <p class="lead">
+          patchloomは「正規表現ではなくセレクタ」「trusted input前提のtx実行方針」「汎用filesystem MCPではない」という整理が重要です。
+        </p>
+
+        <div class="grid two" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">なぜセレクタ？</div>
+            <div class="v">コメント/インデント/順序に依存しにくく、無効構文を生みにくい</div>
+          </div>
+          <div class="cell">
+            <div class="k">txは安全？</div>
+            <div class="v"><span class="mono">plans are trusted input</span>。cmdをホストシェル実行し得るため、入力の信頼性が前提</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+        <div class="eyebrow">導入時の注意（限界）</div>
+        <div class="title"><i>魔法ではない</i><span class="jp">前提</span></div>
+        <p class="lead">
+          patchloomの“安全”は条件付きです。特にtxの実行方針と、保証範囲（失敗時挙動・AST操作の深さ等）の確認が必要になります。
+        </p>
+
+        <div class="grid three" style="margin-top:22px;">
+          <div class="cell">
+            <div class="k">Security</div>
+            <div class="v">trusted input前提（cmd実行の可能性）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Coverage</div>
+            <div class="v">AST/フォーマット保持の保証深度は現場検証</div>
+          </div>
+          <div class="cell">
+            <div class="k">Practice</div>
+            <div class="v">対象ファイル種別ごとにテスト＋統合確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+        <div class="eyebrow">まとめ：エージェント運用の現実に刺さる</div>
+        <div class="title"><i>壊れにくい</i><span class="jp">編集</span></div>
+        <p class="lead">
+          patchloomは「構造化ファイルをセレクタで編集」「batch/txで一括・ロールバック」「MCPで構造化ツール呼び出しへ寄せる」ことで、AIコーディングの部分失敗と文脈ずれを体系的に抑える設計です。
+        </p>
+
+        <div class="closing-center">
+          <h2>Next move</h2>
+          <p>
+            導入は、txのtrusted input方針を満たしつつ、対象（JSON/YAML/TOML）とモードごとにdry-run・検証・ロールバックの挙動をテストで確認するのが最短です。
+          </p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
