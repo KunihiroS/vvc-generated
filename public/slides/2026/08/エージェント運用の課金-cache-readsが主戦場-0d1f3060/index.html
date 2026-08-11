@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>エージェント運用の課金：cache readsが主戦場</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      padding: 24px 0 48px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 34px;
+      left: 42px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 16px;
+      height: 1px;
+      background: var(--rust);
+      margin-right: 10px;
+      transform: translateY(-4px);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 34px;
+      right: 42px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-3);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 18px 0;
+      letter-spacing: 0.01em;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      margin: 0 0 18px 0;
+      line-height: 1.0;
+      color: var(--ink);
+    }
+    .title em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      margin: 0;
+      max-width: 760px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 26px 0 22px;
+      width: 100%;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px 18px;
+      margin-top: 18px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 16px 16px;
+      border-radius: 10px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .value{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .small{
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      font-weight: 300;
+      max-width: 760px;
+    }
+
+    .refs-list{
+      margin-top: 18px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 14px 16px;
+      border-radius: 10px;
+    }
+    .ref-title{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--ink-2);
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+    .ref-desc{
+      color: var(--ink-3);
+      font-size: 16px;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 46px 28px; }
+      .slide-tag{ left: 22px; top: 28px; }
+      .slide-num{ right: 22px; top: 28px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="eyebrow">課金の見落とし</div>
+      <h1 class="title">cache read <em>主戦場</em></h1>
+      <p class="lead">エージェント運用では、入力/出力トークンの単価よりも <span class="mono">cache reads（キャッシュ読み出し）</span> がコストを支配しやすい。</p>
+      <div class="rule"></div>
+      <p class="small">“長く回すほど”見積もりが崩れるので、閾値（cliff）と課金ルールを前提に再計算しよう。</p>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="eyebrow">単価だけだと破綻</div>
+      <h2 class="title">安さ判断 <em>近視眼</em></h2>
+      <p class="lead">従来は「1Mトークン当たりの料金（入力/出力）」だけでモデルを選びがちだが、エージェントでは別の課金要素が効いてくる。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">盲点</div>
+          <div class="value">tool呼び出しを繰り返すと、同じコンテキストを“毎ターン読み直す”必要が生まれる。</div>
+        </div>
+        <div class="cell">
+          <div class="label">結果</div>
+          <div class="value">読み出しの対象になる <span class="mono">KVキャッシュ</span> に由来する <span class="mono">cache reads</span> が総コストを押し上げる。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="eyebrow">読む回数がコスト</div>
+      <h2 class="title">同じ本 <em>何度も</em></h2>
+      <p class="lead">長い議事録（コンテキスト）を、ターンごとに再読するイメージだ。入力や出力が少なく見えても、再読回数が増えると負担が跳ねる。</p>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">ターン</div>
+          <div class="value"><span class="mono">in</span>：少し追加</div>
+        </div>
+        <div class="cell">
+          <div class="label">ただし</div>
+          <div class="value"><span class="mono">cache read</span>：過去を参照</div>
+        </div>
+        <div class="cell">
+          <div class="label">累積</div>
+          <div class="value">100ターン級で“比率”が逆転</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="eyebrow">KVキャッシュの所在</div>
+      <h2 class="title">高速化の <em>状態</em></h2>
+      <p class="lead">モデルは推論を速くするため、過去情報を <span class="mono">KVキャッシュ（推論高速化用の状態）</span> として保持・圧縮する。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">圧縮</div>
+          <div class="value">KVキャッシュは圧縮され、同じ意味でも実メモリ使用量を下げられる可能性がある。</div>
+        </div>
+        <div class="cell">
+          <div class="label">配置</div>
+          <div class="value">GPU/メモリ/SSD/NVMeなど、どこに置くかで“性能と実コスト”が変わる。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="eyebrow">見積もりの観点</div>
+      <h2 class="title">見るべきは <em>3つ</em></h2>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">i</div>
+          <div class="value">入力/出力単価（ベース）</div>
+        </div>
+        <div class="cell">
+          <div class="label">ii</div>
+          <div class="value"><span class="mono">cache reads</span>（参照量）</div>
+        </div>
+        <div class="cell">
+          <div class="label">iii</div>
+          <div class="value">閾値による再価格設定（cliff）</div>
+        </div>
+      </div>
+      <p class="small" style="margin-top:18px;">長時間エージェントでは、ii と iii が見積もりを支配しやすい。</p>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="eyebrow">ターン数で崩れる</div>
+      <h2 class="title">20→100 <em>比率逆転</em></h2>
+      <p class="lead">記事の主張は、「20ターンでも <span class="mono">cache reads</span> が大きく見える」「100ターンでさらに顕著になる」という傾向。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">直感</div>
+          <div class="value">追加は数千トークンでも、読み出し対象（過去部分）が毎ターン“積み上がる”。</div>
+        </div>
+        <div class="cell">
+          <div class="label">結論</div>
+          <div class="value">「平均ターンあたり追加トークン量」だけでは足りず、参照回数（ターン設計）を織り込む必要がある。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="eyebrow">コストを下げる設計</div>
+      <h2 class="title">往復回数 <em>減らせ</em></h2>
+      <p class="lead">tool呼び出しの回数やターン数を減らす工夫は、結果として <span class="mono">cache reads</span> が発生する“回数”を減らしやすい。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">例</div>
+          <div class="value">(1) tool呼び出しをバッチ化して往復を圧縮</div>
+        </div>
+        <div class="cell">
+          <div class="label">例</div>
+          <div class="value">(2) より専門化した専用ツールで意思決定回数を削減</div>
+        </div>
+      </div>
+      <div class="grid two" style="margin-top:14px;">
+        <div class="cell">
+          <div class="label">狙い</div>
+          <div class="value">「少ない往復で完結」→ <span class="mono">cache reads</span> の発生ターンを減らす</div>
+        </div>
+        <div class="cell">
+          <div class="label">示唆</div>
+          <div class="value">記事では、ターン数を10%減らすとコストが約16%減る可能性に言及</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="eyebrow">安いモデルが逆転</div>
+      <h2 class="title">価格表 <em>そのまま</em> ではない</h2>
+      <p class="lead">同じ“モデル名”でも、課金ルールが入力閾値を超えると再計算され、価格表の単純比較が崩れる。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">例（GPT 5.6 Sol）</div>
+          <div class="value">一定の入力トークン閾値を超えると、入力=2倍、出力=1.5倍のように単価が跳ねるケース。</div>
+        </div>
+        <div class="cell">
+          <div class="label">対比（Anthropic）</div>
+          <div class="value">同一レートのまま、という主張が引用されている。</div>
+        </div>
+      </div>
+      <p class="small" style="margin-top:18px;">長時間セッションほど“cliff（段差）”が効いてくる。</p>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="eyebrow">KVが小さくても別問題</div>
+      <h2 class="title">実コスト <em>と</em> 課金がズレる</h2>
+      <p class="lead">KVキャッシュが圧縮で小さくなり、さらにSSD/NVMeへオフロードできるなら、プロバイダ側の実コストは相対的に抑えられる可能性がある。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">推測</div>
+          <div class="value">その結果、 <span class="mono">cache reads</span> が利益率の高い収益源になり得る、という見立て。</div>
+        </div>
+        <div class="cell">
+          <div class="label">注意</div>
+          <div class="value">通信・同期・運用の複雑さなど、実コスト増もあり得るため確定ではない。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="eyebrow">“採用前”に検証</div>
+      <h2 class="title">ログで <em>当てる</em></h2>
+      <p class="lead">読み手は記事の計算をそのまま採用せず、自分のプロンプト設計・ターン設計・実ログで <span class="mono">cache reads</span> と閾値挙動を確認するべきだ。</p>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">Q</div>
+          <div class="value">cache readsとは？：KVキャッシュを参照して“読み出す量”として課金される場合がある。</div>
+        </div>
+        <div class="cell">
+          <div class="label">Q</div>
+          <div class="value">なぜ入力/出力だけで足りない？：既存コンテキストを再読するコストが勝つため。</div>
+        </div>
+        <div class="cell">
+          <div class="label">Q</div>
+          <div class="value">ターン数を減らすと？：キャッシュ参照が起きる“回数”を減らせる。</div>
+        </div>
+      </div>
+
+      <p class="small" style="margin-top:18px;">Bilingual（概念）：<span class="mono">cache reads（キャッシュ読み出し）</span> / <span class="mono">KV cache（KVキャッシュ）</span></p>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="eyebrow">誤差の原因</div>
+      <h2 class="title">同じ数式で <em>同じ結論</em> にならない</h2>
+      <p class="lead">記事の示唆は強いが、実際はプロバイダのcache read仕様、キャッシュヒット率、toolの挙動などで結果が変わる。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">変動要因</div>
+          <div class="value">キャッシュヒット率／セッション境界／再計算の有無</div>
+        </div>
+        <div class="cell">
+          <div class="label">設計要因</div>
+          <div class="value">ターンごとのトークン推移、並列度、tool設計（往復回数）</div>
+        </div>
+      </div>
+
+      <p class="small" style="margin-top:18px;">特に長期実行では、cliff（閾値）を“必ず”チェックする。</p>
+    </section>
+
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="eyebrow">意思決定の要点</div>
+      <h2 class="title">モデル比較は <em>参照込み</em> で</h2>
+      <p class="lead">エージェント運用の費用最適化は「単価が安い」だけでは足りない。<span class="mono">cache reads</span> と閾値による再価格設定（cliff）を前提に再見積もりしよう。</p>
+
+      <div class="grid two" style="margin-top:18px;">
+        <div class="cell">
+          <div class="label">行動</div>
+          <div class="value">tool統合・バッチ化・往復削減でターン数を下げる</div>
+        </div>
+        <div class="cell">
+          <div class="label">確認</div>
+          <div class="value">自社ログで cache reads 比率と閾値超えの有無を検証</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+      <p class="small">（まとめ）cache read主戦場／長期は二次的に高騰／単価比較だけに頼らない。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+
+  <script>
+    // No external JS needed; kept intentionally empty.
+  </script>
+</body>
+</html>
