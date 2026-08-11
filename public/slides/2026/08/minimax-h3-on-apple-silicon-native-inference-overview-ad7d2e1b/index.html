@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>MiniMax-H3 on Apple Silicon — Native Inference Overview</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.55;
+    }
+
+    .deck{
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px 0 48px;
+    }
+
+    .slide{
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      margin: 0 auto;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .frame{
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+
+    .topline{
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 2px solid var(--rust);
+      padding-top: 10px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 18px;
+      padding-top: 10px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+      margin-bottom: 10px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      margin: 0 0 10px;
+      color: var(--ink);
+      line-height: 1.05;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      font-size: 54px;
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 16px;
+      width: 100%;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 18px;
+      margin-top: 10px;
+    }
+    .grid3{
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px 18px;
+      margin-top: 10px;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.10);
+    }
+
+    .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--rust);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .v{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink-2);
+    }
+
+    .footer-note{
+      position: absolute;
+      left: 72px;
+      bottom: 22px;
+      right: 72px;
+      color: var(--ink-4);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 42px 18px; }
+      .frame{ inset: 14px; }
+      .footer-note{ left: 18px; right: 18px; bottom: 18px; }
+      .title{ font-size: 54px; }
+      .title .jp{ font-size: 40px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">Native inference on Apple Silicon</div>
+      <h1 class="title">MiniMax-H3 <em>概要</em></h1>
+      <p class="lead">Apple Silicon（主にM系チップ）で「画像→動画/音声/マルチモーダル」推論を高速化する、ネイティブ実装（<span class="mono">h3-metal</span>）の要点を、steps・reuse・layers・量子化/融合まで繋げて整理します。</p>
+      <div class="footer-note">
+        <span>Reading deck（16:9カード）</span>
+        <span>次：問題→設計→レバー</span>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">Speed vs consistency</div>
+      <h1 class="title">速さは <em>一致</em> を揺らす</h1>
+      <p class="lead">速度最適化（reuse/layers/token-reduction/int8・融合）は、MLX等の別実装と<b>ピクセル完全一致</b>を保証しません。代わりに「設定・被写体・動き」を整合させ、検証しながら最適点を探す設計になっています。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">一致しない理由</div>
+          <div class="v">乱数/実行エンジン/量子化/演算融合の差</div>
+        </div>
+        <div class="cell">
+          <div class="k">だから必要</div>
+          <div class="v">A/B検証（<span class="mono">--use-slower-*</span>、<span class="mono">make parity/test</span>）</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Key idea：高速路と近い同一性の検証路</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">Vertical slices</div>
+      <h1 class="title">積み上げる <em>正しさ</em></h1>
+      <p class="lead">READMEは「ホスト/メタデータ検証 → Metalブロック互換 → プロンプトエンコード → 参照（first/last・Ref2VA）」の順に、動く部品を<b>段階的</b>に完成させます。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">まず確認</div>
+          <div class="v">ホストとモデルメタデータ</div>
+        </div>
+        <div class="cell">
+          <div class="k">次に互換</div>
+          <div class="v">Metalブロック（パリティ）</div>
+        </div>
+        <div class="cell">
+          <div class="k">最後に制御</div>
+          <div class="v">conditioning/参照（first/last・Ref2VA）</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>最適化は“動作が崩れてない”前提で前進</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">From prompt to frames</div>
+      <h1 class="title">生成は <em>反復</em></h1>
+      <p class="lead">H3は内部でTransformer（DiT等）・VAE、さらにテキスト/画像/音声のconditioningを扱い、一定ステップ数の<b>デノイジング</b>を繰り返してフレーム列を生成します。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">内部コンポーネント</div>
+          <div class="v">Transformer（例：DiT）＋VAE＋conditioning</div>
+        </div>
+        <div class="cell">
+          <div class="k">生成の骨格</div>
+          <div class="v">N回デノイジング → フレーム列</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <p class="lead" style="font-size:20px; max-width: 820px;">
+        重要パラメータの見取り図は後半（<span class="mono">steps / reuse / layers</span>）で具体化します。
+      </p>
+      <div class="footer-note">
+        <span>次：steps/reuse/layers</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">Five speed levers</div>
+      <h1 class="title">制御レバー <em>5</em> つ</h1>
+      <p class="lead">速度/品質/検証可能性を分ける主軸は、steps・reuse・layers・token-reduction・int8量子化/演算融合です。</p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">i) <span class="mono">--steps</span></div>
+          <div class="v">デノイジング回数（ちょうどN回）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii) <span class="mono">reuse</span></div>
+          <div class="v">全デノイザの再評価を減らす</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii) <span class="mono">layers</span></div>
+          <div class="v">アクティブTransformerブロック数を減らす</div>
+        </div>
+        <div class="cell">
+          <div class="k">iv) <span class="mono">token-reduction</span></div>
+          <div class="v">トークン圧縮（構図が逸れる可能性）</div>
+        </div>
+        <div class="cell">
+          <div class="k">v) int8 + fused</div>
+          <div class="v">Metal最適化（数値検証は切替でA/B）</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用指針</div>
+          <div class="v">検証用フラグで近い同一性と高速路を両立</div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <span>次：stepsの意味、品質トレード</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">What is --steps?</div>
+      <h1 class="title">steps＝ <em>反復</em></h1>
+      <p class="lead"><span class="mono">--steps N</span> は、実際のデノイジングパスが<b>ちょうどN回</b>になることを意味します。時間要求（<span class="mono">--seconds</span>）は24fps相当に丸められます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">定義</div>
+          <div class="v">デノイジングパスがちょうどN回</div>
+        </div>
+        <div class="cell">
+          <div class="k">補足</div>
+          <div class="v">末尾処理の“終端ゼロ”が関係</div>
+        </div>
+        <div class="cell">
+          <div class="k">時間指定</div>
+          <div class="v"><span class="mono">--seconds</span> → 24fps換算 → フレーム形状へ丸め</div>
+        </div>
+        <div class="cell">
+          <div class="k">実務の見方</div>
+          <div class="v">まずstepsを固定して挙動を検査</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>次：reuse/layersで“同じ目的を軽く”する</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">Reuse & fewer layers</div>
+      <h1 class="title">計算を <em>間引く</em></h1>
+      <p class="lead">reuseは再評価を減らし、layersはTransformerブロック数を減らすことで速度を上げます。評価手順として「まずsteps固定→次にlayers」などが組めます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">reuse</div>
+          <div class="v">全ボディの再利用（再評価削減）</div>
+        </div>
+        <div class="cell">
+          <div class="k">layers</div>
+          <div class="v">アクティブTransformerブロック数を削減</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">推奨手順</div>
+          <div class="v"><i>i</i> steps固定</div>
+        </div>
+        <div class="cell">
+          <div class="k">次の検査</div>
+          <div class="v"><i>ii</i> layers調整</div>
+        </div>
+        <div class="cell">
+          <div class="k">最終的に</div>
+          <div class="v"><i>iii</i> 速度/品質を合意点へ</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>目的：速度と品質の切り分け</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">token-reduction is optional</div>
+      <h1 class="title">token-reductionは <em>オプトイン</em></h1>
+      <p class="lead">デフォルトOFFで、token-reductionはトークン圧縮によって構図がclose-referenceから逸れる可能性があります。速い試作向けで、参照整合性最優先なら慎重に判断します。</p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">デフォルト</div>
+          <div class="v">OFF（opt-in）</div>
+        </div>
+        <div class="cell">
+          <div class="k">起こりうること</div>
+          <div class="v">構図が逸れて“別の方向”へ</div>
+        </div>
+        <div class="cell">
+          <div class="k">向く用途</div>
+          <div class="v">ラフに方向性を見る（速度優先）</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">参照整合性（close-reference）重視なら要A/B</div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <span>次：native 256 previewの位置付け</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">Native 256 preview</div>
+      <h1 class="title">native 256は <em>確認用</em></h1>
+      <p class="lead">native 256 previewは、細部や複雑な構図では不利になり得るため最終品質の代替になりにくいです。主用途は“構図確認の高速プレビュー”です。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">理由</div>
+          <div class="v">空間トークングリッドが小さい</div>
+        </div>
+        <div class="cell">
+          <div class="k">補足</div>
+          <div class="v">RoPE座標は256向けに自動調整</div>
+        </div>
+        <div class="cell">
+          <div class="k">位置付け</div>
+          <div class="v">構図確認のための高速プレビュー</div>
+        </div>
+        <div class="cell">
+          <div class="k">結論</div>
+          <div class="v">最終レンダ品質の保証ではない</div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>Next：--showと--profile</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">Observe: --show / --profile</div>
+      <h1 class="title">可視化で <em>検証</em></h1>
+      <p class="lead"><span class="mono">--show</span> はデノイジング遷移ごとに代表フレームを表示し、完了後に最終フレームも出します。<span class="mono">--profile</span> は各フェーズの壁時計時間・ピークメモリ・dispatch回数などを可視化できます。</p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">--show（観測）</div>
+          <div class="v">代表フレーム逐次表示＋最終フレーム</div>
+        </div>
+        <div class="cell">
+          <div class="k">副作用</div>
+          <div class="v">追加デコード時間と一時メモリが必要</div>
+        </div>
+        <div class="cell">
+          <div class="k">--profile（計測）</div>
+          <div class="v">壁時計時間・ピークメモリ・dispatch回数など</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">速さ最適化を“測って”進める</div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <span>次：int8量子化と演算融合</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">Metal int8 & fused kernels</div>
+      <h1 class="title">Metal最適化で <em>短縮</em></h1>
+      <p class="lead">M5向けのint8量子化と演算融合は大幅な高速化になり得ます。一方で数値検証が揺れる可能性があるため、<span class="mono">--use-slower-*</span> 系で比較できるよう配慮されています。</p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">int8量子化</div>
+          <div class="v">BF16 → int8（高速化）</div>
+        </div>
+        <div class="cell">
+          <div class="k">演算融合</div>
+          <div class="v">例：fused gated AdaLN、最終headキャスト統合</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">Metal 4/TensorOps＋短い実行経路</div>
+        </div>
+        <div class="cell">
+          <div class="k">検証のために</div>
+          <div class="v"><span class="mono">--use-slower-*</span> でA/B比較</div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <span>次：運用の結論（初心者の入口）</span>
+        <span> </span>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">Practical workflow</div>
+      <h1 class="title">まとめ：<em>測って攻める</em></h1>
+      <p class="lead">このプロジェクトは「速さ・品質・数値整合性のトレードオフ」を体系化し、<span class="mono">--show</span> と<span class="mono">--profile</span>、さらにパリティテスト導線で検証可能にしています。</p>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">steps/reuse/layersの役割が明確、最適化の“芯”まで具体</div>
+        </div>
+        <div class="cell">
+          <div class="k">限界</div>
+          <div class="v">入力と環境依存で最適域が変わる（網羅的データは不足しがち）</div>
+        </div>
+        <div class="cell">
+          <div class="k">初心者推奨</div>
+          <div class="v">まずbalanced等のプリセット→<span class="mono">--show</span> / <span class="mono">--profile</span>で確認</div>
+        </div>
+        <div class="cell">
+          <div class="k">意思決定</div>
+          <div class="v">速度重視か同一性重視かを要件で切り分けてA/B</div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <span>日本語（補助）：検証 / 高速化 / トレードオフ</span>
+        <span>終</span>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://huggingface.co/MiniMaxAI/MiniMax-H3" target="_blank" rel="noreferrer noopener">MiniMaxAI/MiniMax-H3</a></h2>
+<p class="reference-note">MiniMax H3 is a general-purpose, omni-modal generative system. It supports unified understanding of multimodal contexts …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=49252179" target="_blank" rel="noreferrer noopener">H3-metal – Native MiniMax-H3 inference for Apple Silicon</a></h2>
+<p class="reference-note">&gt; On the 128 GB M5 Max, clean end-to-end image+audio and embedded-video+audio renders completed in 74.58 and 76.99 secon…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=ns3iMYMJjXI" target="_blank" rel="noreferrer noopener">MiniMax H3 Explained: The Design Choices Behind Native 2K ...</a></h2>
+<p class="reference-note">MiniMax scheduled the H3 model release for August 3, 2026 at 00:00 China Standard Time. After the configuration, weight …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.runpod.io/blog/minimax-h3-the-open-weight-omni-modal-video-model-and-what-it-takes-to-run-it" target="_blank" rel="noreferrer noopener">MiniMax H3: The Open-Weight Omni-Modal Video Model, and What ...</a></h2>
+<p class="reference-note">Source: MiniMax H3 model card, August 3, 2026.
+
+On the independent Artificial Analysis leaderboards, H3 has been placing…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://recipes.vllm.ai/MiniMaxAI/MiniMax-H3" target="_blank" rel="noreferrer noopener">MiniMaxAI/MiniMax-H3 - vLLM Recipes</a></h2>
+<p class="reference-note">## Overview
+
+MiniMax H3 is an open-weight, general-purpose multimodal generation model. Rather than
+being confined to on…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
