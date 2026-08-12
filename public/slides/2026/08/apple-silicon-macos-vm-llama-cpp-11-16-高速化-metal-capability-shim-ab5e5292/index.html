@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Apple Silicon×macOS VM：llama.cpp 11–16×高速化（Metal capability shim）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      border-radius: 4px;
+      overflow: hidden;
+      padding: 56px 72px;
+      border-image: initial;
+      outline: 1px solid var(--rule);
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 8px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      margin-left: auto;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 6px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title {
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 72px;
+      line-height: 1.02;
+      font-weight: 500;
+      position: relative;
+      z-index: 1;
+      letter-spacing: 0.01em;
+    }
+    .title em {
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+
+    .lead {
+      margin-top: 18px;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+      line-height: 1.35;
+    }
+
+    .content {
+      margin-top: 18px;
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+    }
+
+    .rule {
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      position: relative;
+      z-index: 1;
+      margin-top: 6px;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 12px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card {
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 12px 12px 12px;
+      background: rgba(0,0,0,0.06);
+      min-height: 92px;
+    }
+
+    .label {
+      font-family: "Inter Tight", "Noto Serif JP", serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .card .value {
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.32;
+      font-weight: 300;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .small {
+      font-size: 18px;
+      line-height: 1.32;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .ref {
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .footer {
+      margin-top: 10px;
+      font-family: "Inter Tight", "Noto Serif JP", serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (max-width: 900px) {
+      .slide { padding: 44px 26px; border-width: 0; outline: 1px solid var(--rule); }
+      .slide::before { inset: 16px; }
+      .title { font-size: 52px; }
+      .lead { font-size: 18px; }
+      .meta { margin-bottom: 6px; }
+      .slide-num { font-size: 16px; }
+      .grid2 { grid-template-columns: 1fr; }
+      .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" data-slide="1">
+      <div class="meta">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">VM×推論の壁</div>
+      <div class="title"><em>11–16×</em>高速化</div>
+      <div class="lead">Apple Silicon の macOS VM で、llama.cpp の推論速度が「GPU能力の見え方」を変える Metal shim により大きく改善される。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">軸（要点）</div>
+            <div class="value">Virtualization.framework がゲストに提示する <span class="mono">Metal capability</span> が保守的</div>
+          </div>
+          <div class="card">
+            <div class="label">手段</div>
+            <div class="value">対象プロセスだけ capability 回答を上書き（互換レイヤ / shim）</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="footer">読み物向け圧縮まとめ（数値は提示されたテスト事例ベース）</div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="2">
+      <div class="meta">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">ボトルネックの誤解</div>
+      <div class="title">“パススルー不足”</div>
+      <div class="lead">VM で遅い原因を「GPUの直付け（passthrough）がないから」と片付けがちだが、分岐条件を決める <span class="mono">capability</span> のズレでも性能は大きく落ち得る。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">実際の経路</div>
+            <div class="value">macOS VM は <span class="mono">Virtualization.framework</span> により Metal を仮想GPU経由で実行</div>
+          </div>
+          <div class="card">
+            <div class="label">効く要因</div>
+            <div class="value">ゲストが問い合わせた能力情報が低めだと、アプリが高速カーネルを選べない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="3">
+      <div class="meta">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">分岐を止める数字</div>
+      <div class="title">能力表の <em>誤読</em></div>
+      <div class="lead">アプリは起動・初期化時に GPU 能力テーブルを参照し、使うカーネルやコードパスを選ぶ。答えが保守的だと、本来通れる高速ルートへ行けない。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">ゲスト</div>
+            <div class="value"> <span class="mono">capability</span> を問い合わせ</div>
+          </div>
+          <div class="card">
+            <div class="label">アプリ</div>
+            <div class="value"> 返答に基づき分岐（高速/低速）</div>
+          </div>
+          <div class="card">
+            <div class="label">結果</div>
+            <div class="value"> 高速カーネルが選ばれず遅くなる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="4">
+      <div class="meta">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">shimの入れどころ</div>
+      <div class="title">プロセス単位</div>
+      <div class="lead">互換レイヤは「特定プロセス」だけに capability 応答を差し替える。VM全体を変えず、推論ワーカー側の最適化に寄せる設計。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">設計</div>
+            <div class="value"> Metal capability の問い合わせ応答を shim が上書き</div>
+          </div>
+          <div class="card">
+            <div class="label">範囲</div>
+            <div class="value"> 対象プロセス以外へ波及させない（意図的に局所化）</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="small">Bilingual（要約）: shim = 互換レイヤ / 置換層（Japanese gloss: かんぞくそう）</div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="5">
+      <div class="meta">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">何を返す？</div>
+      <div class="title">回答の調整</div>
+      <div class="lead">shim は主に「GPU family の回答値」と「最大 threadgroup memory」を引き上げ、llama.cpp がより新しい Metal 経路（例：SIMD-group reduction / matrix / bfloat16）へ寄れるようにする。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">主な差し替え</div>
+            <div class="value"><span class="mono">Apple GPU family</span> の capability 回答</div>
+          </div>
+          <div class="card">
+            <div class="label">追加の調整</div>
+            <div class="value"><span class="mono">max threadgroup memory</span> を増やして分岐を誘導</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="6">
+      <div class="meta">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">TinyLlama結果</div>
+      <div class="title">11–16×</div>
+      <div class="lead">TinyLlama 1.1B（<span class="mono">Q4_K_M</span>）では、プロンプト処理とトークン生成の両方で大幅な改善が報告された。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">プロンプト処理</div>
+            <div class="value"><span class="mono">約 11.08×</span> / bare-metal 比 <span class="mono">約 98%</span></div>
+          </div>
+          <div class="card">
+            <div class="label">トークン生成</div>
+            <div class="value"><span class="mono">約 16.36×</span>（高速経路へ分岐）</div>
+          </div>
+        </div>
+        <div class="footer">例: M1 Ultra / macOS 26.6.1 host / Tahoe VM / llama.cpp 固定バージョン（要点として提示）</div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="7">
+      <div class="meta">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">Gemma結果</div>
+      <div class="title">生成も回復</div>
+      <div class="lead">Gemma 4 12B（<span class="mono">QAT Q4_0</span>）でも、プロンプトと生成の双方で改善が示され、生成は bare-metal に近づくケースが提示された。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">プロンプト処理</div>
+            <div class="value"><span class="mono">約 7.20×</span> / bare-metal 比 <span class="mono">99%台</span></div>
+          </div>
+          <div class="card">
+            <div class="label">トークン生成</div>
+            <div class="value"><span class="mono">約 14.54×</span> / bare-metal 比 <span class="mono">約 94.82%</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="8">
+      <div class="meta">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">効く条件</div>
+      <div class="title">テキスト中心</div>
+      <div class="lead">効果は「今回調整した capability プロファイル」や「テストした Metal / コードパス」に依存し、万能ではない。特にテキスト実行中心の条件下での測定結果。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">対象</div>
+            <div class="value"> llama.cpp のテキスト実行</div>
+          </div>
+          <div class="card">
+            <div class="label">未保証</div>
+            <div class="value"> マルチモーダル（例：Ollama経由）や speculative decoding 等は主対象外</div>
+          </div>
+          <div class="card">
+            <div class="label">揺らぎ</div>
+            <div class="value"> MLX-LM 等では元々速く、shim 差が小さい例もあり得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="9">
+      <div class="meta">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">Muse Glimmer</div>
+      <div class="title">プロンプト優位</div>
+      <div class="lead">Muse Glimmer 30B（テキストのみ）でも改善が報告され、プロンプト処理と生成の両方で効果が見られる。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">プロンプト処理</div>
+            <div class="value"><span class="mono">約 7.55×</span></div>
+          </div>
+          <div class="card">
+            <div class="label">トークン生成</div>
+            <div class="value"><span class="mono">約 8.87×</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="10">
+      <div class="meta">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">VFIOじゃない</div>
+      <div class="title">“回答”を差し替える</div>
+      <div class="lead">この手法は GPU パススルーではなく、Virtualization.framework のパラバーチャライズドGPU経路は維持したまま、Metal capability 問い合わせへの“返答”だけをプロセス単位で調整する。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">いい意味での差</div>
+            <div class="value"> ホストGPU直付けではなく <span class="mono">capability 回答の矛盾</span> を解消</div>
+          </div>
+          <div class="card">
+            <div class="label">本質</div>
+            <div class="value"> アプリの高速分岐（カーネル選択）を起動側へ寄せる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="11">
+      <div class="meta">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">限界と注意</div>
+      <div class="title">更新耐性</div>
+      <div class="lead">私的・バージョン依存のゲスト Metal 実装に依存するため、OS更新や環境差で動かなくなる可能性がある。さらに注入手法（例：環境変数やライブラリ注入）にはセキュリティ運用上のリスクがある。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">主な制約</div>
+            <div class="value"> OS / ゲスト / ホスト組み合わせと、対象 API・分岐の範囲に依存</div>
+          </div>
+          <div class="card">
+            <div class="label">運用リスク</div>
+            <div class="value"> <span class="mono">DYLD_INSERT_LIBRARIES</span> 等の注入は拒否され得る（サンドボックス/監査など）</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="small">結論: “自分の環境で再現性確認”が前提（常時・万能の最適化ではない）。</div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="12">
+      <div class="meta">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">持ち帰り</div>
+      <div class="title">再現性重視</div>
+      <div class="lead">VMでの遅さは GPU “能力の提示”の保守性が原因になり得る。shim はプロセス単位でその返答を調整し、llama.cpp の高速カーネル選択を引き出して 11–16× を狙う。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">コア理解</div>
+            <div class="value"><span class="mono">capability</span> の矛盾 → 分岐条件が変わらない → 高速経路に到達できない</div>
+          </div>
+          <div class="card">
+            <div class="label">実務の勘所</div>
+            <div class="value"> 対象プロセス限定・対象コードパス限定で検証し、OS更新に備えてフォールバックを用意</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="footer">References（記事/研究の原典に合わせて差し替え推奨）</div>
+        <div class="ref">
+          i. 記事タイトル: “Apple Silicon×macOS VMで llama.cpp の推論を 11–16×高速化：Metal capability shim によるカーネル選択改善”（ユーザー提示の要約）<br/>
+          ii. 参照対象: llama.cpp / Virtualization.framework / Metal capability（記事本文で指定されるリポジトリ・ログ手順が前提）
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://daily.dev/posts/cua-blog-gpu-passthrough-macos-vms-md-at-main-trycua-cua-3jsfxxx0k" target="_blank" rel="noreferrer noopener">cua/blog/gpu-passthrough-macos-vms.md at main · trycua/cua</a></h2>
+<p class="reference-note">Apple&#39;s Virtualization.framework presents the guest with a paravirtualized GPU that reports conservative capabilities — …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://zeli.app/en/story/49259339" target="_blank" rel="noreferrer noopener">Apple Silicon macOS VMs: 11–16× Faster LLM Inference with a Metal Capability Shim — Apple Silicon and macOS VMs: 11–16×…</a></h2>
+<p class="reference-note">Cua&#39;s Lume team reveals a process-scoped Metal capability shim that unlocks newer GPU paths inside macOS VMs on Apple Si…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2601.19139v1" target="_blank" rel="noreferrer noopener">Native LLM and MLLM Inference at Scale on Apple Silicon</a></h2>
+<p class="reference-note">However, existing inference solutions for Apple Silicon face significant limitations. PyTorch’s MPS backend adapts CUDA-…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/@michael.hannecke/tuning-llama-cpp-on-apple-silicon-843f37a6c3dc" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">`--no-kv-offload`. Tells the engine to keep the KV cache on CPU rather than GPU. On Apple Silicon, where CPU and GPU sha…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/ggml-org/llama.cpp/issues/19431" target="_blank" rel="noreferrer noopener">Misc. bug: FA performance on macOS with Metal backend (Intel/AMD) · Issue #19431 · ggml-org/llama.cpp · GitHub</a></h2>
+<p class="reference-note">ggml\_metal\_device\_init: simdgroup reduction = true  
+ ggml\_metal\_device\_init: simdgroup matrix mul. = false  
+ ggm…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
