@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NVIDIA NeMo Switchyard: モデル・ルーティング</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 18px;
+      position: relative;
+      padding: 20px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      pointer-events:none;
+      border-radius: 18px;
+      box-shadow: inset 0 0 0 1px var(--rule-strong);
+      opacity: 0.55;
+    }
+
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.22em;
+      font-size: 13px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding: 2px 0;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 44px;
+      height: 2px;
+      background: var(--rust);
+      display:inline-block;
+      border-radius: 2px;
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 56px 40px 28px;
+      height: 100%;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.05;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      margin-top: -6px;
+      letter-spacing: 0.02em;
+      font-style: italic;
+      color: var(--rust);
+      max-width: 980px;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: -2px;
+    }
+
+    .divider{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 6px;
+      margin-bottom: 4px;
+    }
+
+    .grid{
+      display: grid;
+      gap: 12px;
+      margin-top: 6px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.06);
+      min-height: 64px;
+    }
+    .cell h4{
+      margin: 0 0 6px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+    .cell p{
+      margin: 0;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+
+    .note{
+      margin-top: 4px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      line-height: 1.4;
+    }
+
+    .bullets{
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .brow{
+      display:flex;
+      gap: 10px;
+      align-items:flex-start;
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .brow .k{
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      width: 34px;
+      flex: 0 0 34px;
+      margin-top: 2px;
+    }
+
+    .bottom{
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-end;
+      gap: 16px;
+    }
+    .small{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 12.5px;
+      color: var(--ink-3);
+      line-height: 1.4;
+      max-width: 620px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover slide">
+      <div class="topline">
+        <div class="slide-tag">NE Mo Switchyard</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">モデル・ルーティング（routing）</div>
+        <div class="title">品質×コスト</div>
+        <div class="lead">生成AIエージェントは段階ごとに必要な能力が変わるため、毎回「最大モデル」一択は非効率になりやすい。</div>
+        <div class="divider"></div>
+        <div class="grid two" style="margin-top:8px;">
+          <div class="cell">
+            <h4>主役</h4>
+            <p>NVIDIA NeMo Switchyard（オーケストレーション基盤）</p>
+          </div>
+          <div class="cell">
+            <h4>狙い</h4>
+            <p>各ターン/ステップで最適なモデルへ委譲（委任）する</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">Bilingual: モデル・ルーティング（model routing）= どのモデルに処理を送るかを自動判断する設計。</div>
+          <div class="small" style="text-align:right;">読み物スライド（16:9）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="problem slide">
+      <div class="topline">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">固定はムダ</div>
+        <div class="title">モデル一択の限界</div>
+        <div class="lead">エージェントの同一セッションでも難易度は上下する。最大能力モデルに常時投げるとコストと遅延が増え、最小モデル固定では破綻し得る。</div>
+        <div class="divider"></div>
+        <div class="grid three" style="margin-top:6px;">
+          <div class="cell">
+            <h4>最大だけ</h4>
+            <p>高コスト・高遅延（過剰品質）</p>
+          </div>
+          <div class="cell">
+            <h4>小だけ</h4>
+            <p>難題で品質低下（不足能力）</p>
+          </div>
+          <div class="cell">
+            <h4>現実</h4>
+            <p>段階ごとに必要能力が変化</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">キーメッセージ：必要能力に応じて「投げ先」を変えることが本質。</div>
+          <div class="small" style="text-align:right;">Bilingual: 非効率（inefficiency）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="metaphor slide">
+      <div class="topline">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">作業班を切替</div>
+        <div class="title">職人の交代</div>
+        <div class="lead">料理に例えると、刻みは包丁が得意で、仕上げは別の道具が向く。同じ「料理人（モデル）」に任せ続ける必要はない。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>粗い作業</h4>
+            <p>分類・簡易推論 → 小/中モデルで十分</p>
+          </div>
+          <div class="cell">
+            <h4>難しい作業</h4>
+            <p>深い推論・数学・高度コーディング → 大モデルへ</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">モデル・ルーティングは「最適な職人へ分業」を自動化する発想。</div>
+          <div class="small" style="text-align:right;">Bilingual: 分業（division of labor）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture slide">
+      <div class="topline">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">基盤で統合</div>
+        <div class="title">Switchyardの役割</div>
+        <div class="lead">NeMo Switchyardは、実行中に複数LLMへ作業を振り分けることで、品質とコスト・遅延を両立しやすくする。</div>
+        <div class="divider"></div>
+        <div class="grid three" style="margin-top:4px;">
+          <div class="cell">
+            <h4>ルータ（判断）</h4>
+            <p>入力と利用可能文脈を見て委譲先を決める</p>
+          </div>
+          <div class="cell">
+            <h4>プロバイダ分離</h4>
+            <p>provider-agnosticなSDKで契約を維持</p>
+          </div>
+          <div class="cell">
+            <h4>サーバ層</h4>
+            <p>共通APIで統合コストを下げる</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">ポイント：ルーティングロジックと推論提供側（モデル/ID）を分けて運用負荷を下げる。</div>
+          <div class="small" style="text-align:right;">Bilingual: 委譲（delegation）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence slide">
+      <div class="topline">
+        <div class="slide-tag">Signals</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">見るべき情報</div>
+        <div class="title">シグナル設計</div>
+        <div class="lead">ルータの判断は、テキストだけでは足りない。能力・コスト・インフラ状況（状態やハンドオフ）など複数のシグナルが必要になる。</div>
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="cell">
+            <h4>リクエスト</h4>
+            <p>分類/埋め込みなどの内容</p>
+          </div>
+          <div class="cell">
+            <h4>モデル側状態</h4>
+            <p>logprobs等の推定手がかり</p>
+          </div>
+          <div class="cell">
+            <h4>システム条件</h4>
+            <p>価格・レイテンシ・負荷・エラー等</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">キーメッセージ：成功見込みを推定し、制約下で最適化するのが実務。</div>
+          <div class="small" style="text-align:right;">Bilingual: logprobs = 対数確率（対数ベースの確率）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process slide">
+      <div class="topline">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">段階で分岐</div>
+        <div class="title">ルーティングの選択肢</div>
+        <div class="lead">学習不要から学習ベースまで、段階導入できるルータ方式が提示されている。まずはチューニング不要で始め、必要に応じて高度化する。</div>
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="cell">
+            <h4>LLM classifier</h4>
+            <p>判定で振り分け（学習不要）</p>
+          </div>
+          <div class="cell">
+            <h4>stage router</h4>
+            <p>ステップ状態で分岐（学習不要）</p>
+          </div>
+          <div class="cell">
+            <h4>escalation router</h4>
+            <p>失敗/停滞時に上位へ（学習不要）</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">補足：導入成熟度に応じてルータ方式を選べる設計。</div>
+          <div class="small" style="text-align:right;">Bilingual: escalation（エスカレーション）= 上位へ引き上げ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture slide">
+      <div class="topline">
+        <div class="slide-tag">Tunable</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">推定で最適化</div>
+        <div class="title">prefill router</div>
+        <div class="lead">チューナブルルータの例としてprefill routerがある。residual stream等の特徴から各モデルの成功確率を推定し、精度とコストをトレードオフする。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>発想</h4>
+            <p>序盤（prefill）の情報で“当たりそうさ”を推定</p>
+          </div>
+          <div class="cell">
+            <h4>狙い</h4>
+            <p>最適なモデル/コストバランスへ誘導</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">キーメッセージ：判断を“成功見込みの推定”へ寄せるほど最適化できる。</div>
+          <div class="small" style="text-align:right;">Bilingual: residual stream（残差ストリーム）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="comparison slide">
+      <div class="topline">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">方式の違い</div>
+        <div class="title">チューニング不要 vs チューナブル</div>
+        <div class="lead">導入しやすさと最適化の深さはトレードオフになる。チューニング不要は運用開始を速くし、チューナブルは推定精度で最適化を狙う。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>チューニング不要（例）</h4>
+            <p>LLM classifier / stage router / escalation router</p>
+          </div>
+          <div class="cell">
+            <h4>チューナブル（例）</h4>
+            <p>prefill router：特徴から成功確率を推定</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">読み替え：まずは“安全に回る分岐”を作り、その後“より賢い推定”へ拡張する。</div>
+          <div class="small" style="text-align:right;">Bilingual: 運用（operations）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence slide">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">一択より得</div>
+        <div class="title">エスカレーション戦略</div>
+        <div class="lead">フロンティアモデル一択に比べ、エスカレーション戦略などでコスト削減しつつ精度を一定範囲に抑える事例が示されている。</div>
+        <div class="divider"></div>
+        <div class="grid three" style="margin-top:4px;">
+          <div class="cell">
+            <h4>常時フロンティア</h4>
+            <p>精度は高いがコストが重い</p>
+          </div>
+          <div class="cell">
+            <h4>分岐運用</h4>
+            <p>多くは小/中で処理</p>
+          </div>
+          <div class="cell">
+            <h4>必要時のみ上位</h4>
+            <p>失敗/停滞を検知して引き上げ</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">注意：提示結果は条件依存。自社ワークロードで再評価（A/Bやオフライン推定）する必要がある。</div>
+          <div class="small" style="text-align:right;">Bilingual: ベンチマーク（benchmark）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction slide">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">契約を守る</div>
+        <div class="title">モデル入れ替えへの強さ</div>
+        <div class="lead">ルーティングロジックがプロバイダ固有のモデルIDへ直接依存しない設計により、モデル更新や移管が起きても「ルーティング契約」を維持しやすい。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>何が嬉しい</h4>
+            <p>運用・ガバナンス変更の改修コストを下げる</p>
+          </div>
+          <div class="cell">
+            <h4>どう実現</h4>
+            <p>意味的なターゲットで扱い、ID対応を逃がす</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">キーメッセージ：ルーティングをアプリの“固定ロジック”ではなく“契約”として保つ。</div>
+          <div class="small" style="text-align:right;">Bilingual: 契約（contract）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process slide">
+      <div class="topline">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">実装の要点</div>
+        <div class="title">導入の現実</div>
+        <div class="lead">モデル選択は“賢い判断”だけでなく、シグナル設計・評価指標・失敗制御まで含む。judgeを使う場合はjudge自体のコスト/遅延もボトルネックになり得る。</div>
+        <div class="divider"></div>
+
+        <div class="grid two">
+          <div class="cell">
+            <h4>成功を左右</h4>
+            <p>シグナル設計 / ベンチ・指標 / 閾値（安全側の設計）</p>
+          </div>
+          <div class="cell">
+            <h4>落とし穴</h4>
+            <p>judgeコスト、ツール挙動変更による信号劣化、再評価コスト</p>
+          </div>
+        </div>
+
+        <div class="bottom">
+          <div class="small">結論：Switchyardは実装の基盤（SDK/API/ルータ種別/状態受け渡し）を提供し、段階導入を現実的にする。</div>
+          <div class="small" style="text-align:right;">Bilingual: 監視（monitoring）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="references slide">
+      <div class="topline">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">読書メモ</div>
+        <div class="title">参照ポイント</div>
+        <div class="lead">本スライドはユーザー提供テキスト（要約・所感・FAQ）から要点を圧縮して構成した。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>内容の根拠</h4>
+            <p>Switchyardの狙い（品質/コスト/遅延の両立）<br>provider非依存SDK・サーバ層<br>ルータ種別（LLM classifier / stage / escalation / prefill）</p>
+          </div>
+          <div class="cell">
+            <h4>運用論点</h4>
+            <p>シグナル設計と評価指標<br>judgeの隠れコスト/遅延<br>誤ルーティング時の失敗制御・再評価（A/B等）</p>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="small">次に読むなら：自社ワークロードでのオフライン推定・A/Bで最適化の再現性を確認する。</div>
+          <div class="small" style="text-align:right;">— end —</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
