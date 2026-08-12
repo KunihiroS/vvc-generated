@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>圧縮とLLM：同じ数理の上で</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+      padding:18px 0 48px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 8px;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding:56px 72px;
+      position:relative;
+      overflow:hidden;
+    }
+
+    .slide-inner{
+      width:100%;
+      height:100%;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+
+    .top-row{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.12em;
+      font-size: 18px;
+      text-transform: uppercase;
+      color: var(--rust);
+      padding-left: 14px;
+      position:relative;
+      margin-top: -4px;
+      line-height:1.1;
+      white-space:nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform: translateY(-50%);
+      width:6px;
+      height: 22px;
+      background: var(--rust);
+      opacity:0.35;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      white-space:nowrap;
+      margin-top:-2px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: -6px;
+    }
+
+    .title{
+      font-size: 84px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      letter-spacing: 0.01em;
+      color: var(--rust);
+      line-height: 0.95;
+      margin-top: -4px;
+      max-width: 980px;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 4px;
+    }
+
+    .hr{
+      height:1px;
+      width:100%;
+      background: var(--rule-strong);
+      margin-top: 2px;
+    }
+
+    .grid{
+      width:100%;
+      display:grid;
+      gap:14px;
+      align-items:stretch;
+    }
+
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      border-radius: 10px;
+      padding: 16px 16px 14px;
+      min-height: 72px;
+    }
+
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .cell .text{
+      font-size: 20px;
+      font-weight: 400;
+      line-height:1.45;
+      color: var(--ink);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .bilingual{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .jp{
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--ink);
+      line-height:1.4;
+    }
+    .en{
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--ink-2);
+      line-height:1.4;
+    }
+
+    .note{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height:1.5;
+      max-width: 760px;
+    }
+
+    .hero-center{
+      flex:1;
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+    }
+
+    .closing{
+      display:flex;
+      gap:18px;
+      align-items:flex-end;
+      flex:1;
+    }
+    .closing .big{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 74px;
+      color: var(--rust);
+      line-height:0.95;
+    }
+    .closing .small{
+      font-size: 22px;
+      max-width: 700px;
+      line-height:1.55;
+      font-weight:300;
+      color: var(--ink);
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 34px 22px; border-width: 12px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .cell .text{ font-size: 16px; }
+      .cell{ padding: 12px; border-radius: 8px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 Cover -->
+    <section class="slide" data-slide-type="cover" aria-label="1">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+
+        <div class="eyebrow">圧縮の正体</div>
+        <div class="title">Compression × LLM</div>
+
+        <div class="hero-center">
+          <div class="lead">
+            <b>圧縮は予測であり、LLMは（ある意味）圧縮器。</b><br/>
+            確率でビット数が決まるため、両者は同じ数理の上にあります。<br/>
+            （圧縮＝予測 / 圧縮＝確率符号化）
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 Problem -->
+    <section class="slide" data-slide-type="problem" aria-label="2">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+
+        <div class="eyebrow">なぜ同じ？</div>
+        <div class="title">核心は確率</div>
+
+        <div class="lead">
+          データ圧縮は「パターン（冗長性）」を探し、確率に基づいてビット列に変換します。<br/>
+          LLMは文脈から次トークンの確率分布を作り、その確率と情報量が結びつきます。
+        </div>
+
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">圧縮側</div>
+            <div class="text">確率が高いほど短く符号化<br/>→ ビット数が減る</div>
+          </div>
+          <div class="cell">
+            <div class="label">LLM側</div>
+            <div class="text">次トークン確率を予測<br/>→ 予測誤差がビットコストになる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 Metaphor -->
+    <section class="slide" data-slide-type="metaphor" aria-label="3">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+
+        <div class="eyebrow">当てるほど得</div>
+        <div class="title">賭けの設計</div>
+
+        <div class="lead">
+          符号化は「当たった（確率が高い）選択を短い札で表す」仕組みです。<br/>
+          だから、どれだけ“正しい確率”を置けるかが圧縮率を決めます。
+        </div>
+
+        <div class="grid three" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">高確率</div>
+            <div class="text">少ないビットで表現</div>
+          </div>
+          <div class="cell">
+            <div class="label">低確率</div>
+            <div class="text">長いビットが必要</div>
+          </div>
+          <div class="cell">
+            <div class="label">結論</div>
+            <div class="text">予測精度＝圧縮効率</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 Architecture -->
+    <section class="slide" data-slide-type="architecture" aria-label="4">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+
+        <div class="eyebrow">3つの部品</div>
+        <div class="title">圧縮器の分解</div>
+
+        <div class="lead">
+          圧縮を「変換（transform）」「モデル（model）」「エントロピー符号化（entropy coder）」に分けます。<br/>
+          重要なのは、モデルが“正しい確率”をどれだけ推定できるかです。
+        </div>
+
+        <div class="grid three" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">i / transform</div>
+            <div class="text">表現の整形（必要なら）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii / model</div>
+            <div class="text">文脈込み確率を推定</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii / entropy coder</div>
+            <div class="text">確率→ビット列へ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 Evidence -->
+    <section class="slide" data-slide-type="evidence" aria-label="5">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+
+        <div class="eyebrow">-log2(prob)</div>
+        <div class="title">情報量の式</div>
+
+        <div class="lead">
+          エントロピー符号化は各記号に確率を与え、確率に応じてビット列を作ります。<br/>
+          一般に情報量は <span class="mono">-log2(prob)</span> に比例し、確率が高いほど短くなります。
+        </div>
+
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">確率が高い</div>
+            <div class="text mono">prob ↑ → -log2(prob) ↓</div>
+          </div>
+          <div class="cell">
+            <div class="label">確率が低い</div>
+            <div class="text mono">prob ↓ → -log2(prob) ↑</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 Distinction -->
+    <section class="slide" data-slide-type="distinction" aria-label="6">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+
+        <div class="eyebrow">下限がある</div>
+        <div class="title">シャノン</div>
+
+        <div class="lead">
+          シャノンエントロピーは「損失なし圧縮で到達し得る最小ビット数（下限）」として扱えます。<br/>
+          つまり圧縮限界は“データ一般”ではなく、<b>その確率分布</b>に依存します。
+        </div>
+
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">損失なし</div>
+            <div class="text">さらに縮むには限界あり</div>
+          </div>
+          <div class="cell">
+            <div class="label">依存先</div>
+            <div class="text">分布（文脈込みモデル）で決まる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 Process -->
+    <section class="slide" data-slide-type="process" aria-label="7">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+
+        <div class="eyebrow">文脈で鋭く</div>
+        <div class="title">order-N</div>
+
+        <div class="lead">
+          文脈を入れると確率分布が鋭くなり、エントロピー（下限）が下がります。<br/>
+          直前Nトークンを使う order-N モデルは、圧縮に強い効果を持ちます。
+        </div>
+
+        <div class="grid three" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">i / order-1</div>
+            <div class="text">直前1トークンで条件付け</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii / order-N</div>
+            <div class="text">直前Nトークンで条件付け</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii / 影響</div>
+            <div class="text">確率が偏る → 下限が縮む</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 Architecture -->
+    <section class="slide" data-slide-type="architecture" aria-label="8">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+
+        <div class="eyebrow">LLM＝確率生成</div>
+        <div class="title">圧縮器としてのLLM</div>
+
+        <div class="lead">
+          LLMの本質は「次トークンの確率分布を出すこと」です。<br/>
+          その分布と実データの差が大きいほど、符号化ではより多くのビットが必要になります。
+        </div>
+
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">予測分布</div>
+            <div class="bilingual">
+              <div class="en">LLM predicts</div>
+              <div class="jp">次トークン確率分布</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="label">符号化コスト</div>
+            <div class="bilingual">
+              <div class="en">Difference costs bits</div>
+              <div class="jp">実際との差がビット増</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 Evidence -->
+    <section class="slide" data-slide-type="evidence" aria-label="9">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+
+        <div class="eyebrow">交差エントロピー</div>
+        <div class="title">学習目的＝圧縮</div>
+
+        <div class="lead">
+          LLMの学習目標である交差エントロピーは「予測に基づくビット数削減」と同根です。<br/>
+          よって、LLMが上手くなるほど（理想的には）圧縮に有利になります。
+        </div>
+
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">LLM学習</div>
+            <div class="text">交差エントロピー最小化（予測の良さ）</div>
+          </div>
+          <div class="cell">
+            <div class="label">圧縮</div>
+            <div class="text">実データを確率通りに符号化<br/>→ 平均ビットが減る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 Comparison -->
+    <section class="slide" data-slide-type="comparison" aria-label="10">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+
+        <div class="eyebrow">理論と現実</div>
+        <div class="title">LLMは重い</div>
+
+        <div class="lead">
+          しかし実運用では、LLMをそのまま圧縮に使うのが難しいケースが多いです。<br/>
+          モデルサイズ・推論コスト・デコーダ側の負担（同等のモデル共有）が障壁になります。
+        </div>
+
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">コスト</div>
+            <div class="text">推論計算、帯域、遅延</div>
+          </div>
+          <div class="cell">
+            <div class="label">配備</div>
+            <div class="text">エンコード/デコードでモデル共有が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 Process -->
+    <section class="slide" data-slide-type="process" aria-label="11">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+
+        <div class="eyebrow">判断軸</div>
+        <div class="title">採用は別問題</div>
+
+        <div class="lead">
+          理論上の圧縮力と、実際の配備・速度要件は別次元です。<br/>
+          例としてHTTPレスポンスのような小データでは、巨大LLMは過剰になりやすいです。
+        </div>
+
+        <div class="grid three" style="margin-top:auto;">
+          <div class="cell">
+            <div class="label">圧縮力</div>
+            <div class="text">良い確率推定ほど得</div>
+          </div>
+          <div class="cell">
+            <div class="label">実装</div>
+            <div class="text">モデル/計算/共有が重い</div>
+          </div>
+          <div class="cell">
+            <div class="label">結論</div>
+            <div class="text">“常にgzip超え”ではない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 Closing + References -->
+    <section class="slide" data-slide-type="closing" aria-label="12">
+      <div class="slide-inner">
+        <div class="top-row">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+
+        <div class="eyebrow">要点だけ</div>
+        <div class="title">One idea</div>
+
+        <div class="closing">
+          <div class="big">圧縮＝予測</div>
+          <div class="small">
+            <b>圧縮器の鍵は「モデルによる確率推定」</b>。<br/>
+            LLMは次トークン確率を出すため、交差エントロピーが圧縮のビット数削減と同根になります。<br/>
+            ただし現実の運用では計算・配備コストがボトルネックです。<br/>
+            <span class="mono">（圧縮の数学はLLMと繋がる／採用判断は別途コスト評価が必要）</span>
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="grid two" style="margin-top:6px;">
+          <div class="cell">
+            <div class="label">Bilingual / 用語</div>
+            <div class="text">
+              entropy coder（エントロピー符号化器）<br/>
+              model（モデル） / context（文脈）
+            </div>
+          </div>
+          <div class="cell">
+            <div class="label">Checklist（読み筋）</div>
+            <div class="text">
+              確率↑ → ビット↓ / 下限＝エントロピー / 文脈で分布が鋭くなる
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
