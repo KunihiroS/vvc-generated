@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deadbugz: MCPサプライチェーン × ランタイム閾値</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: block;
+      single-column: true;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 14px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 16px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      pointer-events:none;
+    }
+
+    .slide-head{
+      position: relative;
+      z-index: 1;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      letter-spacing: .14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      margin-top: -6px;
+    }
+
+    .slide-tag .rule{
+      width: 44px;
+      height: 1px;
+      background: var(--rule-strong);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 24px;
+      color: var(--ink-3);
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 8px;
+      position: relative;
+      z-index:1;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 64px;
+      font-weight: 500;
+      letter-spacing: .01em;
+      margin: 0 0 14px;
+      position: relative;
+      z-index:1;
+      line-height: 1.05;
+    }
+    .title em{ font-style: italic; color: var(--rust-deep); }
+
+    .titleJP{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 52px;
+      margin: 0 0 14px;
+      position: relative;
+      z-index:1;
+      line-height: 1.05;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.4;
+      margin: 0;
+      position: relative;
+      z-index:1;
+    }
+
+    .content{
+      position: relative;
+      z-index:1;
+      margin-top: 18px;
+      flex: 1;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 8px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 8px;
+    }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .card .txt{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      margin: 0;
+      font-weight: 300;
+    }
+
+    .card .txt strong{
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .muted{
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height:1.4;
+      margin: 0;
+      font-weight: 300;
+    }
+
+    .nowrap{ white-space: nowrap; }
+
+    @media (max-width: 980px){
+      .slide{ padding: 44px 46px; }
+      .title{ font-size: 52px; }
+      .titleJP{ font-size: 42px; }
+      .lead{ font-size: 20px; }
+      .grid3{ grid-template-columns: 1fr; }
+      .grid2{ grid-template-columns: 1fr; }
+      .deck{ width: min(1120px, calc(100vw - 28px)); }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> DEADBUGZ</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">SAIL 2.0文脈の遅延型攻撃</div>
+      <div class="title"><em>MCP</em>サプライチェーン</div>
+      <p class="lead">ツール定義（tool definitions）とprompts/get相当メタデータが、運用中に書き換わることで機微情報探索が成立する—その仕組みを短く整理します。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Observed theme / 事象の核</div>
+            <p class="txt"><strong>3回のツール呼び出し後</strong>に危険レスポンスへ切替</p>
+          </div>
+          <div class="card">
+            <div class="label">Why it matters / 重要理由</div>
+            <p class="txt">「表示上は同じツール」でも中身が別物になり得るため、承認境界が崩れる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> PROBLEM</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">安全境界の錯覚</div>
+      <div class="title">“ツール名”だけでは足りない</div>
+      <p class="lead">MCPでは、ツール名ではなく「どんな情報を見せ、モデルにどんな指示を渡すか」が安全境界になり得ます。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">MCPの前提 / 前提</div>
+            <p class="txt">クライアントがツール情報（定義・プロンプト・メタデータ）を受け取る</p>
+          </div>
+          <div class="card">
+            <div class="label">攻撃の狙い / 狙い</div>
+            <p class="txt">ツールの“外見”を維持しつつ、渡される指示内容を変更</p>
+          </div>
+          <div class="card">
+            <div class="label">結果 / 結果</div>
+            <p class="txt"><strong>AIの行動方針</strong>が切り替わり、機微情報探索や隠蔽へ</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> METAPHOR</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">遅延型スイッチ</div>
+      <div class="title">検査をすり抜ける</div>
+      <p class="lead">無害に見える応答を先に出し、一定回数のやり取りの後に危険なレスポンスへ切り替える「ランタイム・ゲート」が鍵です。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Phase I / 前半</div>
+            <p class="txt">テキスト整形・要約など“無害っぽい”機能を提示</p>
+          </div>
+          <div class="card">
+            <div class="label">Phase II / 後半</div>
+            <p class="txt"><strong>3回目以降</strong>にprompts/get相当メタデータやツール定義を切替</p>
+          </div>
+        </div>
+        <p class="muted">短時間の自動テストや静的レビューでは、切替後が観測されないまま運用に入る。</p>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> ARCHITECTURE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">MCPの“行動文脈”</div>
+      <div class="title">tool definitions / <em>文脈</em></div>
+      <p class="lead">MCPのツール定義は表示ラベルではなく、モデルが「次に何をすべきか」を判断する行動文脈になります。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">渡るもの / 渡る</div>
+            <p class="txt">ツール定義・プロンプト・メタデータ（例：prompts/get相当）</p>
+          </div>
+          <div class="card">
+            <div class="label">危険点 / 危険点</div>
+            <p class="txt">同じツール名でも、中身の指示が変わると行動が別方向へ</p>
+          </div>
+        </div>
+        <p class="muted">つまり「承認したのはツール」ではなく「承認したのは特定タイミングの定義（改変される前提があるか）」になります。</p>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> ENUMERATION</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">刺さる機微情報</div>
+      <div class="title">探索の内容</div>
+      <p class="lead">切替後の指示には、SSH鍵・AWS資格情報・シェル履歴・Kubernetes設定などの探索が含まれます。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">機微カテゴリ / 例</div>
+            <p class="txt"><strong>SSH鍵</strong> / 資格情報 / 設定情報</p>
+          </div>
+          <div class="card">
+            <div class="label">追加要素 / 追加</div>
+            <p class="txt"><strong>隠蔽（エージェント操作主体の隠し）</strong>も含む</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">Implication / 影響</div>
+          <p class="txt">読み取りだけでなく、痕跡を薄める方向へAI行動が誘導され得る</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> COMPARISON</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">静的レビュー vs 対策抜け</div>
+      <div class="title">短時間の検査が弱点</div>
+      <p class="lead">攻撃は“後から効く”よう設計されており、早期の検査では危険な挙動が見えにくくなります。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">通常の検査 / 例</div>
+            <p class="txt">ツールを一度呼ぶ、限定的な自動テスト、静的レビュー</p>
+          </div>
+          <div class="card">
+            <div class="label">攻撃の回避 / 回避</div>
+            <p class="txt"><strong>ゲート</strong>により、3回目以降で初めて指示が切替</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">Key lesson / 教訓</div>
+          <p class="txt">承認・検証は「初回の安全」ではなく「切替後も含めた振る舞い」を対象にする必要</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> EVIDENCE</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">GitHub配布のサプライチェーン</div>
+      <div class="title">“導入手順”が攻撃面</div>
+      <p class="lead">攻撃者はGitHub上のプルリクを通じて、publicに見えるMCP構成変更（または隠しローカルスクリプト参照）を大量投入したとされます。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">投入の形 / 形</div>
+            <p class="txt">publicな構成変更 or 隠しローカルスクリプトの参照</p>
+          </div>
+          <div class="card">
+            <div class="label">同テーマの展開 / 展開</div>
+            <p class="txt">“productivity-suite”名で無害に見せる</p>
+          </div>
+        </div>
+        <p class="muted">マルウェア本体だけでなく、設定変更を取り込ませる導入経路がリスクを増幅します。</p>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> DISTINCTION</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">ランタイム閾値 / runtime threshold</div>
+      <div class="title">“設定”と“実行後”</div>
+      <p class="lead">リスクは導入時ではなく、運用中のやり取り回数（スリーコール閾値）で顕在化する“遅延型”です。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">サプライチェーン / 配布</div>
+            <p class="txt">導入者の努力を迂回して設定を取り込ませる</p>
+          </div>
+          <div class="card">
+            <div class="label">ランタイムゲート / 満たす条件</div>
+            <p class="txt"><strong>3回</strong>のツール呼び出し後に切替</p>
+          </div>
+          <div class="card">
+            <div class="label">初見の安心 / 錯覚</div>
+            <p class="txt">短時間の確認では危険が見えない</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> PROCESS</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">“3つ目”までが落とし穴</div>
+      <div class="title">検証手順の再設計</div>
+      <p class="lead">防御は「接続して一度試す」では不十分で、切替条件（少なくとも3回目以降）まで含めて振る舞いを観測する設計が必要です。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">(i) 観測 / 観測</div>
+            <p class="txt">通常のツール呼び出しを含め、閾値に到達するまで実行</p>
+          </div>
+          <div class="card">
+            <div class="label">(ii) 差分 / 差分</div>
+            <p class="txt">ツール定義・prompts/get相当のメタデータを“実行後”に比較</p>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">(iii) 収束 / 収束</div>
+            <p class="txt">危険レスポンスが出た場合は遮断・差し戻し・隔離</p>
+          </div>
+          <div class="card">
+            <div class="label">point / 要点</div>
+            <p class="txt"><strong>承認境界</strong>を「初回」から「切替後」へ引き直す</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> DEFENSE</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">“止める＋戻す＋残す”</div>
+      <div class="title">推奨される実務対応</div>
+      <p class="lead">防御として、当該リモートエンドポイント遮断、設定変更の差し戻し、ローカル成果物の確認、ログ保存が挙げられます。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">(i) ブロック / block</div>
+            <p class="txt">リモートエンドポイントを遮断（接続経路を断つ）</p>
+          </div>
+          <div class="card">
+            <div class="label">(ii) 差し戻し / revert</div>
+            <p class="txt">設定変更を差し戻し、同等の改変を繰り返さない</p>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">(iii) 検証 / verify</div>
+            <p class="txt">ローカル成果物を確認（参照された形跡を追う）</p>
+          </div>
+          <div class="card">
+            <div class="label">(iv) 記録 / log</div>
+            <p class="txt">ログ保存で事後調査の証跡を確保</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> APPROVAL</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">承認は“更新で無効”になる</div>
+      <div class="title">再承認と可視化</div>
+      <p class="lead">承認は初回だけでは不十分で、ツール定義が更新された場合はオペレータへ可視化し再承認を求める必要があります。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">問題 / 問題</div>
+            <p class="txt">導入後にツール定義を改変できると、承認した前提が崩れる（安全境界のすり替え）</p>
+          </div>
+          <div class="card">
+            <div class="label">対策 / 対策</div>
+            <p class="txt">更新差分を可視化し、再承認プロセスに載せる</p>
+          </div>
+        </div>
+        <p class="muted">“承認＝固定”ではなく“承認＝スナップショット”として扱います。</p>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> COMPARISON</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">フィンガープリント比較</div>
+      <div class="title">“同じに見える別物”検知</div>
+      <p class="lead">承認時点のツール定義をハッシュ/署名で識別して保存し、更新差分があれば安全イベントとして扱う考え方です。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">(i) 記録 / record</div>
+            <p class="txt">ツールリスト・説明・関連メタデータを識別可能に保存</p>
+          </div>
+          <div class="card">
+            <div class="label">(ii) 比較 / compare</div>
+            <p class="txt">以後の更新で差分（ハッシュ差）を検知</p>
+          </div>
+          <div class="card">
+            <div class="label">(iii) 反応 / respond</div>
+            <p class="txt">“見た目が同じでも中身が違う”を安全にエスカレーション</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> LIMITATIONS</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">未確定ポイントもある</div>
+      <div class="title">“実害”は別途検証</div>
+      <p class="lead">本文は「確認されたキャンペーン」「観測された挙動」を中心としており、個別の被害規模や流出・不正実行の有無は明確に提示されていません。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">観測 / what we know</div>
+            <p class="txt">ツール切替の挙動とメタデータ改変の可能性が示される</p>
+          </div>
+          <div class="card">
+            <div class="label">未追跡 / what we don’t</div>
+            <p class="txt">誰がどこで稼働し、どこまで流出したか（実被害の裏取りが必要）</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">追加で必要 / next steps</div>
+          <p class="txt">MCPクライアント実装差、3回の定義（ツール種別か呼び出し回数か）、ログ有無を踏まえた環境適合調査</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 references -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-head">
+        <div class="slide-tag"><span class="rule"></span> CLOSING</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">結論：承認境界の再定義</div>
+      <div class="title">Deadbugzの要点</div>
+      <p class="lead">Deadbugzは「AIエージェント時代のサプライチェーン攻撃」の典型で、ツール定義を安全境界として扱う設計変更が必要だと示しています。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Takeaway / ひとことで</div>
+            <p class="txt"><strong>3回目以降</strong>で危険が出る前提で、検証と承認を組み直す</p>
+          </div>
+          <div class="card">
+            <div class="label">Priority / 優先度</div>
+            <p class="txt">遮断・差し戻し・ログ保存＋承認時フィンガープリント比較＋再可視化</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">Bilingual note / 用語</div>
+          <p class="txt">
+            ランタイム・ゲート（<strong>runtime gate</strong>）＝運用中の条件で応答が切替わる仕組み。<br/>
+            安全境界＝ツール“見た目”ではなく、ツール定義とメタデータの中身。
+          </p>
+        </div>
+        <div class="card">
+          <div class="label">References / 参照</div>
+          <p class="txt">
+            本文情報はご提示テキスト（Pillar Securityの研究・観測に言及）に基づく要約です。<br/>
+            追加の一次情報（元レポートURL等）があれば、同形式で厳密な出典スライドに整理できます。
+          </p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.pillar.security/blog/pillar-security-named-as-a-2026-gartner-r-cool-vendor-in-ai-software-security" target="_blank" rel="noreferrer noopener">Pillar Security Named as a 2026 Gartner® Cool Vendor in AI Software Security</a></h2>
+<p class="reference-note">Today we are excited to share that Gartner recognized Pillar Security in its report Coolest Vendor Innovations in AI Sof…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://x.com/Pillar_sec" target="_blank" rel="noreferrer noopener">Pillar Security (@Pillar_sec) / X</a></h2>
+<p class="reference-note">Jul 6
+
+  🎉 𝗕𝗶𝗴 𝗻𝗲𝘄𝘀: 𝗣𝗶𝗹𝗹𝗮𝗿 𝗦𝗲𝗰𝘂𝗿𝗶𝘁𝘆 𝗻𝗮𝗺𝗲𝗱 𝗮 𝟮𝟬𝟮𝟲 𝗚𝗮𝗿𝘁𝗻𝗲𝗿® 𝗖𝗼𝗼𝗹 𝗩𝗲𝗻𝗱𝗼𝗿! Recognized for our RedGraph approach to offensiv…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.pillar.security/blog/introducing-sail-2-0-framework-a-practical-guide-to-secure-ai-agents" target="_blank" rel="noreferrer noopener">Introducing SAIL 2.0 Framework: A Practical Guide to Secure AI Agents</a></h2>
+<p class="reference-note">Introducing SAIL 2.0 Framework: A Practical Guide to Secure AI Agents
+
+Introducing SAIL 2.0 Framework: A Practical Guide…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.gartner.com/reviews/product/pillar-security-1043988558" target="_blank" rel="noreferrer noopener">Pillar Security Reviews &amp; Ratings 2026 | Gartner Peer Insights</a></h2>
+<p class="reference-note">Pillar provides a platform focused on AI security, addressing the challenge of securing AI systems throughout their life…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cloudwars.com/ai/pillar-securitys-framework-adds-to-industrys-growing-ai-security-momentum" target="_blank" rel="noreferrer noopener">Pillar Security&#39;s Framework Adds to Industry&#39;s Growing AI Security Momentum - Cloud Wars</a></h2>
+<p class="reference-note">This phase introduces safeguards that operate in real time, including filtering inputs, sanitizing outputs, and enforcin…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
