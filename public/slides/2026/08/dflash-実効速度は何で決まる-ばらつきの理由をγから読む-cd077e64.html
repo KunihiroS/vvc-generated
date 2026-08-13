@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DFlash: 実効速度は何で決まる？（ばらつきの理由をγから読む）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height:1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display:flex;
+      flex-direction:column;
+      gap: 22px;
+    }
+    .slide{
+      width:100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      position: relative;
+      padding: 56px 72px;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+    .frame{
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      border: 2px solid var(--rust);
+      box-shadow: 0 0 0 3px rgba(232,129,74,0.12);
+      margin-right: 4px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      margin-top: -6px;
+      white-space:nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      letter-spacing: 0.01em;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      line-height:1.0;
+      font-weight: 500;
+      margin: 0 0 14px 0;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      margin: 0;
+      max-width: 760px;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 16px 0 0;
+    }
+    .content{
+      margin-top: 8px;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+    .grid-2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 6px;
+      width: 100%;
+    }
+    .grid-3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      margin-top: 6px;
+      width: 100%;
+    }
+    .card{
+      background: rgba(240, 232, 216, 0.04);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 14px 14px;
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .big{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink);
+      margin: 0;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      margin: 0;
+      font-weight: 300;
+    }
+    .kv{
+      display:flex;
+      justify-content:space-between;
+      align-items:baseline;
+      gap: 16px;
+      border-bottom: 1px solid var(--rule);
+      padding: 8px 0;
+    }
+    .kv:last-child{ border-bottom:none; }
+    .k{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .v{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 600;
+      white-space:nowrap;
+    }
+    .note{
+      color: var(--ink-3);
+      font-size: 18px;
+      font-weight: 300;
+      margin-top: 4px;
+      max-width: 760px;
+    }
+
+    @media (max-width: 760px){
+      .slide{ padding: 36px 22px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+      .frame{ inset: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">DFLASH</div>
+        <div class="slide-num">01 / 15</div>
+      </div>
+      <p class="eyebrow">投機デコード×実効速度</p>
+      <h1 class="title">なぜ <em>速い</em> だけじゃない</h1>
+      <p class="lead">DFlash（speculative decoding）がトークン生成を速める理由は、帯域だけでなく「検証前提の計算構造」と投機ドラフト長 <span class="mono">γ</span>（ドラフト/acceptance）が作る“ばらつき”にあります。</p>
+      <div class="content">
+        <div class="rule"></div>
+        <p class="note">Japanese glossary: 投機的（speculative）= 先読みし、当たればまとめて確定・外れれば棄却（棄却/abort）</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">02 / 15</div>
+      </div>
+      <p class="eyebrow">倍率と“レンジ”</p>
+      <h1 class="title">平均だけでは<br><em>説明</em>できない</h1>
+      <p class="lead">DFlash有無の比較では、機種ごとの高速化倍率だけでなく、プロンプトカテゴリ間の速度レンジ（ばらつき）も変わっています。平均が大きいGPUほど、レンジも広い傾向が見えます。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">観測（例）</div>
+            <p class="big">RTX 5090</p>
+            <p class="small">74.9 → 233.4 tok/s（約3.1倍）</p>
+          </div>
+          <div class="card">
+            <div class="label">観測（例）</div>
+            <p class="big">M5 Max / M4 Max</p>
+            <p class="small">26.6 → 50.2（約1.8倍） / 23.7 → 37.8（約1.5倍）</p>
+          </div>
+        </div>
+        <p class="note">ポイント: “どれくらい速いか”と“どれくらい安定して速いか”は別物です。</p>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">03 / 15</div>
+      </div>
+      <p class="eyebrow">当たり外れの設計</p>
+      <h1 class="title">投機は“賭け”<br><em>ではない</em></h1>
+      <p class="lead">DFlashは、drafter（提案役）が未来トークンをまとめて提示し、verification（検証役）が受理/棄却して進めます。当たるほど一度のターゲット実行で複数確定し、外れるほど手戻りが増えます。</p>
+      <div class="content">
+        <div class="grid-3">
+          <div class="card">
+            <div class="label">受理（accept）</div>
+            <p class="big">進む速さ↑</p>
+            <p class="small">複数トークンがまとめて確定</p>
+          </div>
+          <div class="card">
+            <div class="label">棄却（reject）</div>
+            <p class="big">手戻り↑</p>
+            <p class="small">途中で止めて修正</p>
+          </div>
+          <div class="card">
+            <div class="label">結果</div>
+            <p class="big">分散が出る</p>
+            <p class="small">プロンプト依存でレンジ拡大</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">04 / 15</div>
+      </div>
+      <p class="eyebrow">核心は γ（ドラフト長）</p>
+      <h1 class="title">γが平均と<br><em>分散</em>を動かす</h1>
+      <p class="lead">γ（投機ドラフト長）は「1回で何トークン先まで提案するか」を決めます。大きいほど当たりでは上振れが出やすく、外れでは棄却損失が目立ちやすいのでレンジも広がります。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">γ 大</div>
+            <p class="big">当たり上振れ</p>
+            <p class="small">確定トークンが一度に増える</p>
+            <p class="small">外れ棄却の“損失”も相対的に増える</p>
+          </div>
+          <div class="card">
+            <div class="label">γ 小</div>
+            <p class="big">分散縮小</p>
+            <p class="small">上振れ・下振れが小さくなる</p>
+            <p class="small">平均高速化倍率は抑えられ得る</p>
+          </div>
+        </div>
+        <p class="note">Japanese glossary: 投機ドラフト長（γ）= 先読みブロック長 / candidates block length</p>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 15</div>
+      </div>
+      <p class="eyebrow">“同じDFlash”でも変わる</p>
+      <h1 class="title">実装の置き方が<br><em>支配</em>する</h1>
+      <p class="lead">アルゴリズム名が同じでも、argmax/samplingの処理位置・同期頻度・カーネル・ブロック長設定で速度は大きく変わり得ます。例として、llama.cpp側のPRではDFlash自体を変えずに約2.2倍改善が報告されています。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">報告例</div>
+            <p class="big">llama.cpp PR</p>
+            <p class="small">DFlash名称は維持、argmaxの“場所”を変更</p>
+          </div>
+          <div class="card">
+            <div class="label">効果</div>
+            <p class="big">2.2×</p>
+            <p class="small">カーネル/同期/配置で実効が跳ねる</p>
+          </div>
+        </div>
+        <p class="note">解釈: “投機は賢い”より先に、“実装が投機の流れを速く流すか”が効きます。</p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">06 / 15</div>
+      </div>
+      <p class="eyebrow">上限ではなく運用</p>
+      <h1 class="title">「最大15」<br><em>は最速</em>ではない</h1>
+      <p class="lead">投機の設計では“最大ドラフト長”と“実際にその長さで回しているか”が別です。常に上限（例：15）で動かすことが最速とは限らず、γ最適化とランタイム相性が鍵になります。</p>
+      <div class="content">
+        <div class="grid-3">
+          <div class="card">
+            <div class="label">SPEC（上限）</div>
+            <p class="big">最大提案</p>
+            <p class="small">理論上のドラフト余地</p>
+          </div>
+          <div class="card">
+            <div class="label">SET（実運用）</div>
+            <p class="big">実際のγ</p>
+            <p class="small">既定値・設定差・自動調整</p>
+          </div>
+          <div class="card">
+            <div class="label">ACC（現実）</div>
+            <p class="big">受理率</p>
+            <p class="small">プロンプト依存の一致度</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">07 / 15</div>
+      </div>
+      <p class="eyebrow">同じDFlashでも差が出る</p>
+      <h1 class="title">GPU/ランタイム差の<br><em>掛け算</em></h1>
+      <p class="lead">投機デコードは「行列演算性能・メモリ帯域・量子化カーネル・drafter/verification配置・GPU-CPU同期・argmax/sampling実装・acceptance率」の組合せで決まります。したがって“理論性能だけ”では機種差とばらつきを説明しにくいです。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">速度を左右（compute寄り）</div>
+            <p class="small">行列演算性能 / Tensor Core余力 / drafter→verificationの実行設計</p>
+          </div>
+          <div class="card">
+            <div class="label">速度を左右（system寄り）</div>
+            <p class="small">メモリ帯域 / 量子化カーネル / 同期 / sampling/argmax配置</p>
+          </div>
+        </div>
+        <p class="note">鍵: acceptance（受理率）はプロンプトカテゴリごとに変わり、γと一緒に“レンジ”へ表れます。</p>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Process">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 15</div>
+      </div>
+      <p class="eyebrow">仮説の当てはめ手順</p>
+      <h1 class="title">γ原因を検証する<br><em>観測設計</em></h1>
+      <p class="lead">“RTX 5090だけレンジが大きい”をγで説明するなら、(i) 既定block/draft長、(ii) acceptance分布、(iii) 棄却時の損失、(iv) カーネル/同期差を同一条件で比較する必要があります。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">必要ログ</div>
+            <p class="small">draft/block length（γ）実値 / 受理トークン数 / 棄却回数 / 時間内訳（drafter/verification）</p>
+          </div>
+          <div class="card">
+            <div class="label">必要比較</div>
+            <p class="small">同一ランタイム・同一量子化・同一プロンプト集合で γ をスイープ（探索）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Enumeration">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">09 / 15</div>
+      </div>
+      <p class="eyebrow">“断定できない”理由</p>
+      <h1 class="title">不明点が多いと<br><em>分解不能</em></h1>
+      <p class="lead">公式ベンチの条件が公開されていない場合、機種差をγだけに帰属するのは早計になります。最低限、draft/block長、ランタイム実装、受理率分布、量子化・カーネル差の情報が必要です。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">必須（設定）</div>
+            <div class="kv"><div class="k">γ/既定block length</div><div class="v">実値</div></div>
+            <div class="kv"><div class="k">greedy/sampling設定</div><div class="v">手法</div></div>
+            <div class="kv"><div class="k">バッチ・温度</div><div class="v">固定</div></div>
+          </div>
+          <div class="card">
+            <div class="label">必須（性能要因）</div>
+            <div class="kv"><div class="k">argmax/samplingの配置</div><div class="v">実装</div></div>
+            <div class="kv"><div class="k">量子化カーネル差</div><div class="v">方式</div></div>
+            <div class="kv"><div class="k">acceptance/棄却率</div><div class="v">分布</div></div>
+          </div>
+        </div>
+        <p class="note">このスライドは“原因の候補を狭める”ためのチェックリストです。</p>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="FAQ">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">10 / 15</div>
+      </div>
+      <p class="eyebrow">読み替えQ&A</p>
+      <h1 class="title"><em>速さ</em>の意味</h1>
+      <p class="lead">DFlashの“高速化倍率”やγは、平均値だけで理解すると誤ります。以下は誤読を避けるための短い整理です。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">Q: 高速化倍率とは？</div>
+            <p class="small">一定条件下での生成速度 <span class="mono">(tok/s)</span> を、DFlash有/無で比較（平均＋レンジも見る）</p>
+          </div>
+          <div class="card">
+            <div class="label">Q: γとは？</div>
+            <p class="small">1回のdrafter実行で、ターゲットへまとめて提案する未来トークン数（候補ブロック長）</p>
+          </div>
+          <div class="card">
+            <div class="label">Q: なぜ平均が下がる？</div>
+            <p class="small">γが小さいと最大確定数が下がり、当たりでも“得を最後まで回収”できない場合がある</p>
+          </div>
+          <div class="card">
+            <div class="label">Q: 帯域だけで良い？</div>
+            <p class="small">いいえ。投機では計算（行列演算）側寄与も増え、sampling/同期/カーネルが効く</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Takeaway">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">11 / 15</div>
+      </div>
+      <p class="eyebrow">意思決定の結論（暫定）</p>
+      <h1 class="title">購入/評価は<br><em>実装×γ</em>で</h1>
+      <p class="lead">DFlashの高速化は“帯域だけ”でなく、行列演算性能や実装配置（argmax/sampling/sync）とγ最適化、そしてacceptance分布の影響を受けます。ベンチ条件が不明なら、比較の解釈は“確からしさを上げる設計”込みで行うべきです。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">観点</div>
+            <p class="big">SPEC → ベンチ → γ探索</p>
+            <p class="small">データシートの理論性能だけでなく、同一条件ベンチと設定スイープへ</p>
+          </div>
+          <div class="card">
+            <div class="label">リスク</div>
+            <p class="big">“断定”は危険</p>
+            <p class="small">既定値や実装差がレンジを増幅し、見かけの機種差に化けることがある</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="References">
+      <div class="frame"></div>
+      <div class="slide-top">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">12 / 15</div>
+      </div>
+      <p class="eyebrow">参照（出典枠）</p>
+      <h1 class="title">追加情報があれば<br><em>検証</em>できる</h1>
+      <p class="lead">この読み解きは、提示されたMuse Glimmer記事の速度比較グラフと論点（γ・実装差・acceptance）に基づく整理です。確度を上げるには、ベンチ条件（draft/block長、ランタイム、量子化、プロンプトカテゴリ定義）を確認してください。</p>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">必要な一次情報</div>
+            <p class="small">Muse GlimmerのDFlashベンチ: γ/設定ログ、カテゴリ定義、acceptance観測有無</p>
+            <p class="small">llama.cpp / ExecuTorch: greedy DFlashのargmax/sampling配置や同期の差分</p>
+          </div>
+          <div class="card">
+            <div class="label">読者が確認する項目</div>
+            <p class="small">同一ランタイム比較か？（カーネル・同期・sampling実装）</p>
+            <p class="small">同一量子化/精度か？（カーネル差）</p>
+            <p class="small">γをスイープしているか？（分散の説明力）</p>
+          </div>
+        </div>
+        <p class="note">注: ユーザー提示文の中で具体URLが与えられていないため、ここでは“確認すべき情報”として整理しています。</p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=lYKqP8HJKD0" target="_blank" rel="noreferrer noopener">Muse Glimmer 30B triples its own speed on one RTX 5090</a></h2>
+<p class="reference-note">size 1 with greedy decoding on the 24 GB build: 74.9 to 233.4 tokens a second on an RTX 5090 under llama.cpp, 26.6 to 50…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://news.yahoo.co.jp/articles/bb022aa695aeff09ae0199ac9246f98756b60578" target="_blank" rel="noreferrer noopener">ローカルでのコーディングに最適な30Bモデル「Muse Glimmer」公開！（PC Watch） - Yahoo!ニュース</a></h2>
+<p class="reference-note">ローカルでの実行を見越し、K-Quant量子化技術を用いてモデルを圧縮している。32GBのVRAMを搭載するGeForce RTX 5090では、K-Quant-Dynamicでネイティブから精度劣化を0.2%に抑え、24GBのVRAMを搭…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/shi3z/japanese-llm-benchmark" target="_blank" rel="noreferrer noopener">GitHub - shi3z/japanese-llm-benchmark · GitHub</a></h2>
+<p class="reference-note">| 項目 | 結果 |
+ --- |
+| 生成時間 | 2678秒（約45分、3回合計） |
+| 生成速度 | 10.3 tok/s |
+| リトライ | 2回 |
+| 機能スコア | 80/80（満点） |
+| Total | 80/10…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.classmethod.jp/articles/dgx-spark-muse-glimmer-first-touch" target="_blank" rel="noreferrer noopener">Meta のオープンウェイト Muse Glimmer 30B を DGX Spark で動かしてみた | DevelopersIO</a></h2>
+<p class="reference-note">同じ統合メモリから Gemma の 6.3 倍、Qwen の 2.2 倍のトークンを確保できています。4 層のうち 3 層がスライディングウィンドウで、KV ヘッドも 32 対 2 まで削った構成が効いているのでしょう。素の速度より、長い文…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.notebookcheck.net/Meta-Muse-Glimmer-runs-offline-on-one-GPU-but-needs-24-GB-VRAM.1365512.0.html" target="_blank" rel="noreferrer noopener">Meta Muse Glimmer runs offline on one GPU, but needs 24 GB VRAM - Notebookcheck News</a></h2>
+<p class="reference-note">To keep a local model from feeling sluggish, Meta ships a helper called DFlash. It proposes 16 tokens at once, and the l…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
