@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delta — エージェント開発を“スレッドごと同期”する環境</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+    .content{
+      position: relative;
+      height: 100%;
+      padding: 56px 72px;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-size: 16px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 38px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+      transform: translateY(2px);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+    }
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      line-height: 0.95;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .title i{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      margin-top: 18px;
+      max-width: 760px;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+    }
+
+    .grid{
+      margin-top: 22px;
+      display:grid;
+      gap: 12px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.10);
+      border-radius: 12px;
+      padding: 14px 14px;
+      min-height: 64px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 1.25;
+    }
+    .bottom{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 42px;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      color: var(--ink-4);
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    @media (max-width: 900px){
+      .content{ padding: 44px 44px; }
+      .bottom{ left: 44px; right: 44px; bottom: 34px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ font-size: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">DELTA</div>
+          <div class="slide-num">01 / 13</div>
+        </div>
+        <div class="eyebrow">会話とコードを一体化</div>
+        <div class="title">Delta<i>—</i>同期する開発</div>
+        <div class="lead">
+          Zedが提案する「エージェントと一緒にコーディングし、会話と作業を同じ文脈でレビューする」マルチプレイヤー環境です。
+        </div>
+        <div class="bottom">日本語要約（原文理解の前提つき）</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">02 / 13</div>
+        </div>
+        <div class="eyebrow">コメントが陳腐化</div>
+        <div class="title">PR<b></b>の<i>ズレ</i></div>
+        <div class="lead">
+          従来のコードレビューは「コメントが特定のスナップショットに紐づく」ため、コードが更新されると意図との関係がズレやすいです。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">起きること</div>
+            <div class="v">場所・前提が更新でズレる</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">レビューが“推測”に寄る</div>
+          </div>
+        </div>
+        <div class="bottom">要点：文脈（会話/意思決定）が追従しない</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">CORE IDEA</div>
+          <div class="slide-num">03 / 13</div>
+        </div>
+        <div class="eyebrow">会話がコードを持つ</div>
+        <div class="title">DeltaDB<i>:</i>スレッド同期</div>
+        <div class="lead">
+          DeltaDBは「会話」と「worktree（作業ツリー）」をリアルタイム複製し、参加者とエージェントが同じ意図に接続できるようにします。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">同期対象</div>
+            <div class="v">会話（会議体）</div>
+          </div>
+          <div class="cell">
+            <div class="k">同期対象</div>
+            <div class="v">worktree（変更）</div>
+          </div>
+        </div>
+        <div class="bottom">ゴール：レビュー＝会話の延長</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">THREAD</div>
+          <div class="slide-num">04 / 13</div>
+        </div>
+        <div class="eyebrow">“スレッド”とは何か</div>
+        <div class="title">参加の<i>単位</i></div>
+        <div class="lead">
+          発表文では、会話（プロンプト、計画ステップ、やり取り）と、その会話で生成・修正されたworktreeを一体として扱う作業単位を“スレッド”と説明しています。
+        </div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">i.</div>
+            <div class="v">入力/質問</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii.</div>
+            <div class="v">計画/意思決定</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii.</div>
+            <div class="v">コード変更（worktree）</div>
+          </div>
+        </div>
+        <div class="bottom">招待される側も同じ文脈に入る（thread-first）</div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">REVIEW</div>
+          <div class="slide-num">05 / 13</div>
+        </div>
+        <div class="eyebrow">diffより対話</div>
+        <div class="title">“意図”を<i>質問</i></div>
+        <div class="lead">
+          Deltaでは、単なる差分の読み解きではなく、エージェントに「なぜそうしたか」「どう直すか」を同じスレッドの文脈で続けて依頼できます。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">従来</div>
+            <div class="v">コード→推測→再コメント</div>
+          </div>
+          <div class="cell">
+            <div class="k">Delta</div>
+            <div class="v">会話+変更→対話で修正</div>
+          </div>
+        </div>
+        <div class="bottom">“レビューの連続性”を作る</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">06 / 13</div>
+        </div>
+        <div class="eyebrow">コメント追随を目標</div>
+        <div class="title">位置関係の<i>更新</i></div>
+        <div class="lead">
+          Deltaは、会話や行へのコメントがコードの進化に追随し続けることを目標にしています（競合解決や大規模変更の堅牢性は未検証）。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">問題</div>
+            <div class="v">コード更新でコメントがズレる</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">文脈としてコメントを維持</div>
+          </div>
+        </div>
+        <div class="bottom">ここが体験の“成否ポイント”</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">MULTI</div>
+          <div class="slide-num">07 / 13</div>
+        </div>
+        <div class="eyebrow">マルチプレイヤー拡張</div>
+        <div class="title">Delta.dev<i>:</i>共有</div>
+        <div class="lead">
+          Deltaはローカルに閉じず、クラウド実行やブラウザ共有（Delta.dev）に広げ、リンク参加で運用障壁を下げる方向性を示しています。
+        </div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">共有</div>
+            <div class="v">ブラウザから参加</div>
+          </div>
+          <div class="cell">
+            <div class="k">実行</div>
+            <div class="v">クラウド実行（想定）</div>
+          </div>
+          <div class="cell">
+            <div class="k">同期</div>
+            <div class="v">テキスト/変更を連動</div>
+          </div>
+        </div>
+        <div class="bottom">マルチユーザー同時編集も射程（運用は要検討）</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">UI</div>
+          <div class="slide-num">08 / 13</div>
+        </div>
+        <div class="eyebrow">要約しない前提</div>
+        <div class="title">全文<i>トランスクリプト</i></div>
+        <div class="lead">
+          エージェント出力は長くなりがちなので、Deltaは差分やトランスクリプトを圧縮せず保持し、カーソル操作で会話全体に反応できる体験を打ち出しています。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">前提</div>
+            <div class="v">出力が“膨大”になる</div>
+          </div>
+          <div class="cell">
+            <div class="k">方針</div>
+            <div class="v">折りたたみ/要約に依存しない</div>
+          </div>
+        </div>
+        <div class="bottom">誤読リスクを下げる狙い（探索コストは増えうる）</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">INTEGRATIONS</div>
+          <div class="slide-num">09 / 13</div>
+        </div>
+        <div class="eyebrow">外部エージェント接続</div>
+        <div class="title">Claude Code<i>:</i>併用</div>
+        <div class="lead">
+          外部のAIツール（例：Claude Code）と接続し、ターミナルで進めたセッションをDeltaスレッドへ同期して観戦・コメント・引き継ぎを可能にする方向性です。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">例</div>
+            <div class="v">Claude Code（外部ハーネス）</div>
+          </div>
+          <div class="cell">
+            <div class="k">同期</div>
+            <div class="v">ターミナル⇄スレッド</div>
+          </div>
+        </div>
+        <div class="bottom">“同じ文脈”を横断する</div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">10 / 13</div>
+        </div>
+        <div class="eyebrow">何が新しいか</div>
+        <div class="title">三つの<i>差</i></div>
+        <div class="lead">
+          Deltaの中心は「会話とコードの同期」「コメントの文脈維持」「レビューをエージェントへの依頼に接続する」点にあります。
+        </div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">i.</div>
+            <div class="v">会話⇄worktree同期</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii.</div>
+            <div class="v">コメントの追随（目標）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii.</div>
+            <div class="v">対話でレビュー→修正</div>
+          </div>
+        </div>
+        <div class="bottom">“diff読解”から“文脈会話”へ</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">RISK</div>
+          <div class="slide-num">11 / 13</div>
+        </div>
+        <div class="eyebrow">理想×運用の壁</div>
+        <div class="title">検証が必要<i>:</i>安全性</div>
+        <div class="lead">
+          DeltaDBの整合性・低遅延・衝突時の挙動、権限/監査、プライバシー（機密コードやログ）、性能/ストレージコストなどは本文だけでは評価できません。
+        </div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">整合</div>
+            <div class="v">同期破綻・衝突</div>
+          </div>
+          <div class="cell">
+            <div class="k">安全</div>
+            <div class="v">権限/監査/暗号化</div>
+          </div>
+          <div class="cell">
+            <div class="k">コスト</div>
+            <div class="v">保存量・ネットワーク</div>
+          </div>
+        </div>
+        <div class="bottom">UIの全文表示は“探索コスト”も増えうる</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topbar">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">12 / 13</div>
+        </div>
+        <div class="eyebrow">期待は大きい</div>
+        <div class="title">次の基準は<i>文脈</i></div>
+        <div class="lead">
+          Deltaは、エージェント時代の開発に必要な「文脈（会話+意図）を残す」体験をプロダクト化しようとしています。実装・運用の検証次第で、チームの引き継ぎ負担を大きく下げる可能性があります。
+        </div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">強み</div>
+            <div class="v">意思決定の復元しやすさ</div>
+          </div>
+          <div class="cell">
+            <div class="k">課題</div>
+            <div class="v">スケール/ガバナンス/堅牢性</div>
+          </div>
+        </div>
+        <div class="bottom">日本語グロス（thread=スレッド）：作業と会話の単位</div>
+      </div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 13</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
