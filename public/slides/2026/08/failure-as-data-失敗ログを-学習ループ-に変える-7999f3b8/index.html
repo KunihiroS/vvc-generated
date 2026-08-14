@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Failure-as-Data：失敗ログを“学習ループ”に変える</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 2px;
+      box-sizing: border-box;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 2px;
+    }
+
+    .slide-grid{
+      display:flex;
+      flex-direction: column;
+      height: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    .tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .tag .rule{
+      width: 26px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: 0.95;
+      font-size: 26px;
+      z-index: 2;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+      line-height: 1.1;
+    }
+
+    .title{
+      margin-top: 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: clamp(54px, 4.4vw, 84px);
+      letter-spacing: -0.02em;
+      line-height: 1.02;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      font-size: 0.55em;
+      color: var(--ink);
+      display:inline-block;
+      transform: translateY(-6px);
+    }
+
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.35;
+    }
+
+    .content{
+      margin-top: 18px;
+      flex:1;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      border-radius: 6px;
+      padding: 14px 14px;
+      box-sizing: border-box;
+      min-height: 84px;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+    }
+    .card .kicker{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--rust);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+    }
+    .card .text{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.28;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .footnote{
+      position:absolute;
+      bottom: 22px;
+      left: 72px;
+      right: 72px;
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.35;
+      z-index: 2;
+    }
+
+    .jp-small{
+      font-family: "Noto Serif JP", serif;
+      font-size: 16px;
+      color: var(--ink-2);
+      margin-top: 2px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-num">02 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> FAILURE-LOOP</div>
+        <div class="eyebrow">モデル増量より先に</div>
+        <div class="title">失敗を“学習データ化”<span class="jp">失敗学習</span></div>
+        <div class="lead">エージェントは「成功率を上げる」だけでは頭打ちになります。次の伸びは、実運用の失敗ログを因果として学習ループに変換できるかで決まります。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">主張</div>
+              <div class="text">最初に大規模化せず、失敗軌跡を活用して学習へ進む。</div>
+              <div class="jp-small">失敗を“分析→反実仮想→更新”へ</div>
+            </div>
+            <div class="card">
+              <div class="kicker">落とし穴</div>
+              <div class="text">failed に放り込むだけだと、環境差や評価の誤りまで学習してしまう。</div>
+              <div class="jp-small">データ汚染（self-superstition）を防ぐ</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">Japanese terms: 失敗軌跡 (failed trajectories) / 反実仮想リプレイ (counterfactual replay) / ログ真正性 (log integrity)</div>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide" aria-label="Problem framing slide">
+      <div class="slide-num">03 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> PROBLEM</div>
+        <div class="eyebrow">“スケール＝前進”の罠</div>
+        <div class="title">成功率で見える範囲だけ</div>
+        <div class="lead">模倣（emulation / imitation）で非ゼロ成功率に到達しても、その後の伸びは「より大きいモデル」では簡単に頭打ちします。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="kicker">見落とし</div>
+              <div class="text">成功率は平均化されるので、致命的な失敗が隠れる。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">実運用</div>
+              <div class="text">遅延・壊れた状態・部分権限・リトライ手順が現場データになる。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">結論</div>
+              <div class="text">必要なのは「失敗の再利用可能性」だ。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">Key idea: 生産ロールアウトはテレメトリではなく、“その場でしか得られない失敗の証拠”である。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide" aria-label="Metaphor slide">
+      <div class="slide-num">04 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> METAPHOR</div>
+        <div class="eyebrow">真正性は配管</div>
+        <div class="title">ログの“本物”と</div>
+        <div class="lead">hardware attestation のような真正性（log integrity）は、「改ざんされていない」ことを示すだけです。学習すべきか（因果が本当に悪いのか）までは保証しません。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">示せる</div>
+              <div class="text">ログが本物である（配管が正しい）。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">保証しない</div>
+              <div class="text">成功/失敗ラベルが正しい・原因がエージェントの行動にある。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">主語を揃える：真正性 ≠ 学習価値。必要なのは因果としての反証可能性。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide" aria-label="Architecture slide">
+      <div class="slide-num">05 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> ARCHITECTURE</div>
+        <div class="eyebrow">反実仮想の学習回路</div>
+        <div class="title">失敗→分類→検証→更新</div>
+        <div class="lead">失敗軌跡は、そのまま学習データになりません。ツール仕様・権限・観測・評価器・アウトカムを凍結し、反実仮想リプレイで介入の因果を確かめてから使います。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="kicker">1. Freeze</div>
+              <div class="text">version（ツール/契約）、permissions、観測（観測ハッシュ等）、評価器を固定。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">2. Label</div>
+              <div class="text">いつ / 何を / どの制約が破れたかを因果ラベルへ分解。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">3. Replay</div>
+              <div class="text">counterfactual replay（最小介入）で結果が変わるか検証。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">失敗を failure-as-data から failure-as-forensics へ。</div>
+      </div>
+    </section>
+
+    <!-- Slide 5: enumeration -->
+    <section class="slide" aria-label="Key conditions slide">
+      <div class="slide-num">06 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> ENUMERATION</div>
+        <div class="eyebrow">価値が出る条件</div>
+        <div class="title">再現性 × 因果性</div>
+        <div class="lead">失敗ログが学習に効くためには、「環境要因」と「エージェント要因」を切り分け、因果として検証できる形に変換する必要があります。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">凍結</div>
+              <div class="text">ツールバージョン/仕様、権限、観測条件、評価器判定の条件を再現可能に。</div>
+              <div class="jp-small">不整合は学習汚染の原因</div>
+            </div>
+            <div class="card">
+              <div class="kicker">介入</div>
+              <div class="text">最小介入でアウトカムが変わるかを反実仮想で確かめる。</div>
+              <div class="jp-small">説明ではなく“反証”が要る</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">結果が因果で説明できないなら、ログは“証拠”であって“教材”ではない。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6: evidence -->
+    <section class="slide" aria-label="Evidence slide">
+      <div class="slide-num">07 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> EVIDENCE</div>
+        <div class="eyebrow">現場が生む固有データ</div>
+        <div class="title">失敗軌跡は“証拠”そのもの</div>
+        <div class="lead">生産ロールアウトは、行動が引き起こすツール遅延、壊れた状態、部分的権限、リトライ手順などの“その場の因果痕跡”を残します。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="kicker">観測差</div>
+              <div class="text">ネットワーク揺らぎ、コンテキスト枯渇、観測の欠落が発生する。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">制約差</div>
+              <div class="text">permissions / contract（契約条件）の前提が崩れる。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">評価差</div>
+              <div class="text">evaluator の不整合が“失敗”を別物にすることがある。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">テレメトリ収集ではなく、因果の追跡に必要な情報設計が本丸。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7: distinction -->
+    <section class="slide" aria-label="Distinction slide">
+      <div class="slide-num">08 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> DISTINCTION</div>
+        <div class="eyebrow">失敗を分解する</div>
+        <div class="title">“環境”と“行動”を分ける</div>
+        <div class="lead">失敗ログをそのまま学習すると、環境の変化や評価器の誤判定までエージェントの誤りとして学習してしまいます。分類が鍵です。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">環境要因</div>
+              <div class="text">ツール仕様変更、権限の変化、評価器のドリフト、分散システムの状態差。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">エージェント要因</div>
+              <div class="text">契約前提の扱い、観測可能性の誤読、能力不足の誤認、誤った行動選択。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">ラベリング崩壊が起きると、同じ誤りを“再学習”してしまう。</div>
+      </div>
+    </section>
+
+    <!-- Slide 8: comparison -->
+    <section class="slide" aria-label="Comparison slide">
+      <div class="slide-num">09 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> COMPARISON</div>
+        <div class="eyebrow">成功率 vs 反実仮想</div>
+        <div class="title">KPIのすり替えを防ぐ</div>
+        <div class="lead">失敗を“食べて学習に変換した成果”がKPIになります。失敗件数の増加や成功率の単純追跡だけでは、改善の因果が見えません。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">見るべき</div>
+              <div class="text">失敗クラスごとに「再発がどれだけ減ったか」「どの修正が反実仮想で生き残るか」。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">危険</div>
+              <div class="text">ログ真正性（改ざん耐性）や成功率だけを根拠に投資すると、学習汚染が続く。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">戦略：模倣→失敗学習への段階移行を、観測可能指標で固定しすぎない。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9: process -->
+    <section class="slide" aria-label="Process slide">
+      <div class="slide-num">10 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> PROCESS</div>
+        <div class="eyebrow">最小MVPの流れ</div>
+        <div class="title">最小スキーマ→検証ゲート</div>
+        <div class="lead">反実仮想リプレイと因果ラベル付けの設計は難所です。だからこそ、現実的に回る最小単位（スキーマ）と検証ゲートを先に定めます。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="kicker">i</div>
+              <div class="text">失敗軌跡の最小記録：状態遷移、選択、ツール呼び出し、観測、permissions、評価結果。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">ii</div>
+              <div class="text">因果ラベル：contract前提 / 観測可能性 / 能力枠内 / 評価器誤判定 を切り分け。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">iii</div>
+              <div class="text">反実仮想リプレイ：最小介入でアウトカムが変わるかを合否で判定。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">“最小介入”は理想だが、現場では観測可能性とコスト制約で妥協が必要。</div>
+      </div>
+    </section>
+
+    <!-- Slide 10: distinction -->
+    <section class="slide" aria-label="Safety slide">
+      <div class="slide-num">11 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> SAFETY</div>
+        <div class="eyebrow">権限境界の誤統合</div>
+        <div class="title">ガードレールと誤理解を分ける</div>
+        <div class="lead">権限境界（permissions）を誤って統合すると、許可されているから誤りが許容される状態を作り得ます。失敗分類で安全性の差を分離します。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">必要な分離</div>
+              <div class="text">失敗が“ガードレール阻止”なのか、“誤った理解”なのかをラベルで分ける。</div>
+              <div class="jp-small">safety signal と causality を混ぜない</div>
+            </div>
+            <div class="card">
+              <div class="kicker">自己強化の抑制</div>
+              <div class="text">誤った判断を再学習しないよう、バリデーション設計と検証ゲートが要る。</div>
+              <div class="jp-small">再学習は万能ではない</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">失敗-as-data を“forensics”として扱う設計が、結果的に安全にも効く。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11: closing -->
+    <section class="slide" aria-label="Closing slide">
+      <div class="slide-num">12 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> CLOSING</div>
+        <div class="eyebrow">スケーリングの優先順位</div>
+        <div class="title">学習ループが先</div>
+        <div class="lead">スケールは「失敗を正しく診断できる運用設計」の代替になりません。失敗を再利用可能な形に変換できるチームだけが、学習ループの複利を得ます。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">やること</div>
+              <div class="text">失敗を分類し、反実仮想で因果を検証し、次のポリシーへ反映する。</div>
+            </div>
+            <div class="card">
+              <div class="kicker">避けること</div>
+              <div class="text">ログ真正性・失敗件数・成功率だけで判断し、学習汚染を固定化しない。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">Takeaway: “どの介入が結果を変えるか”を、できるところから反証可能にする。</div>
+      </div>
+    </section>
+
+    <!-- Slide 12: references -->
+    <section class="slide" aria-label="References slide">
+      <div class="slide-num">13 / 14</div>
+      <div class="slide-grid">
+        <div class="tag"><span class="rule"></span> REFERENCES</div>
+        <div class="eyebrow">用語対応</div>
+        <div class="title">最小の対応表</div>
+        <div class="lead">本文の中心概念を短く再掲します（英語用語＋日本語の短い補助）。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="kicker">Failed trajectories</div>
+              <div class="text">失敗軌跡：状態・選択・結果・復旧不能理由の実行ログ</div>
+              <div class="jp-small">（failed trajectory）</div>
+            </div>
+            <div class="card">
+              <div class="kicker">Counterfactual replay</div>
+              <div class="text">反実仮想リプレイ：最小介入で因果を確かめる再実行</div>
+              <div class="jp-small">（counterfactual）</div>
+            </div>
+            <div class="card">
+              <div class="kicker">Log integrity</div>
+              <div class="text">ログ真正性：改ざん耐性は担保しても学習価値は別問題</div>
+              <div class="jp-small">（attestation）</div>
+            </div>
+          </div>
+          <div class="grid2">
+            <div class="card">
+              <div class="kicker">Emulation / Imitation</div>
+              <div class="text">模倣：成功率が非ゼロになるまでの第一段階</div>
+              <div class="jp-small">（emulation）</div>
+            </div>
+            <div class="card">
+              <div class="kicker">Failure-as-forensics</div>
+              <div class="text">失敗を鑑識に：データではなく原因追跡として扱う</div>
+              <div class="jp-small">（forensics）</div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">注：このスライドは提示された議論内容の要約です。特定文献の引用ではありません。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
