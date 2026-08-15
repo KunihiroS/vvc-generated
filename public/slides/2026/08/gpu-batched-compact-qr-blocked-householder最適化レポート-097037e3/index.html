@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GPU batched compact QR: blocked Householder最適化レポート</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      letter-spacing: 0.01em;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      position: relative;
+      border: 20px solid var(--rule);
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      pointer-events:none;
+      border: 0;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 22px; left: 26px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      font-size: 13px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 10px; height: 10px;
+      border: 2px solid var(--rust);
+      margin-right: 10px;
+      transform: translateY(1px);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 22px; right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 28px;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 22px;
+      margin-top: 18px;
+      line-height: 1.15;
+    }
+    .title{
+      margin-top: 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .jp-title{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 60px;
+      color: var(--ink);
+      line-height: 1.05;
+      margin-top: -10px;
+    }
+
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+    }
+    .lead span.jp{
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    .grid{
+      margin-top: 18px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 16px;
+      max-width: 900px;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 6px;
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .tri{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .hr{
+      margin-top: 16px;
+      height: 1px;
+      background: var(--rule-strong);
+      width: min(900px, 100%);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Slide 1">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">GPUでのQRを“要件どおり”高速化</div>
+      <div class="title">bached <span class="em">compact</span> QR</div>
+      <div class="lead">
+        Householder（compact表現の <span class="mono">H</span> と <span class="mono">tau</span>）を、GPU向けにblocked化して
+        条件を満たしつつ大幅に高速化した実践レポートです。<br/>
+        （日本語：batched＝多数行列をまとめて処理）
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 2">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">要求形式が性能を縛る</div>
+      <div class="title"><span class="em">checker</span>整合性</div>
+      <div class="lead">
+        密な <span class="mono">Q</span> と <span class="mono">R</span> を直接出すのではなく、
+        checkerが再構成できる compact Householder（<span class="mono">H</span>, <span class="mono">tau</span>）で返す必要があります。<br/>
+        そのため「正しさ」と「速度」を同時に最適化する問題になります。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">入力→分解</div>
+          <div class="v"><span class="mono">A = Q R</span>（直交 <span class="mono">Q</span> と上三角 <span class="mono">R</span>）</div>
+        </div>
+        <div class="cell">
+          <div class="k">出力形式</div>
+          <div class="v">compact <span class="mono">H</span> / <span class="mono">tau</span>（逐次や密出力なし）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 3">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">逐次性がGPUの敵</div>
+      <div class="title">Householderの <span class="em">依存</span></div>
+      <div class="lead">
+        通常の（非blocked）Householder QRは反射ごとに更新が連鎖し、逐次依存が強くなります。<br/>
+        その結果、行列積（GEMM）のような高効率バルク演算へ変換しにくくなります。
+      </div>
+      <div class="grid tri">
+        <div class="cell">
+          <div class="k">非blocked</div>
+          <div class="v">反射子が次を決める</div>
+        </div>
+        <div class="cell">
+          <div class="k">GPU影響</div>
+          <div class="v">GEMMへ寄せにくい</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">“依存”を閉じ込める</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 4">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">blocked化＝依存の閉じ込め</div>
+      <div class="title">WY <span class="em">update</span></div>
+      <div class="lead">
+        パネル幅 <span class="mono">b</span> を決め、パネル内は逐次に処理しつつ、外側はWY表現で更新をGEMM化します。<br/>
+        これがTensor Coreを使える形に再設計する“基盤”です。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">パネル内</div>
+          <div class="v">逐次（反射の連鎖）を局所化</div>
+        </div>
+        <div class="cell">
+          <div class="k">パネル外</div>
+          <div class="v">WY表現でまとめて行列積へ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 5">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">232倍の道のり（要点）</div>
+      <div class="title">3つの束</div>
+      <div class="lead">
+        速度差は単発の妙技ではなく、blocked化、オーバーヘッド抑制、探索運用の成熟が同時に効いて達成されたと述べています。<br/>
+        （ベースライン比 232×）
+      </div>
+      <div class="grid tri">
+        <div class="cell">
+          <div class="k"><i>i</i> 構造</div>
+          <div class="v">逐次→GEMMへ寄せる</div>
+        </div>
+        <div class="cell">
+          <div class="k"><i>ii</i> 実装</div>
+          <div class="v">パネル/launchのコスト削減</div>
+        </div>
+        <div class="cell">
+          <div class="k"><i>iii</i> 運用</div>
+          <div class="v">候補ビーム＋介入で停滞回避</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 6">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">遅い理由は“計算”ではない</div>
+      <div class="title">パネル <span class="em">/launch</span></div>
+      <div class="lead">
+        プロファイルから、メモリ帯域や理論演算量よりも、起動回数やパネル処理のコストが支配的になる局面が多かったと結論しています。<br/>
+        そこでCUDAグラフ再実行やレイアウト統合などでオーバーヘッドを潰しました。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">結論</div>
+          <div class="v">遅さの中心＝起動/パネル処理</div>
+        </div>
+        <div class="cell">
+          <div class="k">打ち手</div>
+          <div class="v">CUDAグラフ、統合レイアウト、<br/>一時領域削減、尾部最適化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 7">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">性能の壁を越える運用</div>
+      <div class="title">3000→<span class="em">1800</span>µs</div>
+      <div class="lead">
+        コード最適化だけでは伸びが止まる局面（例：3000µs付近以降）が来ます。<br/>
+        そこで候補ビーム（複数の有望候補を維持）と、必要時のより強い助言で多様な探索を促しました。
+      </div>
+      <div class="grid tri">
+        <div class="cell">
+          <div class="k">症状</div>
+          <div class="v">局所最適に停滞</div>
+        </div>
+        <div class="cell">
+          <div class="k">戦略</div>
+          <div class="v">候補ビームで早期打ち切り回避</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">例：3000µs→1800µs付近へ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 8">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">自律ループ＝ログが資産</div>
+      <div class="title">Codex <span class="em">運用</span></div>
+      <div class="lead">
+        AGENTS.md、problem_statement、log.mdで証拠管理し、<span class="mono">/goal</span>で数値目標を与え続けて探索を方向づけたと述べています。<br/>
+        自動探索では「何を試したか」が収束性を左右します。
+      </div>
+      <div class="grid tri">
+        <div class="cell">
+          <div class="k">証拠</div>
+          <div class="v">AGENTS.md / log.md</div>
+        </div>
+        <div class="cell">
+          <div class="k">目的</div>
+          <div class="v">/goal（数値目標）</div>
+        </div>
+        <div class="cell">
+          <div class="k">効果</div>
+          <div class="v">再現性と学習を強化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 9">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">“探索”と“最適化”の役割分担</div>
+      <div class="title">設計×実装×検証</div>
+      <div class="lead">
+        アルゴリズム設計（blocked/WY）、混合精度やパネル/ランチオーバーヘッド削減、CUDAグラフ再実行などを段階投入し、Modal/NCUで遅点を特定しました。<br/>
+        これで偶然の改善ではなく、検証可能な改善サイクルを回した形です。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">設計（数学/構造）</div>
+          <div class="v">blocked Householder / WY更新</div>
+        </div>
+        <div class="cell">
+          <div class="k">実装（GPU/実務）</div>
+          <div class="v">混合精度、CUDAグラフ、<br/>レイアウト統合、一時領域削減</div>
+        </div>
+        <div class="cell">
+          <div class="k">検証（性能/正しさ）</div>
+          <div class="v">checker再構成、Modal/NCUプロファイル</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用（探索）</div>
+          <div class="v">beam of candidates、介入で多様化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 10">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">限界と改善余地</div>
+      <div class="title">まだ伸びる <span class="em">理由</span></div>
+      <div class="lead">
+        入力分布への適応（低ランク・密・近ランクなど）が十分でなかった可能性、B200固有最適化（tcgen05等）を活かし切れなかった可能性、プロファイラ設計の弱さ（混合精度ケース）が課題として挙げられています。
+      </div>
+      <div class="grid tri">
+        <div class="cell">
+          <div class="k">分布</div>
+          <div class="v">低ランク/密/近ランクへ未最適</div>
+        </div>
+        <div class="cell">
+          <div class="k">ハード</div>
+          <div class="v">B200固有命令の活用不足</div>
+        </div>
+        <div class="cell">
+          <div class="k">計測</div>
+          <div class="v">混合精度でのプロファイル強度不足</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 11">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">学びの核（自分の見立て）</div>
+      <div class="title">なぜ再現 <span class="em">しやすい</span> か</div>
+      <div class="lead">
+        速さの理由を「逐次性→閉じ込め→GEMM化」「オーバーヘッド支配」「探索運用」として言語化しており、理解と再現がしやすい点が強みです。<br/>
+        一方で、各変更の寄与度を定量分解できていない点は今後の課題です。
+      </div>
+      <div class="grid tri">
+        <div class="cell">
+          <div class="k">Strategic</div>
+          <div class="v">構造×実装×探索を階層設計</div>
+        </div>
+        <div class="cell">
+          <div class="k">Operational</div>
+          <div class="v">ログ整備で失敗コストを抑制</div>
+        </div>
+        <div class="cell">
+          <div class="k">Risk</div>
+          <div class="v">混合精度の正しさ崩れを警戒</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Slide 12">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">まとめ：GPU QRは“探究ループ”で勝つ</div>
+      <div class="title">結論</div>
+      <div class="lead">
+        blocked Householder（WY）で依存を狭いパネルに閉じ込め、残りをGEMM化。さらにパネル/launchオーバーヘッドを削り、候補ビームとプロファイルで局所停滞を回避する運用が、232×の高速化につながったと整理できます。<br/>
+        （日本語：局所停滞＝局面ごとに性能が伸びなくなること）
+      </div>
+      <div class="hr"></div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">最重要</div>
+          <div class="v">逐次性の“閉じ込め”→GEMMへ寄せる</div>
+        </div>
+        <div class="cell">
+          <div class="k">次点</div>
+          <div class="v">パネル/launch支配をオーバーヘッド削減で崩す</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">beam＋計測で局所最適を突破</div>
+        </div>
+        <div class="cell">
+          <div class="k">補足</div>
+          <div class="v">分布適応・B200固有最適化・計測設計が伸びしろ</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://sankalp.bearblog.dev/autoresearch" target="_blank" rel="noreferrer noopener">Auto-research with codex: How I achieved a 232x Faster Kernel over baseline with Codex in GPU Mode&#39;s qr_v2 problem</a></h2>
+<p class="reference-note">My first steps in the contest were to learn what QR decomposition is and how it can be done. There are a bunch of ways t…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2603.21331v1" target="_blank" rel="noreferrer noopener">AutoKernel: Autonomous GPU Kernel Optimization via ...</a></h2>
+<p class="reference-note">| CUDA-L1 (Li et al. 2026) | RL | CUDA | ✗ | ✓ | ✓ |
+| CUDA Agent (Dai et al. 2026) | Agentic RL | CUDA | ✗ | ✓ | ✓ |
+| …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://people.iith.ac.in/sathya_p/index_files/PDFs/ICDCIT2025-QRDecomposition_Paper.pdf" target="_blank" rel="noreferrer noopener">[PDF] Enhancing QR Decomposition: A GPU-based Approach to Parallelizing ...</a></h2>
+<p class="reference-note">Linear algebra is fundamental to many optimization techniques, including Se-quential Least Squares Quadratic Programming…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/pdf/2603.21331" target="_blank" rel="noreferrer noopener">Autonomous GPU Kernel Optimization via Iterative Agent- ...</a></h2>
+<p class="reference-note">src KernelBench (Ouyang et al., 2025) Benchmark Multi-DSL ✗ ✗ ✓ GEAK (Wang et al., 2025) Multi-agent Triton ✗ ✓ ✓ CudaFo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/javadinteger/advanced-gpu-optimization-tensor-core-programming-nvidia-3708" target="_blank" rel="noreferrer noopener">Advanced GPU Optimization: Tensor Core Programming (NVIDIA) - DEV Community</a></h2>
+<p class="reference-note">1. Introduction: Why Tensor Cores Matter Tensor Cores are specialized matrix-multiply-accumulate units inside NVIDIA GPU…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
