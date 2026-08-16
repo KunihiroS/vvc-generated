@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIが数学で“勝っている”理由：作業記憶ボトルネック仮説</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      margin: 0 0 18px 0;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius: 2px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      position: relative;
+      z-index: 1;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 16px;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      padding-top: 18px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 8px;
+      margin-bottom: 10px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 68px;
+      font-weight: 500;
+      margin: 0;
+      line-height: 1.02;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+
+    .lead{
+      margin-top: 12px;
+      font-size: 22px;
+      max-width: 760px;
+      line-height: 1.55;
+      color: var(--ink-2);
+    }
+
+    .grid2{
+      margin-top: 22px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      max-width: 980px;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell h4{
+      margin: 0 0 6px 0;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink-2);
+    }
+
+    .grid3{
+      margin-top: 22px;
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      max-width: 1040px;
+    }
+
+    .quotebar{
+      margin-top: 22px;
+      border-top: 1px solid var(--rule);
+      padding-top: 16px;
+      max-width: 920px;
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.6;
+    }
+
+    .footnote{
+      position:absolute;
+      bottom: 24px;
+      left: 72px;
+      right: 72px;
+      font-size: 14px;
+      color: var(--ink-4);
+      z-index: 1;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 46px 44px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .footnote{ left: 44px; right: 44px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 13 cover -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“天才対決”じゃない</div>
+        <h1 class="title">AIの数学優位は <em>作業記憶</em> を外部化する力</h1>
+        <div class="lead">知能の直接対決より、「認知的ボトルネック（working memory／作業記憶）」を迂回・置換できるから、数学で“勝っている”ように見える——という見立て。</div>
+        <div class="quotebar">
+          关键（キーポイント / Japanese）: <span style="color: var(--rust); font-style: italic;">外部ノート化</span>（コンテキストウィンドウ）で、途中式の保持と再参照が得意になる。
+        </div>
+      </div>
+      <div class="footnote">Working memory（作業記憶）＝短時間保持し、情報を操作する機能。Context window（文脈窓）＝大量の履歴を参照できる仕組み。</div>
+    </section>
+
+    <!-- 2 / 13 problem -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">理解と完遂</div>
+        <h1 class="title">“わかるのに解けない”</h1>
+        <div class="lead">人間は、途中式・定義・仮定・場合分けを同時に頭の中で保持する必要があり、長手順では作業記憶の限界が成功率を下げうる。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Claim（主張）</div>
+            <h4>作業記憶がボトルネック</h4>
+            <p>理解していても、「正しい帳尻合わせ」まで到達できないことが起きる。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Evidence（根拠）</div>
+            <h4>途中保持の失敗</h4>
+            <p>条件の抜け落ち・計算ミス・矛盾の見落としが、長い証明で増えやすい。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 13 metaphor -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">頭の中 vs ノート</div>
+        <h1 class="title">AIは“ノート”で戦う</h1>
+        <div class="lead">言語モデルのコンテキストウィンドウは、必要情報を外部のノートのように参照できるため、記憶保持の失敗を減らせる。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Human（人間）</div>
+            <h4>内部保持が必要</h4>
+            <p>途中状態を頭の中で保ち続け、更新しながら進める。</p>
+          </div>
+          <div class="cell">
+            <div class="label">AI（AI）</div>
+            <h4>参照が中心</h4>
+            <p>履歴を文字列として残し、必要に応じて再参照しながら進める。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 13 architecture -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">迂回できる“保持”</div>
+        <h1 class="title">作業の実行環境で差が出る</h1>
+        <div class="lead">この仮説の要点は、「推論そのものが完全に上回った」よりも、外部ノート的な“記号作業領域”の大きさが、長い手順の成否に効くこと。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Mechanism（機構）</div>
+            <h4>保持・再参照・整合性確認</h4>
+            <p>同じ状態を参照し直し、整合性を取りながら進めやすい。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Implication（帰結）</div>
+            <h4>認知アーキテクチャの勝利</h4>
+            <p>知能対決ではなく、記憶ボトルネックの扱い方の差になる。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 13 evidence -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">数学は状態が安定</div>
+        <h1 class="title">数学で外部ノート利得が最大化</h1>
+        <div class="lead">数学は条件・定義・場合分けが明示化され、厳密な変換規則と検算可能性があるため、参照と整合性確認の価値が特に高い。</div>
+        <div class="grid3" role="presentation">
+          <div class="cell">
+            <div class="label">i</div>
+            <h4>明示化</h4>
+            <p>重要情報が記号として書き下されやすい。</p>
+          </div>
+          <div class="cell">
+            <div class="label">ii</div>
+            <h4>安定な変形</h4>
+            <p>仮定や変形が、ルールに沿って扱える。</p>
+          </div>
+          <div class="cell">
+            <div class="label">iii</div>
+            <h4>検算</h4>
+            <p>途中の矛盾や誤りを検査しやすい。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 13 distinction -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“理解”だけでは足りない</div>
+        <h1 class="title">成否は“完遂”の問題</h1>
+        <div class="lead">数学では、方針を理解していても最後まで正しく運ぶ必要があり、途中状態の管理（作業記憶）がそのままリスクになる。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Divide（分離）</div>
+            <h4>理解 vs 完遂</h4>
+            <p>「わかっている」ことと「最後まで誤りなく到達」することは別問題。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Outcome（結果）</div>
+            <h4>ミスが蓄積</h4>
+            <p>長手順ほど、抜け落ちや矛盾の見落としが起きやすい。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 13 comparison -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">08 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">領域依存</div>
+        <h1 class="title">社会問題では同じ説明が効きにくい</h1>
+        <div class="lead">社会的問いは原因が見えにくく、観測されない要因が多く、概念の意味も揺れるため、記憶容量を増やしても本質的不確実性は消えない。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Math（数学）</div>
+            <h4>条件が明確</h4>
+            <p>検算できるため、外部ノート的参照が効きやすい。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Society（社会）</div>
+            <h4>因果同定が難しい</h4>
+            <p>同じ“記憶利得”では進展しにくい。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 13 enumeration -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">09 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">5つの要点</div>
+        <h1 class="title">論旨の骨格</h1>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">i</div>
+            <h4>作業記憶が数学を押し下げる</h4>
+            <p>“理解”と“完遂”のズレがミス率を上げる。</p>
+          </div>
+          <div class="cell">
+            <div class="label">ii</div>
+            <h4>コンテキストが代替になり得る</h4>
+            <p>長鎖推論での記録保持の失敗が減る。</p>
+          </div>
+          <div class="cell">
+            <div class="label">iii</div>
+            <h4>数学は明示化・検証向き</h4>
+            <p>保持と再参照が有利になる。</p>
+          </div>
+          <div class="cell">
+            <div class="label">iv</div>
+            <h4>領域によって効きが変わる</h4>
+            <p>社会問題では因果の不確実性が残る。</p>
+          </div>
+          <div class="cell">
+            <div class="label">v</div>
+            <h4>“作業記憶”同一視には反論余地</h4>
+            <p>人間は能動的更新、AIは参照寄りで性質が異なる。</p>
+          </div>
+          <div class="cell">
+            <div class="label">結論</div>
+            <h4>AIの“保持利得”が数学で強く見える</h4>
+            <p>推論の勝利というより認知アーキテクチャの勝ち筋。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 13 process -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">推論を“分解”する</div>
+        <h1 class="title">観察される強さの作り方</h1>
+        <div class="lead">実際の解けやすさは、推論・記憶・探索・検証などの合成で決まり、「単に暗記」や「単に推論が強い」とは言い切れない。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">What changes（何が効く）</div>
+            <h4>コンテキスト参照</h4>
+            <p>必要情報を“後から拾える”ことで、途中管理の失敗が減る。</p>
+          </div>
+          <div class="cell">
+            <div class="label">What to test（検証）</div>
+            <h4>条件の統制</h4>
+            <p>人間側の外部メモリ（紙・ツール）を同等にしないと結論が歪む。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 13 distinction -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">同一ではない</div>
+        <h1 class="title">作業記憶 vs 文脈窓</h1>
+        <div class="lead">作業記憶は注意制御や抑制、能動的な内部更新を含むが、言語モデルの文脈は書かれた履歴を参照する性質が強い。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Human（人間）</div>
+            <h4>能動的に更新</h4>
+            <p>内部で保持し、選び、更新し続ける。</p>
+          </div>
+          <div class="cell">
+            <div class="label">AI（AI）</div>
+            <h4>受動的に参照</h4>
+            <p>書かれた状態を参照し、条件づけに使う。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 13 evidence -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">12 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“比例”は危険</div>
+        <h1 class="title">長いほど常に良いわけではない</h1>
+        <div class="lead">コンテキストが長いことは利点だが、有効に参照できるかは別問題で、重要箇所の見落としや注意の散逸が起き得る。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Risk（リスク）</div>
+            <h4>誤参照・見落とし</h4>
+            <p>参照できても、必要部分に届かない失敗が残る。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Compare（比較）</div>
+            <h4>公平化が必要</h4>
+            <p>人間側に外部補助と検算手段を与えるほど差が縮まる可能性がある。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 13 comparison closing-ish -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">次の閾値</div>
+        <h1 class="title">要点：数学は“保持利得”で強く見える</h1>
+        <div class="lead">この議論は、AIを「推論で置換」と単純化せず、認知アーキテクチャ差（作業の実行環境）として説明する方向性を与える。</div>
+        <div class="quotebar">
+          ただし結論を強くするには、コンテキスト制限、検証手段の統制、人間側の外部メモリ付与など、厳密な実験設計が必要。
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 / 13 references closing -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">14 / 15</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">読むための手がかり</div>
+        <h1 class="title">参考文脈（未指定）</h1>
+        <div class="lead">このデッキは提示原稿の内容圧縮です。下の領域キーワードで、関連研究・議論へ辿れます。</div>
+        <div class="grid2" role="presentation">
+          <div class="cell">
+            <div class="label">Working memory</div>
+            <h4>作業記憶と計算・証明</h4>
+            <p>作業記憶容量が長手順の成績に与える影響、理解と実行の分離。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Context window</div>
+            <h4>文脈窓の外部化</h4>
+            <p>外部メモリ的参照、長文脈での有効参照・誤参照。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Evaluation design</div>
+            <h4>比較の公平化</h4>
+            <p>人間側のノート/ツール付与、AI側の条件統制、検証手段の揃え。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Domain transfer</div>
+            <h4>領域依存性</h4>
+            <p>数学（明示・検算）と社会（因果・意味の不確実性）の差。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
