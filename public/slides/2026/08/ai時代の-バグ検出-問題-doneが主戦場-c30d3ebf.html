@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>AI時代の「バグ検出」問題：doneが主戦場</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide {
+      position: relative;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      border: 1px solid rgba(240,232,216,0.06);
+    }
+
+    .slide-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      color: var(--ink);
+      text-transform: uppercase;
+      font-size: 18px;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      max-width: 70%;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 46px;
+      height: 2px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.15);
+    }
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 6px 0;
+      line-height: 1.1;
+    }
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-size: 76px;
+      line-height: 0.98;
+      font-style: italic;
+      margin: 0 0 10px 0;
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .title .jp {
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 50px;
+      color: var(--ink);
+      margin-left: 10px;
+      letter-spacing: 0.02em;
+    }
+
+    .lead {
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .hr {
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 0 0;
+    }
+
+    .grid {
+      margin-top: 18px;
+      border-top: 1px solid var(--rule);
+      padding-top: 16px;
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(240,232,216,0.03);
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .cell .v {
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .bilingual {
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.35;
+    }
+    .bilingual small {
+      color: var(--ink-4);
+      font-size: 16px;
+      font-style: italic;
+      margin-left: 8px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.02em;
+    }
+
+    .note {
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1.45;
+      max-width: 760px;
+    }
+
+    @media (max-width: 900px){
+      .slide { padding: 40px 36px; }
+      .title { font-size: 58px; }
+      .title .jp { font-size: 38px; }
+      .lead { font-size: 18px; }
+      .slide-tag { font-size: 16px; }
+      .slide-num { font-size: 20px; }
+      .grid.two { grid-template-columns: 1fr; }
+      .grid.three { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-top">
+        <div class="slide-tag">AI CODING</div>
+        <div class="slide-num">01 / 17</div>
+      </div>
+      <p class="eyebrow">見つける量、増えすぎる</p>
+      <h1 class="title">done<span class="jp">基準</span></h1>
+      <p class="lead">AIはバグ検出を加速する一方で、「どこまで直したら完了（done）か」が主戦場になります。結果として、品質改善は“探索”ではなく“意思決定”のゲームになり得ます。</p>
+      <div class="hr"></div>
+      <p class="note" style="margin-top:14px; max-width:860px;">
+        日本語：バグ（bug）検出が増える＝修正が終わらない、という現場感を整理します。
+      </p>
+    </section>
+
+    <section class="slide" aria-label="Problem framing slide">
+      <div class="slide-top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <p class="eyebrow">終点が曖昧に</p>
+      <h1 class="title">止め時<span class="jp">いつdone?</span></h1>
+      <p class="lead">AIエージェントは不具合候補を大量に提示できるため、「見つかった分だけ直す」が終わりにくくなります。検出が増えているのに、修正コストとリスクは増え続けます。</p>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">AI側</div>
+          <div class="v">検出はほぼ“増やせる”</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用側</div>
+          <div class="v">done基準・優先度が難しい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Core idea slide">
+      <div class="slide-top">
+        <div class="slide-tag">CORE IDEA</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <p class="eyebrow">見つかる数は任意</p>
+      <h1 class="title">“バグ数”<span class="jp">増幅</span></h1>
+      <p class="lead">AIコーディングでは、探索・指摘を投入することで「検出できるバグの数」を実務的に任意で増やせてしまいます。品質管理が“終点のない探索”に変わりやすいのが核心です。</p>
+      <div class="hr"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">入力</div>
+          <div class="v bilingual">探索量 / 指摘依頼<span><small>投入</small></span></div>
+        </div>
+        <div class="cell">
+          <div class="k">出力</div>
+          <div class="v bilingual">不具合候補の増加<span><small>検出</small></span></div>
+        </div>
+        <div class="cell">
+          <div class="k">帰結</div>
+          <div class="v">done判断がボトルネック</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Tradeoff slide">
+      <div class="slide-top">
+        <div class="slide-tag">TRADEOFF</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <p class="eyebrow">発見は無料じゃない</p>
+      <h1 class="title">修正の<span class="jp">代償</span></h1>
+      <p class="lead">バグを見つけるのが簡単になっても、修正は“ただ”になりません。コード肥大化・理解コスト増・新バグ導入リスクが残ります。</p>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">コスト要因</div>
+          <div class="v">行数増 / 理解コスト / 将来レビュー負債</div>
+        </div>
+        <div class="cell">
+          <div class="k">リスク要因</div>
+          <div class="v">局所修正→新しい欠陥の導入</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Why polish doesn't rise slide">
+      <div class="slide-top">
+        <div class="slide-tag">OBSERVATION</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <p class="eyebrow">磨き込みが伸びない</p>
+      <h1 class="title">ポリッシュ<span class="jp">増えにくい</span></h1>
+      <p class="lead">AIによる指摘は増えているのに、ソフトウェア全体の“磨き込み（polish）”が同じ割合で向上しないように見える、という指摘があります。著者はそれを「バグ許容度が変わっていない」ことと結びつけます。</p>
+      <div class="hr"></div>
+      <p class="note" style="margin-top:14px;">ポイント：検出量と品質体感は比例しない。</p>
+    </section>
+
+    <section class="slide" aria-label="Preventable problem paradox slide">
+      <div class="slide-top">
+        <div class="slide-tag">MECHANISM</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <p class="eyebrow">見えない価値</p>
+      <h1 class="title">preventable<span class="jp">問題のパラドックス</span></h1>
+      <p class="lead">preventable problem paradox（未然防止が“成果”として評価されにくい）により、予防は目に見えにくくなります。結果として、組織は“出てきた問題”より“出ない努力”を評価しづらくなります。</p>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">未然防止</div>
+          <div class="v">事故が起きない＝成果が見えにくい</div>
+        </div>
+        <div class="cell">
+          <div class="k">評価</div>
+          <div class="v">“指摘された不具合”が強い成果になりやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Incentives and fatigue slide">
+      <div class="slide-top">
+        <div class="slide-tag">ORGANIZATION</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <p class="eyebrow">圧力と疲弊</p>
+      <h1 class="title">成果主義<span class="jp">の副作用</span></h1>
+      <p class="lead">管理者がAIの生産性向上を“見える成果”や機能追加に結びつける圧力が、品質の磨き込みを相対的に後回しにし得ます。さらに、AI指摘を精査・対処する人間の心理的負荷が、処理速度と注意を下げます。</p>
+      <div class="hr"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">圧力</div>
+          <div class="v">機能追加・成果の見える化</div>
+        </div>
+        <div class="cell">
+          <div class="k">摩擦</div>
+          <div class="v">AI指摘の精査が重い</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">品質判断が遅れる/浅くなる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Episcycle slide">
+      <div class="slide-top">
+        <div class="slide-tag">RISKS</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <p class="eyebrow">輪を足す</p>
+      <h1 class="title">エピサイクル<span class="jp">増加</span></h1>
+      <p class="lead">単純にレビュー→修正を繰り返すと、局所修正が積み重なり、コードベースが複雑化しやすくなります。著者の比喩では、問題を解くために“無数の輪”を足すため、モデル（コード）の複雑さが増します。</p>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">原因</div>
+          <div class="v">局所修正の連鎖（修正量が正義化）</div>
+        </div>
+        <div class="cell">
+          <div class="k">帰結</div>
+          <div class="v">理解不能・新バグ導入の地ならし</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="LLMs can't jump">
+      <div class="slide-top">
+        <div class="slide-tag">LIMITATION</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <p class="eyebrow">根本まで届かない</p>
+      <h1 class="title">“LLMs can’t jump”<span class="jp">発想</span></h1>
+      <p class="lead">LLMは劇的な簡約（根本の整理）を“自動で飛び越えて”実行するのが苦手だ、という前提があります。だから質問設計やレビュー設計で、根本原因に届く方向へ誘導する必要があるとされています。</p>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">必要</div>
+          <div class="v">質問→根本簡素化へ誘導</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">“直して終わり”を“減らして終わり”へ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Avoid episcycle slide">
+      <div class="slide-top">
+        <div class="slide-tag">DIRECTION</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <p class="eyebrow">増やさずに潰す</p>
+      <h1 class="title">対策<span class="jp">3本柱</span></h1>
+      <p class="lead">エピサイクルを避けるには、局所修正のループから離れて、根本の簡素化・良質なテスト・設計方針によるバグカテゴリ削減へ寄せます。</p>
+      <div class="hr"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v">質問で根本を簡約（simplify）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">良質なテストスイートに依存</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">設計を簡素化しバグカテゴリを消す</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Testing slide">
+      <div class="slide-top">
+        <div class="slide-tag">TESTING</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <p class="eyebrow">テストは効くが希少</p>
+      <h1 class="title">強いテスト<span class="jp">必要条件</span></h1>
+      <p class="lead">テストは重要ですが、良質なテストスイートは作成・維持コストがかかります。既存の強い資産（例：W3CのWeb Platform Testsなど）を活用するのが現実的だという立場です。</p>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">例</div>
+          <div class="v">W3C Web Platform Tests（独立実装の蓄積）</div>
+        </div>
+        <div class="cell">
+          <div class="k">現実</div>
+          <div class="v">新規テストは“簡単ではない”</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Faq done definition slide">
+      <div class="slide-top">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <p class="eyebrow">“検出数”は品質そのものじゃない</p>
+      <h1 class="title">誤解を解く<span class="jp">3点</span></h1>
+      <p class="lead">「バグの数を決められる」＝即座に“品質が悪い”とは限りません。重要なのは検出側の努力に強く依存し、終点が曖昧になりやすいという実務上の感覚です。</p>
+      <div class="hr"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">a</div>
+          <div class="v">“悪い”断定ではない</div>
+        </div>
+        <div class="cell">
+          <div class="k">b</div>
+          <div class="v">検出量が増える</div>
+        </div>
+        <div class="cell">
+          <div class="k">c</div>
+          <div class="v">doneが曖昧化する</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Practical guidance slide">
+      <div class="slide-top">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <p class="eyebrow">実務の着地点</p>
+      <h1 class="title">AI前に<span class="jp">決める</span></h1>
+      <p class="lead">AIに“見つけさせる量競争”を始める前に、人間側で「簡素化の問い」とdone基準（優先度、リスク、評価軸）を先に設計するのが実践的です。目的は修正量ではなく、理解可能性とバグカテゴリ削減を進めることです。</p>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">先に</div>
+          <div class="v">done基準・優先度・リスクベース承認の考え方</div>
+        </div>
+        <div class="cell">
+          <div class="k">その上で</div>
+          <div class="v">質問設計、テスト資産、設計簡素化をセット運用</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Closing">
+      <div class="slide-top">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">14 / 17</div>
+      </div>
+      <p class="eyebrow">結論：探索でなく意思決定</p>
+      <h1 class="title">done<span class="jp">が本題</span></h1>
+      <p class="lead">AIは「バグ発見」を加速しやすいが、品質改善のボトルネックはその後（修正・設計・運用の意思決定）に移ります。簡素化・強いテスト・設計でバグカテゴリを減らし、“輪を足す”エピサイクルを避けましょう。</p>
+      <div class="hr"></div>
+      <p class="note" style="margin-top:14px; max-width:900px;">
+        注：本稿は特定記事の要約・観察に基づくため、定量的検証や統計一般化は別途必要です。
+      </p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://entelligence.ai/code-review-benchmark-2026" target="_blank" rel="noreferrer noopener">2026 AI Code Review Benchmark: Precision, Recall &amp; F1 Score Analysis</a></h2>
+<p class="reference-note">| Rank | Reviewer | F1 Score | Recall | Precision | Found/Golden |
+ ---  ---  --- |
+| 1 | Entelligence | 47.2% | 44.8% |…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://blog.exceeds.ai/ai-coding-agents-productivity-paradox" target="_blank" rel="noreferrer noopener">AI Coding Agent Productivity Debates: The 2026 Paradox</a></h2>
+<p class="reference-note">Thirty days forms the floor for detecting rework patterns on AI-touched code. Sixty days captures most follow-on edits a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.verdent.ai/guides/best-ai-for-code-review-2026" target="_blank" rel="noreferrer noopener">AI Code Review: Automated Insights</a></h2>
+<p class="reference-note">It varies. CodeRabbit hits 46% accuracy on real-world runtime bugs. According to the DORA 2025 Report, high-performing t…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.infoq.com/news/2026/06/ai-prd-code-review-governance" target="_blank" rel="noreferrer noopener">AI Is Moving up the Software Lifecycle: from Code Review to ...</a></h2>
+<p class="reference-note">### Choose your language
+
+ En
+ 中文
+ 日本
+ Fr
+
+Aug26,2026
+
+AI Security &amp; Privacy Engineering Certification
+
+Secure and gover…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@aman.kohli1/building-an-ai-code-review-system-that-predicts-bugs-using-production-data-baff64b9050a" target="_blank" rel="noreferrer noopener">Building an AI Code Review System That Predicts Bugs Using Production Data</a></h2>
+<p class="reference-note">AI bug data is snapshotted up to the PR creation time
+   Data is mocked locally during evaluations
+   Live APIs are neve…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
