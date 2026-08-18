@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wiz Red Agent 事案：GitHub Actions 脆弱性（スクリプト/コマンドインジェクション）要約</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      pointer-events:none;
+      background:
+        linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.18) 100%);
+      opacity: 0.35;
+    }
+
+    .top-row{
+      position: relative;
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+      z-index: 1;
+    }
+
+    .slide-tag{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      letter-spacing: 0.18em;
+      color: var(--ink-3);
+      font-size: 14px;
+      font-style: italic;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 120px;
+      height: 0;
+      border-top: 2px solid var(--rust);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 26px;
+      line-height: 1;
+      white-space: nowrap;
+      margin-top: -6px;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 26px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-bottom: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 70px;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+      font-weight: 500;
+      margin: 0 0 14px;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin-top: 20px;
+      margin-bottom: 22px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 16px;
+      margin-top: 18px;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule-strong);
+      padding: 16px 16px 14px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.10);
+    }
+
+    .kicker{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .card .text{
+      font-family: "Noto Serif JP", serif;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .jp{ color: var(--ink-3); font-size: 14px; margin-left: 6px; }
+
+    .closing-center{
+      position:absolute;
+      inset: 0;
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      padding: 56px 72px;
+      z-index: 1;
+    }
+    .closing-center .wrap{
+      width: min(820px, 100%);
+    }
+    .closing-center .big{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 76px;
+      line-height: 1.02;
+      font-style: italic;
+      color: var(--rust);
+      margin: 0 0 12px;
+      font-weight: 500;
+    }
+    .closing-center .lead2{
+      margin: 0;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">CASE</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">自動化×AIが突破口</div>
+        <h1 class="title">Wiz <em>Red Agent</em> 事案</h1>
+        <p class="lead">Wiz の自律型調査ツールが、GitHub Actions のスクリプトインジェクション脆弱性を悪用し、CI/CD 実行環境から内部 Jira 向けトークンを外部へ持ち出すまで到達したと報告されています。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">「入力」→「シェル」直結</div>
+        <h1 class="title"><em>Command</em> Injection</h1>
+        <p class="lead">GitHub issue のタイトルという攻撃者が操作できる入力が、テンプレート展開後にシェルスクリプトへそのまま取り込まれることで、引用符の崩し（脱出）から任意コマンド実行が成立します。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">THREAT</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">CI/CD は最短侵入口</div>
+        <h1 class="title">資格情報 <em>exfiltration</em></h1>
+        <p class="lead">CI/CD ランナー上で任意コマンドが動くと、認証不要の攻撃者でもトークン取得・外部送信（exfiltration）といった高インパクトな行為へ進めます。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">TIMELINE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">発見→悪用まで 5日</div>
+        <h1 class="title">探索が <em>短命化</em></h1>
+        <p class="lead">人の介在なしに探索・検証できる自律エージェントにより、実用的な手順（到達先確認や exfiltration）が短期間で現実になります。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">SECURITY</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">検知の盲点</div>
+        <h1 class="title">Advanced Security <em>通過</em></h1>
+        <p class="lead">GitHub Advanced Security が最終 PR revision を解析しても、テンプレート展開後にシェル構文が成立する境界条件まで追えず、致命的な注入が見逃された可能性があります。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">GATE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">if 条件が空洞化</div>
+        <h1 class="title">イベント文脈 <em>null</em></h1>
+        <p class="lead">issues イベントでは github.event.pull_request が null になり、比較式が実質的に常に真となってガードが機能しない構造でした。見た目の条件では不十分です。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">MECHANISM</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">成立条件は「連結の瞬間」</div>
+        <h1 class="title">引用符 <em>脱出</em></h1>
+        <p class="lead">攻撃者は issue タイトル内の危険な文字（例：引用符）でシェルの文脈を壊し、echo 等へ渡る文字列が意図せずコマンドとして解釈される形に持ち込みます。</p>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">入力</div>
+            <div class="text">issue title（攻撃者制御） <span class="jp">(入力)</span></div>
+          </div>
+          <div class="card">
+            <div class="kicker">成立</div>
+            <div class="text">引用符崩し→シェル脱出 <span class="jp">(escape)</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">AI</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">AI は安全の保証ではない</div>
+        <h1 class="title">Copilot <em>all-clear</em></h1>
+        <p class="lead">報告では Copilot が PR 共同作者として確認し「all-clear」だった可能性が触れられていますが、AI がどれだけ原因に関与したかは確定していません。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">FIX</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">同日パッチ＋失効</div>
+        <h1 class="title">回復は <em>即時</em></h1>
+        <p class="lead">Snowflake は責任ある開示に同日中でパッチ適用し、対象トークンの失効・ローテーションと監査ログによる範囲確認を実施したと報告されています。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">LESSON</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">主因は「設計の穴」</div>
+        <h1 class="title">回帰・前提崩れ <em>再発</em></h1>
+        <p class="lead">安全な env + jq（安全なパラメータ化/エスケープ）パターンが変更で直挿しに回帰し得ること、そして if 条件の前提がイベント文脈で壊れることが、検知後も危険を残します。</p>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="kicker">i</div>
+            <div class="text">危険入力のシェル直挿し</div>
+          </div>
+          <div class="card">
+            <div class="kicker">ii</div>
+            <div class="text">テンプレ展開の境界</div>
+          </div>
+          <div class="card">
+            <div class="kicker">iii</div>
+            <div class="text">if のイベント前提 null</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">DEFENSE</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">CI/CD を「安全に」設計</div>
+        <h1 class="title">再発防止 <em>チェックリスト</em></h1>
+        <p class="lead">安全性は静的スキャン任せにせず、入力取り扱い・イベント文脈のテスト・回帰防止ルールで多層化します。</p>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">入力</div>
+            <div class="text">untrusted input をシェルへ直挿ししない <span class="jp">(回避)</span></div>
+          </div>
+          <div class="card">
+            <div class="kicker">処理</div>
+            <div class="text">env + jq --arg のようにパラメータ化 <span class="jp">(安全化)</span></div>
+          </div>
+          <div class="card">
+            <div class="kicker">条件</div>
+            <div class="text">if はイベント文脈で null を含めて検証 <span class="jp">(テスト)</span></div>
+          </div>
+          <div class="card">
+            <div class="kicker">回帰</div>
+            <div class="text">CI/CD への投入ルール（ポリシー）で退行を防止 <span class="jp">(ガード)</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="top-row">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="closing-center">
+        <div class="wrap">
+          <div class="eyebrow" style="margin-bottom:14px;">安心の勘違いを切る</div>
+          <h1 class="big">AI もスキャンも万能ではない</h1>
+          <p class="lead2">本件は「危険入力をシェルに直結しない」「イベント文脈の前提を壊さない」「安全パターンを回帰させない」設計が、CI/CD を守る核心だと示します。</p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/wiz-red-agent-snowflake-github-actions-jira-exploit-august-2026" target="_blank" rel="noreferrer noopener">Wiz Red Agent Hacked Snowflake Jira Autonomously (2026)</a></h2>
+<p class="reference-note">An autonomous AI security tool broke into a Fortune 500 company&#39;s internal Jira instance, hit a bug in its own exploit, …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.forbes.com/sites/timkeary/2026/08/17/github-copilot-missed-a-vulnerability-that-wizs-ai-agent-found" target="_blank" rel="noreferrer noopener">Wiz&#39;s AI Agent Finds A Vulnerability In Snowflake&#39;s Internal ...</a></h2>
+<p class="reference-note">Cloud security provider Wiz&#39;s AI, Red Agent, autonomously discovered and exploited a GitHub Actions vulnerability in Sno…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.wiz.io/blog/red-agent-snowflake-copilot-cicd-bug" target="_blank" rel="noreferrer noopener">How Copilot Created &amp; Red Agent Found a CI/CD Bug | Wiz Blog</a></h2>
+<p class="reference-note">August 17, 2026|
+
+Image 4Image 5
+
+Image 7Image 8
+
+As part of ongoing security research conducted through Snowflake’s Hac…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/jamgph/posts/an-ai-agent-just-broke-into-snowflake-wiz-red-agent-an-autonomous-offensive-ai-i/1691928719600586" target="_blank" rel="noreferrer noopener">Ai agent exploits ai generated code in snowflake breach</a></h2>
+<p class="reference-note">An AI agent just broke into Snowflake. Wiz Red Agent — an autonomous offensive AI — independently found and exploited a …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://thehackernews.com/2026/08/snowflake-github-actions-flaw-lets_0330881554.html" target="_blank" rel="noreferrer noopener">Snowflake GitHub Actions Flaw Lets Crafted Issues Trigger Command Injection</a></h2>
+<p class="reference-note">#1 Trusted Cybersecurity News Platform
+
+Followed by 5.70+ million  
+
+The Hacker News Logo
+
+ Get the Latest News
+
+cyb…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
