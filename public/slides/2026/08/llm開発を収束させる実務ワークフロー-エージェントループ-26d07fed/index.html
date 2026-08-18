@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LLM開発を収束させる実務ワークフロー（エージェントループ×TDD×ハーネス）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: block;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide-inner{
+      padding: 56px 72px;
+      height: 100%;
+      width: 100%;
+      border: 20px solid var(--rule);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 18px;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 16px;
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 10px;
+      line-height: 1.1;
+      margin-top: -2px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink-3);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin-top: -4px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 68px;
+      line-height: 1;
+      margin-top: -8px;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .title.jp{
+      font-family: "Noto Serif JP","Times New Roman",serif;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+      line-height: 1.55;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 6px;
+    }
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 16px;
+      margin-top: 6px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.10);
+      border-radius: 10px;
+      padding: 16px 16px;
+      min-height: 64px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.5;
+    }
+    .bilingual{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      margin-top: 6px;
+    }
+    .closing-center{
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: left;
+      max-width: 980px;
+    }
+    .closing-center .big{
+      font-size: 44px;
+      line-height: 1.1;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+    .closing-center .sub{
+      margin-top: 14px;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 740px;
+      line-height: 1.55;
+    }
+    @media (max-width: 820px){
+      .slide-inner{ padding: 28px 22px; border-width: 10px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid{ gap: 12px; }
+      .cell .v{ font-size: 16px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+
+        <div class="eyebrow">魔法じゃない。収束設計</div>
+        <div class="title jp">LLM開発を <em>縛って</em> 進める</div>
+        <div class="lead">
+          エージェント的ループ（試作→検証→修正）を、TDD・Git・CI・ハーネスで“成果物の品質へ収束”させる実務ワークフロー。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid three" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">主張</div>
+            <div class="v">LLMは任せず、<span class="mono">収束</span>させる</div>
+            <div class="bilingual">収束（convergence）/ 漸近的に正解へ</div>
+          </div>
+          <div class="cell">
+            <div class="k">方法</div>
+            <div class="v">構造・制約・評価を先に用意</div>
+            <div class="bilingual">足場（scaffold）/ 曖昧さを封じる</div>
+          </div>
+          <div class="cell">
+            <div class="k">前提</div>
+            <div class="v">失敗の多くは文脈・性能・運用</div>
+            <div class="bilingual">方言/ビルド/正統性/計算量</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+
+        <div class="eyebrow">初手の生成は危険</div>
+        <div class="title jp">「それっぽい」が混入する</div>
+        <div class="lead">
+          LLMは初手から大量のコードを出しがちで、手書き開発と逆に「出てきたものを削り、必要な構造へ合わせる」が有効になる。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">よくある罠</div>
+            <div class="v">見た目の正しさ（動きそう）</div>
+            <div class="bilingual">見た目→構造ズレの温床</div>
+          </div>
+          <div class="cell">
+            <div class="k">本質の問題</div>
+            <div class="v">環境固有の事情を保証できない</div>
+            <div class="bilingual">方言/ビルド手順/正統なソース</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+
+        <div class="eyebrow">ジェネティックに回す</div>
+        <div class="title jp">LLM×反復＝<em>収束探索</em></div>
+        <div class="lead">
+          エージェントループは、ジェネティックアルゴリズムに似ていて「生成→評価→修正」を繰り返し、出力を選択圧（テスト等）へ適合させる。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid three" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">試作（LLM生成）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">検証（テスト/レビュー）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">修正（差分で収束）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+
+        <div class="eyebrow">縛る設計が速度を作る</div>
+        <div class="title jp">勝負は<em>制約</em>と<em>足場</em></div>
+        <div class="lead">
+          失敗を減らすには、曖昧な命令を避け、構造・制約・評価基準を言語化して先に固定する（LLMの自由度を落とす）。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">明示するもの</div>
+            <div class="v">ビルド手順 / 実行環境 / 正統なソース所在</div>
+          </div>
+          <div class="cell">
+            <div class="k">守るべき底</div>
+            <div class="v">型推論の根本判断 / 性能要件（計算量）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+
+        <div class="eyebrow">TDDで契約化する</div>
+        <div class="title jp">テストは<em>仕様</em>になる</div>
+        <div class="lead">
+          テストを先に整えると、LLMにとっての“契約（選択圧）”になり、失敗フィードバックで意図した振る舞いへ収束しやすくなる。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid three" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">回帰防止</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">意図の固定</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">修正の方向づけ</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top: 10px;">
+          用語：<span class="mono">TDD</span>（Test-Driven Development / テスト駆動開発）・<span class="mono">CI</span>（継続的インテグレーション）
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+
+        <div class="eyebrow">性能は別で測る</div>
+        <div class="title jp">ベンチマークを<em>同時</em>に</div>
+        <div class="lead">
+          機能テストは“動くか”中心になりがちで、CPU/メモリや計算量の悪化は見えにくい。LLMは遅い実装を出し得るため別枠で抑える。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">機能</div>
+            <div class="v">正しさ（回帰・仕様一致）</div>
+          </div>
+          <div class="cell">
+            <div class="k">性能</div>
+            <div class="v">計算量・レイテンシ・メモリ</div>
+            <div class="bilingual">例：定数時間→逐次処理は禁物</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+
+        <div class="eyebrow">削る開発が速い</div>
+        <div class="title jp">“任せる”より“整形”する</div>
+        <div class="lead">
+          LLM生成はそのまま採用するとズレが増えるため、通常開発とは逆に「出てきたものを削り、必要な構造へ合わせる」運用が効く。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">従来（手書き）</div>
+            <div class="v">必要な構造を作ってから埋める</div>
+          </div>
+          <div class="cell">
+            <div class="k">LLM開発</div>
+            <div class="v">生成を素材にし、差分で矯正する</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top: 10px;">
+          キーワード：<span class="mono">スキャフォールド（足場）</span> / <span class="mono">構造の固定</span> / <span class="mono">曖昧さ回避</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">ENUMERATION</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+
+        <div class="eyebrow">Gitで探索を安全に</div>
+        <div class="title jp">安全網＝<em>コミット</em></div>
+        <div class="lead">
+          LLMは試行錯誤を安くできる一方、戻れない探索は危険。安定状態ごとに即コミットし、破綻時はリスタートできるようにする。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid three" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">安定時：こまめにコミット</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">破綻時：最初からやり直す</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">差分でレビュー</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+
+        <div class="eyebrow">失敗を“底”で防ぐ</div>
+        <div class="title jp">見た目ではなく<em>契約</em></div>
+        <div class="lead">
+          「動いて見える」だけでは不十分で、型推論や計算量など“根本の設計判断”を評価と制約で守る必要がある。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">NG</div>
+            <div class="v">見た目の整合性だけに依存</div>
+            <div class="bilingual">括弧ズレ等の単純事故も混ざる</div>
+          </div>
+          <div class="cell">
+            <div class="k">OK</div>
+            <div class="v">テスト・レビュー・性能で守る</div>
+            <div class="bilingual">仕様と制約をゲート化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+
+        <div class="eyebrow">ハーネス＝運用の中枢</div>
+        <div class="title jp">エージェントを部品化する</div>
+        <div class="lead">
+          ハーネスは、モデルの癖や不完全さを前提に、タスク分割・コンテキスト注入・失敗時リトライ・機械的修復などを担う実行基盤。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">前後制御</div>
+            <div class="v">呼び出し前：制約/注入<br/>呼び出し後：差分確認/ゲート</div>
+          </div>
+          <div class="cell">
+            <div class="k">機械的修復</div>
+            <div class="v">括弧不一致の補正など</div>
+            <div class="bilingual">例：Markdownの脆さをDBで補う発想</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+
+        <div class="eyebrow">泥沼はリフレーム</div>
+        <div class="title jp">継ぎ足しより<em>再実行</em></div>
+        <div class="lead">
+          追加修正がkludge（泥沼の継ぎ足し）になり、根本の設計適合性が怪しくなったら、問題設定から見直して最初から再実行する。
+        </div>
+        <div class="rule"></div>
+
+        <div class="grid three" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">現状：回せてない兆候</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">症状：設計適合の欠如</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">対応：リフレームして再走</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top: 10px;">
+          用語：<span class="mono">kludge</span>（場当たり的な継ぎ足し）
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+
+        <div class="eyebrow">道具は人が握る</div>
+        <div class="closing-center">
+          <div>
+            <div class="big">LLMは“当たり外れ”を減らせる</div>
+            <div class="sub">
+              ただし鍵はモデルではなく、<span class="mono">ドメイン理解</span>と<span class="mono">評価設計</span>。
+              テスト・ベンチ・Git・ハーネスで収束を作れば、実装速度と品質を両立できる。
+            </div>
+            <div class="rule" style="margin-top: 18px;"></div>
+            <div class="grid two" style="margin-top: 14px;">
+              <div class="cell">
+                <div class="k">Checklist</div>
+                <div class="v">制約/足場 → TDD → CI → ベンチマーク → Git安全網 → ハーネス</div>
+              </div>
+              <div class="cell">
+                <div class="k">期待できる効果</div>
+                <div class="v">品質の収束 / 失敗コストの制御 / 性能リスクの早期発見</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
