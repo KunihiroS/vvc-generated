@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RISC-VでLLMをネイティブ実行：Alibaba XuanTie C950 × Qwen-3.8 27B</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 20px 0;
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+      display: block;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .content{
+      position:absolute; inset: 72px 56px 56px 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 0;
+    }
+
+    .topbar{
+      position:absolute; left:56px; right:56px; top: 26px; height: 30px;
+      display:flex; align-items:center; justify-content: space-between;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.10em;
+      font-size: 16px;
+      color: var(--ink);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 18px; height: 0;
+      border-top: 2px solid var(--rust);
+      display:inline-block;
+      transform: translateY(-2px);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      letter-spacing: 0.04em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 6px;
+      margin-bottom: -6px;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond","Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      margin: 0;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      margin-left: 8px;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 2px;
+    }
+
+    .grid{
+      margin-top: 6px;
+      width: 100%;
+      display:grid;
+      gap: 12px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+      min-height: 76px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.10em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .value{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .value small{
+      color: var(--ink-3);
+      font-size: 14px;
+      font-weight: 300;
+      margin-left: 8px;
+    }
+
+    .mini{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      font-weight: 300;
+      max-width: 760px;
+    }
+
+    .refs{
+      width:100%;
+      border-top: 1px solid var(--rule-strong);
+      margin-top: 10px;
+      padding-top: 14px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ref-item{
+      display:flex;
+      justify-content: space-between;
+      gap: 14px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.06);
+    }
+    .ref-item .left{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+    .ref-item .right{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      white-space: nowrap;
+      align-self: center;
+    }
+
+    .closing-center{
+      flex: 1;
+      display:flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      text-align:left;
+    }
+
+    @media (max-width: 720px){
+      .content{ inset: 64px 24px 24px 24px; }
+      .topbar{ left:24px; right:24px; top: 18px; }
+      .slide-tag{ font-size: 14px; }
+      .slide-num{ font-size: 16px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .value{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 cover -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">GPU依存を減らす</div>
+        <h2 class="title">RISC-Vで<span><em>LLM</em></span>を動かす</h2>
+        <div class="lead">Alibabaの自社RISC-Vチップ「XuanTie C950」が、Qwen-3.8 27Bを“ネイティブに”day-zero対応でサポートした――という主張を、条件と意味の両面から整理します。</div>
+        <div class="grid two" style="margin-top: 10px;">
+          <div class="card">
+            <div class="label">キーワード / Key</div>
+            <div class="value">RISC-V（加速） <small>RISC-V（命令セット）</small></div>
+          </div>
+          <div class="card">
+            <div class="label">キーワード / Key</div>
+            <div class="value">day-zero <small>発表直後対応</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 problem -->
+    <section class="slide" aria-label="Problem framing">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">推論の壁はどこか</div>
+        <h2 class="title"><em>TTFT</em>とコスト</h2>
+        <div class="lead">LLMの推論はGPU中心で、調達・電力・運用のコストが重くなりがちです。さらにサービス体感は「最初のトークンまでの速さ（TTFT）」に左右されます。</div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label">導入障壁</div>
+            <div class="value">ハード依存 + 検証待ち <small>移行コスト</small></div>
+          </div>
+          <div class="card">
+            <div class="label">UX指標</div>
+            <div class="value">TTFT / tokens/s <small>体感品質</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 metaphor -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">料理の“直火”</div>
+        <h2 class="title">仮想GPUではなく<span><em>直実行</em></span></h2>
+        <div class="lead">「ネイティブ実行」は、翻訳層やエミュレーションを挟まずに、チップ側の加速で中核演算を処理するイメージです。うまく噛み合えば、速度と効率の両方を狙えます。</div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label">従来（発想）</div>
+            <div class="value">GPU前提 <small>周辺で吸収</small></div>
+          </div>
+          <div class="card">
+            <div class="label">狙い（発想）</div>
+            <div class="value">チップ内加速 <small>本丸を処理</small></div>
+          </div>
+          <div class="card">
+            <div class="label">効果（期待）</div>
+            <div class="value">TTFT短縮 <small>総コスト↓</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 architecture -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">XuanTie C950の要点</div>
+        <h2 class="title"><em>RISC-V</em>×加速器</h2>
+        <div class="lead">記事によれば、XuanTie C950は64-bit RISC-Vサーバ級に加え、行列・ベクタ加速エンジンを内蔵し、LLM演算の中核をチップ側で直接実行できる設計です。</div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label">前提</div>
+            <div class="value">GPU依存を減らす <small>別経路不要</small></div>
+          </div>
+          <div class="card">
+            <div class="label">仕組み（主張）</div>
+            <div class="value">行列・ベクタ加速 <small>LLM中核演算</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 evidence -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Qwen-3.8 27B対応</div>
+        <h2 class="title">day-zeroで<span><em>動く</em></span></h2>
+        <div class="lead">Qwen-3.8 27Bについて、記事はXuanTie C950でday-zeroサポートが提供されたと述べています。モデル提供開始のタイミングに合わせ、顧客の検証開始を早める狙いです。</div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label">主張</div>
+            <div class="value">day-zero対応 <small>初日から利用</small></div>
+          </div>
+          <div class="card">
+            <div class="label">狙い（解釈）</div>
+            <div class="value">導入障壁↓ <small>囲い込み</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 architecture -->
+    <section class="slide" aria-label="Performance claims">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">数値は何を意味する</div>
+        <h2 class="title">30 tokens/s & TTFT<span><em>1.9s</em></span></h2>
+        <div class="lead">記事の例として、デコード速度30 tokens/s、TTFT 1.9秒が挙げられています。重要なのは、ベンチ条件（プロンプト長、量子化、並列度、キャッシュ）が不明な点です。</div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label">指標（例）</div>
+            <div class="value">tokens/s = 30 <small>デコード速度</small></div>
+          </div>
+          <div class="card">
+            <div class="label">指標（例）</div>
+            <div class="value">TTFT = 1.9s <small>初応答まで</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 distinction -->
+    <section class="slide" aria-label="Distinction">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“32GB級”の前提</div>
+        <h2 class="title">メモリ要件は<span><em>条件付き</em></span></h2>
+        <div class="lead">記事ではQwen-3.8 27Bを32GB VRAM級で回せる枠組みが示唆されています。ただしVRAMや実メモリ要件は、量子化（4bit/8bit等）やKVキャッシュ管理、バッチ構成に依存します。</div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label">成立条件</div>
+            <div class="value">量子化 <small>4bit/8bitなど</small></div>
+          </div>
+          <div class="card">
+            <div class="label">成立条件</div>
+            <div class="value">KVキャッシュ <small>管理次第</small></div>
+          </div>
+          <div class="card">
+            <div class="label">成立条件</div>
+            <div class="value">バッチ/並列 <small>要求メモリ変動</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 comparison -->
+    <section class="slide" aria-label="Comparison">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">GPU依存との違い</div>
+        <h2 class="title"><em>GPU</em>の外側へ</h2>
+        <div class="lead">RISC-Vの利点として、GPUのような特定ベンダー依存を弱め、命令拡張を自社都合で設計できる可能性が語られます。とはいえ性能は命令セット単体では決まりません。</div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label">期待される差</div>
+            <div class="value">開発自由度 / 依存弱化 <small>ライセンス面も含む</small></div>
+          </div>
+          <div class="card">
+            <div class="label">性能を決める要素</div>
+            <div class="value">コンパイラ/ランタイム/メモリ <small>全体最適化</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 process -->
+    <section class="slide" aria-label="Vertical integration">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">縦統合で“モート”形成</div>
+        <h2 class="title">モデル→チップ→推論<span><em>基盤</em></span></h2>
+        <div class="lead">記事が示す意味は、単なる性能報告よりも「自社モデル→自社チップ→自社の推論基盤」という縦方向統合が進む点です。顧客が“乗り換えにくい状態”を作りやすくなります。</div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label">ステップ i</div>
+            <div class="value">モデル対応 <small>Qwen-3.8</small></div>
+          </div>
+          <div class="card">
+            <div class="label">ステップ ii</div>
+            <div class="value">専用チップ連携 <small>XuanTie C950</small></div>
+          </div>
+          <div class="card">
+            <div class="label">ステップ iii</div>
+            <div class="value">推論基盤の最適化 <small>縦統合</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 distinction -->
+    <section class="slide" aria-label="Risk and uncertainty">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">懐疑点：再現条件が薄い</div>
+        <h2 class="title">“動いた”の<span><em>範囲</em></span>確認</h2>
+        <div class="lead">記事はWCCFTECHの記述で、TTFT/tokens/sの詳細条件や、TSMC 5nmの確証は十分ではないとされます。「どの条件で再現可能か」が曖昧です。</div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label">未確定</div>
+            <div class="value">TTFT/速度の条件 <small>プロンプト等</small></div>
+          </div>
+          <div class="card">
+            <div class="label">未確定</div>
+            <div class="value">TSMC 5nmの確証 <small>“believed”表現</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 comparison -->
+    <section class="slide" aria-label="Takeaway">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">判断軸：技術×運用×競争</div>
+        <h2 class="title"><em>結論</em>は“期待は大、断定は保留”</h2>
+        <div class="lead">強みは、先回りして“すぐ動かせる状態”にするday-zero戦略と、GPU依存を下げる設計思想です。一方で、一次情報のベンチ条件・再現性・TCO（総保有コスト）が不足しており、導入断定には追加データが必要です。</div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label">前向きに見る点</div>
+            <div class="value">対応の速さ + 縦統合 <small>囲い込み余地</small></div>
+          </div>
+          <div class="card">
+            <div class="label">慎重に見る点</div>
+            <div class="value">条件不明の性能 + 障壁 <small>再現性・依存リスク</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 closing -->
+    <section class="slide" aria-label="Closing">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">次に確認すべきもの</div>
+        <h2 class="title">導入判断は<span><em>条件</em></span>で決まる</h2>
+        <div class="lead">“ネイティブ実行”が本当に価値になるかは、ベンチ条件・消費電力・運用TCO・ソフト互換性で確かめる必要があります。まずは実測（公開）と再現可能性を取りに行きましょう。</div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label">要確認 / Check</div>
+            <div class="value">ベンチ条件 <small>再現性</small></div>
+          </div>
+          <div class="card">
+            <div class="label">要確認 / Check</div>
+            <div class="value">消費電力・TCO <small>実運用</small></div>
+          </div>
+          <div class="card">
+            <div class="label">要確認 / Check</div>
+            <div class="value">ソフト更新と互換 <small>移行コスト</small></div>
+          </div>
+        </div>
+
+        <div class="refs">
+          <div class="ref-item">
+            <div class="left">WCCFTECH（当該ニュース記事）</div>
+            <div class="right">ソース種別: 報道</div>
+          </div>
+          <div class="ref-item">
+            <div class="left">Qwen-3.8 27B（モデル提供情報）</div>
+            <div class="right">対象: オープンウェイト</div>
+          </div>
+          <div class="ref-item">
+            <div class="left">XuanTie C950（RISC-V関連情報）</div>
+            <div class="right">対象: チップ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://wccftech.com/alibabas-tsmc-built-5nm-risc-v-chip-xuantie-c950-now-runs-qwen-3-8-27b-model-natively-unlocking-massive-vertical-integration-tailwinds" target="_blank" rel="noreferrer noopener">Alibaba’s TSMC-Built 5nm RISC-V Chip, XuanTie C950, Now Runs Qwen-3.8 27B Model Natively, Unlocking Massive Vertical Integration Tailwinds</a></h2>
+<p class="reference-note">Alibaba unveiled the XuanTie C950 in March 2026, marketing the chip as a RISC-V-based offering for edge AI. Unlike typic…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.trendforce.com/news/2026/03/25/news-alibaba-unveils-risc-v-xuantie-c950-cpu-for-ai-agents-5nm-chip-reportedly-made-by-tsmc" target="_blank" rel="noreferrer noopener">[News] Alibaba Unveils RISC-V XuanTie C950 CPU for AI Agents, 5nm Chip Reportedly Made by TSMC</a></h2>
+<p class="reference-note">The XuanTie C950 leverages RISC-V and integrates a self-developed AI acceleration engine. It natively supports large-sca…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://circuitdigest.com/news/alibaba-unveiled-xuantie-c950-high-performance-risc-v-core-for-edge-ai" target="_blank" rel="noreferrer noopener">Alibaba Unveiled XuanTie C950: High-Performance RISC-V Core for Edge AI</a></h2>
+<p class="reference-note">The architecture includes support for advanced extensions such as vector processing, vector crypto, and floating-point o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/gentic_news/alibabas-xuantie-c950-cpu-hits-70-specint2006-claims-risc-v-record-with-native-llm-support-3nh9" target="_blank" rel="noreferrer noopener">Alibaba&#39;s XuanTie C950 CPU Hits 70+ SPECint2006, Claims RISC-V Record with Native LLM Support - DEV Community</a></h2>
+<p class="reference-note">Alibaba&#39;s strategy appears to be vertical integration: controlling the entire stack from silicon (XuanTie) to models (Qw…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.technology.org/2026/03/24/alibaba-unveils-5nm-risc-v-chip-built-for-the-age-of-ai-agents" target="_blank" rel="noreferrer noopener">Alibaba Unveils 5nm RISC-V Chip for AI Agents - Technology Org</a></h2>
+<p class="reference-note">The chip arrives through T-Head, Alibaba’s in-house semiconductor arm. T-Head operates two distinct product lines: the Z…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
