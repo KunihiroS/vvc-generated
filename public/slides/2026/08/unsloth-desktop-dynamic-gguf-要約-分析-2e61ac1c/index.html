@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Unsloth Desktop / Dynamic GGUF 要約・分析</title>
+  <style>
+    :root{
+      --cream:#14110d;
+      --paper:#1c1813;
+      --ink:#f0e8d8;
+      --ink-2:#d4ccbc;
+      --ink-3:#948b7c;
+      --ink-4:#645c50;
+      --rust:#e8814a;
+      --rust-deep:#c9683a;
+      --rule:rgba(240,232,216,0.10);
+      --rule-strong:rgba(240,232,216,0.28);
+    }
+    html, body { height: 100%; background: var(--cream); }
+    body{
+      margin:0;
+      color:var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 36px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      box-sizing: border-box;
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow:hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 2px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .card{
+      position:absolute; inset:0;
+      padding: 56px 72px;
+      box-sizing:border-box;
+      display:flex;
+      flex-direction:column;
+      gap: 16px;
+    }
+    .tag{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-top: 2px solid rgba(232,129,74,0.9);
+      padding-top: 10px;
+      width: fit-content;
+      margin-left: 0;
+    }
+    .toprow{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+    .slide-num{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-2);
+    }
+    .eyebrow{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+      line-height: 1.1;
+    }
+    .title{
+      font-size: 70px;
+      letter-spacing: 0.01em;
+      margin: 0;
+      line-height: 0.95;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+      font-size: 74px;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.5;
+      font-weight: 300;
+      margin-top: -2px;
+    }
+    .divider{
+      height:1px;
+      background: var(--rule);
+      margin: 10px 0 0;
+    }
+    .grid{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.06);
+      padding: 14px 14px;
+      box-sizing:border-box;
+      min-height: 84px;
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      font-weight: 400;
+      font-family: "Noto Serif JP", serif;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 18px;
+      word-break: break-word;
+    }
+    ul{ margin: 0; padding-left: 18px; }
+    .pair{
+      display:flex; gap: 14px; align-items:flex-start;
+    }
+    .pill{
+      border: 1px solid var(--rule-strong);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: var(--ink-2);
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      background: rgba(0,0,0,0.08);
+      white-space: nowrap;
+    }
+    .note{
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+    .bottomline{
+      margin-top:auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap: 12px;
+    }
+    .roman{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .closing{
+      margin-top:auto;
+      font-size: 22px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.55;
+      max-width: 760px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">Cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">読みやすく、要点だけ</div>
+        <h1 class="title"><span class="em">Unsloth</span> Dynamic GGUF</h1>
+        <div class="lead">Unsloth Desktopの主張（Dynamic v3.0）と評価設計（KL / Divergence-300 @32）を、技術のつながりが分かる形で圧縮します。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">焦点</div>
+            <div class="v">Dynamic v3.0 GGUF（例: Qwen3.8-27B）</div>
+          </div>
+          <div class="cell">
+            <div class="k">読み筋</div>
+            <div class="v">PTQ / imatrix改善 / 分布差の評価</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">※本資料は提示テキストの要約・分析です。</div>
+          <div class="pill">要点抽出 / 分析</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">量子化の落とし穴</div>
+        <h1 class="title">Top-1%<span class="em">罠</span></h1>
+        <div class="lead">量子化は軽量化と引き換えに精度が落ちがちですが、top-1%は「最尤1手」しか見ないため、劣化の本質を見落としやすいです。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">見えにくい劣化</div>
+            <div class="v">分布の歪み / 出力の“揺れ” / 反転の偶然</div>
+          </div>
+          <div class="cell">
+            <div class="k">求められる評価</div>
+            <div class="v">確率分布の差まで追う指標（KL など）</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">結論: 「単発の勝ち負け」だけでは量子化品質を断定できない。</div>
+          <div class="pill">分布評価</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">Architecture</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">何が“Dynamic”なのか</div>
+        <h1 class="title">Dynamic<span class="em">量子化</span></h1>
+        <div class="lead">Dynamic量子化は、モデル内の層ごとに量子化方式や設定を適切に割り当て、同サイズでも精度劣化を抑える方向性です。</div>
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">目的</div>
+            <div class="v">軽量化しつつ挙動を維持</div>
+          </div>
+          <div class="cell">
+            <div class="k">手段</div>
+            <div class="v">層選択 / 量子化手法の改善</div>
+          </div>
+          <div class="cell">
+            <div class="k">成果物</div>
+            <div class="v">Dynamic v3.0 GGUF（例: Qwen3.8-27B）</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">関連語: GGUF / llama.cpp（推論エンジン）</div>
+          <div class="pill">PTQ志向</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">Evidence</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">主張の核</div>
+        <h1 class="title">同サイズで<span class="em">上回る</span></h1>
+        <div class="lead">Dynamic v3.0（例: Qwen3.8-27B）のGGUFは、「同じサイズで他社プロバイダより&gt;10% top-1%（および精度維持）」を上回るとされています。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">比較の軸</div>
+            <div class="v">サイズ同一 + accuracy維持 + top-1% &gt;10%</div>
+          </div>
+          <div class="cell">
+            <div class="k">重要ポイント</div>
+            <div class="v">サイズ削減での品質低下を抑える設計</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">注意: 数値は評価パイプライン依存なので条件確認が必要。</div>
+          <div class="pill">再現性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">process</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">PTQの明言</div>
+        <h1 class="title">imatrix改善<span class="em">×</span>学習しない</h1>
+        <div class="lead">imatrixキャリブレーションデータを高品質化しつつ、imatrix自体を学習に使わず、さらにQAT/QADも行わない“ポストトレーニング量子化（PTQ）”だと明確にされています。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">imatrix</div>
+            <div class="v">キャリブレーション用（学習には使用しない）</div>
+          </div>
+          <div class="cell">
+            <div class="k">学習の不在</div>
+            <div class="v">QAT（Quantization Aware Training）/ QADなし</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">解釈: 再現性・公平性を意識した設計の可能性。</div>
+          <div class="pill">PTQ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">enumeration</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">評価指標の二本柱</div>
+        <h1 class="title">KL と<br><span class="em">Divergence-300</span></h1>
+        <div class="lead">Dynamic量子化の評価は、top-1%の限界を補うために「KLダイバージェンス」と「Divergence-300 @32」を中心に据えています。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">KL Divergence（KL）</div>
+            <div class="v">量子化前後の“出力分布”の差を測る（0に近いほど差が小さい）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Divergence-300 @32</div>
+            <div class="v">未見データで複数トークン（32トークン）の軌跡類似性を評価する工夫</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">補足語彙: KL（クル）/ ダイバージェンス / ベクトル分布差</div>
+          <div class="pill">分布差</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">distinction</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">なぜ“軌跡”か</div>
+        <h1 class="title">32トークンで<span class="em">見る</span></h1>
+        <div class="lead">Divergence-300 @32は、単発ではなく32トークン分の挙動変化を追うことで、量子化による分布崩れや挙動差をより直接に捉えようとしています。</div>
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">単発の一致/不一致から脱却</div>
+          </div>
+          <div class="cell">
+            <div class="k">対象</div>
+            <div class="v">キャリブレーション外の未見データ</div>
+          </div>
+          <div class="cell">
+            <div class="k">比較の土台</div>
+            <div class="v">BF16等との挙動差も観察</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">結論: “生成の連なり”を評価に含める姿勢。</div>
+          <div class="pill">軌跡類似性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">evidence</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">過学習への警戒</div>
+        <h1 class="title">Wikipedia寄り<span class="em">偏り</span></h1>
+        <div class="lead">キャリブレーションでWikipedia系データを使うと、Wikipediaテストで過剰に良く見える懸念があるため、標準Wikipediaベンチで比較条件を揃える方針が述べられています。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">リスク</div>
+            <div class="v">ベンチに都合よい最適化（見かけの優位）</div>
+          </div>
+          <div class="cell">
+            <div class="k">対策</div>
+            <div class="v">標準Wikipediaベンチで条件を揃えて比較</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">論点: “手法の良さ”と“データ相性”を切り分ける必要。</div>
+          <div class="pill">公平性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">comparison</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">v2→v3の進化観</div>
+        <h1 class="title">層選択・手法の<span class="em">改善</span></h1>
+        <div class="lead">Dynamic v2.0では、層ごとに量子化方式を変える“賢い層選択”や、モデルごとに量子化スキームをカスタマイズする方針が説明されています。</div>
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">層ごとの最適化</div>
+            <div class="v">量子化方式/パラメータの選別</div>
+          </div>
+          <div class="cell">
+            <div class="k">モデル適応</div>
+            <div class="v">量子化スキームをカスタマイズ</div>
+          </div>
+          <div class="cell">
+            <div class="k">再現性課題</div>
+            <div class="v">MMLUで実装差により再現不能が起きうる</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">メッセージ: “量子化そのもの”以外も結果に影響する。</div>
+          <div class="pill">実装差</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">evidence</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">推論パイプラインの影</div>
+        <h1 class="title">“量子化以外”も<span class="em">効く</span></h1>
+        <div class="lead">Llama 4関連では、llama.cppやtransformersの設定値（例: epsilon等）の扱い修正が精度を引き上げた例があり、比較は単体になりにくいと示唆されています。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">影響源</div>
+            <div class="v">推論エンジン設定 / 数値安定性パラメータ</div>
+          </div>
+          <div class="cell">
+            <div class="k">示すこと</div>
+            <div class="v">品質差は周辺実装バグ修正でも起こる</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">結論: “評価条件”の透明性が重要。</div>
+          <div class="pill">パイプライン</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">process</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">導入前のチェック</div>
+        <h1 class="title">再現条件<span class="em">確認</span></h1>
+        <div class="lead">第三者検証では、評価条件（プロンプト/テンプレ/計測/トークナイゼーション）とデータセットのドメイン差が、結果の見え方を左右する点に注意が必要です。</div>
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">確認すべき点</div>
+            <div class="v">プロンプト、テンプレ、前処理、推論設定、トークン化</div>
+          </div>
+          <div class="cell">
+            <div class="k">特に注意</div>
+            <div class="v">キャリブレーションの分布とベンチの整合性（Wikipedia等）</div>
+          </div>
+        </div>
+        <div class="bottomline">
+          <div class="note">“優位”の主張は、条件が揃うほど検証価値が上がる。</div>
+          <div class="pill">条件依存</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="card">
+        <div class="toprow">
+          <div class="tag">closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">まとめ</div>
+        <h1 class="title">分布まで<span class="em">責任</span>を持つ</h1>
+        <div class="closing">Unsloth DesktopのDynamic v3.0は、「同サイズでの精度維持」を主張しつつ、KLダイバージェンスやDivergence-300 @32で分布差を評価し、PTQ（imatrix学習なし / QAT/QADなし）を明言している点が特徴です。<br><br>一方で、実装・評価条件差によって結果は変わり得るため、再現条件（データ、プロンプト、推論設定）を追う姿勢が重要です。</div>
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">Strength</div>
+            <div class="v">分布評価（KL / divergence）で本質へ寄せる</div>
+          </div>
+          <div class="cell">
+            <div class="k">Risk</div>
+            <div class="v">評価条件・データ相性の依存が残る</div>
+          </div>
+          <div class="cell">
+            <div class="k">Action</div>
+            <div class="v">第三者検証で条件一致を確認する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://unsloth.ai/blog/dynamic-v2" target="_blank" rel="noreferrer noopener">Unsloth Dynamic v2.0 GGUFs</a></h2>
+<p class="reference-note">If we plot the ratio of the disk space increase and the KL Divergence ratio change, we can see a much clearer benefit! O…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://unsloth.ai/docs/basics/unsloth-dynamic-2.0-ggufs" target="_blank" rel="noreferrer noopener">Unsloth Dynamic 2.0 GGUFs</a></h2>
+<p class="reference-note">7.31
+
+4.32
+
+IQ2\_M
+
+66.47
+
+64.47
+
+8.96
+
+4.40
+
+Q2\_K
+
+68.50
+
+67.60
+
+9.78
+
+4.35
+
+Q2\_K\_XL
+
+68.70
+
+67.77
+
+9.95
+
+4.30
+
+IQ3\…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ubos.tech/news/unsloth-dynamic-v2-0-gguf-quantization-breakthrough-accuracy%E2%80%91size-trade%E2%80%91off" target="_blank" rel="noreferrer noopener">Unsloth Dynamic v2.0 GGUF Quantization - UBOS.tech</a></h2>
+<p class="reference-note">Dynamic v2.0 is Unsloth’s second‑generation quantization engine built on the GGUF (GGML Unified Format) container. Unlik…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://x.com/UnslothAI/status/1915476692786962441" target="_blank" rel="noreferrer noopener">Introducing Unsloth Dynamic v2.0 GGUFs! Dynamic v2.0 quants sets ...</a></h2>
+<p class="reference-note">6:43 PM · Apr 24, 202559.8KViews
+ user avatar
+
+  Daniel Han
+
+  @danielhanchen
+
+  Apr 24, 2025
+
+  If anyone wants to read…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=47192505" target="_blank" rel="noreferrer noopener">Unsloth Dynamic 2.0 GGUFs - Hacker News</a></h2>
+<p class="reference-note">| |  |  |  |  ---  |  |  | tenpa0000 5 months ago  | prev | next (javascript:void(0))   I run Llama 3.2 3B locally for l…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
