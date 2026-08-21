@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mlx-dspark：Speculative Decoding 高速化（lossless志向）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 22px;
+      left: 22px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      opacity: 0.95;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 20px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 28px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      margin: 0;
+      font-size: 22px;
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      line-height: 1.15;
+    }
+
+    .title{
+      margin: 14px 0 12px;
+      font-size: 74px;
+      line-height: 0.95;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      font-size: 70px;
+    }
+    .title em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+
+    .lead{
+      margin: 0;
+      max-width: 760px;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 0;
+      width: 100%;
+      opacity: 0.9;
+    }
+
+    .grid-2{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      width: 100%;
+      margin-top: 18px;
+    }
+    .grid-3{
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 18px;
+      width: 100%;
+      margin-top: 18px;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.05);
+    }
+    .cell h4{
+      margin: 0 0 8px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--rust);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .mini{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+      background: rgba(0,0,0,0.2);
+      padding: 2px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--rule);
+      display: inline-block;
+      transform: translateY(-1px);
+    }
+
+    .footer-note{
+      margin-top: auto;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 880px){
+      .slide{ padding: 44px 44px; }
+      .title{ font-size: 58px; }
+      .title.jp{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid-2, .grid-3{ gap: 12px; }
+      .cell p{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1: cover -->
+    <section class="slide" style="padding-top:84px;">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 14</div>
+      <p class="eyebrow">Apple Siliconで高速化</p>
+      <div class="title"><em>mlx-dspark</em></div>
+      <p class="lead">
+        speculative decoding（スペキュレイティブ・デコーディング）を、DSpark / DFlash / DFlash2 で実装し、<span class="mono">lossless（同等出力）</span>を保ちつつ推論デコードを高速化する取り組みです。
+      </p>
+      <div class="rule"></div>
+      <p class="footer-note">EN用語は原則英語のまま併記し、日本語の要点を短く添えています。</p>
+    </section>
+
+    <!-- 2: problem -->
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 14</div>
+      <p class="eyebrow">逐次デコードの壁</p>
+      <div class="title"><em>遅い</em>理由</div>
+      <p class="lead">
+        通常のLLMは「次トークン」を1つずつ逐次計算し、生成が伸びるほど待ち時間（レイテンシ）が蓄積します。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>通常</h4>
+          <p>ターゲット（本体モデル）が毎トークンを計算して確定。</p>
+        </div>
+        <div class="cell">
+          <h4>ボトルネック</h4>
+          <p>デコード回数がそのまま増え、GPU/MLXの計算が支配的。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3: metaphor -->
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 14</div>
+      <p class="eyebrow">下書き→検証</p>
+      <div class="title"><em>speculative</em></div>
+      <p class="lead">
+        ドラフタ（下書き役）が複数トークンを先に提案し、ターゲットが提案をまとめて検証することで、合致分だけ逐次計算を節約します（lossless設計）。
+      </p>
+      <div class="grid-3">
+        <div class="cell">
+          <h4>1. Draft</h4>
+          <p>ドラフタが複数トークンを提案。</p>
+        </div>
+        <div class="cell">
+          <h4>2. Verify</h4>
+          <p>ターゲットが同一の提案列を検証。</p>
+        </div>
+        <div class="cell">
+          <h4>3. Accept</h4>
+          <p>一致した分だけ受理（accept長が鍵）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4: architecture -->
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 14</div>
+      <p class="eyebrow">mlx-dsparkの中核</p>
+      <div class="title"><em>1ループ検証</em></div>
+      <p class="lead">
+        重要なのは「提案を検証する1つの検証ループ」で処理する設計で、合致（accept）が長いほど高速化率が上がります。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>lossless</h4>
+          <p>提案トークンを“毎回検証”し、通常デコードと同等（基本的に同一出力）を狙う。</p>
+        </div>
+        <div class="cell">
+          <h4>勝ち筋</h4>
+          <p><span class="mono">accept</span> × 検証コスト（cap）のバランスで決まる。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5: comparison -->
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">06 / 14</div>
+      <p class="eyebrow">DSpark vs DFlash系</p>
+      <div class="title"><em>最適は環境依存</em></div>
+      <p class="lead">
+        単純に「常に速い」ではなく、検証幅（cap）、MLXの検証カーネル挙動、モデル構造、量子化などで相性が変わります。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>共通の軸</h4>
+          <p>accept長（受理）と、verifyの計算コスト（cap）がトレードオフ。</p>
+        </div>
+        <div class="cell">
+          <h4>例（抜粋）</h4>
+          <p>Qwen3.8-27BでDFlash2採用が有利になり、速度面の優位が示される。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6: evidence -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 14</div>
+      <p class="eyebrow">ベンチの要点</p>
+      <div class="title">2×〜<em>4×</em></div>
+      <p class="lead">
+        複数モデルで概ね <span class="mono">2倍〜4倍</span> の速度向上が示され、条件によって大きく伸びる例が報告されています。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>Qwen3.8-27B</h4>
+          <p>DFlash2により8-bitで平均 <span class="mono">3.63×</span>、数値条件付きで最大級の改善。</p>
+        </div>
+        <div class="cell">
+          <h4>理由（要約）</h4>
+          <p>同一検証幅で受理が高くなり、結果として逐次デコード削減が効く。</p>
+        </div>
+      </div>
+      <p class="footer-note">注：数値は特定条件（機種・MLX・プロンプト/キャッシュ状況）に依存します。</p>
+    </section>
+
+    <!-- 7: process -->
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">08 / 14</div>
+      <p class="eyebrow">運用の勘所</p>
+      <div class="title"><em>auto</em>推奨</div>
+      <p class="lead">
+        READMEでは <span class="mono">--mode auto</span> を推奨し、ターゲットモデルごとに計測済みの最適ペア選択で無駄なフラグ調整を避けます。
+      </p>
+      <div class="grid-3">
+        <div class="cell">
+          <h4>推奨</h4>
+          <p><span class="mono">--mode auto</span></p>
+          <p class="mini">自動で最適化。</p>
+        </div>
+        <div class="cell">
+          <h4>比較</h4>
+          <p><span class="mono">A/B</span></p>
+          <p class="mini">目的がある場合だけ明示指定。</p>
+        </div>
+        <div class="cell">
+          <h4>前提</h4>
+          <p class="mini">optimumは環境依存。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8: enumeration -->
+    <section class="slide">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">09 / 14</div>
+      <p class="eyebrow">cap（検証幅）</p>
+      <div class="title"><em>固定しない</em></div>
+      <p class="lead">
+        <span class="mono">--max-draft</span>（cap相当）を固定せず、auto/計測ベースにするのが実務的です。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>なぜ？</h4>
+          <p>最適capが M1/M4、MLXバージョン、量子化で変わるため。</p>
+        </div>
+        <div class="cell">
+          <h4>実害</h4>
+          <p>固定すると、verifyコストが勝って速度低下になる可能性。</p>
+        </div>
+      </div>
+      <p class="footer-note">最初の数秒の計測（cached/ウォーム）を活用。</p>
+    </section>
+
+    <!-- 9: architecture -->
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">10 / 14</div>
+      <p class="eyebrow">TTFTは別の支配因子</p>
+      <div class="title"><em>エージェント</em>では特に</div>
+      <p class="lead">
+        Claude Codeのようなエージェント用途では、デコード速度よりも <span class="mono">prefix caching</span>（プレフィックス再利用）やプレフィル削減が支配的になりやすいです。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>TTFT</h4>
+          <p>Time To First Token：初トークンまでが遅いと体感が悪化。</p>
+        </div>
+        <div class="cell">
+          <h4>対策</h4>
+          <p>会話履歴の再利用（prefix caching）＋ 連続バッチング（max-batch）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10: evidence -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">11 / 14</div>
+      <p class="eyebrow">API互換で広がる</p>
+      <div class="title"><em>OpenAI / Anthropic</em>互換</div>
+      <p class="lead">
+        単なるCLI実行だけでなく、OpenAI互換／Anthropic互換のローカルAPIサーバとして提供され、ローカルクライアントやエージェントに接続できます。
+      </p>
+      <div class="grid-3">
+        <div class="cell">
+          <h4>使い道</h4>
+          <p class="mini">LM Studio / 各種ローカルクライアント</p>
+        </div>
+        <div class="cell">
+          <h4>接続先</h4>
+          <p class="mini">Claude Code のようなエージェント</p>
+        </div>
+        <div class="cell">
+          <h4>目的</h4>
+          <p class="mini">応答性（体感速度）を底上げ</p>
+        </div>
+      </div>
+      <p class="footer-note">どれだけ速く感じるかは、クライアント側プロンプト設計にも左右されます。</p>
+    </section>
+
+    <!-- 11: distinction -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">12 / 14</div>
+      <p class="eyebrow">注意点（落とし穴）</p>
+      <div class="title"><em>過信しない</em></div>
+      <p class="lead">
+        最適設定は環境依存です。量子化・検証幅・MLXバージョン・モデル構造（MoE/ハイブリッド等）で結果が変わります。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>環境依存</h4>
+          <p><span class="mono">MLX version</span>、量子化（4bit/8bit等）、context/KV制約の影響。</p>
+        </div>
+        <div class="cell">
+          <h4>品質差</h4>
+          <p>コミュニティのドラフタは品質ばらつきがあり、accept分布が変動。</p>
+        </div>
+      </div>
+      <p class="footer-note">ベンチマークとキャリブレーション（auto計測）が前提。</p>
+    </section>
+
+    <!-- 12: closing -->
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 14</div>
+      <p class="eyebrow">まとめ</p>
+      <div class="title"><em>鍵は</em>accept×検証</div>
+      <p class="lead">
+        mlx-dsparkは speculative decoding を lossless志向で運用し、accept長が伸びる設定（auto・cap非固定）と、prefix caching/バッチで体感を改善します。
+      </p>
+      <div class="grid-2">
+        <div class="cell">
+          <h4>実務の最初</h4>
+          <p><span class="mono">--mode auto</span> ＋ ウォーム後に計測（cached前提）。</p>
+        </div>
+        <div class="cell">
+          <h4>検証の姿勢</h4>
+          <p>環境差が大きいので、用途（chat/code/agent）ごとに再ベンチ。</p>
+        </div>
+      </div>
+      <p class="footer-note">EN/JP対訳：speculative decoding（先読み検証型デコード）／accept（受理長）／prefix caching（前方文脈再利用）。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
