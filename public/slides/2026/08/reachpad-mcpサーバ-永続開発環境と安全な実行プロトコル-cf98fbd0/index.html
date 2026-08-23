@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reachpad MCPサーバ：永続開発環境と安全な実行プロトコル</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); }
+    body { font-family: "Noto Serif JP", serif; }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      margin: 0 0 18px 0;
+      border-radius: 0px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      left:20px; right:20px; top:20px; bottom:20px;
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      pointer-events:none;
+    }
+
+    .slide-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:16px;
+      margin-bottom: 10px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      font-style: italic;
+      color: var(--rust);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag:before{
+      content:"";
+      position:absolute;
+      left:0; top:50%;
+      transform: translateY(-50%);
+      width: 3px; height: 22px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 8px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.02;
+      margin: 10px 0 10px;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 600;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink-2);
+    }
+
+    .rule{
+      margin-top: 18px;
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+    }
+
+    .grid2, .grid3{
+      margin-top: 18px;
+      display:grid;
+      gap: 12px 16px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.10);
+      min-height: 68px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .tight{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-2);
+    }
+
+    code.inline{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink);
+      background: rgba(240,232,216,0.08);
+      border: 1px solid rgba(240,232,216,0.12);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    .closing-center{
+      position:absolute;
+      left:72px; right:72px; bottom:64px;
+      max-width: 760px;
+      margin: 0 auto;
+      text-align: left;
+    }
+
+    .refs-list{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 18px;
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.5;
+    }
+    .refs-item{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.10);
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 36px 28px; }
+      .slide:before{ left:14px; right:14px; top:14px; bottom:14px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover">
+      <div class="slide-header">
+        <div class="slide-tag">MCP SERVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">永続する開発環境</div>
+      <div class="title">Reachpad <em>MCP</em>サーバ</div>
+      <div class="lead">
+        AIコーディングエージェントが、リポジトリ投入→環境作成→実行→フォーク→再開まで行える“持続型クラウド開発基盤”です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">EN term / JP</div>
+          <div class="v"><span class="tight"><b>Model Context Protocol</b></span> / <b>モデル文脈プロトコル</b>: ツール呼び出しを共通化</div>
+        </div>
+        <div class="cell">
+          <div class="k">Core idea</div>
+          <div class="v">使い捨てではなく、停止後もディスク状態を復元（ただしプロセスは継続しない前提）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="slide-header">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">“動いた”の誤認</div>
+      <div class="title">LLMは <em>結果</em>を取り違える</div>
+      <div class="lead">
+        ストリーミング実行で「未終端」を成功と誤認したり、タイムアウト競合でクライアント側の誤った結論を採用したりしがちです。
+      </div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Risk</div>
+          <div class="v">非冪等（idempotentでない）コマンドの誤リトライ</div>
+        </div>
+        <div class="cell">
+          <div class="k">Risk</div>
+          <div class="v">“ログ”や“出力”の扱いで文脈が破壊される</div>
+        </div>
+        <div class="cell">
+          <div class="k">Risk</div>
+          <div class="v">環境は復元されても、実行プロセスは残らない問題の誤解</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-header">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">コールドブート前提</div>
+      <div class="title">リンクは <em>部屋</em>、プロセスは別</div>
+      <div class="lead">
+        ディスク（ファイル・依存関係・ビルド状態）は続くのに、プロセスは例外として継続しません。だから「同じ部屋＝同じ待ち受け」が成り立ちません。
+      </div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Persistent state / 永続状態</div>
+          <div class="v">停止後も復元：依存関係の再インストールを削減</div>
+        </div>
+        <div class="cell">
+          <div class="k">No long-running process / プロセス非継続</div>
+          <div class="v">pause後は“起動はされてもlistenしない”可能性がある</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="slide-header">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">REST境界で統一</div>
+      <div class="title">ツール呼び出しの <em>翻訳器</em></div>
+      <div class="lead">
+        MCPサーバが、モデル/クライアントの要求をサーバ側のREST API（境界）へ落とし込み、SDK/CLI/サーバ自体がそれを翻訳する方針です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Transport / 通信</div>
+          <div class="v">stdio と Streamable HTTP を“分岐せず追加”で揃える</div>
+        </div>
+        <div class="cell">
+          <div class="k">MCP meaning</div>
+          <div class="v">共通方式でツールを呼ぶ（Claude Code / Cursor等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">State model</div>
+          <div class="v">環境は持続、実行はコールドブート（継続しない）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-header">
+        <div class="slide-tag">CORE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">“成功”の定義を締める</div>
+      <div class="title">UNKNOWN/Refusal/競合</div>
+      <div class="lead">
+        未終端ストリームは UNKNOWN 扱い、締切競合はサーバ側回答優先、失敗理由は refusal として返しモデルの次の行動を判断可能にします。
+      </div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i. 未終端</div>
+          <div class="v">未確定を成功扱いしない → UNKNOWNへ</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 締切競合</div>
+          <div class="v">サーバ側の確定結果を優先（クライアント推測を抑制）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. 失敗理由</div>
+          <div class="v">refusal を結果に含め、モデルが判断できる材料に</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="slide-header">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">数値を決め打ちさせない</div>
+      <div class="title">リミット/残量は <em>サーバ</em>から</div>
+      <div class="lead">
+        数値（リミットや残量）をクライアントで決め打ちせず、サーバから返して意思決定を頑健にします。
+      </div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Goal</div>
+          <div class="v">モデルが“前提を崩した状態”で再実行しない</div>
+        </div>
+        <div class="cell">
+          <div class="k">Mechanism</div>
+          <div class="v">クライアントの推測を抑え、サーバの確定値に寄せる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="slide-header">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">keep vs restart</div>
+      <div class="title">“復元”と“再開”を分ける</div>
+      <div class="lead">
+        環境は復元されても、pause後にプロセスがいないことがあるため、ポートリンクが直ちに機能するとは限りません。
+      </div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">What persists / 残る</div>
+          <div class="v">ファイル・依存関係・ビルド状態（ディスク封印→復元）</div>
+        </div>
+        <div class="cell">
+          <div class="k">What stops / 止まる</div>
+          <div class="v">実行プロセス（コールドブート前提）と、listen待ち受け</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="slide-header">
+        <div class="slide-tag">SECURITY</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">GETをやめ、Originを絞る</div>
+      <div class="title">HTTPは“ツール”として扱う</div>
+      <div class="lead">
+        HTTP側はGETを使わず、ツールのリクエスト/レスポンスとして扱い、ブラウザ由来攻撃（DNSリバインディング等）を避けるためOrigin制御を入れます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Transport safety</div>
+          <div class="v">GET禁止：意図しない経路を避ける</div>
+        </div>
+        <div class="cell">
+          <div class="k">Origin control</div>
+          <div class="v">Origin制御でブラウザ攻撃面を縮小</div>
+        </div>
+        <div class="cell">
+          <div class="k">Same semantics</div>
+          <div class="v">stdio/HTTPで振る舞いがズレない方針</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="slide-header">
+        <div class="slide-tag">CREDENTIALS</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">境界で扱う</div>
+      <div class="title">資格情報は <em>ブローカー</em>で処理</div>
+      <div class="lead">
+        資格情報（秘密情報）は境界で処理し、資格情報の値が環境・ログ・ストアに入らないことを目標にします。
+      </div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Intended property</div>
+          <div class="v">“値を直接入れない”設計（境界処理で漏洩経路を狭める）</div>
+        </div>
+        <div class="cell">
+          <div class="k">But read access exists</div>
+          <div class="v">環境に書き込んだ資格情報は環境内で読める（運用次第でリスクが変わる）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="slide-header">
+        <div class="slide-tag">PORT LINK</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">“プライベートURL”ではない</div>
+      <div class="title">ポート公開リンクは <em>危険</em>前提</div>
+      <div class="lead">
+        リンクを知ることがアクセス可能性に直結し得る性質があるため、プレビュー的に扱うべきだと明言されています。
+      </div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Behavior</div>
+          <div class="v">再起動しても同じリンクが同じポート内容として機能</div>
+        </div>
+        <div class="cell">
+          <div class="k">Security stance</div>
+          <div class="v">短命化・期限・IP制限等はREADMEのみでは断定不可</div>
+        </div>
+        <div class="cell">
+          <div class="k">Operational takeaway</div>
+          <div class="v">共有手順とアクセス制御の前提を、必ず導入時に補完資料で確認</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="slide-header">
+        <div class="slide-tag">OPERATION</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">pause/再開の誤判定を防ぐ</div>
+      <div class="title">運用の要点は <em>手順</em></div>
+      <div class="lead">
+        READMEの境界理解が前提で、特に「環境復元」と「サービス再立ち上げ」を混同しないことが混乱を減らします。
+      </div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Typical workflow</div>
+          <div class="v"><span style="font-style:italic; color: var(--rust-deep)"><b>1)</b></span> 環境復元を前提にファイル/依存を維持 → <span style="font-style:italic; color: var(--rust-deep)"><b>2)</b></span> 必要ならlisten側を再起動 → <span style="font-style:italic; color: var(--rust-deep)"><b>3)</b></span> ポート公開でリンク入手</div>
+        </div>
+        <div class="cell">
+          <div class="k">LLM guardrails</div>
+          <div class="v">UNKNOWN/refusal/競合優先に合わせ、再試行方針を“未確定を成功扱いしない”解釈に統一</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="closing">
+      <div class="slide-header">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">判断の基準が揃う</div>
+      <div class="title">永続状態 × 安全な意味論</div>
+      <div class="lead">
+        Reachpad MCPサーバは「ディスクは持続、実行はコールドブート、そしてモデルが誤る点をプロトコルで封じる」設計思想です。
+      </div>
+      <div class="rule"></div>
+      <div class="refs-list">
+        <div class="refs-item">
+          <b style="color: var(--ink);">1.</b> 永続環境：再インストール/再ビルドの手戻りを減らす
+        </div>
+        <div class="refs-item">
+          <b style="color: var(--ink);">2.</b> 意味論：UNKNOWN/refusal/競合優先で“成功の誤認”を抑制
+        </div>
+        <div class="refs-item">
+          <b style="color: var(--ink);">3.</b> セキュリティ前提：Origin制御・資格情報境界・ポートリンクはプレビュー扱い
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://airia.com/blog/mcp-security-what-enterprises-need-to-know-before-deploying-at-scale" target="_blank" rel="noreferrer noopener">MCP Security: What Enterprises Need to Know Before Deploying at Scale</a></h2>
+<p class="reference-note">All posts
+
+May 11, 2026
+
+# MCP Security: What Enterprises Need to Know Before Deploying at Scale
+
+Claire KahnWritten byC…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.osohq.com/post/five-security-must-haves-for-mcp-servers" target="_blank" rel="noreferrer noopener">Five Security Must-Haves for MCP Servers</a></h2>
+<p class="reference-note">Model Context Protocol (MCP) is an open standard that connects AI agents with external tools, data, and services. It def…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tyk.io/learning-center/mcp-server-access-control-guide" target="_blank" rel="noreferrer noopener">MCP Server Access Control: A Beginner&#39;s Guide</a></h2>
+<p class="reference-note">The MCP host manages the user’s credentials (like OAuth tokens) and attaches the appropriate ones to outgoing requests. …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tetrate.io/learn/ai/mcp/security-privacy-considerations" target="_blank" rel="noreferrer noopener">MCP Security Best Practices: Authentication, Authorization &amp; Supply Chain Protection</a></h2>
+<p class="reference-note">{interface  ResourcePermissions { read: boolean;  read:  boolean; write: boolean;  write:  boolean; execute: boolean;  e…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.solo.io/blog/security-holes-in-mcp-servers-and-how-to-plug-them" target="_blank" rel="noreferrer noopener">Security Holes in MCP Servers and How To Plug Them | Solo.io</a></h2>
+<p class="reference-note">Model Context Protocol (MCP), has officially hit one year old as of November 25th and although there have been some amaz…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
