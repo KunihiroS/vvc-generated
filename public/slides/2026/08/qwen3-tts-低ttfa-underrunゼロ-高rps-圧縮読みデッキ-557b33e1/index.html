@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Qwen3-TTS 低TTFA×underrunゼロ×高RPS：圧縮読みデッキ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      box-sizing: border-box;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      /* keep 16:9 always */
+      min-height: 0;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      left:20px; right:20px; top:18px; bottom:20px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+
+    .meta-row{
+      position:absolute;
+      top: 18px;
+      left: 20px;
+      right: 20px;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      font-style: italic;
+      text-transform: uppercase;
+      color: var(--rust);
+      padding-left: 12px;
+      border-left: 3px solid var(--rust);
+      line-height: 1;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      margin: 0 0 14px 0;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      color: var(--ink);
+      line-height: 1.45;
+      margin: 0;
+    }
+
+    .divider{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 0 0;
+      max-width: 900px;
+    }
+
+    .grid-2, .grid-3{
+      margin-top: 18px;
+      border-top: 1px solid var(--rule);
+      padding-top: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      font-weight: 400;
+      color: var(--ink);
+    }
+    .cell .j{
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+      margin-top: 14px;
+      max-width: 900px;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+
+    .emph{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    /* responsive scaling: keep 16:9 */
+    @media (max-width: 720px){
+      .slide{ padding: 46px 22px; }
+      .slide::before{ left:12px; right:12px; top:14px; bottom:14px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">TTFA×underrun×RPS</div>
+      <h1 class="title">Qwen3-TTS <span class="em">低遅延</span></h1>
+      <p class="lead">Qwen3-TTS（1.7B CustomVoice）を、聞こえ始め（TTFA）を抑えつつ、ストリーミングの途切れ（underrun）をゼロにし、同時に高いRPSを狙う設計を比較します。</p>
+      <div class="divider"></div>
+      <p class="small">焦点：<span class="emph">p95 TTFA</span>、<span class="emph">underrunゼロ</span>、<span class="emph">高RPS</span>を同時達成する道筋。</p>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">体感を決める指標</div>
+      <h2 class="title">なぜ<span class="em">難しい</span></h2>
+      <p class="lead">TTSでは「TTFA（Time-to-First-Audio）」が長いと待ち時間の不快感が増えます。一方、TTFA短縮のために小バッチ化するとGPU効率が落ちてコストとRPSが悪化します。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">TTFA</div>
+          <div class="v">要求→最初に音が出るまで</div>
+          <div class="j">“聞こえるまで遅い”が体感悪化</div>
+        </div>
+        <div class="cell">
+          <div class="k">underrun</div>
+          <div class="v">ストリーミング再生のバッファ枯渇</div>
+          <div class="j">音が途切れ品質が低下</div>
+        </div>
+      </div>
+
+      <div class="small">目的は、低TTFA・underrunゼロ・高RPSの同時達成。</div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">同時に守る三条件</div>
+      <h2 class="title">三つの<span class="emph">締切</span></h2>
+      <p class="lead">TTFAは「最初の締切」、underrunゼロは「連続性の締切」、高RPSは「全体処理量の締切」です。最適化対象が違うため、単純なチューニングでは破綻しやすくなります。</p>
+
+      <div class="grid-3">
+        <div class="cell">
+          <div class="k">i. First</div>
+          <div class="v">p95 TTFA &lt; 50ms（目標）</div>
+          <div class="j">最初に“待たない”</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. Continuity</div>
+          <div class="v">underrun 0（目標）</div>
+          <div class="j">途切れない</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. Throughput</div>
+          <div class="v">RPS 10→20（記載）</div>
+          <div class="j">全体で捌く</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">自社主張の最重要結果</div>
+      <h2 class="title">単一H100で<span class="emph">成立</span></h2>
+      <p class="lead">Nari Labsは、自社実装のQwen3-TTS（1.7B CustomVoice）で単一NVIDIA H100 SXM上にて、10 RPS達成かつp95 TTFAが50ms未満になったと主張しています。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">10 RPS</div>
+          <div class="v">p95 TTFA &lt; 50ms</div>
+          <div class="j">聞こえ始めの体感遅延を抑制</div>
+        </div>
+        <div class="cell">
+          <div class="k">20 RPS</div>
+          <div class="v">p95 TTFA &lt; 100ms</div>
+          <div class="j">負荷増でも遅延スパイク抑制</div>
+        </div>
+      </div>
+
+      <p class="small">またPoisson open-loopで5分ベンチし、5方式比較の結論として“自社のみsub-50ms p95 TTFAを維持”と記載。</p>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">比較は“前提状態”が鍵</div>
+      <h2 class="title">他方式の<span class="emph">初期差</span></h2>
+      <p class="lead">記事では、比較対象エンジンの初期結果が大きく劣っていると述べています。例として、vLLM-OmniはTTFAが277ms級、SGLang-Omni△やM*は1,000ms級とされています。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">vLLM-Omni</div>
+          <div class="v">TTFA 277ms級（調整前）</div>
+          <div class="j">先に“待たされ感”が出やすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">SGLang-Omni△ / M*</div>
+          <div class="v">TTFA 1,000ms級（調整前）</div>
+          <div class="j">改善しても追いつけない示唆</div>
+        </div>
+      </div>
+
+      <p class="small">先頭無音トリムやチャンク調整をしても同等に追いつけないことを示唆（公正性は条件依存）。</p>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">“3モジュール別タスク”</div>
+      <h2 class="title">緊急度で<span class="emph">順序</span></h2>
+      <p class="lead">Qwen3-TTSの3モジュール（Talker / Code Predictor / Codec）を、同一スケジューラ配下で“別タスク”として扱い、緊急度に応じて優先度を入れ替える設計が鍵だと説明されています。</p>
+
+      <div class="grid-3">
+        <div class="cell">
+          <div class="k">Talker</div>
+          <div class="v">音声生成の下支え</div>
+          <div class="j">最初の締切に直結</div>
+        </div>
+        <div class="cell">
+          <div class="k">Code Predictor</div>
+          <div class="v">次チャンクの“規則性”を出力</div>
+          <div class="j">固定ステップ化が効く</div>
+        </div>
+        <div class="cell">
+          <div class="k">Codec</div>
+          <div class="v">ストリーミング用に復号/合成</div>
+          <div class="j">underrun制御に重要</div>
+        </div>
+      </div>
+
+      <p class="small">“Talker+Code Predictor一体化”だと非プリエンプティブで緊急処理を妨げる、という見立て。</p>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">TTFAとunderrunを同時制御</div>
+      <h2 class="title">6つの<span class="emph">手札</span></h2>
+      <p class="lead">TTFAとunderrunゼロを成立させるため、(1)無音トリム、(2)codecチャンク蓄積の調整、(3)3モジュール別タスク、(4)Code PredictorのCUDA graph/Triton最適化、(5)Codecの状態キャッシュと増分復号切替、(6)CUDA graphキャプチャ/同期回避などを行うと要約できます。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">先頭の体感短縮</div>
+          <div class="v">無音自動トリム</div>
+          <div class="j">発話開始前の無音を削る</div>
+        </div>
+        <div class="cell">
+          <div class="k">連続性確保</div>
+          <div class="v">フレーム蓄積（codecチャンク）調整</div>
+          <div class="j">間に合う量の“先回り”</div>
+        </div>
+      </div>
+
+      <div class="small">残りは次スライドで「計算効率」と「オーケストレーション」に分解。</div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">Code Predictorの固定化</div>
+      <h2 class="title">規則性を<span class="emph">高速化</span></h2>
+      <p class="lead">Code Predictorは規則的なステップで動くため、CUDA graphやTriton最適化で取り込み、実行オーバーヘッドを抑える方針が示されています。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">推論ステップの実行コスト削減</div>
+          <div class="j">TTFAスパイクを抑える</div>
+        </div>
+        <div class="cell">
+          <div class="k">手段</div>
+          <div class="v">CUDA graph / Triton最適化</div>
+          <div class="j">“毎回同じ形”を高速化</div>
+        </div>
+      </div>
+
+      <p class="small">ここで重要なのは「小細工」ではなく、モデルの計算特性に合わせて実行形を固定化する点。</p>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">Codecは“増分”で回す</div>
+      <h2 class="title">状態キャッシュ<span class="emph">更新</span></h2>
+      <p class="lead">Codecでは状態キャッシュによる増分復号を導入し、初回のみフル復号→以降は必要部分だけ更新することで、継続再生の効率とレイテンシの両方を狙っています。</p>
+
+      <div class="grid-3">
+        <div class="cell">
+          <div class="k">初回</div>
+          <div class="v">フル復号</div>
+          <div class="j">基準状態を構築</div>
+        </div>
+        <div class="cell">
+          <div class="k">以降</div>
+          <div class="v">増分復号</div>
+          <div class="j">“次チャンク分だけ”</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">計算量とTTFAを両立</div>
+          <div class="j">無駄な再処理を抑制</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">バッチより“同期回避”</div>
+      <h2 class="title">オーバーヘッド<span class="emph">削る</span></h2>
+      <p class="lead">バッチサイズ別のCUDA graphキャプチャや、CPU-GPU同期の回避などで、推論の周辺コスト（待ち・同期）を減らす方向性が述べられています。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">CUDA graph</div>
+          <div class="v">バッチ別にキャプチャ</div>
+          <div class="j">形の違いを吸収</div>
+        </div>
+        <div class="cell">
+          <div class="k">同期</div>
+          <div class="v">CPU-GPU同期を回避</div>
+          <div class="j">無駄待ちを削減</div>
+        </div>
+      </div>
+
+      <p class="small">結果として、TTFAの揺らぎ（レイテンシスパイク）を抑える設計意図につながります。</p>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">“Real-time”の定義</div>
+      <h2 class="title">体験の<span class="emph">目的関数</span></h2>
+      <p class="lead">記事は「Real-time」を、TTFA・underrun・理解可能性（recognizability）という4要素で定義していると述べます。単に速いだけでなく、再生の途切れと聞き取りやすさまで含めた評価になっているため、最適化の方向が明確になります。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">速度</div>
+          <div class="v">TTFA（p95重視）</div>
+          <div class="j">平均では見落とす遅延スパイクを抑える</div>
+        </div>
+        <div class="cell">
+          <div class="k">連続性</div>
+          <div class="v">underrunゼロ</div>
+          <div class="j">音が途切れない</div>
+        </div>
+      </div>
+
+      <p class="small">残り2要素：理解可能性と“体験”の統制。</p>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">コスト試算は上限寄り</div>
+      <h2 class="title">約$2 / 1M<span class="emph">characters</span></h2>
+      <p class="lead">コスト試算では、10 RPS時に約630文字/秒を生成し、H100 SXMの時間単価$4.29/時を用いて、稼働率最大の概算として約$2 / 1M charactersに相当すると計算しています。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">Nari Labs（概算）</div>
+          <div class="v">10 RPS → 約630 chars/s</div>
+          <div class="j">$2 / 1M characters（稼働率最大前提）</div>
+        </div>
+        <div class="cell">
+          <div class="k">比較例</div>
+          <div class="v">ElevenLabs V3: $100 / 1M</div>
+          <div class="j">Cartesia Sonic 3.5: $49 / 1M</div>
+        </div>
+      </div>
+
+      <p class="small">注意：ネットワーク/アイドル/運用オーバーヘッド等を除外した“前提付き”見積もりと明言。</p>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">納得と限界</div>
+      <h2 class="title">何が強く<span class="emph">、何が弱い</span></h2>
+      <p class="lead">本記事の説得力は、体験指標（TTFA p95、underrunゼロ、理解可能性）を目的関数に据え、Qwen3-TTSの内部モジュール構造に沿って“計算オーケストレーション”を設計している点です。一方で、公平性（同等チューニング範囲）や品質評価の粒度、コスト前提、負荷分布の現実性には追加の統制条件が必要です。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">緊急度が時間フェーズで変わる前提</div>
+          <div class="j">初回はTTFA、再生中はデッドライン</div>
+        </div>
+        <div class="cell">
+          <div class="k">弱み（リスク）</div>
+          <div class="v">品質・公平性・運用前提の不足</div>
+          <div class="j">バースト/端末ジッタ/稼働率などが未反映の可能性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="meta-row">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">読むべき結論</div>
+      <h2 class="title"><span class="emph">指針</span>として有用</h2>
+      <p class="lead">結論として、自社方式が“普遍的に最速・最安”と断言するには、品質評価の統制・同一計測方法・より多様な負荷分布・実稼働での稼働率検証が追加で必要です。とはいえ、実装をオープンにしベンチを提示している点は、追試と再評価を促す意味で前向きです。</p>
+
+      <div class="grid-2">
+        <div class="cell">
+          <div class="k">実務への示唆</div>
+          <div class="v">TTFA/underrunを同時に測る設計</div>
+          <div class="j">体験ベースで目的関数を固定</div>
+        </div>
+        <div class="cell">
+          <div class="k">検証に必要な追加</div>
+          <div class="v">品質指標・公平性・運用稼働率</div>
+          <div class="j">$比較は上限前提に注意</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.alphaxiv.org/abs/2601.15621" target="_blank" rel="noreferrer noopener">Qwen3-TTS Technical Report</a></h2>
+<p class="reference-note">## Architecture and Methodology
+
+The Qwen3-TTS architecture centers on a dual-track language model design that processes…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=Ijft_ILM_ZE" target="_blank" rel="noreferrer noopener">Qwen3-TTS Technical Report (Jan 2026)</a></h2>
+<p class="reference-note">This report introduces Qwen3-TTS, a family of state-of-the-art multilingual, controllable, and streaming text-to-speech …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/QwenLM/Qwen3-TTS" target="_blank" rel="noreferrer noopener">GitHub - QwenLM/Qwen3-TTS: Qwen3-TTS is an open-source series of TTS models developed by the Qwen team at Alibaba Cloud, supporting stable, expressive, and streaming speech generation, free-form voice design, and vivid voice cloning. · GitHub</a></h2>
+<p class="reference-note">Universal End-to-End Architecture: Utilizing a discrete multi-codebook LM architecture, it realizes full-information end…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2601.15621v1" target="_blank" rel="noreferrer noopener">Qwen3-TTS Technical Report - arXiv</a></h2>
+<p class="reference-note">Qwen3-TTS unifies diverse speech generation tasks—ranging from zero-shot cloning and cross-lingual transfer to fine-grai…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://huggingface.co/papers/2601.15621" target="_blank" rel="noreferrer noopener">Paper page - Qwen3-TTS Technical Report</a></h2>
+<p class="reference-note">In this report, we present the Qwen3-TTS series, a family of advanced multilingual, controllable, robust, and streaming …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
