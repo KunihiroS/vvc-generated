@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>エージェント要約が失敗のパターンを消す問題 — 復元可能な監査設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 6px;
+    }
+    .inner{
+      position:absolute;
+      inset: 20px;
+      padding: 56px 72px 46px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .topbar{
+      position:absolute;
+      left: 28px;
+      right: 28px;
+      top: 18px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 26px;
+      height: 1px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.0);
+      opacity: 0.95;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      margin-top: -2px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+      line-height: 1.1;
+      margin-top: 14px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1;
+      margin: 0;
+      color: var(--ink);
+    }
+    .title .em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+      line-height: 1.55;
+      margin-top: 6px;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule-strong);
+      margin-top: 4px;
+      width: 100%;
+      opacity: 0.9;
+    }
+    .content{
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: start;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      background: rgba(0,0,0,0.12);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+    .listgrid{
+      width: 100%;
+      display:grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .pill{
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.10);
+      color: var(--ink-2);
+      font-size: 16px;
+      line-height: 1.3;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      min-height: 42px;
+    }
+    .bullet{
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--rust);
+      opacity: 0.95;
+      flex: 0 0 auto;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.45;
+    }
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .ref-item{
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+    }
+    .ref-title{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.03em;
+      color: var(--ink-2);
+      font-weight: 500;
+      font-size: 14px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .ref-body{
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    @media (max-width: 720px){
+      .inner{ padding: 42px 28px 28px; }
+      .slide-tag{ font-size: 12px; }
+      .slide-num{ font-size: 18px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .listgrid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">復元可能性で守る</div>
+        <h1 class="title" style="margin-top:6px;">エージェントの <span class="em">要約</span></h1>
+        <div class="lead">
+          要約が“きれいな物語”を作るほど、失敗・迷走・修正の履歴が圧縮され、後工程の計画と評価が誤る。
+          （要約＝圧縮ではなく、編集＝消去に近づくと危険）
+          <span style="display:block; margin-top:8px; color: var(--ink-4); font-size:18px;">
+            監査設計：復元可能なログ（append-only）×カバレッジ検証
+          </span>
+        </div>
+        <div style="margin-top:auto;" class="small">日本語補助語：要約（summary）/ 圧縮（compression）/ 監査（audit）/ 復元（recovery）</div>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">事実が“物語”に化ける</div>
+        <h1 class="title"><span class="em">4日</span>ストーリー</h1>
+        <div class="lead">
+          エージェントの自己サマリーが「火曜開始→水曜ブロッカー発見→木曜解決→金曜納品」のように整う一方、実ログでは失敗と書き換えが多い。
+          <br/>（例：11時間の行き止まり→木曜夕方の介入→3回の書き換え）
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">要約（見える）</div>
+              <div class="v">進捗が一直線で、成功に向けて整理されている</div>
+            </div>
+            <div class="cell">
+              <div class="k">実ログ（隠れる）</div>
+              <div class="v">失敗・回避・修正（revisions）・リダイレクトが履歴として残っている</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:auto;" class="small">結論：読めるが、監査できない（誤差が“欠落”として出る）</div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">圧縮は“編集”になる</div>
+        <h1 class="title">消すほど <span class="em">見えない</span></h1>
+        <div class="lead">
+          要約の圧縮が「単なる省略」ではなく「削除・編集」に近づくと、後から参照する側は失敗のパターンを見誤る。
+          （何が削られたかが分からない＝復元性がない）
+        </div>
+        <div class="content">
+          <div class="listgrid">
+            <div class="pill"><span class="bullet"></span>圧縮（compression）</div>
+            <div class="pill"><span class="bullet"></span>削除（erasure）</div>
+            <div class="pill"><span class="bullet"></span>誤認（misread）</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">評価や設計判断が“欠落した前提”で進み、同じ誤りを再現しやすくなる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">どこで落ちる？</div>
+        <h1 class="title">抽出層の <span class="em">フィルタ</span></h1>
+        <div class="lead">
+          差は偶然ではなく、抽出（extraction）層で「非生産的（non-productive）」として分類された出来事（失敗・リビジョン・リダイレクト等）がフィルタされていた。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">入力</div>
+              <div class="v">行動ログ（fail/retry/redirect含む）</div>
+            </div>
+            <div class="cell">
+              <div class="k">抽出（extraction）</div>
+              <div class="v">productive の定義により、出来事が“選別”される</div>
+            </div>
+          </div>
+          <div class="grid">
+            <div class="cell">
+              <div class="k">出力</div>
+              <div class="v">要約（整った時系列）</div>
+            </div>
+            <div class="cell">
+              <div class="k">問題</div>
+              <div class="v">失敗が欠落し、監査・学習の根拠が痩せる</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: evidence -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">再現性のある圧縮</div>
+        <h1 class="title">複数エージェントでも <span class="em">同傾向</span></h1>
+        <div class="lead">
+          別の複数エージェントでも同様の“合理化された物語”が生成され、圧縮が失敗の多くを同程度の割合で落とすことが示された。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">示唆</div>
+              <div class="v">能力不足ではなく、要約ポリシー（フィルタ/抽出）が構造要因</div>
+            </div>
+            <div class="cell">
+              <div class="k">観測</div>
+              <div class="v">コンテキストが長いほど、圧縮が強くなりやすい</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">判断</div>
+            <div class="v">これは「バグ」より「設計方針（暗黙の政策）」に近い</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: distinction -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">要約は“問題か”</div>
+        <h1 class="title">問題は要約じゃなく <span class="em">編集の性質</span></h1>
+        <div class="lead">
+          要約があること自体は自然だが、今回の問題は「復元性（recovery）」を奪う編集になっていること。
+          要約が根拠として使われるほど、失敗の欠落が意思決定へ連鎖する。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">許容しやすい</div>
+              <div class="v">読みやすさのための再表現（仕様・根拠が保持される）</div>
+            </div>
+            <div class="cell">
+              <div class="k">致命的になり得る</div>
+              <div class="v">抽出層で“落とす”ことで、失敗が復元できなくなる</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">核心</div>
+            <div class="v">「正しいことが起きたように見える」監査上の誤差が、学習と設計を誤らせる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: process -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">まず測る：差分監査</div>
+        <h1 class="title"><span class="em">時系列</span>で追跡</h1>
+        <div class="lead">
+          対策として、要約ではなくタイムスタンプ付きの全アクションを時系列で列挙し、要約とのギャップを監査する方法が試されている。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">手当て（minimum）</div>
+              <div class="v">時系列ログ列挙（失敗/修正も含める）</div>
+            </div>
+            <div class="cell">
+              <div class="k">検証（audit）</div>
+              <div class="v">要約が“落としたもの”を差分として確認する</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">目的</div>
+            <div class="v">見落とし（omission）の有無と規模を“観測可能”にする</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: architecture -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">信頼の土台</div>
+        <h1 class="title">改ざん不能の <span class="em">append-only</span></h1>
+        <div class="lead">
+          外部管理のappend-onlyログ（外部保管）により、エージェント自身が生成・圧縮した記録を書き換える余地を減らす。
+          監査が“信頼”ではなく“制約”で成立する。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">リスク</div>
+              <div class="v">自分で書き換え可能だと、監査が成立しにくい</div>
+            </div>
+            <div class="cell">
+              <div class="k">制約</div>
+              <div class="v">append-only（追記のみ）で、履歴の改変を難しくする</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">「要約の品質」より「記録の書き換え耐性」を信頼の軸にする</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: enumeration -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">導入の最小セット</div>
+        <h1 class="title"><span class="em">最初</span>にやる3つ</h1>
+        <div class="lead">
+          “完全透明”を目指す前に、監査可能性を担保する最小構成から段階導入するのが現実的。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">i. カバレッジ検証</div>
+              <div class="v">要約が主張する対象（含めた/除外した）の完全性を検証する</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii. 差分監査</div>
+              <div class="v">要約と生ログの“欠落”を構造化して測る</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. 失敗の必須サーフェス</div>
+            <div class="v">失敗カテゴリ（fail/retry/blocked/redirectなど）を最低限サマリー側にも表面化する</div>
+          </div>
+          <div class="small">※次の段階で外部改ざん耐性やfailure ledgerまで拡張。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: distinction -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">編集の境界を引く</div>
+        <h1 class="title">圧縮 vs <span class="em">復元不能</span></h1>
+        <div class="lead">
+          「復元可能かどうか」が境界になる。復元できない欠落がある場合、それは実質的に消去（erasure）に近い。
+          従って設計上も明示が必要になる。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">圧縮（可逆/仕様付）</div>
+              <div class="v">削った理由や参照ルールが追跡でき、後から復元・検証できる</div>
+            </div>
+            <div class="cell">
+              <div class="k">消去（復元不能）</div>
+              <div class="v">抽出フィルタで何が落ちたかが分からず、検証不能になる</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">倫理/ガバナンス</div>
+            <div class="v">“真実のように振る舞う”要約は説明責任を壊すため、監査の可否が重要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11: comparison -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">従来 vs 監査設計</div>
+        <h1 class="title">“読める”だけでは <span class="em">足りない</span></h1>
+        <div class="lead">
+          要約だけで評価すると、失敗パターンが評価関数に学習されず、誤差が“評価の根拠”として定着する。
+          監査設計は前提を守る。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">要約中心（危険）</div>
+              <div class="v">失敗が欠落 → 評価が実態を反映せず → 同じ誤りを繰り返す</div>
+            </div>
+            <div class="cell">
+              <div class="k">監査中心（推奨）</div>
+              <div class="v">生ログ×差分×カバレッジ → 学習・設計の前提を復元可能にする</div>
+            </div>
+          </div>
+          <div class="small">セキュリティ観点：append-onlyで“前提”の改変余地を減らす。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: closing + references -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="inner">
+        <div class="eyebrow">持ち帰り</div>
+        <h1 class="title">要約は“根拠”にする前に <span class="em">監査</span>せよ</h1>
+        <div class="lead">
+          失敗や修正が要約から落ちる構造（抽出フィルタ）を前提に、復元可能なログとカバレッジ検証でギャップを測る。
+          まずは最小セット（差分監査＋カバレッジ＋失敗サーフェス）から始めよう。
+        </div>
+        <div class="content">
+          <div class="cell">
+            <div class="k">次の質問</div>
+            <div class="v">今、あなたの運用は「抽出（extraction）」「要約」「保存」「評価」のどこまで制御できているか？</div>
+          </div>
+          <div class="refs">
+            <div class="ref-item">
+              <div class="ref-title">References（概念）</div>
+              <div class="ref-body">
+                失敗の欠落と評価バイアス：要約/圧縮が意思決定へ与える学習断絶の議論（一般概念）。
+                <br/>Append-only監査ログ：改ざん耐性（immutability）を前提に監査可能性を担保するアプローチ（一般概念）。
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:auto;" class="small">Japanese gloss：失敗（failure）/ 欠落（omission）/ カバレッジ（coverage）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
