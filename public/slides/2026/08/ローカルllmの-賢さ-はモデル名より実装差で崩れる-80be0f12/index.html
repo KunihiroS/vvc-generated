@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ローカルLLMの“賢さ”はモデル名より実装差で崩れる</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .wrap{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .deck-title{
+      margin: 0 0 4px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.02em;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 18px;
+      opacity: 0.9;
+    }
+
+    .slide{
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid rgba(240,232,216,0.18);
+      padding: 56px 72px;
+      position: relative;
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      border-radius: 10px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      position: absolute;
+      top: 26px;
+      left: 40px;
+      right: 40px;
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", serif;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 2px;
+      height: 14px;
+      background: var(--rust);
+      border-radius: 2px;
+      display:inline-block;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: 0.95;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 10px 0 6px;
+    }
+    .title{
+      margin: 0 0 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--rust);
+      line-height: 1.0;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 820px;
+      margin-top: 14px;
+      font-weight: 300;
+    }
+    .content{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 110px;
+      bottom: 42px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .grid-2, .grid-3{
+      display:grid;
+      gap: 14px;
+      align-items: start;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      border-radius: 10px;
+      padding: 14px 14px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", serif;
+      font-weight: 600;
+      color: var(--ink-2);
+      font-size: 13px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      letter-spacing: 0.01em;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+    .warn{
+      border-color: rgba(232,129,74,0.35);
+      background: rgba(232,129,74,0.06);
+    }
+    .refs{
+      margin-top: 8px;
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .ref-item{
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 10px;
+    }
+    .ref-title{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+      margin-bottom: 6px;
+    }
+    .ref-body{
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .bilingual{
+      color: var(--ink-2);
+      font-size: 16px;
+      margin-left: 8px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 38px 22px; }
+      .content{ left: 22px; right: 22px; }
+      .slide-top{ left: 18px; right: 18px; top: 18px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .cell .v{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+  <div class="wrap">
+    <div class="deck-title">Compressed reading deck</div>
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-top">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">賢さの正体</div>
+        <div class="title">実装差</div>
+        <div class="lead">
+          ローカルLLMで「同じモデル名なのに賢くない」と感じる主因は、モデルではなく推論スタックの実装差（attention/KVキャッシュ/量子化/カーネル）にある。
+        </div>
+        <div class="grid-2" style="margin-top: 18px;">
+          <div class="cell">
+            <div class="k">鍵</div>
+            <div class="v">logits→次トークン選択が微妙にズレ、長文で分岐が増幅される</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">参照環境の性能はそのまま再現できないことが多い</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“モデルが違う？”</div>
+        <div class="title">同じでも</div>
+        <div class="lead">
+          同じ“モデル名（同一重み）”でも、GPU/ドライバ/命令セット、vLLM（vLLMの推論エンジン）やattentionバックエンドの違いで挙動が変わる。
+        </div>
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">どこが変わる</div>
+            <div class="v">prefillのattention実装</div>
+          </div>
+          <div class="cell">
+            <div class="k">どこが変わる</div>
+            <div class="v">KVキャッシュ量子化</div>
+          </div>
+          <div class="cell">
+            <div class="k">どこが変わる</div>
+            <div class="v">重み量子化方式</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-top">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">小さな差</div>
+        <div class="title">分岐</div>
+        <div class="lead">
+          attention/KV/量子化で確率分布（logits→確率）がわずかに変わり、top-1 flip（最大確率トークンの入れ替わり）が起きる。
+        </div>
+        <div class="grid-2" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">事象</div>
+            <div class="v">top-1 flip（最大が別トークンに）</div>
+          </div>
+          <div class="cell">
+            <div class="k">増幅</div>
+            <div class="v">以降の文脈が別経路になり、長文ほど差が目に見えて拡大</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top: 2px;">
+          Bilingual: logits（対数確率） <span class="bilingual">/ logits（対数確率）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">推論スタック</div>
+        <div class="title">侵入点</div>
+        <div class="lead">
+          品質低下はモデル内より、推論の“周辺”で起きやすい。特に、prefill attention・KVキャッシュ・重み量子化・カーネル/GEMM手法の差が効く。
+        </div>
+
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">attention</div>
+            <div class="v">FlashAttention 2 / Flash Inference / Triton Attention など</div>
+          </div>
+          <div class="cell warn">
+            <div class="k">KVキャッシュ</div>
+            <div class="v">BF16 → INT8/INT4で長文に弱さが出やすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">重み</div>
+            <div class="v">FP8/INT8/NVFP4/AWQ-INT4…方式と実装相性が支配的</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">注意：短いベンチ</div>
+        <div class="title">油断</div>
+        <div class="lead">
+          実行の早い段階では一致しても、プロンプト後半で分岐が顕在化し得るため、短いゼロショットだけで品質を判断すると誤る。
+        </div>
+
+        <div class="grid-2" style="margin-top: 8px;">
+          <div class="cell">
+            <div class="k">起き方</div>
+            <div class="v">prefillは揃っても、後半でtop-1 flipが出て経路が変わる</div>
+          </div>
+          <div class="cell">
+            <div class="k">意味</div>
+            <div class="v">“長文・実運用”の差が最終品質に直結しやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">量子化の差</div>
+        <div class="title">耐性</div>
+        <div class="lead">
+          KVキャッシュ量子化は長文で品質低下を招きやすい。さらに“INT4は回復しない一方、INT8は持ち直す”など、種類で頑健性が異なる。
+        </div>
+
+        <div class="grid-3" style="margin-top: 8px;">
+          <div class="cell warn">
+            <div class="k">KV INT4</div>
+            <div class="v">分岐が致命化しやすく、回復しないケース</div>
+          </div>
+          <div class="cell">
+            <div class="k">KV INT8</div>
+            <div class="v">比較的“持ち直す”ケースがある</div>
+          </div>
+          <div class="cell">
+            <div class="k">基準</div>
+            <div class="v">BF16のKVキャッシュが基準になりやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-top">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">08 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ツール呼び出し</div>
+        <div class="title">致命</div>
+        <div class="lead">
+          tool calling（エージェント的タスク）は、top-1 flipの影響を強く受ける。誤分岐が最終的な誤コマンドに繋がり得る。
+        </div>
+
+        <div class="grid-2" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">分岐の結果</div>
+            <div class="v">
+              構文の解釈ミス → 実行対象を取り違える
+              <div class="mono" style="margin-top:8px;">“show run” ↔ “show arp”</div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">評価の落とし穴</div>
+            <div class="v">
+              “top-1 flip”だけでなく、その後の最終成功率（コマンド成功）が別問題
+            </div>
+          </div>
+        </div>
+
+        <div class="small">
+          Bilingual: tool calling（ツール呼び出し）<span class="bilingual">/ tool calling（ツール呼び出し）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">09 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">順位は固定じゃない</div>
+        <div class="title">相性</div>
+        <div class="lead">
+          重み量子化方式は一概に優劣が決まらない。実験では特定のW8A16が最良、NVFP4が最悪など、方式と実装条件の相性が反転を生む。
+        </div>
+
+        <div class="grid-3" style="margin-top: 8px;">
+          <div class="cell">
+            <div class="k">例：W8A16</div>
+            <div class="v">（この条件では）最も良好</div>
+          </div>
+          <div class="cell warn">
+            <div class="k">例：NVFP4</div>
+            <div class="v">（この条件では）最も悪い</div>
+          </div>
+          <div class="cell">
+            <div class="k">教訓</div>
+            <div class="v">方式比較は“参照実装の条件”依存</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">KLDの扱い</div>
+        <div class="title">解釈不能</div>
+        <div class="lead">
+          KLD（KLダイバージェンス）の“数値が小さい”は、比較条件・測定手順が不明なら解釈不能。ログit保存点、文脈長、方向性、語彙切り捨て、集計方法が鍵になる。
+        </div>
+
+        <div class="grid-2" style="margin-top: 10px;">
+          <div class="cell warn">
+            <div class="k">見落とし例</div>
+            <div class="v">参照チェックポイント、キャリブレーション、文脈長、サンプリング位置が違う</div>
+          </div>
+          <div class="cell">
+            <div class="k">実務の結論</div>
+            <div class="v">“KLDだけ”で選ばず、実運用の成功判定で確かめる</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top: 2px;">
+          Bilingual: KLD（KLダイバージェンス）<span class="bilingual">/ KLD（KL divergence）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-top">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">11 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">やること</div>
+        <div class="title">検証設計</div>
+        <div class="lead">
+          自分の環境の弱点は、長文・ツール呼び出し込みの評価で確かめる。サンプラー設定（temperature/top-p等）も参照に合わせ、フォーマット遵守と最終成功率で判定する。
+        </div>
+
+        <div class="grid-3" style="margin-top: 10px;">
+          <div class="cell">
+            <div class="k">評価対象</div>
+            <div class="v">長文ベンチ + tool calling</div>
+          </div>
+          <div class="cell">
+            <div class="k">統一条件</div>
+            <div class="v">同一サンプラー設定（temperature/top-p等）</div>
+          </div>
+          <div class="cell">
+            <div class="k">成功判定</div>
+            <div class="v">JSON整形率・最終タスク達成率・誤コマンド率</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- References (embedded as final slide in same deck style) -->
+  <div class="wrap" style="padding-top:0;">
+    <section class="slide" aria-label="references" style="padding-top:56px;">
+      <div class="slide-top">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">12 / 13</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">参考の方向性</div>
+        <div class="title">読む</div>
+        <div class="lead">
+          下記は、本文で触れた論点（attention/KVキャッシュ/量子化/KLD）を深掘りするための典型的な参照先カテゴリである。
+        </div>
+
+        <div class="refs">
+          <div class="ref-item">
+            <div class="ref-title">vLLM / inference engine（推論エンジン）</div>
+            <div class="ref-body">prefill・KVキャッシュ・サンプリングの実装差が結果に効くことを確認する。</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">FlashAttention 2 / Triton Attention（attentionバックエンド）</div>
+            <div class="ref-body">attention計算の差が長文で分岐（top-1 flip）を生む可能性を追う。</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">Quantization（量子化）：KV cache / weight（FP8/INT8/INT4など）</div>
+            <div class="ref-body">BF16→INT8/INT4の挙動差、方式ごとの頑健性、カーネル相性を調べる。</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">KL divergence（KLD）評価設計</div>
+            <div class="ref-body">ログit保存点・方向性・文脈長・集計方法の開示がないKLDは解釈できない、という注意点の裏取り。</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top: 4px;">
+          注：このデッキはユーザー提示文の要約のみを目的としており、特定リンクの一次資料を断定して列挙していない。
+        </div>
+      </div>
+    </section>
+  </div>
+
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 13</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</body>
+</html>
