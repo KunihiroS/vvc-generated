@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>zroar: Roaring Bitmap のシリアライズ直置き</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP","Noto Serif","Times New Roman",serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 60px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.12);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+      padding: 20px;
+      display:flex;
+    }
+    .inner{
+      width: 100%;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 56px 72px;
+      position: relative;
+      background: rgba(0,0,0,0.0);
+      display:flex;
+      flex-direction: column;
+    }
+    .topbar{
+      position:absolute;
+      left: 0; right: 0;
+      top: 10px;
+      padding: 0 18px;
+      display:flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond","Noto Serif JP",serif;
+      font-style: italic;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 18px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 22px;
+      height: 2px;
+      background: var(--rust);
+      display:inline-block;
+      transform: translateY(1px);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond","Noto Serif JP",serif;
+      color: var(--ink-2);
+      font-size: 20px;
+      font-style: italic;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond","Inter Tight",serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+      letter-spacing: 0.02em;
+    }
+    .title{
+      margin: 0 0 16px 0;
+      font-family: "Cormorant Garamond","Noto Serif JP",serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.98;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      margin: 0;
+      max-width: 760px;
+      color: var(--ink);
+    }
+    .divider{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin: 18px 0 0 0;
+      opacity: 0.9;
+    }
+    .grid{
+      width: 100%;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 22px;
+      margin-top: 18px;
+    }
+    .grid3{
+      width: 100%;
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.06);
+      padding: 14px 14px;
+      border-radius: 2px;
+      min-height: 70px;
+    }
+    .label{
+      font-family: "Inter Tight","Noto Serif JP",serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .text{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink);
+    }
+    .footnote{
+      position:absolute;
+      left: 72px; right: 72px; bottom: 28px;
+      font-size: 14px;
+      color: var(--ink-4);
+      line-height: 1.35;
+      border-top: 1px dashed rgba(240,232,216,0.14);
+      padding-top: 12px;
+    }
+
+    @media (max-width: 860px){
+      .inner{ padding: 46px 40px; }
+      .title{ font-size: 58px; }
+      .lead{ font-size: 18px; }
+      .grid, .grid3{ grid-template-columns: 1fr; }
+      .footnote{ left: 40px; right: 40px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">Roaring を “開封不要”へ</div>
+        <h1 class="title"><em>zroar</em> / Roaring Bitmap</h1>
+        <p class="lead">Roaring Bitmap（ローリング・ビットマップ）を「最初からシリアライズ形式としてメモリに置く」設計により、cold open（冷間起動）とI/Oまわりのコストを削ります。</p>
+        <div class="footnote">前提用語：high48 / low16、array/bitmapコンテナ、warm（既に内部形式）・cold（読み込み内で開封）</div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">“読むだけ”が遅い</div>
+        <h1 class="title">デシリアライズ負担</h1>
+        <p class="lead">従来は「バイト列を読み込む → パース → 内部表現を構築（動的確保）」が発生しやすく、読み取り直後の処理開始が重くなります。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">通常の流れ</div>
+            <div class="text">bytes → デシリアライズ → コンテナごと確保 → 操作開始</div>
+          </div>
+          <div class="cell">
+            <div class="label">zroarの狙い</div>
+            <div class="text">bytes形式＝内部表現として直置きし、再構築を基本ゼロ化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">“バッファが本体”</div>
+        <h1 class="title">1つの箱に全部</h1>
+        <p class="lead">zroarはMSB（high48）と対応コンテナを、ポインタではなくオフセットで参照できる“フラットな1バッファ”にまとめます。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">high48（MSB）</div>
+            <div class="small">上位ビットでグルーピングし、索引を作る</div>
+          </div>
+          <div class="cell">
+            <div class="label">コンテナ</div>
+            <div class="small">array/bitmap（low16の集合）を格納</div>
+          </div>
+          <div class="cell">
+            <div class="label">オフセット参照</div>
+            <div class="small">参照は加算中心で、ポインタ追跡を回避</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">メモリ＝シリアライズ</div>
+        <h1 class="title">fromBuffer は軽量</h1>
+        <p class="lead">`fromBuffer` は内部構造を組み立てず、バッファ先頭のフォーマットを軽く確認して「バッファを内部的に指すだけ」に近い動きです。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">ウォーム（warm）</div>
+            <div class="text">既に内部表現の形なら、そのまま操作</div>
+          </div>
+          <div class="cell">
+            <div class="label">コールド（cold）</div>
+            <div class="text">読み込み中の“開封”が小さく、開始が速い</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: warm（ウォーム）= 既に内部形式／cold（コールド）= 読み込みで開封が必要</div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">探索経路を変える</div>
+        <h1 class="title">ART の依存ロード回避</h1>
+        <p class="lead">CRoaringはART探索→ポインタ連鎖でコンテナ到達になりやすく、依存ロードが増えてキャッシュミス待ちが連鎖します。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">CRoaring</div>
+            <div class="text">ART（Adaptive Radix Tree）→ 多段ポインタ追跡</div>
+          </div>
+          <div class="cell">
+            <div class="label">zroar</div>
+            <div class="text">バッファ内（high48, offset）を走査/二分探索</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">数百倍級の差</div>
+        <h1 class="title">シリアライズが速い</h1>
+        <p class="lead">入力では、CRoaring（5.0）に対して幾何平均で“操作が速い”だけでなく、シリアライズ/デシリアライズが最大で数百倍高速になったとされています。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">最大改善</div>
+            <div class="text">シリアライズ/デシリアライズ：最大 ~600倍級（報告値）</div>
+          </div>
+          <div class="cell">
+            <div class="label">理由の核</div>
+            <div class="text">“再構築”を避け、連続領域走査＋オフセット参照へ</div>
+          </div>
+        </div>
+        <div class="footnote">bilingual: デシリアライズ（de-serialize）= バイト列→内部表現への変換</div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">探索・到達が軽い</div>
+        <h1 class="title">局所性が効く</h1>
+        <p class="lead">zroarはバッファ上の連続領域を走査・二分探索し、参照もオフセット加算で済むため、メモリ局所性とプリフェッチに有利だと説明されています。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">連続走査</div>
+            <div class="small">high48索引→周辺をまとめて参照しやすい</div>
+          </div>
+          <div class="cell">
+            <div class="label">二分探索</div>
+            <div class="small">必要なコンテナへ到達までの手数を抑える</div>
+          </div>
+          <div class="cell">
+            <div class="label">参照コスト</div>
+            <div class="small">ポインタ追跡よりオフセット加算が素直</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">得意と不得意</div>
+        <h1 class="title">読み取り中心</h1>
+        <p class="lead">zroarの強みは、永続化・転送・DBのように「データを持ち、都度読み込んで使う」場面で特に出やすいと位置づけられています。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">向いている例</div>
+            <div class="text">投稿リスト / 転置インデックス / ディスク・ネットワーク起点</div>
+          </div>
+          <div class="cell">
+            <div class="label">価値の理由</div>
+            <div class="text">cold open とシリアライズ周りのボトルネックを直撃</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">書き込みは難所</div>
+        <h1 class="title">ランダム更新が弱い</h1>
+        <p class="lead">全コンテナをフラットに詰めるため、途中のコンテナが成長すると右側のメモリ移動が起きやすく、random interleaved insert/removeでは不利になり得ます。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">起きること</div>
+            <div class="text">配列的に領域がずれ、再配置（メモリ移動）が発生</div>
+          </div>
+          <div class="cell">
+            <div class="label">競合の可能性</div>
+            <div class="text">ランダム更新の形次第でCRoaringが優位になるケースがある</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">機能の省略点</div>
+        <h1 class="title">適合性を要確認</h1>
+        <p class="lead">Zig専用でバインディングが未整備、portable形式互換がない可能性、32-bit整数やrunコンテナなどが未サポート（省略）である点は導入障壁になります。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">言語/連携</div>
+            <div class="small">Zig専用・他言語バインディング未整備</div>
+          </div>
+          <div class="cell">
+            <div class="label">互換</div>
+            <div class="small">CRoaringのportable serialized formatをそのまま扱えない</div>
+          </div>
+          <div class="cell">
+            <div class="label">機能</div>
+            <div class="small">32-bit整数、runコンテナなどが未サポート（例示）</div>
+          </div>
+        </div>
+        <div class="footnote">“互換”は必須要件なら最初に棚卸し</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">導入の判断手順</div>
+        <h1 class="title">条件一致チェック</h1>
+        <p class="lead">採用するなら、(i) 読み取り中心か、(ii) cold open頻度、(iii) 更新パターン、(iv) 入出力の互換と安全要件をベンチで確認するのが実務的です。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">まず見る</div>
+            <div class="text">cold（冷間）比率／シリアライズ回数／データ配布（高lowの分布）</div>
+          </div>
+          <div class="cell">
+            <div class="label">次に見る</div>
+            <div class="text">random interleaved insert/removeの有無／挿入削除の局所性</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">互換</div>
+            <div class="text">CRoaringのportable formatが必要か（必要なら別案検討）</div>
+          </div>
+          <div class="cell">
+            <div class="label">安全</div>
+            <div class="text">Buffers are trusted input前提のため、外部入力は別レイヤで境界/形式検証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">結論</div>
+        <h1 class="title">zroar は “読む速さ”の設計</h1>
+        <p class="lead">zroarは、メモリ形式＝シリアライズ形式、オフセット参照、依存ロード回避により、cold open/シリアライズで強い改善を示す一方、random更新や互換/機能要件は要確認です。</p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">強み</div>
+            <div class="small">ポインタ追跡なし＋1バッファ統合で高速化（特にI/O）</div>
+          </div>
+          <div class="cell">
+            <div class="label">限界</div>
+            <div class="small">ランダム挿入/削除で再配置が起き得る</div>
+          </div>
+          <div class="cell">
+            <div class="label">実務</div>
+            <div class="small">ワークロード適合（読み取り中心）とベンチ前提を合わせる</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          References（要約元）：CRoaring 5.0との比較、warm/cold、frozen/portable、trusted input 前提、作者説明（zroarの設計とベンチ結果）
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ziggit.dev/t/zroar-serialized-roaring-bitmaps-in-zig-outperforms-croaring-2x-to-9x/17321" target="_blank" rel="noreferrer noopener">Zroar: Serialized Roaring Bitmaps in Zig outperforms CRoaring 2x to 9x</a></h2>
+<p class="reference-note">zroar outperforms CRoaring 2x - 9x (geometric mean) across various benchmarks, performing better than CRoaring in 339 ou…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.cpubenchmark.net/cpu.php?cpu=AMD+Ryzen+9+5950X&amp;id=3862" target="_blank" rel="noreferrer noopener">AMD Ryzen 9 5950X Benchmark</a></h2>
+<p class="reference-note">|  |  |
+ --- |
+| Integer Math | 183,988 MOps/Sec |
+| Floating Point Math | 100,459 MOps/Sec |
+| Find Prime Numbers | 223…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://browser.geekbench.com/processors/amd-ryzen-9-5950x" target="_blank" rel="noreferrer noopener">AMD Ryzen 9 5950X Benchmarks
+ - Geekbench</a></h2>
+<p class="reference-note">| Processor | Score |  |
+ --- 
+| AMD Ryzen 9 5950X 3.4 GHz (16 cores) | 15300 |  |
+| AMD Ryzen 9 5900X 3.7 GHz (12 cores…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://karthikeyanrathinam.medium.com/top-10-vector-databases-in-2026-ultimate-comparison-benchmarks-use-cases-6b0e878256b5" target="_blank" rel="noreferrer noopener">Top 10 Vector Databases in 2026 - Karthikeyan Rathinam</a></h2>
+<p class="reference-note">Sign up
+
+Sign in
+
+Sign up
+
+Sign in
+
+Unknown user
+
+# Top 10 Vector Databases in 2026: Ultimate Comparison, Benchmarks &amp; U…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/MoneroMining/comments/190pvqa/ryzen_5950x_303132_threads_same_hashrate" target="_blank" rel="noreferrer noopener">Ryzen 5950x 30,31,32 threads - same hashrate : r/MoneroMining - Reddit</a></h2>
+<p class="reference-note">Hello. Any ideas why I am getting around the same hashrate running on 30,31 or 32 threads? I&#39;m running at 3.8Ghz on all …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
