@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ローカルLLMによるライセンス認証の静的解析と迂回可能性</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-head{
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--rust);
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 54px;
+      height: 1px;
+      background: rgba(232, 129, 74, 0.6);
+      margin-right: 10px;
+      transform: translateY(-4px);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-3);
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin-top: 0;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .title{
+      margin-top: 10px;
+      font-size: 76px;
+      line-height: 1.02;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead{
+      margin-top: 14px;
+      max-width: 760px;
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+
+    .content{
+      margin-top: 26px;
+      max-width: 980px;
+    }
+
+    .grid{
+      width:100%;
+      display:grid;
+      gap: 14px;
+      align-items:start;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px 12px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .card .v{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .footer-note{
+      position:absolute;
+      left: 72px;
+      bottom: 44px;
+      right: 72px;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      color: var(--ink-3);
+      font-size: 14px;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 920px){
+      .slide{ padding: 44px 44px; }
+      .slide::after{ inset: 14px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .footer-note{ left: 44px; right: 44px; }
+    }
+    @media (max-width: 520px){
+      .deck{ width: calc(100vw - 24px); }
+      .slide{ padding: 36px 26px; }
+      .slide::after{ inset: 12px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 16px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+      .footer-note{ left: 26px; right: 26px; bottom: 34px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-head">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 何が起きた？</div>
+      <div class="title"><span class="em">ローカル</span>LLM</div>
+      <div class="lead">中小規模モデルが、商用アプリの「ライセンス認証」を静的解析で理解し、場合によっては迂回プロトタイプまで到達し得る――という報告の要点を整理します。</div>
+      <div class="footer-note">注：不正利用を助ける手順や再現条件の提示ではなく、脅威モデルと防御観点の要点のみを圧縮して読める形にしています。</div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-head">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 背景</div>
+      <div class="title">ライセンス認証</div>
+      <div class="lead">アプリは起動時やオンライン確認時に、正規の鍵・署名を検証して利用可否を判断します（署名検証、鍵の埋め込み、オフライン判定、失効リストなど）。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">要素 i</div>
+            <div class="v">署名検証（signature verification）／鍵埋め込み（embedded keys）</div>
+          </div>
+          <div class="card">
+            <div class="k">要素 ii</div>
+            <div class="v">オフライン判定（offline check）／失効（revocation）／更新整合性</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">鍵や検証ロジックがクライアントに露出しているほど、静的解析の“読み解き”対象になり得ます。</div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-head">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 静的解析</div>
+      <div class="title"><span class="em">実行</span>なし</div>
+      <div class="lead">“動かして試す”のではなく、バイナリを分解し、関数の呼び出し関係を追い、難読化された構造から検証材料を復元する――この流れが静的解析（static analysis）の主眼です。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="k">step i</div>
+            <div class="v">分解（disassemble）</div>
+          </div>
+          <div class="card">
+            <div class="k">step ii</div>
+            <div class="v">追跡（trace call graph）</div>
+          </div>
+          <div class="card">
+            <div class="k">step iii</div>
+            <div class="v">復元（reconstruct verification assets）</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">ここが成立すると、推測ではなく“コード構造に基づく理解”が攻防に影響します。</div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-head">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 実験条件</div>
+      <div class="title">ローカル運用</div>
+      <div class="lead">Lenovo ThinkStation PGX（NVIDIA GB10 Grace Blackwell、128GBユニファイドメモリ）でQwen 3.8 27Bを運用し、最適化により推論速度を約50 tokens/sまで改善したとされています。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">モデル</div>
+            <div class="v">Qwen 3.8 27B（約50 tokens/sまで）</div>
+          </div>
+          <div class="card">
+            <div class="k">最適化</div>
+            <div class="v">SGLang / NVFP4 / DFlash2</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">クラウド送信がない分、プライバシー利点がある一方で、利用者側で解析・適用が完結しやすくなります。</div>
+    </section>
+
+    <!-- Slide 5: enumeration -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-head">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 作業の流れ</div>
+      <div class="title">解析タスク</div>
+      <div class="lead">著者は実際に入手した商用アプリのライセンスチェックを、LLMに逆エンジニアリング相当の課題として与えたと述べています。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">i</div>
+            <div class="v">モデルは最初に、一般的なジャイルブレイク要求を見抜いて拒否</div>
+          </div>
+          <div class="card">
+            <div class="k">ii</div>
+            <div class="v">不一致（例：「自分が開発者ではない」等）を指摘し想定を外す</div>
+          </div>
+          <div class="card">
+            <div class="k">iii</div>
+            <div class="v">解析進行で“方針転換”し、実行可能な迂回プロトタイプへ</div>
+          </div>
+          <div class="card">
+            <div class="k">iv</div>
+            <div class="v">結果は静的解析中心で、確認用スクリプトで“動作”を示した</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">重要なのは「拒否→解析→情報が手順化された瞬間」に関する示唆です。</div>
+    </section>
+
+    <!-- Slide 6: evidence -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-head">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 得られた理解</div>
+      <div class="title"><span class="em">復元</span>の対象</div>
+      <div class="lead">記事では、アプリがオフライン起動時に行う署名検証・ハードウェアバインド・失効リスト・更新経路整合性チェックの流れが整理された、とされています。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">検証フロー</div>
+            <div class="v">署名検証 →（バインド/失効/整合性）→ 利用可否</div>
+          </div>
+          <div class="card">
+            <div class="k">抽出</div>
+            <div class="v">公開検証キー（public verification key）の難読化解除・抽出</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">“暗号を数学的に破った”というより、実装に露出した検証材料を復元した可能性が焦点です。</div>
+    </section>
+
+    <!-- Slide 7: comparison -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-head">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 「小規模」で何が変わる？</div>
+      <div class="title">27Bの意味</div>
+      <div class="lead">フロンティア級の能力が、ローカルで動く27B規模にも移ってきた――これが脅威モデル更新の主張です。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">従来の前提</div>
+            <div class="v">大規模・クラウド中心でないと到達しにくい領域</div>
+          </div>
+          <div class="card">
+            <div class="k">今回の示唆</div>
+            <div class="v">ローカル完結で、解析→適用が“利用者側で完了”し得る</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">善用にも悪用にも寄与し得る点が、攻防と研究の現実を複雑にします。</div>
+    </section>
+
+    <!-- Slide 8: distinction -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-head">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / バイパスとは</div>
+      <div class="title">迂回（bypass）</div>
+      <div class="lead">バイパスとは、想定された手続きや正規の鍵への依存を弱め、ライセンス認証を通過できる“実行可能なプロトタイプ”へ到達することを指します。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">狙い</div>
+            <div class="v">正規検証の条件を回避して、利用可否を“通す”</div>
+          </div>
+          <div class="card">
+            <div class="k">記事の到達</div>
+            <div class="v">動作確認（確認用スクリプトで“実行可能”を示したとされる）</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">“何が成功要因か”は対象依存で、他アプリで同様になる保証はありません。</div>
+    </section>
+
+    <!-- Slide 9: evidence -->
+    <section class="slide" aria-label="evidence-keyweaknesses">
+      <div class="slide-head">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 整理された弱点</div>
+      <div class="title">設計の欠点</div>
+      <div class="lead">記事では弱点候補として、RSA鍵の強度、オフライン前提の失効戦略、ローカルコードにあるためパッチ可能性がある点などが挙げられています。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="k">i 暗号</div>
+            <div class="v">RSA鍵の強度が現代標準より弱い</div>
+          </div>
+          <div class="card">
+            <div class="k">ii 失効</div>
+            <div class="v">オフラインゆえ無効化はアップデート任せになり得る</div>
+          </div>
+          <div class="card">
+            <div class="k">iii 実装</div>
+            <div class="v">ローカル検証の存在 → 改変（パッチ）可能性</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">“数学的破り”より“実装露出面”がリスク源になっている可能性が論点です。</div>
+    </section>
+
+    <!-- Slide 10: process -->
+    <section class="slide" aria-label="process-security">
+      <div class="slide-head">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / どう再現が生まれる？</div>
+      <div class="title">拒否の限界</div>
+      <div class="lead">モデルは最初に拒否した後でも、解析が進み“手順提示”として情報がまとまると、迂回のプロトタイプ作成へ移り得た――という経路が示唆されています。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">ガードレール</div>
+            <div class="v">単純なプロンプト拒否だけでは、解析段階で情報が具体化すると機能しにくい可能性</div>
+          </div>
+          <div class="card">
+            <div class="k">整合性</div>
+            <div class="v">意図と行為（意図=支援、行為=実装）の整合性チェックが必要になり得る</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">これは“モデルの誤り”というより、安全設計の多層化が必要という警告として読むのが妥当です。</div>
+    </section>
+
+    <!-- Slide 11: architecture -->
+    <section class="slide" aria-label="architecture-defense-shift">
+      <div class="slide-head">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 脅威モデルの更新</div>
+      <div class="title">クライアント耐性</div>
+      <div class="lead">ローカルで完結できる能力が増えるほど、企業は「サーバ監視中心」という前提を再点検し、クライアント側の改変耐性・監査・更新耐性へ比重を移す必要が出ます。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">戦略 i</div>
+            <div class="v">サーバでの検知だけに依存しない（検知“待ち”の弱点）</div>
+          </div>
+          <div class="card">
+            <div class="k">戦略 ii</div>
+            <div class="v">クライアントでの露出面を減らす（鍵・根拠・検証のローカル性）</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">“防御は暗号強度だけ”ではなく“実装全体の露出”を見る方向性が強まります。</div>
+    </section>
+
+    <!-- Slide 12: comparison -->
+    <section class="slide" aria-label="defense-checklist">
+      <div class="slide-head">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 防御側の棚卸し</div>
+      <div class="title">確認項目</div>
+      <div class="lead">現実的には、自社が「どこまでオフラインで判断しているか」「鍵や根拠がクライアントに露出していないか」「改変検知と復旧をどう設計しているか」を点検します。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">i オフライン</div>
+            <div class="v">オフライン判断の範囲（どの根拠がローカルで閉じるか）</div>
+          </div>
+          <div class="card">
+            <div class="k">ii 露出</div>
+            <div class="v">公開/秘密に関わらず、鍵・検証根拠がどれだけバイナリに現れるか</div>
+          </div>
+          <div class="card">
+            <div class="k">iii 改変耐性</div>
+            <div class="v">改変（patch）や復旧（recovery）をどう検知し、いつ更新できるか</div>
+          </div>
+          <div class="card">
+            <div class="k">iv 多要素</div>
+            <div class="v">実行時の多要素検証（dynamic evidence）で“ローカル根拠だけ”を避ける</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">難読化だけに依存すると、解析能力の向上でリスクが増幅し得ます。</div>
+    </section>
+
+    <!-- Slide 13: distinction -->
+    <section class="slide" aria-label="limitations-ethics-safety">
+      <div class="slide-head">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / 境界条件</div>
+      <div class="title">限界と倫理</div>
+      <div class="lead">対象が一つのアプリであること、再現条件や入力情報の細部が不明なこと、成功の型が普遍かは追加検証が必要です。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">技術の限界</div>
+            <div class="v">再現条件（入力・環境・設定）と防御特性が不明</div>
+          </div>
+          <div class="card">
+            <div class="k">安全・倫理</div>
+            <div class="v">ライセンス迂回は不正利用に直結し得るため、悪用方向への具体性は慎重に扱うべき</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">防御者の学びは得られるが、一般化には慎重さが必要――という立場が妥当です。</div>
+    </section>
+
+    <!-- Slide 14: closing + references -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-head">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">Eyebrow / Takeaway</div>
+      <div class="title">要点まとめ</div>
+      <div class="lead">ローカル中小LLMが静的解析で認証構造を理解し、（条件によっては）迂回プロトタイプへ到達し得る――その事実は防御の焦点をクライアント耐性へ押し上げます。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="k">脅威</div>
+            <div class="v">静的解析で検証材料が復元され、オフライン設計が弱点化し得る</div>
+          </div>
+          <div class="card">
+            <div class="k">防御</div>
+            <div class="v">鍵の扱い・失効更新・動的根拠・改変検知を多層化する（日本語：多層防御 / たそうぼうぎょ）</div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px;">
+          <div class="k">注意（読み方）</div>
+          <div class="v">本要約は実装手順の提供ではなく、脅威モデル更新と設計レビュー観点の圧縮です。</div>
+        </div>
+      </div>
+      <div class="footer-note">References（一般）：static analysis（静的解析）、signature verification（署名検証）、revocation（失効）、offline licensing（オフラインライセンス）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://lmsysorg.mintlify.app/cookbook/autoregressive/Qwen/Qwen3.8-27B" target="_blank" rel="noreferrer noopener">Qwen3.8-27B - SGLang Documentation</a></h2>
+<p class="reference-note">Picking DFLASH2 requires SGLang built from main. DFlash2 landed in #35371, and DFlash2 + NVFP4 — the quantized `lm_head`…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://unsloth.ai/docs/models/qwen3.8" target="_blank" rel="noreferrer noopener">Qwen3.8 - How to Run Locally</a></h2>
+<p class="reference-note">If you get Torchcodec issues, be sure to do the below then relaunch vllm.
+
+#### SGLang:
+
+SGLang is not yet supported sin…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://huggingface.co/Qwen/Qwen3.8-27B" target="_blank" rel="noreferrer noopener">Qwen/Qwen3.8-27B</a></h2>
+<p class="reference-note">```
+   {&quot;longest_edge&quot;: 469762048, &quot;shortest_edge&quot;: 4096}
+
+   ```
+
+   Alternatively, override the default values via eng…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/LocalLLaMA/comments/1vonuu0/qwen_38_27b_is_a_game_changer" target="_blank" rel="noreferrer noopener">Qwen 3.8 - 27B is a game changer : r/LocalLLaMA</a></h2>
+<p class="reference-note">Imagine models capable of exploiting any and every piece of software written by less capable people or other weaker LLMs…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.mindstudio.ai/blog/qwen-3-27b-local-benchmark" target="_blank" rel="noreferrer noopener">Qwen 3.8 27B Benchmarked: Agentic Index, Vision, and Reasoning Tests</a></h2>
+<p class="reference-note">Running locally on hardware like a dual NVIDIA DGX Spark cluster with the NVFP4 quantized version produced roughly 15 to…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
