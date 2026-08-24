@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>検索API遅延：エージェントが実際に払う待ち時間</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 0;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      position: relative;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .top{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 12px;
+      margin-bottom: 18px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      letter-spacing: .14em;
+      font-size: 16px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-top: 2px solid rgba(232,129,74,0.35);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      opacity: .95;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      margin: 0 0 12px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      letter-spacing: .02em;
+      position: relative;
+      z-index: 1;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      letter-spacing: 0;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 18px;
+      opacity: .6;
+      position: relative;
+      z-index: 1;
+    }
+    .grid{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 14px 14px;
+      box-sizing: border-box;
+      min-height: 78px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      letter-spacing: .02em;
+      color: var(--rust-deep);
+      margin-bottom: 8px;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.45;
+    }
+    .footer-note{
+      position:absolute;
+      bottom: 18px;
+      left: 72px;
+      right: 72px;
+      font-size: 16px;
+      color: var(--ink-3);
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+      z-index: 1;
+    }
+    @media (max-width: 780px){
+      .slide{ padding: 44px 20px; }
+      .slide::before{ inset: 14px; }
+      .footer-note{ left: 20px; right: 20px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="eyebrow">エージェント実運用の遅延</div>
+      <h1 class="title"><span class="jp">検索API遅延</span>は“平均”と一致しない</h1>
+      <p class="lead">検索APIをLLMエージェントが使うとき、待ち時間はキャッシュ寿命・テール遅延・snippet仕様・並列上限で決まり、“速いAPIランキング”とはズレます。</p>
+      <div class="footer-note">前提用語：TTFB（最初の応答）/ p50（中央値）/ p95（高遅延側）/ fan-out（並列検索）</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="eyebrow">平均は嘘をつく</div>
+      <h2 class="title"><span class="jp">“待つ理由”が</span>別物</h2>
+      <p class="lead">ベンチマークの“速さ”は単発・ウォーム前提になりがちですが、エージェントは反復と並列（fan-out）で最遅の結果を待ちます。そのためp95や分散が体感を支配します。</p>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">エージェント側</div>
+          <div class="v">複数検索を投げる→最遅（テール）を待つ</div>
+        </div>
+        <div class="cell">
+          <div class="k">ベンチ側</div>
+          <div class="v">平均の速さが見える→実運用の支配要因が抜ける</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="eyebrow">支配する3要因</div>
+      <h2 class="title"><span class="jp">冷スタート</span>×テール×snippet</h2>
+      <p class="lead">調査が示す中核は(1)キャッシュが短命で冷スタートが多い、(2)p50よりp95が効く、(3)snippetがLLM生成なら遅延・費用が跳ねる、の3点です。</p>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">i 冷スタート</div>
+          <div class="v">ウォーム前提が崩れる</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii p95テール</div>
+          <div class="v">fan-outで待ち時間化</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii snippet処理</div>
+          <div class="v">抽出 vs LLM要約で差</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="eyebrow">キャッシュの寿命</div>
+      <h2 class="title"><span class="jp">15分〜1時間</span>が目安</h2>
+      <p class="lead">観測できた範囲では、キャッシュは概ね1時間以内で、さらに多くは15分以内に期限切れでした。エージェントは同一クエリを繰り返しにくく、ウォーム時の速さが本番で続きません。</p>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">観測された寿命</div>
+          <div class="v"><span class="mono">~15min</span>以内が多い／最長でも<span class="mono">~1h</span>以内</div>
+        </div>
+        <div class="cell">
+          <div class="k">実運用の含意</div>
+          <div class="v">“キャッシュが効く前提”の見積もりは危険</div>
+        </div>
+      </div>
+      <div class="footer-note">冷スタート＝そのクエリがキャッシュに存在しない/期限切れの状態</div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="eyebrow">p50だけでは足りない</div>
+      <h2 class="title"><span class="jp">テール遅延が</span>待ち時間になる</h2>
+      <p class="lead">fan-outでは複数の検索結果を並列に投げ、次工程は最遅の応答を待ちます。p50が速くてもp95が大きいプロバイダは体感が悪化し得ます。</p>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">なぜp95？</div>
+          <div class="v">最遅を待つ→分布の右側が露出する</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意点</div>
+          <div class="v">p50の改善は“部分的な指標”になりがち</div>
+        </div>
+      </div>
+      <div class="footer-note">調査ではp50とp95の乖離が大きい例（例：p95が中央値の3.5倍超）が示唆</div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="eyebrow">snippetは処理コスト</div>
+      <h2 class="title"><span class="jp">抽出</span>だけじゃない</h2>
+      <p class="lead">snippetが単なる抜粋（extractive）ではなくLLM要約（LLM-written）を含む場合、TTFBも単価も増えます。調査ではLLM要約ルートが“遅延およそ5倍、価格およそ2.4倍”に相当すると示されています。</p>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">i 抽出</div>
+          <div class="v">比較的速い（ハイライト中心）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii LLM要約</div>
+          <div class="v">TTFB↑／コスト↑（生成が入る）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii 実務</div>
+          <div class="v">下流LLMが再要約するなら重複の恐れ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="eyebrow">クエリ鮮度で数十倍</div>
+      <h2 class="title"><span class="jp">同じAPI</span>でも別遅延</h2>
+      <p class="lead">提供側ベンチマークは“そのクエリ文字列が直近で見られていたか”で数十倍変わることがあり、同一APIでも<span class="mono">105ms級</span>と<span class="mono">約4,000ms級</span>があり得ます。開示がない比較は解釈不能になり得ます。</p>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">変動要因</div>
+          <div class="v">キャッシュの有無（クエリ鮮度）</div>
+        </div>
+        <div class="cell">
+          <div class="k">解釈の警告</div>
+          <div class="v">条件（キャッシュ/出力形）が不明なら比較は危険</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="eyebrow">並列には天井がある</div>
+      <h2 class="title"><span class="jp">429</span>が“遅さ”を作る</h2>
+      <p class="lead">エージェントは並列検索しますが、プロバイダに“同時リクエスト上限”があります。exaとlinkupは同時10前後で拒否が起き、fan-out（例：16-way）では多くのサブクエリが落ち得ます。</p>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">ボトルネック</div>
+          <div class="v">concurrency ceiling / rejection（429等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">影響</div>
+          <div class="v">遅延だけでなく“欠落→再試行”が体感を悪化</div>
+        </div>
+      </div>
+      <div class="footer-note">Fan-out設計は、レイテンシだけでなく拒否耐性まで評価が必要</div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="eyebrow">遅延と価格は独立</div>
+      <h2 class="title"><span class="jp">二次元</span>で見る</h2>
+      <p class="lead">同一契約（同一アウトプット形）で冷スタートTTFBと<span class="mono">1,000</span>回あたりコストを比較すると、安いのに速い/高いのに遅いなどが起き得ます。したがって“高い＝速い”の一般化は危険です。</p>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">見る軸</div>
+          <div class="v">冷スタートTTFB × コスト（$/1,000 calls）</div>
+        </div>
+        <div class="cell">
+          <div class="k">発想</div>
+          <div class="v">効率フロンティア（efficient frontier）で選ぶ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="eyebrow">FAQ：要点だけ</div>
+      <h2 class="title"><span class="jp">誤読を減らす</span></h2>
+      <p class="lead">よくある疑問は“用語の置き換え”で整理できます。冷スタート/p95/snippet/ベンチ条件/並列拒否の5点を押さえるのが最短です。</p>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">Q1 冷/ウォーム</div>
+          <div class="v">冷＝キャッシュなし/期限切れ。ウォーム＝最近見た同一クエリがキャッシュ済み。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Q2 p95重要</div>
+          <div class="v">fan-outで最遅待ち→中央値は“部分指標”になり得る。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Q3 snippet詳細</div>
+          <div class="v">抽出よりLLM要約の方がTTFBと費用が増えやすい。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="eyebrow">測れている/測れていない</div>
+      <h2 class="title"><span class="jp">万能ランキング</span>ではない</h2>
+      <p class="lead">強みは“エージェントが支払う遅延（冷スタートTTFB・p95・fan-out・429）”に寄せている点です。弱みは“9社・特定契約・単一地点”であり、品質（関連性）まで統一評価していない可能性です。</p>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">測定の中心</div>
+          <div class="v">TTFB、出力形（10 results + snippets）に関する遅延/キャッシュ/並列許容</div>
+        </div>
+        <div class="cell">
+          <div class="k">未保証</div>
+          <div class="v">関連性（quality/relevance）は同一条件で評価していない。クエリ分布/契約粒度で一般化は要注意。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="top">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="eyebrow">実装チェックリスト</div>
+      <h2 class="title"><span class="jp">見積もり</span>を直す</h2>
+      <p class="lead">検索API選定は平均ではなく、冷スタート・p95テール・snippet仕様・並列上限を同時に見てください。そうすれば“キャッシュ前提の楽観”と“テールに踏まれる”失敗を減らせます。</p>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">i キャッシュ</div>
+          <div class="v">寿命（例：15分〜1時間）前提を置く／ウォーム依存を減らす</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii テール</div>
+          <div class="v">p95（待ち時間）をSLA/設計の中心に置く</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii 実行条件</div>
+          <div class="v">snippet（抽出/LLM要約）と並列拒否（429）を評価する</div>
+        </div>
+      </div>
+      <div class="footer-note">この要約は提示資料の内容に基づく。クレジット施策など広告要素の影響は本文から評価不能。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://keirolabs.cloud/blogs/comparisons/fastest-web-search-api-for-ai-agents-2026" target="_blank" rel="noreferrer noopener">Fastest Web Search API for AI Agents: 2026 Latency ...</a></h2>
+<p class="reference-note">We benchmarked eight web search APIs in August 2026. Serper wins raw latency at sub-100ms, the fastest API that returns …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://artificialanalysis.ai/agents/search-api" target="_blank" rel="noreferrer noopener">Search API Benchmark &amp; Leaderboard - Artificial Analysis</a></h2>
+<p class="reference-note">| Exa Search (fast) logoExa Search (fast) | 68 | 35 | 76 | 61 | 69 | $78.11 | $80.53 | 22.6s |
+| You.com Search (snippet…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
