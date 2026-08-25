@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Beeper: eBPFで実現するL7パーサ（HTMLスライド）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display:flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      pointer-events:none;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      text-transform: uppercase;
+      margin: 0;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 12px;
+      width: 8px;
+      height: 1px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.0);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin: 0;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      margin-top: 18px;
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }
+    .title{
+      font-size: 68px;
+      line-height: 0.95;
+      margin: 0 0 18px 0;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      text-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.35;
+      margin-top: 10px;
+    }
+    .divider{
+      margin-top: 22px;
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+    }
+    .content{
+      margin-top: 18px;
+      width: 100%;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.03);
+      min-height: 84px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 8px 0;
+    }
+    .value{
+      margin: 0;
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.25;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink);
+    }
+    .footer-note{
+      position:absolute;
+      bottom: 18px;
+      left: 56px;
+      right: 56px;
+      color: var(--ink-4);
+      font-size: 14px;
+      line-height: 1.25;
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+    }
+    .jp-inline{
+      color: var(--ink-2);
+      font-style: normal;
+      font-weight: 400;
+      margin-left: 6px;
+      font-size: 0.95em;
+    }
+    @media (max-width: 860px){
+      .slide{ padding: 44px 40px; }
+      .slide::after{ inset: 14px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .footer-note{ left: 40px; right: 40px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 Cover -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Cover</p>
+        <p class="slide-num">02 / 14</p>
+      </div>
+      <div class="eyebrow">eBPFでL7を“実行”する</div>
+      <h1 class="title">Beeper</h1>
+      <p class="lead">Beeper（BEEline's ParsER）は、eBPFカーネル内でHTTPのアプリケーション層（L7）解析を成立させることを狙った仕組みです。ユーザ空間でやりがちな解析を、DFAの事前構築と状態遷移で置き換えます。</p>
+      <div class="footer-note">Bilingual: eBPF（拡張Berkeley Packet Filter）, L7（アプリケーション層）</div>
+    </section>
+
+    <!-- 02 Problem -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Problem</p>
+        <p class="slide-num">03 / 14</p>
+      </div>
+      <div class="eyebrow">なぜL7が難しい</div>
+      <h1 class="title">複雑さが壁</h1>
+      <p class="lead">L7（HTTP/2、gRPCなど）はデータ構造が複雑で、単純なL3/L4のような軽いフィルタでは足りません。さらにカーネル内（eBPF）では実行コストと分岐が制約になり、重いパースは破綻しやすいです。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <p class="label">L3/L4</p>
+            <p class="value">比較的単純：IP/ポート中心</p>
+          </div>
+          <div class="card">
+            <p class="label">L7（HTTP）</p>
+            <p class="value">文字列・境界・ストリーム性が複雑</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: parsing（パース/解釈）, state transition（状態遷移）</div>
+    </section>
+
+    <!-- 03 Core idea -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Metaphor</p>
+        <p class="slide-num">04 / 14</p>
+      </div>
+      <div class="eyebrow">“事前に地図を作る”</div>
+      <h1 class="title">DFA化</h1>
+      <p class="lead">Beeperはユーザ空間でAho-CorasickライクなDFA（決定性有限オートマトン）を構築し、eBPFでは状態遷移として実行します。複雑な解析を、カーネル内で扱える形の機械に落とし込みます。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <p class="label">1</p>
+            <p class="value">パターン/ルール入力</p>
+          </div>
+          <div class="card">
+            <p class="label">2</p>
+            <p class="value">Aho-CorasickライクDFAを構築</p>
+          </div>
+          <div class="card">
+            <p class="label">3</p>
+            <p class="value">eBPFで“遷移”として判定</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">DFA（決定性有限オートマトン）／Aho-Corasick（同時多パターン検索の系譜）</div>
+    </section>
+
+    <!-- 04 Architecture -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Architecture</p>
+        <p class="slide-num">05 / 14</p>
+      </div>
+      <div class="eyebrow">カーネル内で完結</div>
+      <h1 class="title">L7ポリシー</h1>
+      <p class="lead">Beeperは解析結果をログするだけでなく、payloadに基づく監視・リダイレクト・カーネルからの応答を想定しています。ユーザ空間との往復を減らし、レイテンシとスループット改善が狙えます。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <p class="label">監視</p>
+            <p class="value">payloadベースで検出</p>
+          </div>
+          <div class="card">
+            <p class="label">制御</p>
+            <p class="value">リダイレクト（方針適用）</p>
+          </div>
+          <div class="card">
+            <p class="label">応答</p>
+            <p class="value">カーネル側で返す</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: redirect（リダイレクト）, payload（ペイロード）</div>
+    </section>
+
+    <!-- 05 Supported -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Evidence</p>
+        <p class="slide-num">06 / 14</p>
+      </div>
+      <div class="eyebrow">対応状況を明示</div>
+      <h1 class="title">HTTP準拠</h1>
+      <p class="lead">対応プロトコルと最小カーネル要件が提示されています。HTTP/1.1は最小6.8、HTTP/2は最小7.0で✅、gRPCはWIP（未完）です。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <p class="label">HTTP/1.1</p>
+            <p class="value"><span class="mono">✅</span> 最小カーネル <span class="mono">6.8</span></p>
+          </div>
+          <div class="card">
+            <p class="label">HTTP/2</p>
+            <p class="value"><span class="mono">✅</span> 最小カーネル <span class="mono">7.0</span></p>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="card">
+          <p class="label">gRPC</p>
+          <p class="value"><span class="mono">WIP</span>（作業中）</p>
+        </div>
+      </div>
+      <div class="footer-note">導入判断には、実装の機能範囲も論文/コードで確認が必要です。</div>
+    </section>
+
+    <!-- 06 Complexity -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Distinction</p>
+        <p class="slide-num">07 / 14</p>
+      </div>
+      <div class="eyebrow">“パースを置換する”</div>
+      <h1 class="title">分岐コスト削減</h1>
+      <p class="lead">eBPFでは複雑なパースをそのまま実行すると重くなったり不可能になったりします。そこでBeeperは、パターン検出をオートマトンとして処理できる形に落とし込み、状態遷移で効率と実装可能性を両立します。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <p class="label">直書きパース</p>
+            <p class="value">分岐・計算量が増えやすい</p>
+          </div>
+          <div class="card">
+            <p class="label">DFA実行</p>
+            <p class="value">状態遷移で判定（より制御しやすい）</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: deterministic（決定性）, automaton（オートマトン）</div>
+    </section>
+
+    <!-- 07 Process -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Process</p>
+        <p class="slide-num">08 / 14</p>
+      </div>
+      <div class="eyebrow">再現可能な比較</div>
+      <h1 class="title">fastpath測定</h1>
+      <p class="lead">例示では、baseline（fastpathなし）と「server accelerated with beeper」を並べて比較し、ohaでロードテストします。fastpathの有無で体感・数値の差を見やすい設計です。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <p class="label">比較軸</p>
+            <p class="value">fastpathなし（baseline）</p>
+          </div>
+          <div class="card">
+            <p class="label">比較軸</p>
+            <p class="value">fastpathあり（Beeper側）</p>
+          </div>
+          <div class="card">
+            <p class="label">負荷</p>
+            <p class="value"><span class="mono">oha</span> でロードテスト</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">fastpathの定義は抜粋だけでは断定できないため、exampleや説明を確認してください。</div>
+    </section>
+
+    <!-- 08 Use cases -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Enumeration</p>
+        <p class="slide-num">09 / 14</p>
+      </div>
+      <div class="eyebrow">“できること”の核</div>
+      <h1 class="title">用途</h1>
+      <p class="lead">Beeperで狙えるのは、L7の判定結果に基づくネットワーク挙動の変更です。典型用途は、payloadに基づく監視、リダイレクト、カーネルからの応答です。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <p class="label">i</p>
+            <p class="value">監視（見張り）</p>
+          </div>
+          <div class="card">
+            <p class="label">ii</p>
+            <p class="value">リダイレクト</p>
+          </div>
+          <div class="card">
+            <p class="label">iii</p>
+            <p class="value">応答生成</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: policy（方針）, inspection（検査）</div>
+    </section>
+
+    <!-- 09 Evidence vs gaps -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Distinction</p>
+        <p class="slide-num">10 / 14</p>
+      </div>
+      <div class="eyebrow">良い点と不足</div>
+      <h1 class="title">判断は要検証</h1>
+      <p class="lead">筋の良さは、DFA構築で計算量を“eBPFで扱える形”に落とす設計です。一方、READMEが短く、DFAサイズ上限や境界条件、安全性、失敗時挙動が読み取りにくいのが課題です。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <p class="label">強み</p>
+            <p class="value">HTTP/1.1・HTTP/2の✅と最小カーネルが明示</p>
+          </div>
+          <div class="card">
+            <p class="label">不足</p>
+            <p class="value">DFAサイズ/メモリ、TCP分割、性能条件、失敗時挙動が不明</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">gRPCはWIPのため、期待値調整が必要です。</div>
+    </section>
+
+    <!-- 10 FAQ1-3 -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Comparison</p>
+        <p class="slide-num">11 / 14</p>
+      </div>
+      <div class="eyebrow">FAQで整理</div>
+      <h1 class="title">誤解を解く</h1>
+      <p class="lead">Beeperは単なるHTTP解析ツールではなく、eBPF内でL7解析を成立させる構造が中核です。DFA（Aho-Corasickライク）は、eBPFの制約下で実装可能性と効率を両立するために使われます。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <p class="label">Q1</p>
+            <p class="value">“単なる解析ツール？”→ いいえ（eBPFで実行）</p>
+          </div>
+          <div class="card">
+            <p class="label">Q2</p>
+            <p class="value">“なぜDFA？”→ 分岐/計算量を抑えるため</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: tool（ツール）, execution（実行）</div>
+    </section>
+
+    <!-- 11 FAQ4-6 -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">Problem</p>
+        <p class="slide-num">12 / 14</p>
+      </div>
+      <div class="eyebrow">未確定ポイント</div>
+      <h1 class="title">確認事項</h1>
+      <p class="lead">HTTP/2は最小カーネル7.0で✅ですが、機能範囲（ヘッダやストリーム分割など）は論文・コード確認が必要です。gRPCはWIPで、またfastpathの詳細定義も例側で確認が確実です。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <p class="label">Q3</p>
+            <p class="value">HTTP/2：環境要件OKでも機能範囲は要確認</p>
+          </div>
+          <div class="card">
+            <p class="label">Q4</p>
+            <p class="value">gRPC：WIP（未保証）</p>
+          </div>
+          <div class="card">
+            <p class="label">Q5</p>
+            <p class="value">fastpath：定義はexampleで確認</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: scope（範囲）, definition（定義）</div>
+    </section>
+
+    <!-- 12 Closing + checklist -->
+    <section class="slide">
+      <div class="topbar">
+        <p class="slide-tag">closing</p>
+        <p class="slide-num">13 / 14</p>
+      </div>
+      <div class="eyebrow">導入前の最小チェック</div>
+      <h1 class="title">結論</h1>
+      <p class="lead">Beeperは“L7をカーネル内で扱う”方向性を、DFA構築→eBPFで状態遷移実行として具体化しています。導入判断は、DFAサイズ制約・プロトコル境界・性能評価条件・失敗時挙動・未対応範囲（gRPC WIP）を精査して行うべきです。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <p class="label">必ず確認</p>
+            <p class="value">i) DFAサイズ/メモリ ii) TCP分割・境界 iii) 性能条件 iv) 失敗時挙動</p>
+          </div>
+          <div class="card">
+            <p class="label">計画の前提</p>
+            <p class="value">i) HTTP/1.1（6.8） ii) HTTP/2（7.0） iii) gRPC（WIP）</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">Bilingual: evaluation（評価）, failure mode（失敗モード）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/abs/2605.31084" target="_blank" rel="noreferrer noopener">[2605.31084] Enforcing Application-Layer Policies in eBPF</a></h2>
+<p class="reference-note">This paper presents Beeline, a fast path for service meshes which can enforce the vast majority of application-layer pol…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
