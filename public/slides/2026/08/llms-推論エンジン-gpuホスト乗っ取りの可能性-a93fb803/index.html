@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LLMs × 推論エンジン：GPUホスト乗っ取りの可能性</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep:#c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap: 20px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow:hidden;
+    }
+
+    .slide-inner{
+      height: 100%;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 18px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-weight: 600;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 18px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 28px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-style: italic;
+      font-size: 22px;
+      margin-bottom: 6px;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      font-size: 72px;
+      line-height: 1.02;
+      font-weight: 500;
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+      max-width: 760px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 16px;
+      margin-bottom: 16px;
+      max-width: 100%;
+      width: 100%;
+      opacity: 0.9;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+      width: 100%;
+      max-width: 900px;
+      margin-top: 14px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.10);
+      min-height: 74px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+      max-width: 980px;
+      margin-top: 14px;
+    }
+
+    .mini{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 34px 36px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .slide-num{ font-size: 24px; }
+      .slide-tag{ font-size: 12px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">GPUは“推論の現場”</div>
+        <h2 class="title">乗っ取り可能性</h2>
+        <div class="lead">
+          LLMが作るのは“文字列”だけではありません。推論エンジンのパース/解釈が壊れると、任意コード実行に繋がり得る——その視点で vLLM / SGLang を前提にリスクを整理します。
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">敵は“LLM”だけでない</div>
+        <h2 class="title">解釈の境界</h2>
+        <div class="lead">
+          LLM →（トークン列）→ 推論エンジン（チャット構造・ツール呼び出しを解釈）→ 実行、という経路があります。ここで解釈が誤ると、LLM出力が攻撃入力として成立します。
+        </div>
+        <div class="grid" role="presentation" aria-label="pipeline">
+          <div class="cell">
+            <div class="k">入力</div>
+            <div class="v">LLMの“トークン列”</div>
+          </div>
+          <div class="cell">
+            <div class="k">変換</div>
+            <div class="v">推論エンジンのパース（解析）</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">指示/ツール呼び出し（コード化）</div>
+          </div>
+          <div class="cell">
+            <div class="k">被害面</div>
+            <div class="v">任意コード実行（最終的にGPUホストへ波及し得る）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">文字は無害でも</div>
+        <h2 class="title">構造化で毒化</h2>
+        <div class="lead">
+          トークン列は“データ”としては無害でも、推論エンジンが「それをコード/引数/指示」と誤認すれば危険になります。境界（trust boundary）が崩れるのが本質です。
+        </div>
+        <div class="grid" role="presentation" aria-label="data vs structure">
+          <div class="cell">
+            <div class="k">LLM出力</div>
+            <div class="v">見た目はただのトークン</div>
+          </div>
+          <div class="cell">
+            <div class="k">解釈器</div>
+            <div class="v">パースロジックが“意味”を与える</div>
+          </div>
+          <div class="cell">
+            <div class="k">事故点</div>
+            <div class="v">実装ミスが評価/実行へ到達</div>
+          </div>
+          <div class="cell">
+            <div class="k">到達先</div>
+            <div class="v">ホスト上の権限で被害が決まる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">攻撃経路の型</div>
+        <h2 class="title">“評価”が鍵</h2>
+        <div class="lead">
+          脆弱性があると、LLM由来の“入力”が eval() のような危険な評価に流れたり、ツールパーサが任意データを解釈します。結果として、パース層→ホスト層へ侵害が広がり得ます。
+        </div>
+        <div class="grid3" role="presentation" aria-label="risk factors">
+          <div class="cell">
+            <div class="k">入口</div>
+            <div class="v">ツール呼び出しの引数</div>
+          </div>
+          <div class="cell">
+            <div class="k">転送</div>
+            <div class="v">パーサ/テンプレ/評価関数</div>
+          </div>
+          <div class="cell">
+            <div class="k">実行</div>
+            <div class="v">任意コード実行（CVEが例）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">既知の“実例”</div>
+        <h2 class="title">eval と CVE</h2>
+        <div class="lead">
+          記事は、vLLMが過去にツール処理で eval() を用いていた点や、CVE-2025-9141（XMLベースのツールパーサで任意コード実行に繋がり得た）を挙げています。単なる理論ではなく“起こり得る”ことが示唆されます。
+        </div>
+        <div class="grid" role="presentation" aria-label="examples">
+          <div class="cell">
+            <div class="k">例1</div>
+            <div class="v">vLLM：ツール処理で eval()</div>
+          </div>
+          <div class="cell">
+            <div class="k">例2</div>
+            <div class="v">CVE-2025-9141：XMLツールパーサ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">単純入力 vs 構造入力</div>
+        <h2 class="title">脅威の違い</h2>
+        <div class="lead">
+          「プロンプト注入」は入力の話ですが、本件は“パース誤認”です。LLM→構造化のどこかで危険な評価や解釈が走ると、注入がコード実行トリガに変わります。
+        </div>
+        <div class="grid" role="presentation" aria-label="threat comparison">
+          <div class="cell">
+            <div class="k">従来の注入</div>
+            <div class="v">テキストとして誤誘導</div>
+          </div>
+          <div class="cell">
+            <div class="k">今回の焦点</div>
+            <div class="v">トークン→構造→評価（誤認）</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">出力の不正</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">実行の不正（ホスト侵害へ）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">マルチモーダルの位置</div>
+        <h2 class="title">攻撃面は拡張</h2>
+        <div class="lead">
+          記事は、現時点で主要経路と断定はしていません。とはいえ画像/音声などでは追加の処理が増え、将来の媒体生成最適化で“攻撃しやすい形”に変化する可能性を警戒しています。
+        </div>
+        <div class="grid" role="presentation" aria-label="multimodal notes">
+          <div class="cell">
+            <div class="k">現状</div>
+            <div class="v">制約されたメディアトークン→デコーダ変換が多い</div>
+          </div>
+          <div class="cell">
+            <div class="k">将来</div>
+            <div class="v">生成経路が変わると攻撃適性が上がり得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">攻撃の成立手順</div>
+        <h2 class="title">探索→再利用</h2>
+        <div class="lead">
+          実現性は不確実でも、「有用な脆弱性を突くトークン列」が一度見つかれば、ファイル名/URL/別LLMの文脈などで永続的に持ち込めます（プロンプトインジェクションの再現性が上がる）。
+        </div>
+        <div class="grid3" role="presentation" aria-label="attack steps">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">脆弱なパースに到達するトークン列を発見</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">保存・転送（コンテキスト汚染）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">再投入で再現（継続的な侵害）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">Enumeration</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">論点まとめ</div>
+        <h2 class="title">5点の要旨</h2>
+        <div class="lead">
+          この記事が強調する要点は「推論エンジンの解釈が攻撃面」「既知脆弱性が現実味」「複雑化でミスが増える」「攻撃手順が永続化」「分離設計が鍵」です。
+        </div>
+        <div class="grid" role="presentation" aria-label="key points grid">
+          <div class="cell">
+            <div class="k">①</div>
+            <div class="v">LLM→ホストが“パース/解釈”で成立</div>
+          </div>
+          <div class="cell">
+            <div class="k">②</div>
+            <div class="v">eval() や CVE が“起こり得る”根拠</div>
+          </div>
+          <div class="cell">
+            <div class="k">③</div>
+            <div class="v">対応数・テンプレ・更新で複雑化</div>
+          </div>
+          <div class="cell">
+            <div class="k">④</div>
+            <div class="v">攻撃トークン列は再利用できる</div>
+          </div>
+          <div class="cell">
+            <div class="k">⑤</div>
+            <div class="v">権限分離と境界設計が被害を局所化</div>
+          </div>
+          <div class="cell">
+            <div class="k">注</div>
+            <div class="v">確率は不確実でも“前提設計”は可能</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">防御は分離で</div>
+        <h2 class="title">GPUホスト隔離</h2>
+        <div class="lead">
+          提案の核心は、GPUホスト（モデル重みロード/推論）とトークンパーサを別計算機に分離することです。GPUホストは logits（logits = 予測のスコア）だけを出し、パーサ側の侵害が波及しない構造を作ります。
+        </div>
+        <div class="grid" role="presentation" aria-label="defense design">
+          <div class="cell">
+            <div class="k">GPUホスト</div>
+            <div class="v">logitsのみ（推論機）</div>
+          </div>
+          <div class="cell">
+            <div class="k">パーサホスト</div>
+            <div class="v">構造化・ツール解釈（解析機）</div>
+          </div>
+          <div class="cell">
+            <div class="k">信頼</div>
+            <div class="v">GPU→パーサは未信頼（untrusted）</div>
+          </div>
+          <div class="cell">
+            <div class="k">権限</div>
+            <div class="v">最小権限（least privilege）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">定量不足への注意</div>
+        <h2 class="title">確度は未確定</h2>
+        <div class="lead">
+          記事は「起こり得るが不確実」と扱っています。成立には複数条件が必要で、挙動の頻度や“どの構成で最優先か”は定量評価が不足しているため、監査の優先順位は自組織で決める必要があります。
+        </div>
+        <div class="grid" role="presentation" aria-label="unknowns">
+          <div class="cell">
+            <div class="k">未確定</div>
+            <div class="v">どの設定で成立しやすいか</div>
+          </div>
+          <div class="cell">
+            <div class="k">未確定</div>
+            <div class="v">監査の最優先コンポーネント</div>
+          </div>
+          <div class="cell">
+            <div class="k">トレードオフ</div>
+            <div class="v">分離設計の遅延・運用負荷</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">“脅威前提”で境界を固める</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="slide-inner">
+        <div class="eyebrow">今日できること</div>
+        <h2 class="title">境界を守る</h2>
+        <div class="lead">
+          モデルだけでなく推論エンジンの解釈機構まで含めて“システム安全”として設計してください。パッチ適用＋未信頼扱い＋権限分離＋監査ログ/異常検知＋（可能なら）再現性の高いレッドチームで検証します。
+        </div>
+        <div class="grid" role="presentation" aria-label="action items">
+          <div class="cell">
+            <div class="k">①</div>
+            <div class="v">パッチ適用（既知脆弱性の封じ）</div>
+          </div>
+          <div class="cell">
+            <div class="k">②</div>
+            <div class="v">未信頼（untrusted）として扱う</div>
+          </div>
+          <div class="cell">
+            <div class="k">③</div>
+            <div class="v">権限最小化・分離（GPUホスト隔離）</div>
+          </div>
+          <div class="cell">
+            <div class="k">④</div>
+            <div class="v">監査ログ＋異常検知（追跡可能性）</div>
+          </div>
+          <div class="cell">
+            <div class="k">⑤</div>
+            <div class="v">レッドチーム（パース系攻撃を再現）</div>
+          </div>
+          <div class="cell">
+            <div class="k">用語</div>
+            <div class="v">パース（解析）/ logits（予測スコア）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.lesswrong.com/posts/CjeobBGnhxg8xvden/llms-could-control-their-host-machines-by-exploiting" target="_blank" rel="noreferrer noopener">LLMs could control their host machines by exploiting inference ...</a></h2>
+<p class="reference-note">`eval()`
+
+CVE-2025-9141 was an arbitrary-code execution bug in vLLM’s XML-based tool parser for Qwen3 Coder. The parser …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://access.redhat.com/security/cve/cve-2025-9141" target="_blank" rel="noreferrer noopener">CVE-2025-9141</a></h2>
+<p class="reference-note">## Description
+
+A vulnerability was found in vLLM&#39;s Qwen3 Coder tool parser. Since this parser uses Python&#39;s eval() func…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://app.opencve.io/cve?product=vllm&amp;vendor=vllm-project" target="_blank" rel="noreferrer noopener">Vllm CVEs and Security Vulnerabilities - OpenCVE</a></h2>
+<p class="reference-note">| vLLM is an inference and serving engine for large language models (LLMs). Prior to 0.22.0, an assert-based security ch…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://opencve.alliance.unm.edu/cve?vendor=vllm&amp;product=vllm&amp;page=2" target="_blank" rel="noreferrer noopener">Vllm CVEs and Security Vulnerabilities - OpenCVE</a></h2>
+<p class="reference-note">| vLLM is an inference and serving engine for large language models (LLMs). Starting in version 0.10.1 and prior to vers…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.vllm.ai/en/stable/usage/security" target="_blank" rel="noreferrer noopener">Security</a></h2>
+<p class="reference-note">vLLM assumes that its cache directories are private and trusted. Cache contents are loaded without cryptographic integri…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
