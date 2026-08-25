@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Beeline: eBPFでL7ポリシー処理をカーネル内専用化する</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.45;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 24px auto 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      display: block;
+      position: relative;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .frame{
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 56px 48px 40px 48px;
+    }
+
+    .top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute; left:0; top: 6px; bottom: 6px;
+      width: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+      border-radius: 2px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      margin-top: -4px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 12px 0;
+      letter-spacing: -0.02em;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .divider{
+      position:absolute;
+      left: 56px; right: 56px;
+      bottom: 38px;
+      height: 1px;
+      background: var(--rule);
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 18px;
+      margin-top: 18px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      word-break: break-word;
+    }
+
+    .footnote{
+      position:absolute;
+      left: 56px; right: 56px;
+      bottom: 16px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 12.5px;
+    }
+
+    .center-hero{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      justify-content:center;
+      align-items:flex-start;
+      gap: 14px;
+    }
+
+    .one-line{
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    @media (max-width: 860px){
+      .frame{ padding: 48px 22px 32px 22px; inset: 16px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .divider{ left: 22px; right: 22px; }
+      .footnote{ left: 22px; right: 22px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+
+        <div class="center-hero">
+          <div class="eyebrow">eBPFでL7を専用化</div>
+          <h1 class="title"><i>Beeline</i> </h1>
+          <p class="lead">サービスメッシュのL7ポリシー適用を、汎用プロキシではなく<strong><span style="color:var(--rust)">カーネル内</span></strong>の専用データプレーンとして実行する発想。</p>
+        </div>
+
+        <div class="divider"></div>
+        <div class="footnote">対象：L7ポリシー（HTTP/TLS等）を扱うデータプレーン（例：Envoy）／用語：eBPF・L7・L7ポリシー</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+
+        <div class="eyebrow">L7は重くなりがち</div>
+        <h2 class="title">なぜ</h2>
+        <p class="lead">L7ポリシー（HTTPヘッダ監視・ルーティング、認可、JWT検証、RBAC、テレメトリ等）は処理が増えやすく、レイテンシやスループットへ影響しやすい。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">よく遅い</div>
+            <div class="v">HTTP/TLS周辺のパース・判定・実行</div>
+          </div>
+          <div class="cell">
+            <div class="k">既存は</div>
+            <div class="v">ユーザ空間プロキシ（例：Envoy）で一括処理</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Core idea slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+
+        <div class="eyebrow">プロキシを“横切る”</div>
+        <h2 class="title"><i>ではなく</i> </h2>
+        <p class="lead">Beelineは「プロキシの横を速くする」発想ではなく、「必要なL7処理そのものを、eBPFでカーネル内に専用実行する」点に価値がある。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">従来</div>
+            <div class="v">L7を汎用プロキシへ集約</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">L7パース・判定を専用eBPFへ</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">CPUコストと遅延の削減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Evidence slide about overhead">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+
+        <div class="eyebrow">原因はHTTPパース</div>
+        <h2 class="title"><i>3.4ms</i> の内訳</h2>
+        <p class="lead">Envoy追加遅延3.4msのうち、過半を占めるのがHTTPパース（1.8ms）。IPCなど他要因は相対的に小さい（約0.5ms）。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">HTTPパース</div>
+            <div class="v">1.8ms（主要因）</div>
+          </div>
+          <div class="cell">
+            <div class="k">IPC等</div>
+            <div class="v">約0.5ms（相対小）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Architecture slide parse match action">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+
+        <div class="eyebrow">Parse / Match / Action</div>
+        <h2 class="title"><i>三段構成</i></h2>
+        <p class="lead">eBPF側は、(i)必要ヘッダだけ選択的抽出、(ii)単純比較で該当ポリシー特定、(iii)実行してforwardまたはdropへ、の流れで処理する。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i &nbsp; Parse</div>
+            <div class="v">必要なヘッダのみ抽出</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii &nbsp; Match</div>
+            <div class="v">抽出値で単純比較</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii &nbsp; Action</div>
+            <div class="v">ルーティング/操作/検証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Selective parsing details slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+
+        <div class="eyebrow">“完全解析”を避ける</div>
+        <h2 class="title"><i>Parse</i> </h2>
+        <p class="lead">Parseでは、ポリシーに必要なフィールドだけを抽出し、完全な構文解析を避けることでCPU負荷を下げる。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">ポリシーに直結するフィールド優先</div>
+          </div>
+          <div class="cell">
+            <div class="k">補足例</div>
+            <div class="v">TLSはkTLSと組み合わせて復号後データを処理（前提）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Action slide capabilities">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">enumeration</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+
+        <div class="eyebrow">Actionで“実行”</div>
+        <h2 class="title">何をする</h2>
+        <p class="lead">Actionは、ルーティング、ヘッダ操作、RBAC、JWT検証、テレメトリ収集などを行い、最終的にforwardまたはdropへ進める。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">制御</div>
+            <div class="v">forward / drop</div>
+          </div>
+          <div class="cell">
+            <div class="k">認可</div>
+            <div class="v">RBAC / JWT検証</div>
+          </div>
+          <div class="cell">
+            <div class="k">可観測</div>
+            <div class="v">テレメトリ収集</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Slow path slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+
+        <div class="eyebrow">万能化しない</div>
+        <h2 class="title"><i>slow path</i> </h2>
+        <p class="lead">BeelineはeBPFに不向きな処理をslow pathへ回し、既存プロキシへフォールバックできる。段階導入の現実性を保つ設計。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">eBPFが得意</div>
+            <div class="v">必要ヘッダ抽出・単純比較・専用実行</div>
+          </div>
+          <div class="cell">
+            <div class="k">eBPFが苦手</div>
+            <div class="v">暗号・能動送信・扱いにくい拡張など</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Coverage slide about 89%">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+
+        <div class="eyebrow">適用率 89%</div>
+        <h2 class="title">どこまで</h2>
+        <p class="lead">Envoy設定を多数収集しL7ポリシーを分類した結果、約89%は「カーネル変更なしでeBPF実装可能」という主張が提示されている。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">主張</div>
+            <div class="v">89%：カーネル変更なしで対応</div>
+          </div>
+          <div class="cell">
+            <div class="k">前提</div>
+            <div class="v">手動分類に依存（適用率は変動し得る）</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Performance slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+
+        <div class="eyebrow">ベンチで改善</div>
+        <h2 class="title">性能</h2>
+        <p class="lead">DeathStarBench系ワークロードやEcho Service等で、レイテンシ分位とスループットの両面で改善が見られ、特にHTTP/2やgRPCの現実負荷で優位が出たとされる。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">指標</div>
+            <div class="v">レイテンシ分位</div>
+          </div>
+          <div class="cell">
+            <div class="k">指標</div>
+            <div class="v">スループット</div>
+          </div>
+          <div class="cell">
+            <div class="k">効きやすい例</div>
+            <div class="v">HTTP/2 / gRPC</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Limits and risks slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+
+        <div class="eyebrow">万能薬ではない</div>
+        <h2 class="title"><i>slow path</i> が鍵</h2>
+        <p class="lead">slow pathの最悪ケースでは、大きなHTTPヘッダを含むトラフィックでeBPF側のパース負担が効き、効果が相殺され得る。HTTP/2や複雑ポリシーでも制約がある。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">縮む利得</div>
+            <div class="v">巨大ヘッダ / 重いポリシー</div>
+          </div>
+          <div class="cell">
+            <div class="k">制約例</div>
+            <div class="v">HTTP/2の動的ヘッダテーブル等</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Closing and decision slide">
+      <div class="frame">
+        <div class="top">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+
+        <div class="eyebrow">結論：導入判断が要る</div>
+        <h2 class="title"><i>次の一手</i> </h2>
+        <p class="lead">BeelineはL4高速化の次として「L7ポリシーの専用カーネル化」を現実に寄せる研究だが、適用率・slow path確率・自組織のポリシー複雑度で勝ち負けが決まる。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">強み</div>
+            <div class="v">HTTPパース起点のボトルネックへ専用eBPFで対処</div>
+          </div>
+          <div class="cell">
+            <div class="k">実務の確認</div>
+            <div class="v">ヘッダサイズ分布 / ポリシー複雑度 / フォールバック頻度を精査（要実測）</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="footnote">用語：eBPF（カーネル内で安全に実行） / Envoy（サービスメッシュDP） / L7（アプリ層） / L7ポリシー（HTTP/TLS等のルール）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2605.31084v4" target="_blank" rel="noreferrer noopener">Enforcing Application-Layer Policies in eBPF</a></h2>
+<p class="reference-note">Next, we assess the worst-case scenario, where all messages are processed on the slow path. In this case, Beeline redire…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.to/linou518/ebpf-in-2026-the-kernel-revolution-powering-cloud-native-security-and-observability-22jd" target="_blank" rel="noreferrer noopener">eBPF in 2026: The Kernel Revolution Powering Cloud-Native Security and Observability - DEV Community</a></h2>
+<p class="reference-note">Major Cloud Providers: eBPF network observability restructuring reduced server utilization by 3x
+ Major E-commerce Platf…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.tigera.io/learn/guides/ebpf/ebpf-kubernetes" target="_blank" rel="noreferrer noopener">eBPF for Kubernetes: 5 Critical Benefits &amp; Best Practices</a></h2>
+<p class="reference-note">eBPF programs attach to kernel subsystems to collect metrics with minimal overhead. They can be configured to emit telem…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://oneuptime.com/blog/post/2026-01-07-ebpf-kubernetes-network-policies/view" target="_blank" rel="noreferrer noopener">How to Implement Network Policies with eBPF on Kubernetes</a></h2>
+<p class="reference-note">```
+flowchart TB subgraph &quot;L7 Policy Processing&quot; A[HTTP Request] --&gt; B[eBPF TC Hook] B --&gt; C{L3/L4  
+Policy Check} C --&gt;…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://eunomia.dev/tutorials/23-http" target="_blank" rel="noreferrer noopener">L7 Tracing with eBPF: HTTP and Beyond via Socket Filters and Syscall Tracepoints | eunomia</a></h2>
+<p class="reference-note">This article is part of the eBPF Developer Tutorial, and for more detailed content, you can visit here. The source code …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
