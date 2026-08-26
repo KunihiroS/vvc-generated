@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG検索：まず全文、必要なら段階的に</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 24px auto 64px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 10px;
+      position: relative;
+      top: -2px;
+      white-space: nowrap;
+    }
+    .slide-tag:before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 22px;
+      background: var(--rule-strong);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin-top: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 74px;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--ink);
+      line-height: 0.98;
+      position: relative;
+      z-index: 1;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      margin-top: 18px;
+      font-family: "Noto Serif JP", serif;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid{
+      margin-top: 18px;
+      display:grid;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+      max-width: 900px;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 16px;
+      border-radius: 2px;
+      min-height: 72px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 8px;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0;
+      position: relative;
+      z-index: 1;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .jp{
+      font-weight: 500;
+      color: var(--ink-2);
+    }
+    .bilingual{
+      display:flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items:baseline;
+    }
+    .bilingual .en{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink);
+      font-size: 15px;
+      font-style: italic;
+    }
+    .bilingual .ja{
+      color: var(--ink-3);
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .footer-note{
+      position:absolute;
+      left:72px;
+      right:72px;
+      bottom:44px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      color: var(--ink-4);
+      z-index: 1;
+    }
+
+    /* ensure 16:9 card always */
+    @media (max-width: 720px){
+      .slide{ padding: 40px 22px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .slide-num{ font-size: 18px; }
+      .footer-note{ left:22px; right:22px; bottom:30px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="slide-topline">
+        <div class="slide-tag">RAG RETRIEVAL</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">複雑にする前に</div>
+      <div class="title">まず <span class="em">全文</span></div>
+      <div class="lead">
+        RAGの検索（retrieval）は、最初からベクトルDBに飛びつかず「問題の性質」に合わせて段階的に選ぶのが合理的です。
+        目的は“正しい根拠文書を見つける”ことです。
+      </div>
+      <div class="footer-note">Bilingual: retrieval（検索）/ 根拠抽出</div>
+    </section>
+
+    <section class="slide problem">
+      <div class="slide-topline">
+        <div class="slide-tag">WHY NOT</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">過剰最適化の罠</div>
+      <div class="title"><span class="em">意味</span>から始めがち</div>
+      <div class="lead">
+        「意味検索＝埋め込み」が万能に見えても、チャンク設計・再埋め込み評価・レイテンシ・運用負荷で重くなりがちです。
+        まず入口を確保しないと、どの高度化も“効きません”。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">入力（クエリ）</div>
+          <div class="v">キーワード型が多い / 表現ゆれが混ざる</div>
+        </div>
+        <div class="cell">
+          <div class="k">失敗の本質</div>
+          <div class="v">文書が拾えない → 次工程が全部不発</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="slide-topline">
+        <div class="slide-tag">FOUNDATION</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">選び方の前提</div>
+      <div class="title">比較軸を固定</div>
+      <div class="lead">
+        検索手法は「データ鮮度（更新頻度）」と「レイテンシ（応答速度）」のトレードオフで変わります。
+        また、クエリの形と文書特性が勝敗を決めます。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">鮮度</div>
+          <div class="v">更新が多いほど再埋め込みが重い</div>
+        </div>
+        <div class="cell">
+          <div class="k">速度</div>
+          <div class="v">候補生成＋再ランキングが増えるほど遅い</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">モデル非推奨や移行のリスクが効く</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="slide-topline">
+        <div class="slide-tag">RECIPE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">最初の一手</div>
+      <div class="title">BM25＋全文</div>
+      <div class="lead">
+        多くの課題は「そもそも存在する文書を見つけられていない」ことです。
+        BM25（全文検索）は根拠一致が追いやすく、チャンクや再埋め込みの検証負担が小さいため、最初に速く価値提供できます。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">パスワードリセットの手順のように“存在するもの”を当てる</div>
+        </div>
+        <div class="cell">
+          <div class="k">利点</div>
+          <div class="v">評価（A/B・オフライン）が回しやすい / 最小構成で検証できる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="slide-topline">
+        <div class="slide-tag">QUERY</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">ボトルネック狙い</div>
+      <div class="title">クエリ書き換え</div>
+      <div class="lead">
+        “意味検索が必要”と思っている多くは、語彙の不一致（同義語・ストップワード・語順・ドメイン固有語）で解けます。
+        失敗時の手直しはチャンクや埋め込みの作り直しではなく、プロンプト調整で済みます。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">効きやすい差</div>
+          <div class="v">同義語 / 言い換え / ストップワード</div>
+        </div>
+        <div class="cell">
+          <div class="k">直し方</div>
+          <div class="v">クエリ変換ルール or LLM書き換え</div>
+        </div>
+        <div class="cell">
+          <div class="k">効果</div>
+          <div class="v">運用サイクル短縮 / 早い改善</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="slide-topline">
+        <div class="slide-tag">WHEN</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">段階の順序</div>
+      <div class="title">上から試す</div>
+      <div class="lead">
+        検索の設計は「(i)全文 → (ii)必要ならクエリ書き換え → (iii)意味が必要な時だけ」へ段階的に進めます。
+        いきなり全てを入れないことで検証と撤退が容易になります。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">ステップ i</div>
+          <div class="v">BM25（全文）で候補を得る</div>
+        </div>
+        <div class="cell">
+          <div class="k">ステップ ii</div>
+          <div class="v">クエリ書き換えでミスマッチを減らす</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="slide-topline">
+        <div class="slide-tag">MEANING</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">意味が必要なら</div>
+      <div class="title">ハイブリッド</div>
+      <div class="lead">
+        BM25のキーワード一致の強さと、埋め込みの意味理解の強さを組み合わせます。
+        具体的には「疎検索で候補生成 → 密検索で再ランキング」が費用対効果の良い現実解です。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">疎（Sparse）</div>
+          <div class="v">BM25で候補を絞る（速い）</div>
+        </div>
+        <div class="cell">
+          <div class="k">密（Dense）</div>
+          <div class="v">埋め込みで再ランキング（精度）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="slide-topline">
+        <div class="slide-tag">FRESHNESS</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">更新頻度で分岐</div>
+      <div class="title">再埋め込み回避</div>
+      <div class="lead">
+        データ更新が頻繁だと、再埋め込みはコストと運用負荷が増えます。
+        その場合はオンザフライ（queryごと/候補ごとの埋め込み）やホット/コールドティアで折り合いを付けます。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">オンザフライ</div>
+          <div class="v">鮮度重視 / ただし200–500ms増の可能性</div>
+        </div>
+        <div class="cell">
+          <div class="k">ホット/コールド</div>
+          <div class="v">頻出だけプリ / それ以外は後段へ</div>
+        </div>
+        <div class="cell">
+          <div class="k">結論</div>
+          <div class="v">“最新”と“速さ”を設計で両立</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="slide-topline">
+        <div class="slide-tag">TIERING</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">パレートで効率化</div>
+      <div class="title">ホット/コールド</div>
+      <div class="lead">
+        アクセスが偏る（パレート性）なら、頻出文書をホットにして速度とコストを両立しやすくなります。
+        ログが無いなら、まず観測期間を取って推定します。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">必要条件</div>
+          <div class="v">アクセスが偏っている（上位が大半を占める）</div>
+        </div>
+        <div class="cell">
+          <div class="k">手順</div>
+          <div class="v">アクセスログ→ホット領域→プリ埋め込み</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="slide-topline">
+        <div class="slide-tag">SCOPE</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">全件プリは最後</div>
+      <div class="title">プリ埋め込み</div>
+      <div class="lead">
+        大量トラフィックかつデータが安定している場合に限り、「全件プリ埋め込み」が検討されます。
+        モデル非推奨に備えて、移行コストと回帰テストも設計に含めます。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">向く条件</div>
+          <div class="v">データ安定 / 大規模アクセス / レイテンシ優先</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意点</div>
+          <div class="v">モデル更新でベクトル再作成が必要になり得る</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="slide-topline">
+        <div class="slide-tag">AGENT</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">複数意図クエリ</div>
+      <div class="title">分解して並列</div>
+      <div class="lead">
+        「CSVを読み→欠損を直し→プロット」のように複数意図が混ざるときは、クエリ分解が効きます。
+        サブクエリ別に最適ルーティング→並列実行→統合するエージェント的アプローチが有効です。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">分解</div>
+          <div class="v">意図ごとにサブクエリ</div>
+        </div>
+        <div class="cell">
+          <div class="k">ルーティング</div>
+          <div class="v">安価/高価手法を使い分け</div>
+        </div>
+        <div class="cell">
+          <div class="k">統合</div>
+          <div class="v">結果を最大遅延で束ねる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="slide-topline">
+        <div class="slide-tag">GUIDE</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">意思決定の目安</div>
+      <div class="title">60 / 25 / 10 / 5</div>
+      <div class="lead">
+        実務では「60%は全文＋クエリ書き換えで止める、25%はハイブリッド＋（オンザフライ or ホット/コールド）、10%は全件プリ、残り5%は特注」が目安になります。
+        早期に過剰最適化へ進むのを防ぐ“撤退基準”として機能します。
+      </div>
+      <div class="grid four" style="grid-template-columns:1fr 1fr; max-width: 740px;">
+        <div class="cell">
+          <div class="k">60%</div>
+          <div class="v">全文＋クエリ書き換え</div>
+        </div>
+        <div class="cell">
+          <div class="k">25%</div>
+          <div class="v">ハイブリッド（密で再ランキング）</div>
+        </div>
+        <div class="cell">
+          <div class="k">10%</div>
+          <div class="v">全件プリ埋め込み</div>
+        </div>
+        <div class="cell">
+          <div class="k">5%</div>
+          <div class="v">特注（例外対応）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="slide-topline">
+        <div class="slide-tag">LIMITS</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">ただし検証必須</div>
+      <div class="title">A/Bで確かめる</div>
+      <div class="lead">
+        提示される割合やレイテンシの前提は環境依存です。
+        最終判断は自社データでベースライン比較（A/B、オフライン評価、ユーザーフィードバック）を回して行うべきです。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">不足しがちな情報</div>
+          <div class="v">KPI（正解率/MRR/NDCG）、評価方法、失敗ケース定量</div>
+        </div>
+        <div class="cell">
+          <div class="k">推奨の進め方</div>
+          <div class="v">最小構成（BM25）→必要箇所だけ段階移行</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="slide-topline">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">最短ルート</div>
+      <div class="title">BM25→書き換え→</div>
+      <div class="title" style="margin-top:6px; font-size:66px;">必要時だけ<span class="em">密</span></div>
+      <div class="lead">
+        まずは全文検索で根拠文書を拾い、次にクエリ書き換えで語彙ミスマッチを潰します。
+        意味が本当に必要な時だけ、ハイブリッドや鮮度に応じた方式（オンザフライ/ホット/コールド/全件プリ）へ進みます。
+      </div>
+      <div class="footer-note">Bilingual: BM25（全文）/ クエリ書き換え / ハイブリッド（疎＋密）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.starmorph.com/blog/rag-techniques-compared-best-practices-guide" target="_blank" rel="noreferrer noopener">RAG Techniques Compared: A Practical Guide to Retrieval ...</a></h2>
+<p class="reference-note">Run both dense and sparse retrieval, then fuse the results with Reciprocal Rank Fusion (RRF). The benchmarks are conclus…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://interestingengineering.substack.com/p/from-bm25-to-agentic-rag-the-evolution" target="_blank" rel="noreferrer noopener">From BM25 to Agentic RAG: The Evolution of Machine Memory</a></h2>
+<p class="reference-note">Reality check: Recent benchmarks reveal that combining two imperfect approaches rarely produces satisfactory results for…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://rag-engine.cloud/blog/hybrid-search-bm25-plus-vectors" target="_blank" rel="noreferrer noopener">Hybrid Search: BM25 + Vectors for Better Relevance | RAG Engine</a></h2>
+<p class="reference-note">BM25 ensures the result is a &quot;laptop,&quot; while the vector component finds ones that match the \concepts\ of being futurist…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2604.01733v1" target="_blank" rel="noreferrer noopener">From BM25 to Corrective RAG: Benchmarking Retrieval ...</a></h2>
+<p class="reference-note">On every metric except Recall@20, BM25 outperforms dense retrieval with text-embedding-3-large, one of the strongest com…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://community.netapp.com/community/discussion/464834/hybrid-rag-in-the-real-world-graphs-bm25-and-the-end-of-black-box-retrieval" target="_blank" rel="noreferrer noopener">Hybrid RAG in the Real World: Graphs, BM25, and the End of Black-Box Retrieval - NetApp Community</a></h2>
+<p class="reference-note">The video below explains how BM25, vector, and graph retrieval differ when answering questions on the same dataset. The …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
