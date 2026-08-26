@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jalapeño vs 主要推論アクセラレータ：効率・設計・検証の論点</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 48px;
+      display: block;
+    }
+
+    .slide {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 18px;
+      margin: 18px 0;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 14px;
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute; left:72px; right:72px; top:46px;
+      display:flex; align-items:flex-start; justify-content:space-between;
+      gap: 16px;
+      z-index:2;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-size: 18px;
+      text-transform: uppercase;
+      display:flex; align-items:center; gap:10px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 22px; height: 2px;
+      background: var(--rust);
+      display:inline-block;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+
+    .content{
+      position:relative; z-index:2;
+      height: 100%;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      padding-top: 34px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      line-height: 1.1;
+    }
+
+    .title{
+      font-size: 72px;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      line-height: 1;
+      margin-top: 2px;
+      color: var(--ink);
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 1;
+      margin-top: 2px;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink-2);
+      margin-top: 4px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      margin-top: 6px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px 18px;
+      margin-top: 6px;
+      align-items:start;
+      max-width: 900px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      background: rgba(28,24,19,0.35);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .cell .v em{
+      font-style: italic;
+      color: var(--ink);
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px 14px;
+      margin-top: 6px;
+      align-items:start;
+      max-width: 980px;
+    }
+
+    .note{
+      margin-top:auto;
+      color: var(--ink-4);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.02em;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 40px; border-radius: 16px; }
+      .topline{ left:40px; right:40px; top:38px; }
+      .title{ font-size: 54px; }
+      .title.jp{ font-size: 56px; }
+      .lead{ font-size: 18px; max-width: 100%; }
+      .slide-tag{ font-size: 16px; }
+      .slide-num{ font-size: 20px; }
+      .grid, .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">電力制約で決まる勝負</div>
+        <div class="title">Jalapeño</div>
+        <div class="lead">
+          OpenAIの推論ASIC「Jalapeño」を、電力効率（tokens per MW / perf/W）・アーキテクチャ・ソフト立ち上げ・比較の注意点の観点で整理します（Jalapeño 日本語: ジャラペーニョ）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">比べる軸</div>
+            <div class="v">perf/W（電力効率）× 低同時実行の応答性（interactive）</div>
+          </div>
+          <div class="cell">
+            <div class="k">比較相手</div>
+            <div class="v">NVIDIA/AMD/Google系アクセラレータ、次世代推論ASICとして Rubin（Vera Rubin）</div>
+          </div>
+        </div>
+        <div class="note">本要約はユーザー提示テキスト（Jalapeño記事の主張・論点）を圧縮した読解用スライドです。</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">MWが利益を決める</div>
+        <div class="title">perf/Wが本丸</div>
+        <div class="lead">
+          データセンターでは電力が制約になり、計算が速いだけでは不十分です。重要なのは「同じ電力（MW）でどれだけトークンを出せるか」です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">指標</div>
+            <div class="v"><em>tokens per MW</em>（= perf/Wの実質）</div>
+          </div>
+          <div class="cell">
+            <div class="k">なぜ重要</div>
+            <div class="v">建設・運用規模が同じなら、収益に直結するため</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">前提</div>
+            <div class="v">prefill（入力処理）と decode（生成）で要求が違う</div>
+          </div>
+          <div class="cell">
+            <div class="k">性能の落とし穴</div>
+            <div class="v">キャッシュ/同期/メモリ移動が“待ち”を作ると失速</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">速さではなく“効率航行”</div>
+        <div class="title">静かな強さ</div>
+        <div class="lead">
+          Jalapeñoの主張は、単に理論演算を上げるより「電力あたりに出せるトークン」と「現場の応答感」を同時に狙うことです。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">狙い i</div>
+            <div class="v"><em>低同時実行</em>でも良いdecode効率（interactive）</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い ii</div>
+            <div class="v">HBM4前提で帯域ボトルネックを抑制</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い iii</div>
+            <div class="v">hardware/software co-designで“使える性能”を最短化</div>
+          </div>
+        </div>
+        <div class="note">技術の良さは、最終的に運用の揺らぎ（比率変動・キャッシュ状態）で現れます。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">HBM4と移動削減</div>
+        <div class="title">メモリ勝負</div>
+        <div class="lead">
+          推論はKVキャッシュや重みの移動で効率が決まりやすいので、JalapeñoはHBM4と“移動コスト最小化”の思想で刺しに行くとされます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">ボトルネック</div>
+            <div class="v">KVキャッシュ・重み移動／同期待ち／潜在レイテンシ</div>
+          </div>
+          <div class="cell">
+            <div class="k">対策</div>
+            <div class="v">ローカル視点のスライシング、同期の最小化、NoC簡素化の方向</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">期待される効果</div>
+            <div class="v">“帯域あたりの強さ”がperf/Wに反映されやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">意味</div>
+            <div class="v">GPUの複雑な階層待ちを相対的に減らす、という読み</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Software co-design">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">9か月で実戦投入</div>
+        <div class="title">Co-design加速</div>
+        <div class="lead">
+          Jalapeñoはテープアウト後の立ち上げが非常に速く、さらにCodex支援でカーネル最適化を進めた点が競争力の核として強調されています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">ハード進捗</div>
+            <div class="v">A0ステッピングで成果 → B0は約25%改善（提示ベース）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ソフト進捗</div>
+            <div class="v">Teacup（サービング）/ Gluon（カーネル記述）/ Codexで最適化粒度を引き上げ</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">重要な主張</div>
+            <div class="v">“性能を引き出すまでの時間”が差になる</div>
+          </div>
+          <div class="cell">
+            <div class="k">含意</div>
+            <div class="v">チップ単体より、エコシステム適用の速度が競争になる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="PDD and variability">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">PDDしない判断</div>
+        <div class="title">揺らぎ耐性</div>
+        <div class="lead">
+          Jalapeñoはprefill/decode分離（PDD）を採らず、同一デバイス内で扱う方針で運用変動に強くする狙いが語られます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">PDDの弱点</div>
+            <div class="v">トラフィック比率が時間で変わり、分離側の稼働率が崩れやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">追加コスト</div>
+            <div class="v">KVキャッシュ状態移動が必要になり、帯域・同期・待ちが増える可能性</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">局所性を維持し、調整コストを抑える（現場の揺らぎに適応）</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">“机上最適”ではなく“運用での頑健性”を取りに行く姿勢</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Decoding techniques">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">decode手法が比較を歪める</div>
+        <div class="title">STP / MTP</div>
+        <div class="lead">
+          LLM推論の評価は、STP（Single Token Prediction）/ MTP（Multi Token Prediction）やspeculative decodingの前提が違うだけでフェアでなくなります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">STP</div>
+            <div class="v">1ステップで1トークンを確定して生成</div>
+          </div>
+          <div class="cell">
+            <div class="k">MTP</div>
+            <div class="v">複数トークンを同時に予測して進める</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">speculative</div>
+            <div class="v">草案モデルで候補を進め、検証（確定）でコストを下げる</div>
+          </div>
+          <div class="cell">
+            <div class="k">比較の注意</div>
+            <div class="v">方式差はtokens/Wや遅延に直結し、条件統一が必須</div>
+          </div>
+        </div>
+        <div class="note">同じ“トークン数”でも、何をどの段階で計算したかがズレます。</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Competitive claim">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">競合を上回る可能性</div>
+        <div class="title">tokens per MW</div>
+        <div class="lead">
+          記事の主張では、（比較条件の注意点はあるが）Jalapeñoは電力効率と低同時実行で、テスト可能だった競合チップ群を上回るとされています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">強み i</div>
+            <div class="v">perf/W（電力効率）で優位</div>
+          </div>
+          <div class="cell">
+            <div class="k">強み ii</div>
+            <div class="v">concurrency 1でも良い応答</div>
+          </div>
+          <div class="cell">
+            <div class="k">強み iii</div>
+            <div class="v">実際に動かし最適化を短期で完了</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">文脈</div>
+            <div class="v">CUDAモート（GPUエコシステム）に対する脅威になり得る、という含意</div>
+          </div>
+          <div class="cell">
+            <div class="k">ただし</div>
+            <div class="v">“勝敗”には後述の検証ギャップが残る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Limitations">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">未検証が多い</div>
+        <div class="title">限界点</div>
+        <div class="lead">
+          記事には重要な限界があり、数値はOpenAI提示中心・検証範囲が限定・AgentX未提示・比較の前提差が残るため、断定は危険です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">検証範囲</div>
+            <div class="v">InferenceXの一部に留まる（提示範囲ベース）</div>
+          </div>
+          <div class="cell">
+            <div class="k">次の評価</div>
+            <div class="v">AgentX（現実的多ターン）での結果がまだない</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">比較の公平性</div>
+            <div class="v">Blackwellとの比較は不完全 → 同HBM4世代のRubinと見るべき</div>
+          </div>
+          <div class="cell">
+            <div class="k">モデルの条件</div>
+            <div class="v">テスト済みモデルが“最大級・最新フロンティア”とは限らない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="AgentX why">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">AgentXが勝負を暴く</div>
+        <div class="title">多ターンの本質</div>
+        <div class="lead">
+          AgentXが重要なのは、長文・多ターン・キャッシュ挙動が絡み、単発負荷では見えない運用の難しさが露呈するからです。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">なぜ</div>
+            <div class="v">8k1kのような単発負荷だけでは測れない</div>
+          </div>
+          <div class="cell">
+            <div class="k">何が出る</div>
+            <div class="v">ルータ/キャッシュ管理/状態遷移の複雑さ</div>
+          </div>
+          <div class="cell">
+            <div class="k">意味</div>
+            <div class="v">チップの得意不得意が“実運用”に近い形で表面化</div>
+          </div>
+        </div>
+        <div class="note">結果が出れば、TCO（総コスト）に近い意思決定材料になります。</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="FAQ key terms">
+      <div class="topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">用語だけ先に固定</div>
+        <div class="title">読むための辞書</div>
+        <div class="lead">
+          直感を壊すキーワードはここだけ押さえると、比較や性能指標の読み違いが減ります（英語→日本語の短い補助付き）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">perf/W / tokens per MW</div>
+            <div class="v">電力（W/MW）あたりのトークン生成力（電力効率）</div>
+          </div>
+          <div class="cell">
+            <div class="k">STP / MTP</div>
+            <div class="v">STP: 1トークン確定 / MTP: 複数トークン予測</div>
+          </div>
+          <div class="cell">
+            <div class="k">speculative decoding</div>
+            <div class="v">草案→検証でコスト削減する生成技術</div>
+          </div>
+          <div class="cell">
+            <div class="k">PDD（prefill/decode分離）</div>
+            <div class="v">分離すると需要変動で稼働率が崩れ得る（状態移動も増える可能性）</div>
+          </div>
+          <div class="cell">
+            <div class="k">HBM4</div>
+            <div class="v">帯域中心のメモリ前提。推論の“待ち”を左右しやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">disaggregation（分離）/ PDD</div>
+            <div class="v">分離の利点と欠点があり、運用の変動に耐える設計が鍵</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Closing">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論：有望、しかし確定は未完</div>
+        <div class="title">次に待つ検証</div>
+        <div class="lead">
+          Jalapeñoの“勝ち筋”は電力効率と実運用で性能を引き出す速度にある一方、AgentX・条件統一・同世代比較・再現性の確認が揃うまで“有望”止まりが堅実です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">強い点</div>
+            <div class="v">perf/W × interactive × hardware/software co-design（短期立ち上げ）</div>
+          </div>
+          <div class="cell">
+            <div class="k">確認したい点</div>
+            <div class="v">AgentX結果、STP/MTP/speculativeの前提統一、Rubin等同条件での比較、実運用TCO</div>
+          </div>
+        </div>
+        <div class="note">判断の順番は「条件の揃った再現 → 多ターン（AgentX） → TCO積み上げ」です。</div>
+      </div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
