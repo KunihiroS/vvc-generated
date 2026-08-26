@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>IBM TLS: 本番向けエージェントic AIのアーキテクチャ設計</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP","Times New Roman",serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 0;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .inner{
+      height: 100%;
+      width: 100%;
+      padding: 56px 72px;
+      position: relative;
+      border: 20px solid var(--rule);
+      border-left-width: 20px; border-right-width: 20px;
+      box-sizing: border-box;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .toprow{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-2);
+      letter-spacing: .14em;
+      font-size: 13px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 44px;
+      height: 1px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.15);
+      opacity: .9;
+    }
+    .slide-num{
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond","Noto Serif JP",serif;
+      font-style: italic;
+      font-size: 20px;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      color: var(--rust);
+      font-family: "Cormorant Garamond","Noto Serif JP",serif;
+      font-style: italic;
+      font-size: 22px;
+      line-height: 1.2;
+      margin-top: 8px;
+      max-width: 760px;
+    }
+    .title{
+      font-family: "Cormorant Garamond","Noto Serif JP",serif;
+      font-size: 68px;
+      font-weight: 500;
+      line-height: 1.02;
+      margin-top: 2px;
+      margin-bottom: 4px;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .accent{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .jp-head{
+      font-family: "Noto Serif JP","Times New Roman",serif;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.45;
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      opacity: .6;
+      margin-top: 4px;
+      margin-bottom: 4px;
+    }
+    .grid2, .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 6px;
+      max-width: 980px;
+    }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 14px;
+      border-radius: 10px;
+      min-height: 54px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: .08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-family: "Noto Serif JP","Times New Roman",serif;
+      font-weight: 300;
+    }
+    .footnote{
+      margin-top: auto;
+      color: var(--ink-3);
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: .02em;
+    }
+    @media (max-width: 720px){
+      .inner{ padding: 32px 22px; border-width: 12px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Agentic AI / TLS</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+        <div class="eyebrow">本番運用の設計図</div>
+        <div class="title">IBMの <span class="accent">エージェント</span><span class="jp-head">工場</span>ではなく</div>
+        <div class="lead">Technology Lifecycle Services（TLS）がゼロから本番向けに構築した「エージェントic AIプラットフォーム」の全体アーキテクチャ、設計判断、失敗からの学びを要点化します。</div>
+        <div class="rule"></div>
+        <div class="footnote">A2A（Agent2Agent）とMCP（Model Context Protocol）を「境界の設計」として扱う。</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+        <div class="eyebrow">会話だけでは足りない</div>
+        <div class="title">価値は <span class="accent">ツール</span>と<strong style="font-style:italic;font-weight:500;color:var(--rust)">権限</strong></div>
+        <div class="lead">LLM単体では「問い合わせ→根拠→実行」にならないため、ツール呼び出しが必須です。さらに複数エージェント連携では、誰が何を呼ぶかという境界が崩れると監査・セキュリティが破綻します。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">必要条件</div>
+            <div class="v">ツール呼び出し + 境界（分業）</div>
+          </div>
+          <div class="cell">
+            <div class="k">企業要件</div>
+            <div class="v">認証 / 監査 / データアクセス制御</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+        <div class="eyebrow">層で委任する</div>
+        <div class="title">TLS <span class="accent">Supervisor</span>が分配</div>
+        <div class="lead">TLS Conciergeがユーザー意図を受け取り、Supervisor Agentが専門エージェントへA2Aで委任します。各エージェントは必要データをMCPツールサーバ経由で取得し、ユーザーは1つの会話画面に統合されます。</div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">入口</div>
+            <div class="v">TLS Concierge</div>
+          </div>
+          <div class="cell">
+            <div class="k">司令塔</div>
+            <div class="v">Supervisor Agent</div>
+          </div>
+          <div class="cell">
+            <div class="k">実行</div>
+            <div class="v">専門エージェント + MCP</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="A2A MCP">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Boundaries</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+        <div class="eyebrow">二つの標準</div>
+        <div class="title">A2A / MCP <span class="accent">役割分離</span></div>
+        <div class="lead">A2Aは「エージェント境界」（誰にどう委任するか）を標準化し、MCPは「ツール境界」（ツール提供口と安全な共有）を標準化します。技術選定ではなく、組織分断を境界で吸収する戦略です。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">A2A（Agent2Agent）</div>
+            <div class="v">委任の標準：AgentCardでスキル/要件を渡す</div>
+          </div>
+          <div class="cell">
+            <div class="k">MCP（Model Context Protocol）</div>
+            <div class="v">ツールの標準：ツールサーバで安全共有</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Auth principle">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Security</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+        <div class="eyebrow">IDは消さない</div>
+        <div class="title">認可文脈を <span class="accent">propagate</span></div>
+        <div class="lead">BFF→Supervisor→専門エージェント→MCPツールサーバ→外部APIまで、ユーザーID/認可トークンをチェーン全体で維持（propagate）または境界で交換（exchange）し、サービスアカウントに置き換えません。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">やる</div>
+            <div class="v">propagate / exchangeで整合を保つ</div>
+          </div>
+          <div class="cell">
+            <div class="k">やらない</div>
+            <div class="v">本人権限→サービスアカウントへ置換</div>
+          </div>
+        </div>
+        <div class="footnote">文脈が失われると企業の統制モデルから外れ、後からの修正は難しい。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Data access bottleneck">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Bottleneck</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+        <div class="eyebrow">最大の壁</div>
+        <div class="title">コードより <span class="accent">データ工場</span></div>
+        <div class="lead">最大の制約は「エージェントコード」ではなく「データアクセス（データ工場）」でした。システム・オブ・レコード特定、アクセス可能性の確認、組織間の認証認可調整、MCPサーバ/ラッパ整備が遅延要因になります。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">技術的に難しい点</div>
+            <div class="v">SOToR（記録システム）と権限の整合</div>
+          </div>
+          <div class="cell">
+            <div class="k">統合作業の遅れ</div>
+            <div class="v">MCPサーバ/ラッパの整備</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Observability">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Observability</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+        <div class="eyebrow">計測は早く</div>
+        <div class="title">tracingだけで <span class="accent">足りない</span></div>
+        <div class="lead">分散トレースは導入した一方、統合タイミングが遅れました。観測だけでは改善の合否は保証できず、後から「どこが良くなったか」を確かめにくくなります。</div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">必要</div>
+            <div class="v">実行経路の把握</div>
+          </div>
+          <div class="cell">
+            <div class="k">不足の例</div>
+            <div class="v">統合が遅れ計測が空白に</div>
+          </div>
+          <div class="cell">
+            <div class="k">帰結</div>
+            <div class="v">根拠ある改善が止まる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Evals KPI">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Evals</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+        <div class="eyebrow">改善の判断軸</div>
+        <div class="title">evalsとKPIを <span class="accent">前倒し</span></div>
+        <div class="lead">評価（evals）は変更の良し悪しを判断する基盤ですが、整備が遅れ、微妙な誤りがユーザーに届くリスクが出ました。さらにKPIのベースライン不足により、価値を定量的に証明できません。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">evalsが遅れると</div>
+            <div class="v">誤りが再発しても気づけない可能性</div>
+          </div>
+          <div class="cell">
+            <div class="k">KPIの欠如</div>
+            <div class="v">投資判断・効果検証が困難</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Success evidence">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+        <div class="eyebrow">本番で動いた</div>
+        <div class="title">動く証拠は <span class="accent">相互運用</span></div>
+        <div class="lead">それでも記事では「実際に本番で動いた」ことと、「他チームが作ったエージェントとも相互運用できた」ことを成功として提示しています。成功の裏には、データ連携・権限・運用基盤がボトルネックだった事実があります。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">成功面</div>
+            <div class="v">本番稼働 + エージェント統合</div>
+          </div>
+          <div class="cell">
+            <div class="k">裏側の現実</div>
+            <div class="v">データアクセス/運用がボトルネック</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Deep agents adoption">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Strategy</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+        <div class="eyebrow">技術でも負ける</div>
+        <div class="title">deep agent移行は <span class="accent">採用</span>で止まった</div>
+        <div class="lead">より深い推論パターン（deep agents）を提案しても、既存エージェント担当チームの優先度やスケジュールリスクで採用が進みませんでした。技術的優位は、evalによる説得材料がないと通りにくいという反省があります。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">止まった理由</div>
+            <div class="v">計画と採用の力学 + 説得材料不足</div>
+          </div>
+          <div class="cell">
+            <div class="k">示唆</div>
+            <div class="v">証拠（eval）がガバナンスを動かす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Practical lessons">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">Takeaways</div>
+          <div class="slide-num">12 / 14</div>
+        </div>
+        <div class="eyebrow">次に作る人へ</div>
+        <div class="title">設計の順序は <span class="accent">観測→評価→アクセス</span></div>
+        <div class="lead">初期から「観測・評価・KPIベースライン設計」を用意し、ツールやデータアクセス統合作業を前倒し計画します。さらに認可文脈保持を設計原則として固定し、移行（採用）もオーナーとスケジュール確保の対象にします。</div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">Observability（tracing）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">Evals（合否基準） + KPIベースライン</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">Auth（propagate/exchange） + データアクセス整備</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="References">
+      <div class="inner">
+        <div class="toprow">
+          <div class="slide-tag">References</div>
+          <div class="slide-num">13 / 14</div>
+        </div>
+        <div class="eyebrow">用語対応（要点）</div>
+        <div class="title"><span class="accent">A2A / MCP</span>を短く</div>
+        <div class="lead">この要約で使った中心概念の対応を、読み返し用に最小限で整理します（英語用語 + 短い日本語）。</div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">A2A（Agent2Agent）</div>
+            <div class="v">委任の標準：AgentCardで境界を定義</div>
+          </div>
+          <div class="cell">
+            <div class="k">MCP（Model Context Protocol）</div>
+            <div class="v">ツール提供の標準：ツールサーバで共有</div>
+          </div>
+          <div class="cell">
+            <div class="k">propagate</div>
+            <div class="v">認可文脈を維持（連鎖保持）</div>
+          </div>
+          <div class="cell">
+            <div class="k">exchange</div>
+            <div class="v">境界で交換して整合</div>
+          </div>
+        </div>
+        <div class="footnote">原文は「IBM TLSのチーフアーキテクト記事」を前提に要点圧縮。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
