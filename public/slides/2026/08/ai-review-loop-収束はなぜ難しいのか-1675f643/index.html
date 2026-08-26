@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI review loop — 収束はなぜ難しいのか</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 42px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .topbar{
+      position: absolute;
+      top: 18px;
+      left: 22px;
+      right: 22px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      z-index: 2;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 12px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 18px;
+      background: rgba(232,129,74,0.85);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      font-size: 18px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      position: relative;
+      z-index: 2;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 10px 0 10px;
+    }
+
+    .title{
+      position: relative;
+      z-index: 2;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 76px;
+      line-height: 1.03;
+      margin: 0 0 14px;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+    }
+
+    .lead{
+      position: relative;
+      z-index: 2;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 6px;
+    }
+
+    .content{
+      position: relative;
+      z-index: 2;
+      margin-top: 18px;
+      max-width: 980px;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 18px;
+      margin-top: 12px;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+      color: var(--ink-2);
+      min-height: 64px;
+    }
+    .cell b{
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .cell .jp{
+      margin-top: 6px;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .kicker{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-top: 8px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .ref{
+      font-size: 18px;
+      color: var(--ink);
+      margin-top: 8px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 44px 28px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">収束の条件を問う</div>
+      <h1 class="title">AI review loop</h1>
+      <div class="lead">AIにレビューを反復的に依頼するループは、欠陥を減らして“収束”するのか？本稿は、仕様が閉じないと欠陥がゼロに収まりにくい構造を実験ログから示します。</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">“完璧”の影響</div>
+      <h1 class="title">収束の定義が曖昧</h1>
+      <div class="lead">「欠陥数がゼロ」だけでなく、「以後のレビューで新しい致命的問題が出ない」という契約的な閉じ方まで含めて“収束”と扱う必要があります。ところが完璧の受け入れ基準が固定されないと、レビュー対象が増え続けます（未閉領域）。</div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">実験の枠組み</div>
+      <h1 class="title">5段×3ラウンド</h1>
+      <div class="lead">PythonライブラリCidrMap（CIDRに値を割り当て、最長一致でバイナリラドックストライ参照）で、主→サブのレビュー→主修正を3回のレビューラウンド（計5段のフロー）繰り返しました。結果は「検証可能な中核は収束し得るが、契約面は収束しない」の二層構造でした。</div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">収束の二層</div>
+      <h1 class="title">2つの収束</h1>
+      <div class="lead">収束は一枚岩ではありません。閉じた仕様（機械検証）と、未閉の契約（整合性・文書・プロトコル）が別々に動きます。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <b>閉じやすい領域</b>
+            <div class="jp">ブルートフォース・オラクル等で機械的に検証できる部分は、ある段階で破綻が止まりました（アルゴリズム側）。</div>
+          </div>
+          <div class="cell">
+            <b>閉じにくい領域</b>
+            <div class="jp">Mappingプロトコル整合性、iteratorセマンティクス、例外仕様、docstringの妥当性など“約束事”は終わりにくい（契約側）。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">数は単調増加</div>
+      <h1 class="title">欠陥は増える</h1>
+      <div class="lead">モジュール行数・テスト行数・テスト数が増え続け、欠陥発見数も単調に増加しました。R5の盲検（blind）レビューでは最大17件が見つかり、前ラウンドの弱点（property testの入力戦略）や再発パターンも含まれていました。</div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">仕様が広がる</div>
+      <h1 class="title">対象拡大＝未収束</h1>
+      <div class="lead">「約200行の完璧なコード」という表現があっても、完璧の受け入れ基準がないため、レビューで指摘される対象がラウンドごとに拡張されました。結果として、欠陥は減る方向ではなく増える方向に働き得ます。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <b>アンカーなし</b>
+            <div class="jp">“完璧”が定義されない→レビューの射程が拡大。</div>
+          </div>
+          <div class="cell">
+            <b>結果</b>
+            <div class="jp">レビューが回るほど仕様・約束事が増え、欠陥が“顕在化”しやすい。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">再発パターン</div>
+      <h1 class="title">遅延評価スナップショット</h1>
+      <div class="lead">generator内部でスナップショットを取る実装方針が、R2で導入され、R4で別の修正として再導入され、さらにR4で標準ライブラリのKeysView側の内部仕様によって三度再発しました。単発修正で終わらず、“不変条件（invariant）”が固定されない構造が示唆されています。</div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">なぜ再発する</div>
+      <h1 class="title">局所修正の限界</h1>
+      <div class="lead">バグ修正が局所的だと、クラス全体の不変条件として固定されず、評価のタイミングや呼び出し順序が別の形で変化して同系統の欠陥が再浮上します。収束には“構造的な固定”が必要です。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <b>修正の形</b>
+            <div class="jp">呼び出し側で評価して渡す等、評価タイミングを契約として固定する必要がある。</div>
+          </div>
+          <div class="cell">
+            <b>示唆</b>
+            <div class="jp">同じ欠陥でも“別レイヤで同型”に出るため、対処は不変条件中心で行う。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">盲検の効き目</div>
+      <h1 class="title">blindが鍵</h1>
+      <div class="lead">R1やR3は情報が与えられたレビューで、前批判の焦点に引っ張られて測定不足が残りました。R5の盲検では情報が遮断されたため、見落としが“再現されない”形で多数発見され、アンカー（固定観念）による偏りが強く出ました。</div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">能力不足ではない</div>
+      <h1 class="title">設計問題が支配</h1>
+      <div class="lead">収束しなかった理由はAIの能力不足ではなく、仕様が閉じないことと、停止条件・基準・レビュー設計の欠如が支配的でした。さらにレビューする側も誤るため、欠陥が“別レイヤへ移送”され得ます。</div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">運用の打ち手</div>
+      <h1 class="title">凍結＋テスト＋停止</h1>
+      <div class="lead">実務提案は「契約凍結」「文章（docstring）をテスト可能にする」「盲検レビューを毎ループ」「停止条件を設ける」です。レビューを回すほど仕様が増える構造を前提に、基準と範囲を管理します。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <b>契約凍結（contract）</b>
+            <div class="jp">Mapping/iterator/例外などの“約束事”の受け入れ基準を固定。</div>
+          </div>
+          <div class="cell">
+            <b>評価の強化（testable）</b>
+            <div class="jp">docstring等の主張を検証可能な形へ落とし込み、property test入力戦略も点検。</div>
+          </div>
+          <div class="cell">
+            <b>盲検（blind）</b>
+            <div class="jp">毎ループ少なくとも1人は遮断して独立視点を入れる。</div>
+          </div>
+          <div class="cell">
+            <b>停止条件（stop）</b>
+            <div class="jp">“いつ完了”かを定義して、無限に仕様を広げない。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">一文結論</div>
+      <h1 class="title">未閉が増幅する</h1>
+      <div class="lead">AI review loopは、検証可能な“閉じた領域”では収束し得ますが、契約・プロトコル・文書の“未閉領域”が増えると欠陥がゼロへ寄りにくい。収束の鍵は、基準凍結と停止条件でレビュー空間を閉じることです。</div>
+      <div class="kicker">Key terms / 用語</div>
+      <div class="ref mono">blind（盲検） / contract（契約） / invariant（不変条件） / iterator semantics（イテレータの意味論）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://neurips.cc/Conferences/2026/ai-reviewing-experiment" target="_blank" rel="noreferrer noopener">2026 AI Reviewing Experimet</a></h2>
+<p class="reference-note">## 
+
+## Guardrails
+
+The experiment will include a combination of automated and semi-automated checks to serve as guardra…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://zylos.ai/research/2026-03-01-multi-model-ai-code-review-convergence" target="_blank" rel="noreferrer noopener">Multi-Model AI Code Review: Convergence Loops and Automated Quality Assurance | Zylos Research</a></h2>
+<p class="reference-note">## Convergence Patterns
+
+### Round Count and Trajectories
+
+The actor-critic literature consistently reports 3-5 rounds a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://hdsr.mitpress.mit.edu/pub/nrcn4h7d/release/2" target="_blank" rel="noreferrer noopener">Bias in the Loop: How Humans Evaluate AI-Generated Suggestions · Issue 8.2, Spring 2026</a></h2>
+<p class="reference-note">Human perception operates through cognitive biases that shape how we process information. First impressions influence ou…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2509.08514v1" target="_blank" rel="noreferrer noopener">Bias in the Loop: How Humans Evaluate AI-Generated Suggestions</a></h2>
+<p class="reference-note">Empirical evidence from across HCI domains paints a complex picture. On the one hand, human–computer collaboration can p…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/pdf/2605.17548" target="_blank" rel="noreferrer noopener">RETHINKING CODE REVIEW IN THE AGE OF AI: A VISION FOR AGENTIC CODE REVIEW</a></h2>
+<p class="reference-note">P. C. Rigby and C. Bird, “Convergent contemporary software peer review practices,” in Proceedings of the 2013 9th Joint …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
