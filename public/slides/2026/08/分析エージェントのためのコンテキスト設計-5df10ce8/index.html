@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>分析エージェントのためのコンテキスト設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      background: var(--paper);
+      border: 20px solid transparent;
+      outline: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      border-radius: 2px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius: 2px;
+      box-shadow: inset 0 0 0 1px var(--rule-strong);
+      pointer-events:none;
+    }
+    .content{
+      position:absolute;
+      inset:0;
+      padding:56px 72px;
+      box-sizing:border-box;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      padding-top: 2px;
+      position: relative;
+      padding-left: 14px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 8px;
+      width: 6px;
+      height: 20px;
+      background: rgba(232,129,74,0.95);
+      transform: skewX(-14deg);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      padding-top: 2px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      line-height: 1.1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 78px;
+      letter-spacing: -0.02em;
+      line-height: 0.98;
+      margin-top: -6px;
+      color: var(--ink);
+      text-shadow: 0 0 0 transparent;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: -0.02em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      font-weight: 300;
+      max-width: 760px;
+      line-height: 1.5;
+      margin-top: 6px;
+    }
+    .hr{
+      width: 100%;
+      height: 1px;
+      background: var(--rule);
+      margin-top: 6px;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      box-sizing: border-box;
+      background: rgba(20,17,13,0.35);
+    }
+    .cell h4{
+      margin:0 0 8px 0;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+    }
+    .cell p{
+      margin:0;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .kicker{
+      margin-top: 6px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 12px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .jp-inline{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      color: var(--ink-2);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .tight{
+      line-height: 1.35;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Context Design</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">6か月の再設計が示した核</div>
+        <div class="title"><em>コンテキスト</em>設計</div>
+        <div class="lead">分析エージェント（LLM等）が正しいSQLや集計結果を出すために必要なのは「情報量」ではなく、編集場所と探索経路と監査可能性を含む“配置と保守”です。</div>
+        <div class="hr"></div>
+        <div class="grid two" style="margin-top:14px;">
+          <div class="cell">
+            <h4>JP / EN</h4>
+            <p>コンテキスト（Context）＝意味・粒度・結合ルール・監査まで含む設計</p>
+          </div>
+          <div class="cell">
+            <h4>Key rule</h4>
+            <p>一つの事実（fact）に対して“authoritative home”（唯一の権威ある編集場所）を置く</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">なぜ「精度」だけでは足りない</div>
+        <div class="title"><em>推測</em>が崩す</div>
+        <div class="lead">初期はエンティティグラフや“根拠なしは拒否”の層を作ったが、失敗の根はコンテキスト不足ではなく、各事実の“置き場所”と更新保守でした。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>失敗の型</h4>
+            <p>定義・意味・粒度・変換ルールの参照先が曖昧 → 古いコピーや誤参照 → 推論が崩壊</p>
+          </div>
+          <div class="cell">
+            <h4>到達点</h4>
+            <p>最終的に残った中核方針は「不確かな回答を推測で作らない」</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Core Idea</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">一元化が保守性を作る</div>
+        <div class="title"><em>Author once</em></div>
+        <div class="lead">最重要ルールは「一つの事実には一つの権威ある編集場所（authoritative home）」を割り当てることです。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>許容する重複</h4>
+            <p>同じ事実が生成ビューや参照先から複数に見えてもよい</p>
+          </div>
+          <div class="cell">
+            <h4>許容しないこと</h4>
+            <p>編集（author）を複数に分散しない（同期ズレ＝driftを防ぐ）</p>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px; color:var(--ink-3);">
+          <span class="jp-inline">同期ズレ（drift）</span>：複数箇所で定義が更新されず、意味が徐々に食い違う状態
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Navigation</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">辿り方が“根拠”になる</div>
+        <div class="title"><em>ナビゲーション</em>ツリー</div>
+        <div class="lead">採用したのは、ルートから下へ辿れるナビゲーションツリー（内部的にはリンク可能な有向グラフ）です。エージェントはルート領域から開始し、必要に応じてリンク追跡します。</div>
+        <div class="hr"></div>
+        <div class="grid three">
+          <div class="cell">
+            <h4>開始</h4>
+            <p>ルート（入口）を読む</p>
+          </div>
+          <div class="cell">
+            <h4>探索</h4>
+            <p>関連ノードへリンク追跡</p>
+          </div>
+          <div class="cell">
+            <h4>回答</h4>
+            <p>探索経路が指標の根拠フレーミングになる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Effects</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">混入を抑える設計</div>
+        <div class="title">探索は <em>限定</em> する</div>
+        <div class="lead">ナビゲーションツリーの狙いは、(1)誤った領域の混入を防ぐ、(2)探索経路を説明・検証可能にする、(3)コンテキストバージョンの追跡を可能にする、の3点です。</div>
+        <div class="hr"></div>
+        <div class="grid three">
+          <div class="cell">
+            <h4>①混入防止</h4>
+            <p>無関係情報がウィンドウに入る確率を下げる</p>
+          </div>
+          <div class="cell">
+            <h4>②説明可能</h4>
+            <p>「なぜその指標か」が経路として示せる</p>
+          </div>
+          <div class="cell">
+            <h4>③監査可能</h4>
+            <p>回答に使われた定義セットを追跡できる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">RAG vs Graph</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">検索型より“経路”を固定</div>
+        <div class="title"><em>RAG</em>は増えるほど揺れる</div>
+        <div class="lead">RAGのように検索結果を大量提示して選ばせるより、決定的なグラフ探索に限定することでコンテキストトークン使用量が大きく減る、という社内テスト結果が示されています。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>検索型のリスク</h4>
+            <p>関連性の低い情報も一緒に見て、推論がぶれる</p>
+          </div>
+          <div class="cell">
+            <h4>探索型の利点</h4>
+            <p>「どの経路で定義へ辿り着いたか」が説明しやすい</p>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px; color:var(--ink-3);">
+          ※記事の主張：監査・再現性において、経路固定は検索型より有利
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Audit</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">再現性＝参照ログ</div>
+        <div class="title"><em>context version</em></div>
+        <div class="lead">監査可能性は「context version」「参照ノード」「SQL」「実行時間」を、回答の再現性として扱うことで担保します。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>必要な記録</h4>
+            <p class="tight">どのコンテキストを読んだか／どのノードを参照したか／生成したSQLは何か</p>
+          </div>
+          <div class="cell">
+            <h4>得られること</h4>
+            <p class="tight">検証・修正が可能になり、「なぜその結果になったか」を追跡できる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Update Safety</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">更新経路を“見える化”</div>
+        <div class="title">保守は <em>経路</em> と <em>同期</em></div>
+        <div class="lead">更新経路の可視化と履歴（バージョン）保持が重要です。平文ルールだけでなく作動例（worked example）が信頼性を高めますが、手作業の冗長化は避けるべきだと整理されています。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>冗長化はOK/NG</h4>
+            <p>例：表示のための重複は許容。手作業コピーの“同期ズレ”が危険</p>
+          </div>
+          <div class="cell">
+            <h4>実務の解</h4>
+            <p>「作者（author）と生成（generation）を分けて同期」させる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Ruleset</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">安全に拒否する設計</div>
+        <div class="title"><em>曖昧</em>は選ばせる</div>
+        <div class="lead">曖昧な質問（例：「active」の定義が複数）には推測しない方針です。社内データでは定義の違いで結果が約4倍ずれることがあったため、根拠付けできない場合は拒否し選択を促します。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>拒否条件</h4>
+            <p>根拠（定義・粒度・結合等）に辿り着けない場合</p>
+          </div>
+          <div class="cell">
+            <h4>ユーザーへの要求</h4>
+            <p>定義のどれを使うか（どの“意味”を採用するか）を選ばせる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">FAQ</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">用語のズレを潰す</div>
+        <div class="title">Context ≠ <em>Metadata</em></div>
+        <div class="lead">この文脈でのコンテキストは、テーブル一覧やカラム名に留まりません。指標定義（active customersの意味）、粒度、結合ルール・カーディナリティ、変換（countryがFRで保存）まで含みます。</div>
+        <div class="hr"></div>
+        <div class="grid three">
+          <div class="cell">
+            <h4>定義</h4>
+            <p>active＝何を満たすか</p>
+          </div>
+          <div class="cell">
+            <h4>粒度</h4>
+            <p>いつ・誰単位か</p>
+          </div>
+          <div class="cell">
+            <h4>変換/Join</h4>
+            <p>countryの保存形式・結合の前提</p>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px; color:var(--ink-3);">
+          追加：アクセス制御（権限/行レベルポリシー）は別途必須で、コンテキストだけでは解決しません
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Opinion</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">技術より“運用”の勝ち筋</div>
+        <div class="title"><em>編集権</em>が根にある</div>
+        <div class="lead">強みは、LLM活用を「情報を与える」から「編集権・参照経路・監査可能性」に落としている点です。author onceはデータ定義が組織に根付くかを左右する“ガバナンス”になっています。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>懸念点</h4>
+            <p>再現条件（データ規模/質問分布/モデル構成）が十分に見えにくく、効果の一般化は慎重さが必要</p>
+          </div>
+          <div class="cell">
+            <h4>導入で要るもの</h4>
+            <p>承認フロー・責任者・変更管理など組織設計も同時に必要（技術だけでは完結しない）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 (closing + references style without extra section) -->
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">持続する設計へ</div>
+        <div class="title">結論：<em>配置</em>が正しさを守る</div>
+        <div class="lead">コンテキスト設計の要点は、(i)authoritative homeの一元化、(ii)ルートからのナビゲーション探索、(iii)参照ログとバージョンで再現性を担保、(iv)曖昧定義は推測せず拒否/選択させることです。</div>
+        <div class="hr"></div>
+        <div class="grid two">
+          <div class="cell">
+            <h4>Checklist</h4>
+            <p>唯一の編集場所 / 辿る経路 / 監査できる記録 / 更新時の同期</p>
+          </div>
+          <div class="cell">
+            <h4>Limits</h4>
+            <p>アクセス制御は別途設計が必要。コンテキストは“意味の正しさ”に主に責任を持つ</p>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px; color:var(--ink-3);">
+          Bilingual term: authoritative home（唯一の権威ある編集場所）/ drift（同期ズレ）/ context version（コンテキストのバージョン）
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://atlan.com/know/context-layer-vs-semantic-layer" target="_blank" rel="noreferrer noopener">Context Layer vs Semantic Layer: What AI Agents Need [2026]</a></h2>
+<p class="reference-note">A semantic layer translates raw data into governed business metrics (tools like dbt MetricFlow, Cube, and AtScale define…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=JGFoTQt4GA0" target="_blank" rel="noreferrer noopener">Going Meta S03E10 – Actionable Knowledge For Agents With Context Graphs</a></h2>
+<p class="reference-note">and other of these like, you know, personal note-taking apps like have this concept of of, you know, linking to other co…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.rittmananalytics.com/google-next-26-the-agent-stack-is-ready-the-semantic-engine-isn-t-44d1287e31f9" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">That’s the lens I brought to Google Cloud Next 2026. The main topic of the event was around building, deploying and mana…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://contextandchaos.substack.com/p/the-context-layer-knowledge-graphs" target="_blank" rel="noreferrer noopener">The Context Layer: Knowledge Graph’s second act</a></h2>
+<p class="reference-note">The context layer is the organizational living brain. It is the layer that sits between your data estate and your AI age…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.dataengineeringweekly.com/p/knowledge-metrics-and-ai-rethinking" target="_blank" rel="noreferrer noopener">Knowledge, Metrics, and AI: Rethinking the Semantic Layer ...</a></h2>
+<p class="reference-note">Ownership varies: sometimes product engineering owns it end-to-end with embedded data engineers; other times, central da…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
