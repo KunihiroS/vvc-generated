@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tailcat：Tailscaleデータプレーンだけでつなぐ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 10px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 1px solid rgba(232,129,74,0.35);
+      padding-top: 10px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      white-space:nowrap;
+      padding-top: 8px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+      position: relative;
+      z-index: 1;
+      line-height: 1.15;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 68px;
+      font-weight: 500;
+      line-height: 0.98;
+      margin-top: 10px;
+      position: relative;
+      z-index: 1;
+      color: var(--ink);
+    }
+
+    .title .em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+      font-size: 0.98em;
+    }
+
+    .jp-head{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 60px;
+      line-height: 1;
+      margin-top: 8px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      line-height: 1.55;
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .subtle-rule{
+      margin-top: 18px;
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      position: relative;
+      z-index: 1;
+    }
+
+    .content{
+      margin-top: 16px;
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+
+    .grid2, .grid3{
+      width: 100%;
+      display:grid;
+      gap: 12px;
+      align-items:stretch;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 10px;
+      background: rgba(28,24,19,0.35);
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .cell .v{
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .callout{
+      border: 1px solid rgba(232,129,74,0.35);
+      background: rgba(232,129,74,0.08);
+      padding: 14px 16px;
+      border-radius: 12px;
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+    }
+    .callout .h{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0;
+    }
+    .callout .p{
+      margin:0;
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+
+    .badgeRow{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .badge{
+      border: 1px solid var(--rule);
+      padding: 10px 12px;
+      border-radius: 999px;
+      color: var(--ink-2);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      white-space:nowrap;
+    }
+    .badge strong{
+      color: var(--rust);
+      font-weight: 600;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 44px 20px; }
+      .title{ font-size: 46px; }
+      .jp-head{ font-size: 40px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover slide 1">
+      <div class="slide-top">
+        <div class="slide-tag">Tailcat</div>
+        <div class="slide-num">02 / 15</div>
+      </div>
+      <div class="eyebrow">データだけで接続</div>
+      <div class="title">Tailscale <span class="em">データプレーン</span>運用</div>
+      <div class="lead">TailcatはTailscaleのコントロールプレーンを使わず、別経路で共有した情報を起点に「通信トンネル」を確立します。</div>
+      <div class="content">
+        <div class="callout">
+          <p class="h">Eyebrow / 帯</p>
+          <p class="p">一度の合図（トークン）で、WireGuard暗号化とDERPフォールバックへつなぐ。</p>
+        </div>
+        <div class="badgeRow">
+          <div class="badge"><strong>EN</strong> data plane / <strong>JP</strong> データ面</div>
+          <div class="badge"><strong>EN</strong> control plane / <strong>JP</strong> 管理面</div>
+          <div class="badge"><strong>EN</strong> DERP / <strong>JP</strong> 最終中継</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem slide 2">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 15</div>
+      </div>
+      <div class="eyebrow">“なぜアカウント不要？”</div>
+      <div class="title">管理を<em class="em">抜く</em></div>
+      <div class="lead">通常のTailscaleは「誰と誰をつなぐか」の調整にコントロールプレーンを使いますが、Tailcatはそこを使いません。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Control plane（管理面）</div>
+            <div class="v">アカウント・自動登録・接続の調整（Tailnet管理）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Data plane（データ面）</div>
+            <div class="v">WireGuardトンネル暗号化・NAT越え・必要ならDERP中継</div>
+          </div>
+        </div>
+        <div class="callout">
+          <p class="h">メッセージ</p>
+          <p class="p">コントロールプレーン無しで接続するには、接続に必要な“メタデータ”を out-of-band に渡す必要があります。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor slide 3">
+      <div class="slide-top">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 15</div>
+      </div>
+      <div class="eyebrow">合図と鍵</div>
+      <div class="title">“住所”を<em class="em">別途</em>渡す</div>
+      <div class="lead">Tailcatは、サーバ側が短い接続トークンを作って提示し、クライアント側がそれを渡して開始します。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Server（提供側）</div>
+            <div class="v">接続トークンを生成して表示</div>
+          </div>
+          <div class="cell">
+            <div class="k">Client（利用側）</div>
+            <div class="v">トークンを入力して接続要求</div>
+          </div>
+          <div class="cell">
+            <div class="k">Result（結果）</div>
+            <div class="v">エンドツーエンド暗号化トンネル（WireGuard）</div>
+          </div>
+        </div>
+        <div class="lead">※この“合図（トークン）”が、通常のコントロールプレーンの代わりになるイメージです。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture slide 4">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 15</div>
+      </div>
+      <div class="eyebrow">初期はDERP</div>
+      <div class="title">ブートストラップ→<em class="em">昇格</em></div>
+      <div class="lead">最初の到達はDERPで行い、可能ならNATトラバーサルにより直接ピア間UDP接続へアップグレードします。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Step 1</div>
+            <div class="v">DERP（NATホールパンチ補助・最後の中継）で初期導線を作る</div>
+          </div>
+          <div class="cell">
+            <div class="k">Step 2</div>
+            <div class="v">magicsock等で NAT トラバーサルを試し、直接へ昇格</div>
+          </div>
+        </div>
+        <div class="callout">
+          <p class="h">フォールバック</p>
+          <p class="p">直接つながらない場合でもDERPを使うため、通信が成立しやすい設計です（ただし性能は変動し得ます）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="enumeration slide 5">
+      <div class="slide-top">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">06 / 15</div>
+      </div>
+      <div class="eyebrow">トークンの中身</div>
+      <div class="title">ConnBlob（CBOR）</div>
+      <div class="lead">接続トークン（ConnBlob）はCBORでエンコードされ、サーバ公開鍵とDERP領域情報（または参照）を持ちます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">鍵</div>
+            <div class="v">サーバのWireGuard公開鍵（公開鍵が“住所”の核）</div>
+          </div>
+          <div class="cell">
+            <div class="k">経路</div>
+            <div class="v">DERP情報（トークン長・resolve有無で追加ラウンドが変わる）</div>
+          </div>
+        </div>
+        <div class="lead"><em style="font-family:Cormorant Garamond, serif; font-style:italic; color:var(--rust);">i</em> トークン解析・解決（resolve）はトラブルシュートや高速化に関わります。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence slide 6">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 15</div>
+      </div>
+      <div class="eyebrow">動作の“体感”</div>
+      <div class="title">netcatの<em class="em">ように</em></div>
+      <div class="lead">TailcatはCLI/Goライブラリで、stdin/stdout転送、ローカルフォワード、SOCKS5、（限定的な）出口動作などを提供します。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">転送</div>
+            <div class="v">標準入出力パイプで“そのまま”つなぐ</div>
+          </div>
+          <div class="cell">
+            <div class="k">プロキシ</div>
+            <div class="v">SOCKS5 / 出口（exit-node）系の振る舞い</div>
+          </div>
+          <div class="cell">
+            <div class="k">トンネル</div>
+            <div class="v">ポートフォワード、認証なしSSHサーバ（許可IDで制御）</div>
+          </div>
+        </div>
+        <div class="callout">
+          <p class="h">位置づけ</p>
+          <p class="p">“ルーティング/DNS変更しないユーザ空間ライブラリ”として、root権限不要を強調しています。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="distinction slide 7">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">08 / 15</div>
+      </div>
+      <div class="eyebrow">なぜ安全/危険が分かれる</div>
+      <div class="title">エフェメラル<em class="em">鍵</em></div>
+      <div class="lead">WireGuard公開鍵に紐づくため、鍵の保存有無がそのまま“再接続可能性”に直結します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">エフェメラルキー</div>
+            <div class="v">プロセス終了で失効（安全寄りのデフォルト）</div>
+          </div>
+          <div class="cell">
+            <div class="k">保存キー</div>
+            <div class="v">再起動後も同じ公開鍵が維持され、過去に共有した相手が将来も接続し得る</div>
+          </div>
+        </div>
+        <div class="lead">鍵運用ポリシー（--allowや削除手順など）が“事故の有無”を決めます。</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="comparison slide 8">
+      <div class="slide-top">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">09 / 15</div>
+      </div>
+      <div class="eyebrow">DERPと直接接続</div>
+      <div class="title">速さが<em class="em">変わる</em></div>
+      <div class="lead">直接UDPでつながると良い一方、DERP経由になると遅延やスループットが変動し得ます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">直接（ピア間UDP）</div>
+            <div class="v">NATトラバーサル成功時に昇格。一般に性能面で有利</div>
+          </div>
+          <div class="cell">
+            <div class="k">DERP継続</div>
+            <div class="v">環境次第で残る。ping表示などで判別できる場合がある</div>
+          </div>
+        </div>
+        <div class="callout">
+          <p class="h">結論</p>
+          <p class="p">性能が必要なら実測が必須で、DERP“固定”を前提にしないほうが安全です。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="process slide 9">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">10 / 15</div>
+      </div>
+      <div class="eyebrow">接続の流れ（短縮）</div>
+      <div class="title">out-of-band→<em class="em">到達</em></div>
+      <div class="lead">コントロールプレーン無しのため、接続情報はトークンとして別経路で交換し、データプレーンで確立します。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k"><em style="font-style:italic; color:var(--rust);">i</em> 共有</div>
+            <div class="v">サーバが短いトークンを作成し受け渡し（トークン交換の運用が鍵）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><em style="font-style:italic; color:var(--rust);">ii</em> ブート</div>
+            <div class="v">DERPで初期到達し、WireGuard鍵に基づく暗号化へ向かう</div>
+          </div>
+          <div class="cell">
+            <div class="k"><em style="font-style:italic; color:var(--rust);">iii</em> 昇格</div>
+            <div class="v">可能ならNATトラバーサルで直接ピア接続へアップグレード</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="distinction slide 10">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">11 / 15</div>
+      </div>
+      <div class="eyebrow">安定性は保証されない</div>
+      <div class="title">互換性・SLAは<em class="em">別物</em></div>
+      <div class="lead">Tailcatは無料で使える一方、API/CLI/ワイヤ形式の安定性やDERPリレーのSLA/スループット保証はありません。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">互換性</div>
+            <div class="v">将来の形式変更でスクリプト/自作クライアントが動かなくなる可能性</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用品質</div>
+            <div class="v">DERPは安定稼働・スループット目標の保証がない（実運用で影響し得る）</div>
+          </div>
+        </div>
+        <div class="lead">本番で使うなら「固定バージョン運用」「互換テスト」「自前DERP/冗長化」などが重要です。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="evidence slide 11">
+      <div class="slide-top">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">12 / 15</div>
+      </div>
+      <div class="eyebrow">要点だけFAQ</div>
+      <div class="title">Q&Aの<em class="em">芯</em></div>
+      <div class="lead">よくある疑問は「アカウント無しの理由」「DERPの扱い」「鍵運用」「root不要の前提」に集約されます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Q1 アカウント不要？</div>
+            <div class="v">コントロールプレーンを使わず、接続情報を out-of-band のトークンで渡すため。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q2 DERPは常時？</div>
+            <div class="v">最初のブートはDERP。その後NATトラバーサル成功なら直接へ昇格。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q3 鍵は？</div>
+            <div class="v">エフェメラルは失効、保存キーは再起動後も有効で“将来接続”が起こり得る。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q4 root不要？</div>
+            <div class="v">ユーザ空間実装としてルーティング/DNS変更しない前提。環境差は検証が必要。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing slide 12">
+      <div class="slide-top">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 15</div>
+      </div>
+      <div class="eyebrow">使いどころ</div>
+      <div class="title">試すならOK、<em class="em">本番は設計</em></div>
+      <div class="lead">Tailcatは学習・検証の入り口として強力ですが、鍵運用・DERP可用性・互換性を前提に運用設計が要ります。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">強み</div>
+            <div class="v">管理の重さを減らしつつ、WireGuard/NAT/DERPの仕組みを再利用。</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">トークン共有の安全運用、保存キーの長寿命到達性。</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用</div>
+            <div class="v">DERPや形式変更に依存し得るため、実測・バージョン固定・テスト。</div>
+          </div>
+        </div>
+        <div class="callout">
+          <p class="h">Takeaway</p>
+          <p class="p">“コントロールプレーン無し”は自由でもあり、責任も増やす。鍵と中継品質を管理できるなら選択肢になる。</p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/" target="_blank" rel="noreferrer noopener">tailscale/tailcat: like netcat, but over Tailscale&#39;s data plane, without Tailscale&#39;s control plane</a></h2>
+<p class="reference-note">Initial source page</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://techdocs.akamai.com/edgeworkers/docs/cat" target="_blank" rel="noreferrer noopener">common access token</a></h2>
+<p class="reference-note">CAT tokens are a CWT based token. Refer to the CBOR Web Token (CWT) - (RFC8392) standards document for more information.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tailscale.com/docs/reference/derp-servers" target="_blank" rel="noreferrer noopener">DERP servers · Tailscale Docs</a></h2>
+<p class="reference-note">On this page
+
+   Relayed connections using DERP servers
+   DERP server locations
+       Custom DERP servers
+       Custo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pkg.go.dev/tailscale.com/derp" target="_blank" rel="noreferrer noopener">derp package - tailscale.com/derp - Go Packages</a></h2>
+<p class="reference-note">### DERP
+
+This directory (and subdirectories) contain the DERP code. The server itself is in `../cmd/derper`.
+
+DERP is a…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.typhoon-hil.com/documentation/typhoon-hil-software-manual/References/ethercat_protocol.html" target="_blank" rel="noreferrer noopener">EtherCAT Protocol</a></h2>
+<p class="reference-note">EtherCAT (Ethernet for Control Automation Technology) is an Ethernet-based industrial
+fieldbus protocol, invented by Bec…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
