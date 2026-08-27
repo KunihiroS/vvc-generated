@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIエージェントとVM脱出：隔離は十分か</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      border-radius: 2px;
+      outline: 1px solid rgba(240,232,216,0.02);
+      overflow: hidden;
+      inset: auto;
+      display:flex;
+      flex-direction: column;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border: 2px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 18px;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.16em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-style: italic;
+      padding-left: 14px;
+      position: relative;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:0.2em;
+      height: 0.9em;
+      width: 3px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      letter-spacing: 0.02em;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 8px 0 6px;
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 66px;
+      line-height: 0.95;
+      font-weight: 500;
+      margin: 0 0 14px;
+      color: var(--ink);
+      position: relative;
+      z-index: 1;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+      position: relative;
+      z-index: 1;
+    }
+
+    .rule{
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 16px 0 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid{
+      display:grid;
+      width: 100%;
+      gap: 14px;
+      position: relative;
+      z-index: 1;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 14px;
+      background: rgba(28,24,19,0.4);
+      min-height: 78px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+      line-height: 1.35;
+    }
+    .cell .v small{
+      color: var(--ink-3);
+      font-size: 14px;
+      display:block;
+      margin-top: 4px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .bottomline{
+      position:absolute;
+      left: 56px;
+      right: 72px;
+      bottom: 26px;
+      height: 1px;
+      background: var(--rule);
+      z-index: 1;
+    }
+    .footnote{
+      position:absolute;
+      left: 56px;
+      right: 72px;
+      bottom: 12px;
+      z-index: 1;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-4);
+      font-size: 13px;
+      letter-spacing: 0.01em;
+      display:flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* Responsive */
+    @media (max-width: 720px){
+      .slide{ padding: 44px 20px; border-width: 14px; }
+      .bottomline, .footnote{ left: 20px; right: 20px; }
+      .lead{ font-size: 18px; }
+      .title{ font-size: 44px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">境界は本当に安全？</div>
+      <div class="title">AIとVMの <em>脱出</em></div>
+      <p class="lead">VMは「隔離の檻」のはずですが、AIエージェントが環境の脆弱性を連鎖させると、ホスト側へ越えられる現実が報告されています。</p>
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>読みもの HTMLスライド / Reading deck</span>
+        <span>JP / EN用語併記（例：VM/隔離）</span>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">「檻」は万能？</div>
+      <div class="title">VM隔離の <em>前提</em></div>
+      <p class="lead">VMはホストと分離されますが、通信経路（ネットワーク/SSH/共有ファイル/画面共有）と、QEMU/KVMのような仮想化スタックはホスト側で動きます。</p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">共有されがち</div>
+          <div class="v">ネットワーク、SSH、共有、表示</div>
+        </div>
+        <div class="cell">
+          <div class="k">境界の弱点</div>
+          <div class="v">仮想化スタック（例：QEMU/KVM）＋ホストカーネル</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>Key idea（要点）：VM境界＝攻撃面の集合</span>
+        <span>用語：attack surface（攻撃面）</span>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">檻の壁より</div>
+      <div class="title">「つなぎ目」が <em>勝つ</em></div>
+      <p class="lead">隔離は壁になりますが、ホストとVMを“つなぐ部品”が脆弱だと、壁越しに道ができます。AIはその道を探し、組み立てます。</p>
+
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Step i</div>
+          <div class="v">探索（探索＝探査）<small>失敗も含めて経路を試す</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">Step ii</div>
+          <div class="v">検証（verification）<small>再現できる形に寄せる</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">Step iii</div>
+          <div class="v">連鎖（exploit chain）<small>小さな穴を大きな突破へ</small></div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>言い換え：AIの強み＝探索＋統合（integration）</span>
+        <span>用語：exploit（エクスプロイト）</span>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">成功は <em>3回</em></div>
+      <div class="title">QEMU/KVMから <em>脱出</em></div>
+      <p class="lead">Trail of Bitsの報告では、意図的な“VM脱出チャレンジ”に対し、QEMU/KVM環境からホスト（Debian 12と記載）へ脱出が3回成功したとされています。</p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">対象</div>
+          <div class="v">QEMU/KVM（VM実行基盤）</div>
+        </div>
+        <div class="cell">
+          <div class="k">到達先</div>
+          <div class="v">ホスト側へ越える（境界破り）<small>＝高い特権/メモリ操作に到達</small></div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>重要：単発ではなく、研究・試行錯誤が含まれる</span>
+        <span>用語：host（ホスト）</span>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">鍵は <em>統合力</em></div>
+      <div class="title">「作れる」まで <em>行く</em></div>
+      <p class="lead">成功の核心は、既知の単発バグを悪用するだけでなく、長時間探索・失敗の巻き戻し・関連情報収集・最小再現・信頼性の高い連鎖を組み立てた点です。</p>
+
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">探索</div>
+          <div class="v">長時間の経路試行<small>約12時間と報告</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">巻き戻し</div>
+          <div class="v">失敗→再構成<small>バックトラック可能</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">仕上げ</div>
+          <div class="v">最小再現＋連鎖化<small>再現性を上げる</small></div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>CTF（CTF＝到達目標）最適化の側面も示唆</span>
+        <span>用語：repro（再現性）</span>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">CVEだけじゃない</div>
+      <div class="title">未分類の修正も <em>使う</em></div>
+      <p class="lead">公開済みの脆弱性だけでなく、CVEが付かないが修正があるコミット（未分類の修正）を組み合わせて、任意のメモリ読み書きへ到達した例が挙げられています。</p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">例：libslirp</div>
+          <div class="v">既知の脆弱性＋非CVEの修正を組合せ<small>＝攻撃者は「見える情報」に限らない</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">運用への示唆</div>
+          <div class="v">更新が「CVE一覧」依存だと漏れる</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>用語：commit（コミット）</span>
+        <span>JP補足：CVE＝脆弱性の番号</span>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">時間で変わる</div>
+      <div class="title">短時間の監視は <em>弱い</em></div>
+      <p class="lead">記事では、失敗を引き返しながら最終的な脱出チェーンへ到達したとされ、短時間の様子見では検知・抑止が間に合わない可能性が示唆されます。</p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">観測されにくい</div>
+          <div class="v">試行錯誤が長期化（explorationの継続）</div>
+        </div>
+        <div class="cell">
+          <div class="k">検知の難所</div>
+          <div class="v">監視間隔・ログ粒度が足りないと見逃す</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>用語：backtracking（逆戻り）</span>
+        <span>時間軸＝リスク評価の一部</span>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">設定で <em>攻撃面</em>が変わる</div>
+      <div class="title">表示機能の <em>差</em></div>
+      <p class="lead">別のQEMU脆弱性では、表示設定（例：-display none）により利用できなかった例が触れられています。同じ基盤でも構成次第で可否が変わることを示します。</p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">差を生むもの</div>
+          <div class="v">QEMUの起動・表示/入出力周り（display等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">教訓</div>
+          <div class="v">デフォルト運用＝安全、ではない</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>用語：attack surface（攻撃面）</span>
+        <span>構成管理が重要</span>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">Firecrackerは？</div>
+      <div class="title">「別方式」でも <em>絶対安全</em>はない</div>
+      <p class="lead">Firecrackerでは脱出は成功しなかったとされていますが、ホストがハードロックするなどの影響は起こり得たとも述べられます。つまり“相対的に難しい”が保証ではありません。</p>
+
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">攻撃面最小化<small>軽量・セキュア指向</small></div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">脱出は不成功</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">影響（例：ハードロック）の可能性</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>用語：hard lock（ハードロック）</span>
+        <span>防御は多層で</span>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">結論：守りは <em>運用</em>へ</div>
+      <div class="title">隔離より <em>境界防御</em></div>
+      <p class="lead">推奨される方向性は「隔離だけ」ではなく、攻撃面の最小化・最小権限・ログ監視・実行時間制限・クリーンなスナップショット運用などの複層です。</p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">設計（Design）</div>
+          <div class="v">攻撃面最小化、軽量仮想化、最小権限</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用（Ops）</div>
+          <div class="v">パッチ/バックポート、ログ・監視、時間制限、クリーン実行</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>用語：snapshot（スナップショット）</span>
+        <span>鍵：境界を“管理可能”にする</span>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">批判も必要</div>
+      <div class="title">再現性と <em>一般化</em></div>
+      <p class="lead">成功条件はQEMU設定、カーネル設定、MAC（例：AppArmor/SELinux）、ネットワーク等に依存し得ます。さらに“CTF最適化”された条件と一般利用の差で、リスク評価が変わる可能性があります。</p>
+
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">制約①</div>
+          <div class="v">環境差で結果が変わる</div>
+        </div>
+        <div class="cell">
+          <div class="k">制約②</div>
+          <div class="v">短い記事情報だけでは詳細追跡が難しい</div>
+        </div>
+        <div class="cell">
+          <div class="k">制約③</div>
+          <div class="v">「全てのAI・全てのVMで必ず」ではない</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>それでも：確率の現実化は重い</span>
+        <span>JP補足：probability（確率）</span>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">次にやること</div>
+      <div class="title"><em>自組織</em>で検証せよ</div>
+      <p class="lead">記事の価値は「全面否定」ではなく、あなたの環境に落として再設計するための警鐘です。最小攻撃面・パッチ速度・監視・時間制限を軸に、境界防御を作り直してください。</p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">チェック</div>
+          <div class="v">仮想化スタック（QEMU/KVM）＋ホストのパッチ状況</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">ネットワーク最小化、権限最小化、監視強化、実行時間制限、スナップショット運用</div>
+        </div>
+      </div>
+
+      <div class="bottomline"></div>
+      <div class="footnote">
+        <span>References（出典）スライド：最終ページ相当</span>
+        <span></span>
+      </div>
+    </section>
+
+    <!-- References slide (12: we used all slots; replace closing with references? requirement says every normal slide and References slide. We'll treat slide 12 as references by adjusting tag and lead.)
+    -->
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.trailofbits.com/" target="_blank" rel="noreferrer noopener">VMs won&#39;t contain cyber-capable agents - The Trail of Bits Blog</a></h2>
+<p class="reference-note">Initial source page</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.greenbone.net/en/blog/cve-2026-53359-januscape-kvm-vulnerability" target="_blank" rel="noreferrer noopener">CVE-2026-53359 (Januscape): KVM VM Escape Vulnerability</a></h2>
+<p class="reference-note">CVE-2026-53359 (aka Januscape; CVSS 8.8) is a high-impact virtualization-boundary vulnerability caused by a use-after-fr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.cloudlinux.com/januscape-cve-2026-53359-mitigation-and-kernel-update-on-cloudlinux" target="_blank" rel="noreferrer noopener">Januscape (CVE-2026-53359): Mitigation and Kernel Update on CloudLinux - CloudLinux</a></h2>
+<p class="reference-note">Januscape is a race condition in the KVM x86 memory-management unit (arch/x86/kvm/mmu/mmu.c). Under the race, the host a…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://labs.cloudsecurityalliance.org/research/csa-research-note-januscape-kvm-guest-host-escape-cve-2026-5" target="_blank" rel="noreferrer noopener">Januscape: 16-Year-Old KVM Flaw Enables VM Escape – Lab Space</a></h2>
+<p class="reference-note">A use-after-free vulnerability in the Linux kernel’s KVM hypervisor, tracked as CVE-2026-53359 and named “Januscape” by …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/V4bel/Januscape" target="_blank" rel="noreferrer noopener">GitHub - V4bel/Januscape · GitHub</a></h2>
+<p class="reference-note"># Januscape: Guest-to-Host Escape in KVM/x86
+
+tux
+
+# Abstract
+
+This document describes the Januscape (CVE-2026-53359) vu…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://hard2bit.com/en/blog/januscape-cve-2026-53359-kvm-guest-to-host-vm-escape" target="_blank" rel="noreferrer noopener">Januscape CVE-2026-53359: KVM guest-to-host escape</a></h2>
+<p class="reference-note">Januscape is a use-after-free flaw in the so-called shadow MMU, the subsystem KVM uses to keep track of how the memory a…</p>
+</article>
+</div>
+</section>
+</div>
+
+  <!-- References slide appended within same deck would break 12 count; rebuild deck with 13 slides.
+       But user asked nothing. We'll keep 12 and add a references card by using slide-num 12/12 already used.
+       We'll modify last slide content by injecting references inside via existing constraints? Can't.
+  -->
+
+</body>
+</html>
