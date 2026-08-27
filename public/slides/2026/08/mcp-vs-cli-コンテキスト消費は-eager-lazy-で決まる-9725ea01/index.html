@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCP vs CLI：コンテキスト消費は「eager/lazy」で決まる</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 8px;
+      padding: 56px 72px;
+      margin: 18px 0;
+      position: relative;
+      overflow: hidden;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      border: 20px solid var(--rule);
+      outline: 1px solid rgba(240,232,216,0.06);
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      left: 22px;
+      right: 22px;
+      top: 22px;
+      height: 1px;
+      background: var(--rule-strong);
+      opacity: .7;
+      pointer-events:none;
+    }
+    .topline{
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 2px;
+      color: var(--rust);
+      font-size: 18px;
+      font-style: italic;
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1;
+      margin-top: 2px;
+      max-width: 60%;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: .5px;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .content{
+      position: relative;
+      z-index: 2;
+      padding-top: 6px;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-style: italic;
+      font-size: 22px;
+      margin-bottom: 8px;
+      letter-spacing: .2px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.98;
+      margin: 0 0 12px 0;
+      color: var(--ink);
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 62px;
+      color: var(--ink);
+    }
+    .lead{
+      margin-top: 0;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.55;
+    }
+    .rule{
+      height:1px;
+      width:100%;
+      background: var(--rule);
+      margin: 18px 0;
+      position: relative;
+      z-index: 2;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px;
+      position: relative;
+      z-index: 2;
+      margin-top: 10px;
+    }
+    .grid2{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(28,24,19,0.35);
+      border-radius: 10px;
+      padding: 14px 14px;
+      min-height: 72px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .3px;
+      font-size: 12.5px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .value{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.4;
+      font-weight: 400;
+    }
+    code{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.95em;
+      color: var(--ink);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      font-weight: 400;
+    }
+    .footerline{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 18px;
+      height: 1px;
+      background: var(--rule);
+      z-index: 1;
+      opacity: .9;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">MCP/CLIの本質</div>
+        <div class="title"><span style="color: var(--rust);">eager</span><span style="color: var(--ink); font-style: italic;"> vs lazy</span><span class="jp"></span></div>
+        <p class="lead">「MCPかCLIか」より重要なのは、<span style="color: var(--rust); font-style: italic;">設計がeagerかlazyか</span>で、LLMのコンテキスト（トークン）消費が決まる点です。</p>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">トークンは有限</div>
+        <div class="title">Context Cost</div>
+        <p class="lead">LLMには有限なコンテキスト窓があり、ツール説明やスキーマにトークンを使うほど、推論とコード生成の余裕が減ります。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Core idea</div>
+            <div class="value">説明/スキーマの早出し＝先に埋まる</div>
+          </div>
+          <div class="card">
+            <div class="label">Impact</div>
+            <div class="value">タスク継続や出力品質に影響</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">04 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">何を渡す？</div>
+        <div class="title">Tool Interfaces</div>
+        <p class="lead">MCPはツールの<span style="color: var(--rust); font-style: italic;">入出力スキーマ</span>を提示し、CLIは<span style="color: var(--rust); font-style: italic;">コマンド体系</span>に従って呼びます。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">MCP</div>
+            <div class="value">モデルへ：ツール定義（入力/出力）を提示</div>
+          </div>
+          <div class="card">
+            <div class="label">CLI</div>
+            <div class="value">モデルへ：コマンド（例：<span class="mono">gh issue create</span>）を実行</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">05 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">説明を先に配る</div>
+        <div class="title">Eager / Lazy</div>
+        <p class="lead">eager（先出し）は必要前に情報を載せ、lazy（後出し）は要求に応じて必要最小だけ開示します。</p>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">Eager</div>
+            <div class="value">初期化でスキーマ大量投入</div>
+          </div>
+          <div class="card">
+            <div class="label">Lazy</div>
+            <div class="value">必要時に詳細を要求・開示</div>
+          </div>
+          <div class="card">
+            <div class="label">Result</div>
+            <div class="value">トークン効率が設計で変わる</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">06 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Blocksの計測</div>
+        <div class="title">Count Tokens</div>
+        <p class="lead">Blocks.aiは<span style="color: var(--rust); font-style: italic;">Claude Sonnetの count_tokens </span>で、CLI/MCP/Skill file/サードパーティMCPの「初期時の増分」を比較しました。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Method</div>
+            <div class="value">初期化時のコンテキスト増分を差分計測</div>
+          </div>
+          <div class="card">
+            <div class="label">Why it matters</div>
+            <div class="value">感想ではなく“コストの位置”を見える化</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">MCPは増えがち</div>
+        <div class="title">Schema Bloat</div>
+        <p class="lead">Blocksの例では、Blocks MCPサーバの初期時スキーマトークンが約<span style="color: var(--rust); font-style: italic;">3,185</span>。一方Blocks CLIはスキーマ追加が<span style="color: var(--rust); font-style: italic;">0</span>でした。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Blocks MCP</div>
+            <div class="value">初期化スキーマ：~3,185 tokens</div>
+          </div>
+          <div class="card">
+            <div class="label">Blocks CLI</div>
+            <div class="value">スキーマ追加：0 tokens</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">26,644の例</div>
+        <div class="title">GitHub MCP</div>
+        <p class="lead">GitHub MCPの例では、ツールセットを有効化すると初期時に約<span style="color: var(--rust); font-style: italic;">26,644 tokens</span>を消費するケースが示されました。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Observation</div>
+            <div class="value">ユーザ要求の前に情報が埋まる</div>
+          </div>
+          <div class="card">
+            <div class="label">Concern</div>
+            <div class="value">推論・継続・出力に影響し得る</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">原因はプロトコル？</div>
+        <div class="title">Not Protocol, Design</div>
+        <p class="lead">「MCPは高コスト」というより、数値の大部分は<span style="color: var(--rust); font-style: italic;">不適切なサーバ設計（eager設計）</span>が生む可能性が高い、と記事は譲歩します。</p>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">Likely cause</div>
+            <div class="value">ツール詳細を常に全部開示</div>
+          </div>
+          <div class="card">
+            <div class="label">Fix direction</div>
+            <div class="value">階層化・オンデマンド開示</div>
+          </div>
+          <div class="card">
+            <div class="label">Takeaway</div>
+            <div class="value">MCPでも削減余地あり</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">10 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">CLIは軽くしやすい</div>
+        <div class="title">Inner Loop</div>
+        <p class="lead">CLIは「ヘルプ確認＋本実行」で数百トークン程度に収まりやすい、という方向性が示されます。モデルが既に理解しているコマンド体系とも整合します。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Strength</div>
+            <div class="value">追加説明を載せる必要が薄い</div>
+          </div>
+          <div class="card">
+            <div class="label">Best fit</div>
+            <div class="value">内側の開発ループ（inner loop）</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">11 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">安全運用の軸</div>
+        <div class="title">Credential Custody</div>
+        <p class="lead">MCPはcredential custody（認証情報の管理）で有利になりやすい一方、合成（composability）では弱くなり得る、と記事は整理します。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">MCP：できること</div>
+            <div class="value">モデルが持たないキーは漏れにくい</div>
+          </div>
+          <div class="card">
+            <div class="label">CLI：起きやすいこと</div>
+            <div class="value">Unix的な連鎖で合成しやすい（ただし鍵の扱い注意）</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">12 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">外側と内側</div>
+        <div class="title">Outer / Inner Loop</div>
+        <p class="lead">CLIは開発者の内側のループに向き、MCPはエージェント間で境界をまたいで統制する外側のループで有用になりやすい、と述べられます。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">CLI</div>
+            <div class="value">inner loop：実行・反復が速い</div>
+          </div>
+          <div class="card">
+            <div class="label">MCP</div>
+            <div class="value">outer loop：エージェント統制・連携が得意</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">13 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Lazy設計が鍵</div>
+        <div class="title">Design Controls</div>
+        <p class="lead">MCPでもコストを抑えるには、ツールを階層化し、詳細をオンデマンドで要求するなど、lazyな開示設計を取るのが有効です。</p>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">1) Hierarchy</div>
+            <div class="value">知識層/行動層を分離（粒度を調整）</div>
+          </div>
+          <div class="card">
+            <div class="label">2) On-demand</div>
+            <div class="value">必要なツール詳細だけ追加提示</div>
+          </div>
+          <div class="card">
+            <div class="label">3) Separation</div>
+            <div class="value">サーバの責務を明確化</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">14 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">併用の結論</div>
+        <div class="title">Use Both</div>
+        <p class="lead">固定の二択にせず、用途で分けて併用するのが合理的です（例：構築・公開はCLI、他者のエージェント呼びはMCP）。</p>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">Build & Publish</div>
+            <div class="value">CLI（素早い反復）</div>
+          </div>
+          <div class="card">
+            <div class="label">Call Others</div>
+            <div class="value">MCP（外側の統制）</div>
+          </div>
+          <div class="card">
+            <div class="label">Rules / Skill</div>
+            <div class="value">Skill file（行動規約を教育）</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">15 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">最終チェック</div>
+        <div class="title">Evaluate Requirements</div>
+        <p class="lead">「トークンが少ない＝常に正解」ではありません。認証統制、合成可能性、ツールカバレッジ、運用コストまで含めて選びましょう。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Risk to watch</div>
+            <div class="value">ツールカバレッジ不足 / 合成の弱さ</div>
+          </div>
+          <div class="card">
+            <div class="label">Practical stance</div>
+            <div class="value">初期コストだけでなく総コスト・成功率も評価</div>
+          </div>
+        </div>
+        <div class="footerline"></div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blocks.ai/" target="_blank" rel="noreferrer noopener">Your coding agent spends 26,000 tokens before it reads your prompt: Comparing MCP and CLI — Blocks.ai Blog</a></h2>
+<p class="reference-note">Initial source page</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.firecrawl.dev/blog/mcp-vs-cli" target="_blank" rel="noreferrer noopener">MCP vs CLI for AI Agents: Which One Should You Use in 2026?</a></h2>
+<p class="reference-note">Composio found about 50% less context consumption for multi-app queries using their CLI. And someone built mcp2cli (2.2K…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.getmaxim.ai/articles/cutting-mcp-token-costs-by-92-at-500-tools" target="_blank" rel="noreferrer noopener">Cutting MCP Token Costs by 92% at 500+ Tools</a></h2>
+<p class="reference-note">Round 3, 508 tools across 16 servers: input tokens fell from 75.1M to 5.4M (−92.8%), estimated cost from $377.00 to $29.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://myclaw.ai/blog/mcp-token-trap-35x-more-expensive-than-cli" target="_blank" rel="noreferrer noopener">The MCP Token Trap: Why MCP Costs 35x More Than CLI (and How to Fix It) | MyClaw.ai</a></h2>
+<p class="reference-note">Benchmarks show MCP costing 4x to 35x more tokens than CLI for equivalent single-step operations. The variance depends o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/kuldeep_paul/cutting-mcp-tool-call-token-costs-by-50-with-code-mode-4cd" target="_blank" rel="noreferrer noopener">Cutting MCP Tool-Call Token Costs by 50%+ with Code Mode - DEV Community</a></h2>
+<p class="reference-note">All three rounds kept a 100% pass rate in both configurations, which means none of the savings came from sacrificed accu…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://vensas.de/en/blog/mcp-vs-cli-cost-comparison" target="_blank" rel="noreferrer noopener">MCP vs CLI Tools: The Cost Comparison Every AI Developer Needs to See - Blog - vensas GmbH - Software Development &amp; IT Consulting Saarbrücken | DACH &amp; Benelux</a></h2>
+<p class="reference-note">A single tool call might cost ~900–3,000 tokens total versus 15,000+ for the equivalent MCP call.
+
+## Real-World Benchma…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
