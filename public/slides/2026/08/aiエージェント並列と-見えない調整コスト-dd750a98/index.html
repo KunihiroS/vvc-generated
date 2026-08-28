@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIエージェント並列と“見えない調整コスト”</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide {
+      background: var(--paper);
+      color: var(--ink);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      padding: 20px;
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      overflow: hidden;
+      position: relative;
+    }
+    .slide::after{
+      content:"";
+      position:absolute; inset:20px;
+      border:1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity:.55;
+    }
+    .slide-inner{
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 56px 72px;
+      box-sizing: border-box;
+    }
+    .slide-tag {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: .18em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-top: 1px solid var(--rust);
+      padding-top: 10px;
+      width: fit-content;
+    }
+    .slide-num {
+      position: absolute;
+      top: 18px;
+      right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 34px;
+      color: var(--ink-2);
+      opacity: .95;
+      z-index: 2;
+    }
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 8px;
+    }
+    .title {
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 78px;
+      line-height: 0.95;
+      margin-top: 6px;
+    }
+    .title .em {
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 2px;
+    }
+    .grid {
+      width: 100%;
+      display: grid;
+      gap: 12px 18px;
+      margin-top: 6px;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(20,17,13,0.18);
+      box-sizing: border-box;
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v {
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+    .jp { color: var(--ink-2); font-weight: 400; font-size: 18px; }
+    .smallnote {
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.45;
+      max-width: 760px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slide-num">02 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Topic</div>
+        <div class="eyebrow">並列は“速さ”ではなく“責任”</div>
+        <div class="title"><span class="em">AI</span>エージェント並列</div>
+        <div class="lead">実行ランタイムでは、リトライ・タイマー・ツール呼び出し・キャンセルが同じ状態や外部資源を巡って競合し、因果が壊れます。</div>
+        <div class="smallnote">結論：無制限並列は性能より先に整合性を傷つける。そこで「complexity budget（複雑性予算）」で並列を抑えます。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">03 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Problem</div>
+        <div class="eyebrow">緑でも壊れる</div>
+        <div class="title">スループット罠</div>
+        <div class="lead">ダッシュボードの処理量（スループット）が上がっても、失敗が「矛盾する結果」として後から蓄積することがあります。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">見える指標</div>
+            <div class="v">完了件数・平均レイテンシ・再試行率</div>
+          </div>
+          <div class="cell">
+            <div class="k">見えない破壊</div>
+            <div class="v">レースによる副作用競合 / 古い結果の再投入 / 因果崩壊</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">04 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Core</div>
+        <div class="eyebrow">同じ“瓶”を共有</div>
+        <div class="title">競合</div>
+        <div class="lead">リトライ・タイマー・ツール呼び出し・キャンセルは別物に見えても、実態は同じ状態（state）や同じ外部資源を巡る相互作用です。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">Retry</div>
+            <div class="v">失敗時の再実行（再試行の増幅）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Timer</div>
+            <div class="v">一定時間後の停止/切替</div>
+          </div>
+          <div class="cell">
+            <div class="k">Tool / Cancel</div>
+            <div class="v">外部副作用＋無効化/停止の責務</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">05 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Key idea</div>
+        <div class="eyebrow">並列は“能力”ではなく</div>
+        <div class="title">complexity budget</div>
+        <div class="lead">各エージェント実行レーンに「失敗回復の責任」を含む固定の complexity budget を与え、満たせないなら並列を増やしません。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">目的</div>
+            <div class="v">並列増加で生まれる“調整コスト”を封じる</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用</div>
+            <div class="v">予算を超えるなら待たせる（レーン追加を拒否）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">06 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Mechanism</div>
+        <div class="eyebrow">増やすほど壊れる</div>
+        <div class="title">オーナー権限</div>
+        <div class="lead">並列レーンを足すと、キャンセル経路・タイムアウト時の状態所有権・回復コストまで“自分で担保”する必要が増えます。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Owner</div>
+            <div class="v">誰が次の状態遷移の正当性を持つか</div>
+          </div>
+          <div class="cell">
+            <div class="k">Failure recovery</div>
+            <div class="v">副作用競合後の整合性回復責任</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">07 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Risk</div>
+        <div class="eyebrow">distributed corruption</div>
+        <div class="title">整合性破壊</div>
+        <div class="lead">状態の所有権が曖昧だと、無制限並列は「配布された汚染（distributed corruption）」になり、取り消しが形だけになります。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">Race</div>
+            <div class="v">古い試行が勝って書く / 新しい試行が上書き</div>
+          </div>
+          <div class="cell">
+            <div class="k">Timeout</div>
+            <div class="v">待ちをやめるだけで正当性を定義しない</div>
+          </div>
+          <div class="cell">
+            <div class="k">Cancel</div>
+            <div class="v">“無効化の対象”が共有されず遅延結果が混入</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">08 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Tools</div>
+        <div class="eyebrow">フェンシングで守る</div>
+        <div class="title">権限剥奪</div>
+        <div class="lead">キャンセルは丁寧に止めるだけでなく、lease（権限）を剥奪して遅延結果（zombie callback）を無効化します。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Fencing token</div>
+            <div class="v">古い試行の書き込みを拒否</div>
+          </div>
+          <div class="cell">
+            <div class="k">Epoch / Token検証</div>
+            <div class="v">ツール呼び出し境界で“書ける正当性”を確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">09 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Design</div>
+        <div class="eyebrow">Idempotencyが要る</div>
+        <div class="title">冪等</div>
+        <div class="lead">外部副作用があるなら、冪等性（idempotency）とコミット境界設計が必要です。取り消しに頼れないからです。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Idempotent</div>
+            <div class="v">同じ試行（or 同等キー）が複数回あっても一度と同等</div>
+          </div>
+          <div class="cell">
+            <div class="k">Commit boundary</div>
+            <div class="v">いつ外部に“確定”し、その後の無効化は何を意味するか</div>
+          </div>
+        </div>
+        <div class="smallnote">英：idempotency / 日：冪等性</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">10 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Complexity</div>
+        <div class="eyebrow">スレッドじゃない</div>
+        <div class="title">副作用増幅</div>
+        <div class="lead">並列化コストの中心はスレッドではなく、副作用（外部連携・DBロック・キャッシュ更新）とリトライ増幅（amplification）の組み合わせです。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">External limits</div>
+            <div class="v">サービス制限・レート制限が先に破綻</div>
+          </div>
+          <div class="cell">
+            <div class="k">Locks / Cache</div>
+            <div class="v">競合で待ちが増え、順序も崩れやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">Retry amplification</div>
+            <div class="v">失敗→再試行→さらに負荷→さらに失敗</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">11 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Consequences</div>
+        <div class="eyebrow">並列は“調整経路”を増やす</div>
+        <div class="title">矛盾の同時生成</div>
+        <div class="lead">並列化はエージェント能力を増やすというより、矛盾する世界（相互に成立しない状態遷移）を同時に作ることになり得ます。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">隠れたコスト</div>
+            <div class="v">キャンセル・タイムアウト・回復の責務がレーンごとに増える</div>
+          </div>
+          <div class="cell">
+            <div class="k">方針</div>
+            <div class="v">サーキットブレーカー / アドミッション制御 / リトライ予算</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">12 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Limitations</div>
+        <div class="eyebrow">原理は良いが</div>
+        <div class="title">測定が要る</div>
+        <div class="lead">提案の強みは失敗設計としての再定義ですが、導入には「予算の数値化」と「境界（所有権・コミット・ツール・外部副作用）の担保」が別途必要です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">必要な検証</div>
+            <div class="v">どの指標（キュー滞在、リトライ率、ツール待ち、因果不整合率等）を優先するか</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">サービスによって“キャンセル＝無効化”が成立しない領域がある</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-num">13 / 16</div>
+      <div class="slide-inner">
+        <div class="slide-tag">Closing</div>
+        <div class="eyebrow">並列は正しく設計して</div>
+        <div class="title">制御する並列</div>
+        <div class="lead">支持点は「無制限並列は最悪になり得る」という視点。結局は、並列を憎むのではなく“条件つきの資産化”が要点です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">やること</div>
+            <div class="v">complexity budget / owner / fencing / idempotency / retry予算</div>
+          </div>
+          <div class="cell">
+            <div class="k">最後に</div>
+            <div class="v">対象システムごとに境界と閾値を決め、整合性を測り続ける</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/French/comments/qlstit/how_does_il_y_a_translate_to_both_there_is_and" target="_blank" rel="noreferrer noopener">How does “il y a” translate to both “There is” and “ago” ...</a></h2>
+<p class="reference-note">Saying “il y a 10 jours” looks like “there is 10 days” how can “there is” also be taken to mean “ago” and turn the sente…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ludwig.guru/s/I+have+verified+that" target="_blank" rel="noreferrer noopener">I have verified that | Meaning, Grammar Guide &amp; Usage ...</a></h2>
+<p class="reference-note">It means you have checked something and confirmed its truth or accuracy using reliable methods. How can I use &quot;I have ve…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://community.docusign.com/esignature-111/video-id-verification-completed-but-review-pending-for-more-than-3-hours-normal-24724" target="_blank" rel="noreferrer noopener">Video ID Verification Completed, but review pending for more than 3 hours - normal? | Community</a></h2>
+<p class="reference-note">I signed the contract three hours ago today after going through video identification process with a live agent. Everythi…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/groups/1806577866406106/posts/2589283744802177" target="_blank" rel="noreferrer noopener">Irs identity verification processing time</a></h2>
+<p class="reference-note">Just wanted to share an update in case this helps anyone.
+
+I spoke directly with the IRS today about identity verificati…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://community.adobe.com/questions-6/unable-to-verify-education-status-despite-receiving-the-product-one-week-ago-1614076" target="_blank" rel="noreferrer noopener">&quot;Unable to verify education status&quot; despite receiving the ...</a></h2>
+<p class="reference-note">I&#39;m subscribed to Creative Cloud since 2023 and receive the reduced monthly fee because of my education status.Just last…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
