@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Float Bloat（ベクトル検索の過剰コスト）HTMLスライド</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 60px;
+      display: block;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 16px auto;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      align-items: start;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      border: 20px solid var(--rule);
+      pointer-events:none;
+      opacity: 0.55;
+    }
+
+    .topbar{
+      position: relative;
+      z-index: 2;
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 12px;
+      padding: 12px 0 0;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      padding-left: 6px;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 400;
+      color: var(--ink-2);
+      font-size: 26px;
+      padding-right: 6px;
+      white-space: nowrap;
+      opacity: 0.95;
+    }
+
+    .content{
+      position: relative;
+      z-index: 2;
+      padding: 10px 0 0;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.05;
+      padding-left: 6px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.95;
+      margin: 2px 0 0;
+      color: var(--ink);
+      padding-left: 6px;
+      letter-spacing: -0.01em;
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+
+    .lead{
+      margin:0;
+      max-width: 760px;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      padding-left: 6px;
+      line-height: 1.35;
+    }
+
+    .grid{
+      position: relative;
+      z-index: 2;
+      margin-top: 10px;
+      padding-left: 6px;
+      padding-right: 6px;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+      align-items: stretch;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px 12px;
+      align-items: stretch;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.02);
+      border-radius: 6px;
+      padding: 12px 12px 12px;
+      min-height: 78px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .value{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 400;
+      font-size: 16px;
+      color: var(--ink);
+    }
+
+    .rulebar{
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 116px;
+      height: 1px;
+      background: var(--rule-strong);
+      opacity: 0.45;
+      z-index: 1;
+    }
+
+    .footer{
+      position: relative;
+      z-index: 2;
+      display:flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 6px 8px;
+      align-items:flex-end;
+      color: var(--ink-3);
+      font-size: 14px;
+    }
+
+    .bilingual{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 6px;
+      font-weight: 300;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 820px){
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .cell{ min-height: 72px; }
+      .value{ font-size: 16px; }
+      .slide{ padding: 14px; }
+      .slide::after{ border-width: 14px; }
+      .rulebar{ top: 100px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- 1 -->
+    <section class="slide cover" aria-label="cover slide 1">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">ベクトル検索の“見えない損”</div>
+        <h1 class="title">Float <em>Bloat</em></h1>
+        <p class="lead">型変換とテキスト化が生む「精度は増えないのにコストだけ増える」問題を、原因と対策まで整理します。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">鍵</div>
+            <div class="value">float32 → float64 → JSON（文字列）で“桁だけ増える”<div class="bilingual">桁肥大 / <span lang="en">digit bloat</span></div></div>
+          </div>
+          <div class="cell">
+            <div class="label">対象</div>
+            <div class="value">保存・転送・コピー・ホップのたびに増幅し得る<div class="bilingual">増殖 / <span lang="en">amplification</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>出典: Bonsai（Matt Gross, Max Irwin）の指摘内容を要約</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem" aria-label="problem slide 2">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">“精度アップ”ではない</div>
+        <h2 class="title">余分な<strong><em>桁</em></strong></h2>
+        <p class="lead">float32の埋め込みが、クライアント側でfloat64にキャストされ、JSON等に“全桁”で書き込まれると、精度が上がらないのに数値文字列が太ります。</p>
+        <div class="grid grid3" style="margin-top:18px;">
+          <div class="cell">
+            <div class="label">本来</div>
+            <div class="value">float32の埋め込み（必要最小の情報）</div>
+          </div>
+          <div class="cell">
+            <div class="label">起きること</div>
+            <div class="value">float32→float64（表現が拡張）</div>
+          </div>
+          <div class="cell">
+            <div class="label">結果</div>
+            <div class="value">テキスト化で“追加の数字”が保存・転送される</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div></div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor" aria-label="metaphor slide 3">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">同じ絵を、長文で送る</div>
+        <h2 class="title">情報は同じ、<em>文字数</em>だけ増える</h2>
+        <p class="lead">値そのものの意味は変わらなくても、テキスト表現が長くなると、ディスク・ネットワーク・前処理の負担が連鎖します。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">精度（quality）</div>
+            <div class="value">float64化は“値の情報量”を増やさない</div>
+          </div>
+          <div class="cell">
+            <div class="label">コスト（cost）</div>
+            <div class="value">余分な数字が次元×データ×回数で蓄積</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>例示: “世界的な無駄”が起き得る理由</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture" aria-label="architecture slide 4">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">どこで膨らむ？</div>
+        <h2 class="title"><em>データ経路</em>が犯人</h2>
+        <p class="lead">埋め込みモデルよりも、保存・転送前の“型とシリアライズ”のデフォルト挙動が、float bloatの主要トリガーになりやすいとされます。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">典型的な流れ</div>
+            <div class="value">
+              i) 埋め込み生成（float32）<br/>
+              ii) float64キャスト<br/>
+              iii) JSON等で文字列化（全桁）
+            </div>
+          </div>
+          <div class="cell">
+            <div class="label">起点の見落とし</div>
+            <div class="value">どこかでfloat64化＋“全桁出力”が起きても、サービス側だけを疑いがち</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div></div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide evidence" aria-label="evidence slide 5">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">観測された広がり</div>
+        <h2 class="title">見つかる、<em>多発する</em></h2>
+        <p class="lead">18の多様なクラスタをサンプリングして12/18でfloat bloatが見つかり、SDKやクラウド、ブログ、OSSにも存在することが示されています。</p>
+        <div class="grid grid3" style="margin-top:18px;">
+          <div class="cell">
+            <div class="label">サンプル</div>
+            <div class="value">18クラスタ</div>
+          </div>
+          <div class="cell">
+            <div class="label">検出率</div>
+            <div class="value">12/18で確認</div>
+          </div>
+          <div class="cell">
+            <div class="label">性質</div>
+            <div class="value">単発ミスより“デフォルト”由来が濃厚</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>頻度が高いほど、対策のROIも上がりやすい</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide enumeration" aria-label="enumeration slide 6">
+      <div class="topbar">
+        <div class="slide-tag">WHY</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">増幅の仕組み</div>
+        <h2 class="title">コピーとホップで<em>加速</em></h2>
+        <p class="lead">ベクトル検索では、インデックス化・レプリカ・スナップショット・キャッシュなどで同じベクトルが複製され、さらにネットワーク往復で転送回数も増えます。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label"><em>増える</em>もの</div>
+            <div class="value">ディスク容量 / ネットワーク帯域 /（場合により）CPU前処理</div>
+          </div>
+          <div class="cell">
+            <div class="label"><em>効く</em>理由</div>
+            <div class="value">float bloatの“余剰”が、複製と転送回数に比例して蓄積</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>“widened JSON, all copies”の差が大きくなり得る</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide comparison" aria-label="comparison slide 7">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">次元が多いほど痛い</div>
+        <h2 class="title">768次元で<em>顕在化</em></h2>
+        <p class="lead">768次元のベクトルはfloat32なら“最短のテキスト表現”が成立し得ますが、widened JSONでは追加バイトが出て、保管・転送の差が積み上がります。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">前提</div>
+            <div class="value">768次元ベクトル</div>
+          </div>
+          <div class="cell">
+            <div class="label">主張</div>
+            <div class="value">float32の最短表現 vs widened JSON：不要な追加バイトが発生</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>推計として“20PB超の不要ストレージ”の可能性が挙げられる</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide evidence" aria-label="evidence slide 8">
+      <div class="topbar">
+        <div class="slide-tag">ROOT CAUSE</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">“二次変換”が危険</div>
+        <h2 class="title">float化＋再シリアライズ</h2>
+        <p class="lead">Pythonの`tolist()`、JSON化、base64→復元、数値型の取り違えなど、パス中の再表現で桁が増えると指摘されています。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">起きがちなタイミング</div>
+            <div class="value">
+              i) 配列→リスト<br/>
+              ii) 型をまたいで文字列へ<br/>
+              iii) そのまま保存・転送
+            </div>
+          </div>
+          <div class="cell">
+            <div class="label">例（挙動の方向）</div>
+            <div class="value">
+              `tolist()`→Python float→JSONで“長い小数列”<div class="bilingual">長桁化 / <span lang="en">long-decimal</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div></div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide process" aria-label="process slide 9">
+      <div class="topbar">
+        <div class="slide-tag">ASSESS</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">まず“検出”する</div>
+        <h2 class="title">文字列表現を確認</h2>
+        <p class="lead">保存後の数値文字列が、float32の最短表現になっているかを見るのが早道です。次元ごとに17桁級の長い小数が並ぶなら、float64化＋全桁出力の可能性が高いです。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">判定観点</div>
+            <div class="value">“最短桁”に揃っているか（17桁級なら疑う）</div>
+          </div>
+          <div class="cell">
+            <div class="label">どこを見る</div>
+            <div class="value">ベクトルが“保存・転送される最終形式”（DB/ログ/ペイロード）</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>観測可能性のあるところから当てに行く</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide process" aria-label="process slide 10">
+      <div class="topbar">
+        <div class="slide-tag">FIX</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">損失なしで直す道</div>
+        <h2 class="title">先に桁を<em>制御</em></h2>
+        <p class="lead">優先順位の第1は、最初からfloat32精度でテキスト化することです（例：Python `%.9g`、JS `toPrecision(9)`）。値の意味を維持しつつ、不要な桁を削れます。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">第1の手</div>
+            <div class="value">
+              float32でテキスト化（桁制御）<br/>
+              例: Python <span class="mono">'%.9g'</span> / JS <span class="mono">toPrecision(9)</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="label">第2の手</div>
+            <div class="value">可能ならバイナリ/ base64 / Arrow / protobufなどへ（再解釈を減らす）</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>lossless（損失なし）を狙う設計が示されている</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide distinction" aria-label="distinction slide 11">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">“true” vs “fake”改善</div>
+        <h2 class="title">品質は上がらず、<em>形式だけ</em>が太る</h2>
+        <p class="lead">float32→float64は細かい格子への載せ替えですが、情報量は増えません。問題はテキスト化で“表現の細かさ”がそのまま保存・転送コストに変換される点です。</p>
+        <div class="grid grid2" style="margin-top:16px;">
+          <div class="cell">
+            <div class="label">改善にならない例</div>
+            <div class="value">精度が上がらないのに、数値文字列が長くなる</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="value">値の意味を保ち、文字列表現の肥大だけ止める</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>“どこで型が変わるか”を見取り図化するのが実務的</div>
+        <div></div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide closing" aria-label="closing slide 12">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="rulebar"></div>
+      <div class="content">
+        <div class="eyebrow">結論</div>
+        <h2 class="title">Float <em>Bloat</em>は“修正可能”</h2>
+        <p class="lead">多くのケースで原因は埋め込みモデルではなく、クライアントのfloat64化とJSON化の段階です。まずは最終ペイロード/保存形式を点検し、桁制御またはバイナリ化で無駄を削りましょう。</p>
+        <div class="grid grid3" style="margin-top:18px;">
+          <div class="cell">
+            <div class="label">Step i</div>
+            <div class="value">保存後の文字列を確認（長桁なら疑う）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Step ii</div>
+            <div class="value">桁制御（例 `%.9g` / `toPrecision(9)`）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Step iii</div>
+            <div class="value">バイナリ/Arrow/Protobuf/base64でパススルー</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div>“増幅器”を止めるのが最短ルート</div>
+        <div></div>
+      </div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.firecrawl.dev/blog/best-vector-databases" target="_blank" rel="noreferrer noopener">Best Vector Databases in 2026: A Complete Comparison ...</a></h2>
+<p class="reference-note">Vector performance has improved a lot. Elastic&#39;s own benchmarks showed Elasticsearch 8.14 significantly outpacing earlie…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.elastic.co/search-labs/blog/elasticsearch-vector-search-lookup" target="_blank" rel="noreferrer noopener">Up to 3x faster stored-vector queries in Elasticsearch | Elasticsearch Labs</a></h2>
+<p class="reference-note">| Percentile | get-then-knn (ms) | lookup-knn (ms) | Reduction | Speedup |
+ ---  --- 
+| p50 | 10.3796 | 3.14093 | 69.74%…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.capellasolutions.com/blog/elasticsearch-vs-vector-databases-decoding-the-best-data-management-solution" target="_blank" rel="noreferrer noopener">Elasticsearch vs. Vector Databases: Decoding the Best Data Management Solution</a></h2>
+<p class="reference-note">So while both are distributed databases, their underlying architecture, scalability models, and performance techniques d…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.gdeltproject.org/our-journey-towards-user-facing-vector-search-evaluating-elasticsearchs-ann-vector-search-ram-costs" target="_blank" rel="noreferrer noopener">Our Journey Towards User-Facing Vector Search: Evaluating Elasticsearch’s ANN Vector Search RAM Costs – The GDELT Project</a></h2>
+<p class="reference-note">2 Billion @ 512-Dim Float32: 2,000,000,000 \ 4 \ (512 + 12) = 4.192TB RAM
+ 2 Billion @ 512-Dim Quantized: 2,000,000,000 …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/numpy/numpy/issues/12481" target="_blank" rel="noreferrer noopener">(Blessed) JSON serializable format · Issue #12481 · numpy/numpy · GitHub</a></h2>
+<p class="reference-note">While many of the discussions about encoding NumPy arrays as JSON often site that this will not be as performant as bina…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
