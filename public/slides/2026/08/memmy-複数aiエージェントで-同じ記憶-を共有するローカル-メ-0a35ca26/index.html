@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memmy — 複数AIエージェントで“同じ記憶”を共有するローカル・メモリ基盤</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      inset: 0;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 34px;
+      left: 44px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 30px;
+      right: 44px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 14px 0;
+      position: relative;
+      z-index: 1;
+      max-width: 760px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      margin: 0 0 18px 0;
+      line-height: 1.02;
+      position: relative;
+      z-index: 1;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      position: relative;
+      z-index: 1;
+      font-weight: 300;
+    }
+
+    .rule{
+      margin-top: 22px;
+      height: 1px;
+      background: var(--rule);
+      position: relative;
+      z-index: 1;
+      max-width: 980px;
+    }
+
+    .grid{
+      margin-top: 20px;
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: rgba(240, 232, 216, 0.03);
+      min-height: 70px;
+    }
+
+    .cell-h{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-2);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.01em;
+      margin-bottom: 8px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+
+    .roman{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      margin-right: 6px;
+    }
+
+    .cell-b{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .list-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+      position: relative;
+      z-index: 1;
+    }
+    .mini{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 16px;
+      font-weight: 400;
+      white-space: nowrap;
+    }
+
+    code{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .footer-note{
+      position:absolute;
+      left: 44px;
+      bottom: 26px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 12px;
+      color: var(--ink-4);
+      letter-spacing: 0.02em;
+      z-index: 1;
+      max-width: 930px;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 46px 28px; }
+      .slide-tag{ top: 18px; left: 22px; }
+      .slide-num{ top: 14px; right: 22px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .slide::before{ inset: 14px; }
+      .footer-note{ left: 22px; right: 22px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">Memmyで“同じ記憶”へ</div>
+      <h1 class="title"><em>Memmy</em><span>—長期メモリ基盤</span></h1>
+      <p class="lead">複数AIエージェントが、同じ“個人の記憶（長期メモリ）”と“永続的な文脈”を参照できるようにする、ローカル寄りのメモリサービス＋ゲートウェイ＋CLI/TUI。</p>
+      <div class="footer-note">開発方針の要点：(1) 外部記憶参照、(2) ローカル常駐運用、(3) BYOKで依存調整</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">乗り換えが“文脈断絶”に</div>
+      <h1 class="title">問題は <em>記憶の分散</em></h1>
+      <p class="lead">エージェントを切り替えるたびに、作業状況や背景知識が継続しにくくなります。長期的な流れを保つには、会話履歴ではなく“参照可能な記憶”が必要です。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h"><span class="roman">i</span>現状</div>
+          <div class="cell-b">エージェントごとに文脈が分かれ、タスクが途切れる。</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h"><span class="roman">ii</span>狙い</div>
+          <div class="cell-b">“同じ記憶”を共有してタスク継続を作る。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">脳の“外部メモリ”</div>
+      <h1 class="title">Memmyは <em>長期脳</em></h1>
+      <p class="lead">エージェントは“作業する手”で、Memmyは“覚えておく場所”です。保存された知識は、次のエージェント利用時にも参照される前提で設計されています。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="cell-h">Input</div>
+          <div class="cell-b">知識・作業状況を memmy-memory へ追加</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">Store</div>
+          <div class="cell-b">長期メモリとして永続化し、参照可能に</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">Reuse</div>
+          <div class="cell-b">別エージェントが同じ文脈を引き継ぐ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">ローカル常駐の部品構成</div>
+      <h1 class="title">構成：<em>memory</em>＋gateway</h1>
+      <p class="lead">Memmyは主に「メモリサービス（memmy-memory）」「ゲートウェイ」「CLI/TUI」で構成され、systemdユーザーサービスとしてローカルに常駐運用できます。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">memmy-memory</div>
+          <div class="cell-b">追加・検索・取得（例：memmy-memory add/search/get）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">memmy-gateway + API</div>
+          <div class="cell-b">OpenAI互換として提供（例：<span class="mono">:18990</span>）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">導入の流れ：運用を前提に</div>
+      <h1 class="title">起動と反映を <em>systemd</em>で</h1>
+      <p class="lead">CLI/TUIは初回起動時にモデル設定ウィザードを開き、systemdユーザーサービスはTUI/ターミナル終了後も継続稼働する想定です。設定変更は環境変数が反映されるよう再起動されます。</p>
+      <div class="list-grid">
+        <div class="cell">
+          <div class="cell-h">初回</div>
+          <div class="cell-b">モデル設定ウィザードで構成（BYOK含む）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">常駐</div>
+          <div class="cell-b">memmy-memory.service / memmy-gateway.service を即時有効化</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">反映</div>
+          <div class="cell-b">~/.memmy/systemd/gateway.env（0600）を更新→再起動</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">接続</div>
+          <div class="cell-b">localhost バインドで、エージェントから参照</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">利用形態は3ルート</div>
+      <h1 class="title">選べる <em>運用モード</em></h1>
+      <p class="lead">Memmyは、(a) デスクトップアプリ、(b) LinuxのCLI/TUI（systemd運用）、(c) メモリサービス単体CLI（memmy-memory）という3形態で提供されます。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="cell-h"><span class="roman">i</span>Desktop</div>
+          <div class="cell-b">推奨。トライアル→BYOKへ切替の道筋あり</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h"><span class="roman">ii</span>CLI/TUI</div>
+          <div class="cell-b">初回ウィザード＋ローカルAPI（<span class="mono">:18990</span>）で接続</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h"><span class="roman">iii</span>Memory-only</div>
+          <div class="cell-b">memmy-memory のみ操作（検索/追加/取得）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">“保存”と“連携”を分ける</div>
+      <h1 class="title">Hook導入は <em>段階的</em></h1>
+      <p class="lead">README抜粋では、Memory SkillとHook/pluginはインストール段階と有効化段階が分離される可能性があります。明示的に <code>memmy-memory init --agent &lt;agent&gt;</code> のような運用が示されています。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">インストール</div>
+          <div class="cell-b">Memory Skill / Hook を導入しても、既存エージェント挙動は“変更しない”趣旨</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">有効化</div>
+          <div class="cell-b">必要なときに <span class="mono">init --agent</span> で明示的に連携</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">検証しやすい手動操作</div>
+      <h1 class="title">memmy-memoryで <em>中身を確認</em></h1>
+      <p class="lead">長期メモリはブラックボックス化しがちですが、CLIで検索・追加・取得できる構造が示されています。人手で“何が入っているか”を確かめられます。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">search</div>
+          <div class="cell-b">保存内容を検索して見つける（例：<code>memmy-memory search</code>）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">add / get</div>
+          <div class="cell-b">追加と取得で、保存と参照を往復（例：<code>add</code> / <code>get</code>）</div>
+        </div>
+      </div>
+      <div class="footer-note">重要：全会話自動保存の有無は抜粋だけでは断定不可。保存ポリシー確認が必要。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">BYOKで外部依存を調整</div>
+      <h1 class="title">データ運用を <em>自分で握る</em></h1>
+      <p class="lead">BYOKモード（ユーザー自身のモデルAPI利用）への切り替えが可能です。最小構成として <code>~/.memmy/config.yaml</code> の例が提供されています。</p>
+      <div class="list-grid">
+        <div class="cell">
+          <div class="cell-h">切替</div>
+          <div class="cell-b">トライアルからBYOKへ、構成変更で運用を維持</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">最小構成</div>
+          <div class="cell-b"><code>~/.memmy/config.yaml</code> に provider 設定（例：OpenAIキー参照）</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">利点</div>
+          <div class="cell-b">ベンダ依存を弱め、運用ポリシーに合わせやすい</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">関連</div>
+          <div class="cell-b">memmy-memory / gateway が接続に必要な設定（URL/Token/Config等）を扱う前提</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">Q&Aから見える“確度”</div>
+      <h1 class="title">確認すべき <em>不明点</em></h1>
+      <p class="lead">抜粋から言えることは強い一方、長期記憶は個人情報に直結するため、保存ポリシーやセキュリティ実装は追加確認が必要です。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">保存</div>
+          <div class="cell-b">“全会話を自動保存”かは不明。<span class="mono">memmy-memory add</span>で保存可能は示唆。</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">systemd</div>
+          <div class="cell-b">TUI終了後も利用可能。ただし linger有効化の有無などは環境依存の可能性。</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">連携</div>
+          <div class="cell-b">既存エージェントの挙動は“変更しない”趣旨。だが有効化段階は要確認。</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">セキュリティ</div>
+          <div class="cell-b">0600権限など配慮はあるが、暗号化・保管・転送・監査は抜粋だけでは不十分。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">良い点／未完点（意見）</div>
+      <h1 class="title">“便利”を <em>運用で支える</em></h1>
+      <p class="lead">意見として、Memmyは「同じ記憶」を理念で終わらせず、ローカル常駐・OpenAI互換API・systemd・CLI/TUIで運用導線を用意している点が強みです。一方で、保存粒度・保持期間・削除・監査・誤保存対策などの情報不足がリスクになります。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">強み</div>
+          <div class="cell-b">ローカル運用＋再起動設計＋手動検証（search/add/get）でブラックボックスを抑える方向。</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">リスク</div>
+          <div class="cell-b">誤保存・過剰保存・秘匿情報混入。データセキュリティ／ガバナンスの未確認部分が残る。</div>
+        </div>
+      </div>
+      <div class="footer-note">倫理面：同意・透明性・データ最小化を、ユーザー側でコントロールできるか要確認。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">導入判断の結論</div>
+      <h1 class="title">まずは <em>ポリシー確認</em></h1>
+      <p class="lead">Memmyはエージェント横断のタスク継続に向く可能性が高い一方、長期記憶は個人情報リスクも増えます。導入前に、保存ポリシー・削除/エクスポート・アクセス制御・暗号化/通信保護・監査ログを確認するのが安全です。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="cell-h">チェックリスト</div>
+          <div class="cell-b">自動保存条件／保持期間／削除・エクスポート／アクセス制御／暗号化／監査</div>
+        </div>
+        <div class="cell">
+          <div class="cell-h">期待できる効果</div>
+          <div class="cell-b">複数AIの乗り換えでも同じ文脈を引き継ぎ、作業の中断を減らす</div>
+        </div>
+      </div>
+      <div class="footer-note">Terms：BYOK（Bring Your Own Key/モデルAPI）＝自分のモデル提供元を使う選択</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/MemTensor/memmy-agent" target="_blank" rel="noreferrer noopener">GitHub - MemTensor/memmy-agent: A personal AI agent &amp; local memory ...</a></h2>
+<p class="reference-note">Account mode free credits: signing in grants Agent task trial tokens, so you can get running without your own API Key. T…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://memmy.bot/docs" target="_blank" rel="noreferrer noopener">Memmy</a></h2>
+<p class="reference-note">The Desktop app provides the task workbench, desktop pet, memory panel, tool connections, and settings pages.
+ The Agent…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://skillsllm.com/skill/memmy-agent" target="_blank" rel="noreferrer noopener">memmy-agent - AI Agents on GitHub | SkillsLLM</a></h2>
+<p class="reference-note">Account mode free credits: signing in grants Agent task trial tokens, so you can get running without your own API Key. T…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.ssdnodes.com/learn/lang/pcm/memmy-agent-local-memory" target="_blank" rel="noreferrer noopener">Memmy: Shared AI Agent Memory for Your VPS</a></h2>
+<p class="reference-note">Claude Code no get memory plugin interface, so Memmy no hook into am. The integration simple pass that. Claude Code dey …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://mem0.ai/blog/state-of-ai-agent-memory-2026" target="_blank" rel="noreferrer noopener">AI Agent Memory 2026: Progress Benchmark Report ...</a></h2>
+<p class="reference-note">The fastest-growing surface area in AI agent memory is not the core pipeline. It is the integration layer. As of early 2…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
