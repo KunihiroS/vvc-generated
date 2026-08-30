@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude Code Auto Mode と RCE：安全境界ではない</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 6px;
+      inset: 0;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius: 6px;
+    }
+
+    .slideHeader{
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      position: relative;
+      z-index: 2;
+      height: 64px;
+    }
+
+    .slideTag{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 2px solid var(--rust);
+      padding-top: 8px;
+      margin-top: 2px;
+      white-space: nowrap;
+      max-width: 70%;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
+
+    .slideNum{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      white-space: nowrap;
+      margin-top: 0px;
+      text-align: right;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 10px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 72px;
+      font-weight: 500;
+      margin-top: 8px;
+      margin-bottom: 6px;
+      line-height: 1.0;
+      color: var(--ink);
+      position: relative;
+      z-index: 2;
+      letter-spacing: -0.02em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+      margin-top: 12px;
+    }
+
+    .content{
+      position: relative;
+      z-index: 2;
+      margin-top: 18px;
+      height: calc(100% - 150px);
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .ruleLine{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 6px;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 14px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      background: rgba(240,232,216,0.03);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      min-height: 72px;
+    }
+
+    .cardLabel{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+
+    .cardText{
+      font-size: 20px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .note{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 300;
+      max-width: 760px;
+    }
+
+    .tableLike{
+      width: 100%;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      overflow:hidden;
+      background: rgba(240,232,216,0.02);
+    }
+    .row{
+      display:grid;
+      grid-template-columns: 1.1fr 1.4fr;
+      gap: 0;
+      border-top: 1px solid var(--rule);
+    }
+    .row:first-child{ border-top: none; }
+    .cell{
+      padding: 14px 14px;
+      border-right: 1px solid var(--rule);
+    }
+    .row .cell:last-child{ border-right: none; }
+    .cell h4{
+      margin:0 0 6px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+    }
+    .cell p{
+      margin:0;
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    ul{ margin: 0; padding-left: 18px; }
+    li{ margin: 8px 0; font-size: 20px; font-weight: 300; color: var(--ink); }
+
+    .refLink{
+      color: var(--ink-2);
+      text-decoration: underline;
+      text-decoration-color: rgba(216,190,140,0.35);
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 44px 30px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 20px; }
+      .grid2, .grid3{ gap: 12px; }
+      .cardText{ font-size: 18px; }
+      .card{ padding: 12px; }
+      .content{ height: auto; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1: cover -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Cover</div>
+        <div class="slideNum">01 / 12</div>
+      </div>
+      <div class="eyebrow">境界は“分類器”じゃない</div>
+      <div class="title"><em>Auto Mode</em> とRCE</div>
+      <div class="lead">Claude CodeのAuto Modeは利便性の自動化であり、安全境界（サンドボックスの代替）ではない、という論点です。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">テーマ / Theme</div>
+            <div class="cardText">ウェブ要約入口 → 段階的に実行へ</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">キーワード</div>
+            <div class="cardText">プロンプトインジェクション / ツール経路 / Python import</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2: problem -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Problem</div>
+        <div class="slideNum">02 / 12</div>
+      </div>
+      <div class="eyebrow">止まる？止まらない？</div>
+      <div class="title">問題の核心</div>
+      <div class="lead">Auto Modeは承認を挟まず、分類器の判断でツール実行が進みます。重要なのは「分類器が止めきれるか」だけでなく、「隔離・ネットワーク制御・停止/後始末が本当に機能するか」です。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">期待されがち / Common belief</div>
+            <div class="cardText">“AIが安全判定するから大丈夫”</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">論点 / Claim</div>
+            <div class="cardText">分類器は境界ではなく“可能性を残す”</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3: metaphor -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Metaphor</div>
+        <div class="slideNum">03 / 12</div>
+      </div>
+      <div class="eyebrow">正当作業の顔</div>
+      <div class="title">攻撃の形</div>
+      <div class="lead">攻撃は「無視して実行」型の命令上書きではなく、要約・解析など“無害に見える手順”に沿って段階的に悪性実行へ到達します。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="cardLabel">Step i</div>
+            <div class="cardText">入口：悪性サイト/データ</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">Step ii</div>
+            <div class="cardText">目的達成：要約・デコード・解析</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">Step iii</div>
+            <div class="cardText">最短経路：シェル/ Pythonへ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4: architecture -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Architecture</div>
+        <div class="slideNum">04 / 12</div>
+      </div>
+      <div class="eyebrow">ツール経路が地図</div>
+      <div class="title">Auto Modeの流れ</div>
+      <div class="lead">AIエージェントは目的達成のためにツール（Web取得、シェル実行、Python実行など）を呼び出します。Auto Modeはその流れを安全分類器で制御し、人間の承認を外します。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="tableLike">
+          <div class="row">
+            <div class="cell">
+              <h4>判断ポイント</h4>
+              <p>安全分類器が“次のツール”を許可</p>
+            </div>
+            <div class="cell">
+              <h4>攻撃側の着眼</h4>
+              <p>ツール選択/実行順を“道筋”として悪用</p>
+            </div>
+          </div>
+          <div class="row">
+            <div class="cell">
+              <h4>危険点</h4>
+              <p>許可後に隔離/停止/後始末が崩れる</p>
+            </div>
+            <div class="cell">
+              <h4>前提</h4>
+              <p>攻撃は複数ステップの連鎖で成立</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5: evidence -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Evidence</div>
+        <div class="slideNum">05 / 12</div>
+      </div>
+      <div class="eyebrow">0.00%の外側</div>
+      <div class="title">“別のチェーン”</div>
+      <div class="lead">既存ベンチマークの成功率（例：0.00%）は「想定シナリオ」の範囲に依存します。本投稿は、別経路の攻撃チェーンでは最大60〜80%が成立し得ると主張します。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">ベンチマーク / Benchmark</div>
+            <div class="cardText">有限の評価シナリオに寄る</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">投稿の主張 / Claim</div>
+            <div class="cardText">別経路なら成立（指標の範囲ギャップ）</div>
+          </div>
+        </div>
+        <div class="note">※数値は小サンプルの可能性があり、過信は危険という注意も含まれます。</div>
+      </div>
+    </section>
+
+    <!-- 6: process -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Process</div>
+        <div class="slideNum">06 / 12</div>
+      </div>
+      <div class="eyebrow">要約 → ZIP → import</div>
+      <div class="title">段階的なRCE</div>
+      <div class="lead">例として、悪性サイトがZIPアーカイブを返し、Claudeがデコーダ処理を自作する過程を悪用。アーカイブ内の `struct.py` がモジュールシャドーイングとして動作します。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="cardLabel">i.入口</div>
+            <div class="cardText">悪性ZIPを受領（Web要約入口）</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">ii.準備</div>
+            <div class="cardText">Claudeがデコード/解析を進める</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">iii.実行</div>
+            <div class="cardText">`struct.py` → import乗っ取り（RCEへ）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7: distinction -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Distinction</div>
+        <div class="slideNum">07 / 12</div>
+      </div>
+      <div class="eyebrow">命令注入じゃない</div>
+      <div class="title">攻撃の違い</div>
+      <div class="lead">この論点は単なる「プロンプトに命令を書き換える」ではありません。ツール選択や実行経路が最短の“悪性手順”に誘導される点を重視します。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">古典型 / Classic</div>
+            <div class="cardText">“無視して実行”（指示の上書き）</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">本投稿 / Here</div>
+            <div class="cardText">“道筋”を乗っ取る（ツール経路の誘導）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8: evidence -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Evidence</div>
+        <div class="slideNum">08 / 12</div>
+      </div>
+      <div class="eyebrow">importの探索パス</div>
+      <div class="title">モジュールシャドーイング</div>
+      <div class="lead">Pythonはimport時に探索パス（例：現在ディレクトリ等）を参照します。攻撃者が同名モジュール（例：`struct.py`）を置くと、標準ライブラリの代わりに攻撃コードが読み込まれ得ます。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">仕組み / Mechanism</div>
+            <div class="cardText">探索パス → 同名モジュールを優先して読み込み</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">結果 / Outcome</div>
+            <div class="cardText">依存解決の瞬間に攻撃が走る（実行の足場）</div>
+          </div>
+        </div>
+        <div class="note">防御は“プロンプトフィルタだけでは不十分”になりやすい、という示唆につながります。</div>
+      </div>
+    </section>
+
+    <!-- 9: architecture -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Architecture</div>
+        <div class="slideNum">09 / 12</div>
+      </div>
+      <div class="eyebrow">止める操作が危険</div>
+      <div class="title">クリーンアップ失敗</div>
+      <div class="lead">攻撃を見抜いた後に停止コマンドを出そうとしても、Auto Modeの安全機構が後続のクリーンアップ（停止命令など）をブロックする場合がある、と示唆されています。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">狙い / Goal</div>
+            <div class="cardText">停止して被害を最小化</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">課題 / Risk</div>
+            <div class="cardText">“止めること”が安全判断で妨げられる可能性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10: comparison -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Comparison</div>
+        <div class="slideNum">10 / 12</div>
+      </div>
+      <div class="eyebrow">指標の見せ方問題</div>
+      <div class="title">コミュニケーション</div>
+      <div class="lead">投稿は「0.00%」のような表現が、攻撃面の多様性（別チェーン）とのギャップを埋められていない点を問題視します。利用者の誤認は隔離の省略につながり得ます。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid3">
+          <div class="card">
+            <div class="cardLabel">表示 / Metric</div>
+            <div class="cardText">単一ベンチの成功率</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">現実 / Reality</div>
+            <div class="cardText">攻撃経路は多様で別ルートあり</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">影響 / Impact</div>
+            <div class="cardText">“安全”と誤認 → 実装が弱くなる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11: process -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Process</div>
+        <div class="slideNum">11 / 12</div>
+      </div>
+      <div class="eyebrow">対策は“境界”設計</div>
+      <div class="title">防御の優先順位</div>
+      <div class="lead">対策はより賢いフィルタだけでは不十分で、OS隔離、ネットワーク egress（外向き通信）制限、監視が本丸だとされています。安全分類器の正誤とは独立に守る設計が必要です。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">必須 / Must-have</div>
+            <div class="cardText">OS隔離（最小権限）</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">追加 / Also</div>
+            <div class="cardText">ネットワーク egress 制限・監視（C2対策）</div>
+          </div>
+        </div>
+        <div class="note">言い換え：分類器を“門番”にせず、隔離と通信制御で“壁”を作る。</div>
+      </div>
+    </section>
+
+    <!-- 12: closing + references -->
+    <section class="slide">
+      <div class="slideHeader">
+        <div class="slideTag">Closing</div>
+        <div class="slideNum">12 / 12</div>
+      </div>
+      <div class="eyebrow">結論：前提を変える</div>
+      <div class="title">Auto Mode は境界でない</div>
+      <div class="lead">この投稿が強調するのは、「モデルが止めてくれる」より「隔離と監視で被害を抑える」という防御思想です。RCEは“平均安全性”ではなく“成立し得る連鎖”で評価すべき、という方向性です。</div>
+      <div class="content">
+        <div class="ruleLine"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="cardLabel">要点 / Takeaways</div>
+            <div class="cardText">i. 承認 ≠ 隔離　ii. 道筋誘導が効く　iii. import罠が実行へ</div>
+          </div>
+          <div class="card">
+            <div class="cardLabel">不確実性 / Caveat</div>
+            <div class="cardText">検証環境（OS/設定/再現性）が明確でないため、成功率の一般化には注意</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="cardLabel">References / 参考</div>
+          <div class="cardText" style="font-size:18px;">
+            - 本スライドは、ユーザー提示の要約（Pre-knowledge / Summary / Points / FAQ / My opinion）をもとに再構成しています。<br/>
+            - Claude Code / Auto Mode / プロンプトインジェクション / Pythonモジュールシャドーイング（import探索パス）などの一般概念に基づきます。
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
