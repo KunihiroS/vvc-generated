@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>連続拡散言語モデル（CDLM）の“復権”</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: block;
+      single-column: vertical;
+    }
+
+    .slide {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 16px 0;
+      overflow: hidden;
+      padding: 0;
+      border-image: none;
+    }
+
+    /* fixed inset border look */
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      z-index: 0;
+    }
+
+    .slide-inner {
+      position: relative;
+      z-index: 1;
+      padding: 56px 72px 44px;
+      height: 100%;
+    }
+
+    .meta {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-size: 14px;
+      line-height: 1;
+      text-transform: uppercase;
+      padding-top: 4px;
+      border-left: 0;
+      border-top: 3px solid var(--rust);
+      padding-left: 12px;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+      line-height: 1;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      margin-top: 16px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+    }
+
+    .title {
+      margin-top: 8px;
+      font-size: 74px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      line-height: 1.02;
+    }
+    .title .jp {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 74px;
+    }
+    .title .em {
+      color: var(--rust-deep);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      margin-top: 16px;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule);
+      margin: 22px 0 0;
+    }
+
+    .content {
+      margin-top: 22px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+    }
+    .cell {
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-weight: 600;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v {
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .grid3 {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr 1fr 1fr;
+      align-items: stretch;
+    }
+    .bulletless {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .tagline {
+      margin-top: 18px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .footer {
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      color: var(--ink-4);
+      font-size: 13px;
+      z-index: 1;
+    }
+
+    .jpGloss {
+      color: var(--ink-3);
+      font-size: 14px;
+      margin-top: 6px;
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    @media (max-width: 780px){
+      .slide-inner { padding: 44px 28px 34px; }
+      .footer { left: 28px; right: 28px; }
+      .title { font-size: 48px; }
+      .title .jp { font-size: 48px; }
+      .lead { font-size: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 01 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">CDLM RECOVERY</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">連続拡散の復権</div>
+        <div class="title">なぜ今、<span class="em">勝ち筋</span>が見えたのか</div>
+        <div class="lead">
+          2023年以降に影を潜めた連続拡散言語モデルが、2025〜2026で再び注目されるのはなぜか。
+          記事が挙げる技術要素と、当時の学習効率・評価のズレまでを整理します。
+        </div>
+        <div class="footer">
+          <div>Reading deck（要約）</div>
+          <div>English terms + short 日本語</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 02 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">“消えた”感覚</div>
+        <div class="title">2023の影、2025の再燃</div>
+        <div class="lead">
+          連続拡散（Continuous Diffusion）は、言語で使われると示唆されつつも、研究の流れから一度下火になったように見えます。
+          その後、2025〜2026で研究が増えている背景を“技術×コミュニティ”で読むのが本稿の狙いです。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">再燃の見取り図</div>
+              <div class="v">少ステップ化（Step distillation）と整合</div>
+              <div class="jpGloss">少ない反復回数で質を上げる流れが追い風。</div>
+            </div>
+            <div class="cell">
+              <div class="k">下火の可能性</div>
+              <div class="v">学習効率（compute/data efficiency）が不利に見えた</div>
+              <div class="jpGloss">例として、尤度ベース連続拡散が自己回帰より64倍劣る評価が言及。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「何が入れ替わった？」</div>
+          <div>歯切れは“傾向”中心</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 03 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">BASELINE</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">離散→連続</div>
+        <div class="title">トークンは、<span class="em">埋め込み</span>へ</div>
+        <div class="lead">
+          言語は離散トークン（token）ですが、連続拡散ではトークンを埋め込み（embedding, ベクトル）に変換してから拡散します。
+          最終的に復元した連続表現を語彙へ割り当てて、離散列として出力します。
+        </div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">入力</div>
+              <div class="v">離散トークン列</div>
+            </div>
+            <div class="cell">
+              <div class="k">変換</div>
+              <div class="v">embedding化（連続）</div>
+            </div>
+            <div class="cell">
+              <div class="k">生成</div>
+              <div class="v">unembedding / 離散化</div>
+              <div class="jpGloss">clampや離散化の工夫。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>核心: 幾何の設計が結果を左右</div>
+          <div>Token ↔ Vector</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 04 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">WHY</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">自己回帰との違い</div>
+        <div class="title">生成が“順番”から“<span class="em">時間</span>”へ</div>
+        <div class="lead">
+          自己回帰（Autoregressive）は1トークンずつ順に予測して生成します。
+          一方CDLMはステップ方向に沿って状態（embedding）を更新するため、生成の性質・学習効率・サンプリング特性が変わります。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Autoregressive</div>
+              <div class="v">1個ずつ予測（順序依存）</div>
+            </div>
+            <div class="cell">
+              <div class="k">Continuous Diffusion</div>
+              <div class="v">ステップ更新（trajectory前提）</div>
+              <div class="jpGloss">軌道（trajectory）に基づく蒸留が効きやすい。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「同じ“生成”ではない」</div>
+          <div>Step-wise = trajectory</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 05 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">MODULES</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">成立の部品</div>
+        <div class="title">埋め込み・損失・ノイズ・<span class="em">自己条件付け</span></div>
+        <div class="lead">
+          CDLMがうまく働く鍵は、埋め込み設計、損失関数、ノイズスケジュール、そして自身条件付け（self-conditioning）です。
+          これらが埋め込みの崩壊リスクと復元の質をコントロールします。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">i. Embedding</div>
+              <div class="v">離散の意味構造を連続空間へ</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii. Loss / Objective</div>
+              <div class="v">拡散の復元と整合する訓練</div>
+            </div>
+            <div class="cell">
+              <div class="k">iii. Noise schedule</div>
+              <div class="v">段階的な“汚し方”の設計</div>
+            </div>
+            <div class="cell">
+              <div class="k">iv. Self-conditioning</div>
+              <div class="v">前ステップ推定を次へ注入</div>
+              <div class="jpGloss">ほぼ標準要素として性能向上。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Roman numerals: i〜iv</div>
+          <div>All one-message slide</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 06 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">SELF-CONDITIONING</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">“ゼロから”を減らす</div>
+        <div class="title">self-conditioning（自己条件付け）</div>
+        <div class="lead">
+          self-conditioningは、各ステップで前段の推定（どれくらい復元できたか）を次の入力に加えます。
+          その結果、毎回ゼロから推定する負担が減り、サンプル品質が改善しやすくなります。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Without</div>
+              <div class="v">毎ステップ独立に推定しがち</div>
+            </div>
+            <div class="cell">
+              <div class="k">With</div>
+              <div class="v">前推定の利用で安定化</div>
+              <div class="jpGloss">特にCDLMで大きな性能向上が報告。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「負担の分担」</div>
+          <div>Quality↑</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 07 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">KEY CLAIM</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">再注目の主因</div>
+        <div class="title">ステップ蒸留が<span class="em">相性抜群</span></div>
+        <div class="lead">
+          記事が強調する再注目の主因は、ステップ蒸留（Step distillation）との相性です。
+          連続拡散は軌道（trajectory）ベースで蒸留しやすく、少ステップ生成へ自然に寄せられます。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Goal</div>
+              <div class="v">少ない反復回数で高品質</div>
+              <div class="jpGloss">生成速度 = コストと体験に直結。</div>
+            </div>
+            <div class="cell">
+              <div class="k">CDLM fit</div>
+              <div class="v">trajectory近似で整合</div>
+              <div class="jpGloss">フローマップ等が“少ステップ化”を支える。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「Trajectory蒸留」</div>
+          <div>Efficiency↑</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 08 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">TECH</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">フローマップ</div>
+        <div class="title">少ステップを<span class="em">直接近似</span></div>
+        <div class="lead">
+          フローマップ（flow matching / flow mapの文脈）は、拡散の積分に相当する変換を直接近似し、生成ステップ数を削る枠組みとして発展しています。
+          連続拡散で実装しやすい“少ステップ化”の武器になっています。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">従来</div>
+              <div class="v">多数ステップで状態を更新</div>
+            </div>
+            <div class="cell">
+              <div class="k">少ステップ化</div>
+              <div class="v">変換（trajectory）を近似して圧縮</div>
+              <div class="jpGloss">生成反復を減らす。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「積分→近似」</div>
+          <div>Steps↓</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 09 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">EVIDENCE & HYPOTHESIS</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">“下火”の理由候補</div>
+        <div class="title">学習効率が<span class="em">64倍</span>不利？</div>
+        <div class="lead">
+          記事では、尤度ベース連続拡散言語モデル（例：Plaid-1B）の効率が自己回帰等に比べ64倍劣るという定量評価が言及されています。
+          その時期は計算予算（compute）のトレードオフに焦点が強く、連続モデルが資源配分で不利になった可能性を推測しています。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Observation</div>
+              <div class="v">尤度ベースで効率差が大きい</div>
+              <div class="jpGloss">“64倍”という数字が手がかり。</div>
+            </div>
+            <div class="cell">
+              <div class="k">Inference</div>
+              <div class="v">compute/data効率が意思決定を左右</div>
+              <div class="jpGloss">Chinchilla的発想が背景にあるかも。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「数字→推測」</div>
+          <div>因果は未確定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">EVALUATION</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">比較の歪み</div>
+        <div class="title">評価が揺れると<span class="em">見かけ</span>が変わる</div>
+        <div class="lead">
+          拡散モデルはサンプリング設定で品質と多様性の配分が変わり、論文ごとの差があると比較が不公平になり得ます。
+          また尤度が測りにくい場合、自己回帰代理モデルでGenPPLを測ることがあり、代理モデルのバイアスも結果に混入し得ます。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Quality–Diversity</div>
+              <div class="v">調整が論文間で非標準化</div>
+            </div>
+            <div class="cell">
+              <div class="k">Likelihood gap</div>
+              <div class="v">GenPPL（代理）でバイアスが混ざる</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「“優劣”は条件付き」</div>
+          <div>Use care</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">TAKEAWAY</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">結論：二者択一ではない</div>
+        <div class="title">連続は“勝ち筋”を<span class="em">取り戻す</span></div>
+        <div class="lead">
+          本稿の見立ては「連続か離散か」の単純な置き換えではなく、連続・離散・ハイブリッド・自己回帰が併存する未来です。
+          その中で連続拡散は、少ステップ生成と蒸留の文脈で“勝ち筋”を再獲得している、という整理になります。
+        </div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="k">勝ち筋</div>
+              <div class="v">少ステップ化 × 蒸留</div>
+              <div class="jpGloss">Stepping down.</div>
+            </div>
+            <div class="cell">
+              <div class="k">成立要素</div>
+              <div class="v">embedding / loss / noise / self-conditioning</div>
+            </div>
+            <div class="cell">
+              <div class="k">注意</div>
+              <div class="v">評価の歪みで結論は揺れる</div>
+              <div class="jpGloss">Generalizeは慎重に。</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>Eyebrow: 「併存・前提・検証」</div>
+          <div>One-message slide</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="references">
+      <div class="slide-inner">
+        <div class="meta">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参照（記事内で触れた要素）</div>
+        <div class="title">出発点の論点</div>
+        <div class="lead">
+          本デッキは提示された記事要約から要点化しています。
+          個別論文の完全な書誌情報は、記事本文での参照箇所に合わせて追加入手してください。
+        </div>
+        <div class="content">
+          <div class="grid">
+            <div class="cell">
+              <div class="k">Models</div>
+              <div class="v">Plaid-1B（尤度ベースCDLMの効率言及）</div>
+              <div class="jpGloss">数字（例：64倍）に触れている。</div>
+            </div>
+            <div class="cell">
+              <div class="k">Techniques</div>
+              <div class="v">Step distillation / Flow map / self-conditioning</div>
+              <div class="jpGloss">少ステップ化を支える枠組み。</div>
+            </div>
+            <div class="cell">
+              <div class="k">Metrics</div>
+              <div class="v">GenPPL（代理評価）、perplexity/尤度の扱い</div>
+            </div>
+            <div class="cell">
+              <div class="k">Evaluation caveat</div>
+              <div class="v">品質・多様性の非標準比較、代理指標のバイアス</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>End</div>
+          <div>CDLM “復権”の地図</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://bio.libretexts.org/Learning_Objects/Worksheets/Biology_Tutorials/Diffusion_and_Osmosis" target="_blank" rel="noreferrer noopener">Diffusion and Osmosis - Biology LibreTexts</a></h2>
+<p class="reference-note">the process of diffusion. In living systems, diffusion is responsible for the movement of a large number of substances, …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/Diffusion" target="_blank" rel="noreferrer noopener">Diffusion</a></h2>
+<p class="reference-note">In chemistry and materials science, diffusion also refers to the movement of fluid molecules in porous solids. Different…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.khanacademy.org/science/ap-biology/cell-structure-and-function/facilitated-diffusion/a/diffusion-and-passive-transport" target="_blank" rel="noreferrer noopener">Simple diffusion and passive transport (article) - Khan Academy</a></h2>
+<p class="reference-note">In the process of diffusion, a substance tends to move from an area of high concentration to an area of low concentratio…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.superprof.com/blog/defining-diffusion" target="_blank" rel="noreferrer noopener">What Is Diffusion?</a></h2>
+<p class="reference-note">in animals:
+  + oxygen and carbon dioxide are diffused in and out of the blood
+  + carbon dioxide is diffused out of the…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.bbc.co.uk/bitesize/articles/znqbcj6" target="_blank" rel="noreferrer noopener">What is the process of diffusion? - BBC Bitesize</a></h2>
+<p class="reference-note">Diffusion is the process by which particles of one substance spread out through the particles of another substance. Diff…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
