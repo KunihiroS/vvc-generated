@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ARC×テスト時学習：小型Transformerのサンプル効率限界</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream:#14110d;
+      --paper:#1c1813;
+      --ink:#f0e8d8;
+      --ink-2:#d4ccbc;
+      --ink-3:#948b7c;
+      --ink-4:#645c50;
+      --rust:#e8814a;
+      --rust-deep:#c9683a;
+      --rule:rgba(240,232,216,0.10);
+      --rule-strong:rgba(240,232,216,0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--cream);
+      color:var(--ink);
+      font-family:"Noto Serif JP", serif;
+      line-height:1.35;
+    }
+    .deck{
+      width:min(1120px, calc(100vw - 48px));
+      margin:0 auto;
+      padding:16px 0 40px;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+    .slide{
+      background:var(--paper);
+      border:1px solid var(--rule-strong);
+      box-shadow:0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius:0;
+      aspect-ratio:16 / 9;
+      padding:56px 72px;
+      position:relative;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      position:relative;
+      z-index:2;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      margin-bottom:18px;
+    }
+    .slide-tag{
+      font-family:"Cormorant Garamond", serif;
+      letter-spacing:0.14em;
+      font-size:16px;
+      font-style:normal;
+      color:var(--rust);
+      text-transform:uppercase;
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width:30px;
+      height:2px;
+      background:var(--rust);
+      display:inline-block;
+      opacity:0.95;
+    }
+    .slide-num{
+      font-family:"Cormorant Garamond", serif;
+      color:var(--ink-2);
+      font-style:italic;
+      font-size:26px;
+      opacity:0.95;
+      margin-top:-6px;
+    }
+    .eyebrow{
+      position:relative;
+      z-index:2;
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      font-size:22px;
+      color:var(--rust);
+      margin-top:0;
+      margin-bottom:10px;
+    }
+    .title{
+      position:relative;
+      z-index:2;
+      font-family:"Cormorant Garamond", serif;
+      font-weight:500;
+      font-size:78px;
+      letter-spacing:0.01em;
+      margin:0 0 14px;
+      font-style:italic;
+      color:var(--ink);
+    }
+    .title .em{
+      color:var(--rust);
+      font-style:italic;
+    }
+    .lead{
+      position:relative;
+      z-index:2;
+      font-size:22px;
+      font-weight:300;
+      max-width:760px;
+      margin:0;
+      color:var(--ink);
+    }
+    .divider{
+      position:relative;
+      z-index:2;
+      width:100%;
+      height:1px;
+      background:var(--rule-strong);
+      margin:22px 0 14px;
+    }
+    .grid{
+      position:relative;
+      z-index:2;
+      width:100%;
+      display:grid;
+      gap:14px;
+      margin-top:10px;
+    }
+    .grid.two{grid-template-columns:1fr 1fr;}
+    .grid.three{grid-template-columns:1fr 1fr 1fr;}
+    .cell{
+      border:1px solid var(--rule);
+      padding:16px 16px;
+      background:rgba(255,255,255,0.02);
+      min-height:84px;
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size:13px;
+      color:var(--ink-3);
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      margin-bottom:6px;
+      font-weight:600;
+    }
+    .cell .v{
+      font-size:20px;
+      color:var(--ink);
+      font-weight:300;
+    }
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:18px;
+      color:var(--ink-2);
+    }
+    .footnote{
+      position:absolute;
+      left:72px;
+      bottom:46px;
+      z-index:2;
+      color:var(--ink-3);
+      font-size:14px;
+      max-width:760px;
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight:400;
+    }
+    .small{
+      font-size:18px;
+      color:var(--ink-2);
+      font-weight:300;
+    }
+    .caps{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size:13px;
+      color:var(--ink-3);
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      font-weight:600;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">ARC / Transformer</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">サンプル効率の限界</div>
+      <h2 class="title">Test-time Training <span class="em">ARC</span></h2>
+      <p class="lead">入力グリッド→出力グリッドを解くARCで、小型Transformerを「評価中にも学習させる」設計により、少数例での高スコアを狙う取り組みです（効率の検証が主目的）。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Idea / 要点</div>
+          <div class="v">evalタスク側の学習更新で推定精度を押し上げる</div>
+        </div>
+        <div class="cell">
+          <div class="k">Why / 目的</div>
+          <div class="v">「損失」だけでなく「少数サンプルでどこまで行けるか」を測る</div>
+        </div>
+      </div>
+      <div class="footnote">注：本スライドはユーザー提示の要約・論点を読みやすく再構成したものです。</div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">ARCは少数推論</div>
+      <h2 class="title">メタラーニング <span class="em">試験</span></h2>
+      <p class="lead">ARCは各パズルでルールが変わるため、trainでは得た仕組みから少数の例で新ルールを推定する力（meta-learning）が問われます。</p>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Train / 学習</div>
+          <div class="v">正解ラベルが見える例でルール推定能力を獲得</div>
+        </div>
+        <div class="cell">
+          <div class="k">Eval / 評価</div>
+          <div class="v">正解ラベルが隠され、推定が必要</div>
+        </div>
+        <div class="cell">
+          <div class="k">Key / 焦点</div>
+          <div class="v">サンプル効率：少数で高精度に到達できるか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Approach</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">情報を列に変換</div>
+      <h2 class="title">Grid → Token <span class="em">列</span></h2>
+      <p class="lead">入力出力グリッドをトークン列に変換し、小型Transformerで「タスク条件つきに変換規則」を学習・推定します。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">表現 / Encoding</div>
+          <div class="v">クロスタスク学習のためのタスク埋め込み + 3D RoPE</div>
+        </div>
+        <div class="cell">
+          <div class="k">学習 / Learning</div>
+          <div class="v">evalパズルのtrain側相当を用いてテスト時に重み更新</div>
+        </div>
+      </div>
+      <div class="footnote">bilingual：サンプル効率（Sample efficiency）= 少数サンプルで性能を出すこと。</div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Result</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">低コストで高得点</div>
+      <h2 class="title">ARC-1 / ARC-2 <span class="em">得点</span></h2>
+      <p class="lead">Transformerを小規模に訓練し、テスト時学習を入れることで、ARC-1文脈で約44%前後、さらにARC-2で約7%を達成したと報告されています。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">ARC-1</div>
+          <div class="v mono">~44%（ARC-AGI文脈のスコア帯）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ARC-2</div>
+          <div class="v mono">~7%</div>
+        </div>
+      </div>
+      <div class="footnote">精密な評価条件（提出手順・推論の扱い）は再現で必須です。</div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">Transformerを近代化</div>
+      <h2 class="title">設計の改善点 <span class="em">連鎖</span></h2>
+      <p class="lead">ベースライン改善は複数要素の積み上げで、Transformer近代化・データ多様性・層数増に加え、特に効率面で拡張回数を減らす方向が強調されています。</p>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Modernize</div>
+          <div class="v">SwiGLU、RMSNorm</div>
+        </div>
+        <div class="cell">
+          <div class="k">Data</div>
+          <div class="v">多様性・シャッフル改善、拡張/コスト調整</div>
+        </div>
+        <div class="cell">
+          <div class="k">Capacity</div>
+          <div class="v">層数増 + （効率のため）拡張回数を削減</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Key Change</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">出力のみ損失</div>
+      <h2 class="title">Input損失を <span class="em">外す</span></h2>
+      <p class="lead">大きな変更として「入力トークンは学習対象から外し、出力トークンの損失だけで学習」する方針が採用されたとされます。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Before</div>
+          <div class="v">入力も損失に含む学習</div>
+        </div>
+        <div class="cell">
+          <div class="k">After</div>
+          <div class="v">出力損失のみ（実質的に教師あり寄り）</div>
+        </div>
+      </div>
+      <div class="footnote">報告では入力を外してスコアが上がる一方、テスト損失は悪化する挙動があるとされています。</div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">表現が効く</div>
+      <h2 class="title">3D RoPE と <span class="em">タスク埋め込み</span></h2>
+      <p class="lead">アブレーションでは、3D RoPEやタスク埋め込みを外すとスコアが大きく落ちる一方、保持することで高いベースラインが得られたと報告されています。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Keep</div>
+          <div class="v">3D RoPE + per-task埋め込みで性能維持/向上</div>
+        </div>
+        <div class="cell">
+          <div class="k">Remove</div>
+          <div class="v">これらの除去で大幅ダウン（重要な表現設計）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Data / Aug</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">対称性で拡張</div>
+      <h2 class="title">色・回転の <span class="em">整合</span></h2>
+      <p class="lead">推論時の対称性（色やダイヘドラル変換）に対応するデータ拡張・逆変換を組み込み、誤差を抑えながら候補生成を安定化させる狙いがあります。</p>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Aug</div>
+          <div class="v">色変換</div>
+        </div>
+        <div class="cell">
+          <div class="k">Aug</div>
+          <div class="v">ダイヘドラル変換（回転・反転等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Map Back</div>
+          <div class="v">逆拡張（候補を元の座標系へ）</div>
+        </div>
+      </div>
+      <div class="footnote">拡張回数の増減は計算コストにも直結します（サンプル効率の論点）。</div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Controversy</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">損失とスコアがズレる</div>
+      <h2 class="title">Loss逆相関 <span class="em">の謎</span></h2>
+      <p class="lead">出力損失のみへ変更したことで、テスト損失は悪化したのにスコアが上がる現象が報告されています。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">観測</div>
+          <div class="v">テスト損失↑…でもスコア↑</div>
+        </div>
+        <div class="cell">
+          <div class="k">示唆</div>
+          <div class="v">「損失＝汎化性能」単純対応ではない可能性</div>
+        </div>
+      </div>
+      <div class="footnote">成功/失敗モードの内訳など、追加解析が必要という論点が提示されています。</div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Risk</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">リークが致命傷</div>
+      <h2 class="title">ARC-2重複 <span class="em">フィルタ</span></h2>
+      <p class="lead">ARC-2にはARC-1の重複が含まれるため、無防備に学習へ混ぜると記憶でスコアが出てしまうリスクがあります。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">問題</div>
+          <div class="v">同一/類似タスクが学習側に混ざる可能性</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">重複773パズルを慎重に除外（と説明）</div>
+        </div>
+      </div>
+      <div class="footnote">再現では「除外手順の透明性」と「更新に使う範囲」が信頼性の鍵です。</div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Interpretation</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">許容範囲の解釈</div>
+      <h2 class="title">Test-time training <span class="em">是非</span></h2>
+      <p class="lead">テスト時学習は「テストの正解ラベルを事前に知る」ことを禁止する競技趣旨との境界が焦点になります。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">主張（要旨）</div>
+          <div class="v">隠された出力ラベルは学習に使っていない</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意点</div>
+          <div class="v">実装が「どの情報で更新したか」を確認する必要</div>
+        </div>
+      </div>
+      <div class="footnote">情報流（何が見えて何が更新に使われるか）が再現・評価の根幹です。</div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">筋の良い問い、残る謎</div>
+      <h2 class="title">次の分析 <span class="em">へ</span></h2>
+      <p class="lead">この報告はサンプル効率へ寄せた強い実験として価値が大きい一方、因果の切り分け（成功/失敗、損失とスコアの関係、情報流）には追加検証が望まれます。</p>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Strength</div>
+          <div class="v">アブレーションと表現設計（3D RoPE等）で“効く要素”を探る</div>
+        </div>
+        <div class="cell">
+          <div class="k">Value</div>
+          <div class="v">反復コスト低減を意識し、計算効率の議論も含む</div>
+        </div>
+        <div class="cell">
+          <div class="k">Need</div>
+          <div class="v">更新範囲・リーク対策の詳細、損失設計の因果解析</div>
+        </div>
+      </div>
+      <div class="footnote">bilingual：再現性（Reproducibility）= データ前処理・評価手順・更新範囲を一致させること。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://mvakde.github.io/blog/44-on-arc-1" target="_blank" rel="noreferrer noopener">44% on ARC-AGI-1 in 67 cents - Mithil Vakde’s Homepage</a></h2>
+<p class="reference-note">Way fewer augmentations (more sample efficient!)
+ AdamW -&gt; Normuon
+ flash attention with varlen training + flex attentio…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://mvakde.github.io/blog/new-pareto-frontier-arc-agi" target="_blank" rel="noreferrer noopener">New Pareto Frontier on ARC-AGI - Mithil Vakde’s Homepage</a></h2>
+<p class="reference-note">I implement this by expanding the loss function to include the input tokens. This is not something new. Its the exact pr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.instagram.com/reel/DVqiWT3PNzn?hl=en" target="_blank" rel="noreferrer noopener">Instagram</a></h2>
+<p class="reference-note">runtimebrt
+
+He beat OpenAI on ARC-AGI-1.  
+  
+An independent AI researcher, Mithil Vakde, has built an AI model that ach…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=CUh9kN44V98" target="_blank" rel="noreferrer noopener">For 2$ This Method Solves ARC-AGI v1 at 27.5%?</a></h2>
+<p class="reference-note">here right you have like these decoding layers and this softmax layers so like it&#39;s it&#39;s nothing kind of outlandish u bu…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=UkMbesUgxOQ" target="_blank" rel="noreferrer noopener">Exploring &quot;New Pareto Frontier on ARC-AGI&quot; with Mithil Vakde ...</a></h2>
+<p class="reference-note">December 23 session where we have the pleasure of having a chat with Mithil Vakde about his work on ARC-AGI v1 that gene…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
