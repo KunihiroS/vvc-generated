@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>MCP書き込み安全設計</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 60px;
+      display: block;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      inset: 0;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      margin: 0 auto 18px auto;
+      position: relative;
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      overflow: hidden;
+      display: block;
+    }
+
+    .slide-inner{
+      height: 100%;
+      width: 100%;
+      position: relative;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 22px;
+      left: 22px;
+      padding: 6px 10px;
+      border-left: 4px solid var(--rust);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      font-size: 18px;
+      background: rgba(0,0,0,0.08);
+      text-transform: uppercase;
+      transform: translateY(-1px);
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+    }
+
+    .title {
+      font-size: clamp(40px, 5.2vw, 84px);
+      font-weight: 500;
+      margin: 0 0 18px 0;
+      line-height: 1.02;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .accent {
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+    }
+
+    .lead {
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      font-weight: 300;
+      margin: 0;
+    }
+
+    .rule {
+      position: absolute;
+      left: 22px;
+      right: 22px;
+      bottom: 22px;
+      height: 1px;
+      background: var(--rule-strong);
+      opacity: 0.9;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px 16px;
+      margin-top: 18px;
+      width: 100%;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+    }
+
+    .cell .label {
+      font-family: "Inter Tight", "Noto Serif JP", serif;
+      color: var(--ink-3);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .cell .value {
+      font-size: 19px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .micro {
+      font-family: "Inter Tight", "Noto Serif JP", serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      margin-top: 14px;
+    }
+
+    code.k {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 16px;
+      color: var(--ink);
+      background: rgba(0,0,0,0.18);
+      border: 1px solid var(--rule);
+      padding: 2px 6px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 18px;
+      color: var(--ink);
+    }
+
+    @media (max-width: 720px) {
+      .slide { padding: 40px 28px; }
+      .slide-tag, .slide-num { top: 16px; }
+      .slide-tag { left: 14px; font-size: 14px; }
+      .slide-num { right: 14px; font-size: 18px; }
+      .lead { font-size: 18px; }
+      .cell .value { font-size: 16px; }
+      .grid { margin-top: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" style="aspect-ratio:16/9;">
+      <div class="slide-inner">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+
+        <p class="eyebrow">“書き込み”を渡す安全設計</p>
+        <h1 class="title">MCP <span class="accent">書き込み</span>の安全</h1>
+        <p class="lead">
+          LLMにタスク更新などの“書き込みツール”を使わせるときは、LLMの賢さに頼らず、
+          ツール側で失敗の形を制御する設計が要点です。<span style="display:block;margin-top:10px;color:var(--ink-3);font-weight:300;font-size:20px;">
+          （Model Context Protocol / MCP）
+          </span>
+        </p>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+
+        <p class="eyebrow">失敗は起きる</p>
+        <h1 class="title">“更新”は事故りやすい</h1>
+        <p class="lead">
+          読み取り→更新の間に状態が変わる、幻覚で存在しないフィールドを送る、失敗後に同じ呼び出しを繰り返す。
+          これらは“読み取り専用”では目立たず、“書き込み”で顕在化します。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">典型1（更新事故）</div>
+            <div class="value"><span class="mono">lost update</span>：古い状態前提で上書き</div>
+          </div>
+          <div class="cell">
+            <div class="label">典型2（幻覚）</div>
+            <div class="value">未知フィールド混入で「指定したのに反映されない」</div>
+          </div>
+        </div>
+        <div class="micro">対策は「LLMが守る」ではなく「入口で破綻させない」。</div>
+
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 14</div>
+
+        <p class="eyebrow">安全は契約で作る</p>
+        <h1 class="title">ツールは<span class="accent">契約書</span></h1>
+        <p class="lead">
+          MCPサーバの「schema・instructions・description・検証」を契約として設計し、
+          失敗したら次の行動が分かる“分類”と“戻り方”を用意します。
+        </p>
+
+        <div class="grid three" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">schema</div>
+            <div class="value">型・必須・許容範囲を検証（入口）</div>
+          </div>
+          <div class="cell">
+            <div class="label">instructions</div>
+            <div class="value">手順/整合（ツール間の順序）</div>
+          </div>
+          <div class="cell">
+            <div class="label">description</div>
+            <div class="value">副作用や更新の意味を明示</div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 14</div>
+
+        <p class="eyebrow">核：競合制御</p>
+        <h1 class="title"><span class="accent">expectedUpdatedAt</span>必須</h1>
+        <p class="lead">
+          更新ツールの引数に <code class="k">expectedUpdatedAt</code> を必須化し、
+          読み取り→更新の間の変化があれば“不一致”として失敗させます。HTTPの <span class="mono">ETag/If-Match</span> と同型です。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">設計方針</div>
+            <div class="value">古い状態前提の更新を入口で弾く（事故確率を低下）</div>
+          </div>
+          <div class="cell">
+            <div class="label">効果</div>
+            <div class="value">失敗→取得し直しへ導ける（誤更新を回避）</div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 14</div>
+
+        <p class="eyebrow">契約の分離</p>
+        <h1 class="title">instructions と description</h1>
+        <p class="lead">
+          schemaだけでは順序や整合が表現できないため、ツール単位で“運用仕様”を契約として分離します。
+          これが、LLMがUIを見ない前提でのズレを減らします。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">instructions（例）</div>
+            <div class="value">外部状態との一致・更新手順・ツール間の順序を明文化</div>
+          </div>
+          <div class="cell">
+            <div class="label">description（例）</div>
+            <div class="value">副作用を明示：配列は全置換、空配列は全解除、blockedは理由必須</div>
+          </div>
+        </div>
+
+        <div class="micro">（用語）契約=contract / 日本語：契約</div>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 14</div>
+
+        <p class="eyebrow">幻覚を“黙殺しない”</p>
+        <h1 class="title">Zod の <span class="accent">.strict()</span></h1>
+        <p class="lead">
+          <code class="k">Zod</code> の <code class="k">.strict()</code> で未知フィールドを拒否し、
+          「指定したのに反映されない」事故を検知可能にします（エラーで止める）。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="value">幻覚で混ざった値が無視される状況を防ぐ</div>
+          </div>
+          <div class="cell">
+            <div class="label">結果</div>
+            <div class="value">失敗を分類でき、再実行や修正の余地が生まれる</div>
+          </div>
+        </div>
+
+        <div class="micro">（用語）幻覚=hallucination / 日本語：幻覚</div>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 14</div>
+
+        <p class="eyebrow">意味の整合</p>
+        <h1 class="title">整合性は <span class="accent">superRefine()</span></h1>
+        <p class="lead">
+          状態間の整合性は <code class="k">.superRefine()</code> で検査し、
+          変更項目がない更新（実質 no-op）を <code class="k">.refine()</code> で禁止します。
+        </p>
+
+        <div class="grid three" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">superRefine</div>
+            <div class="value">複数フィールド間の整合性</div>
+          </div>
+          <div class="cell">
+            <div class="label">refine</div>
+            <div class="value">変更は1つ以上（no-op防止）</div>
+          </div>
+          <div class="cell">
+            <div class="label">実務効果</div>
+            <div class="value">“見かけの成功”を減らす</div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">09 / 14</div>
+
+        <p class="eyebrow">更新の曖昧さを消す</p>
+        <h1 class="title">テンプレ更新は<span class="accent">全置換</span></h1>
+        <p class="lead">
+          部分更新を避け、テンプレート更新は全定義必須の“全置換”に寄せます。
+          省略の意味（維持/クリア）を契約から排除して事故を減らします。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">避ける</div>
+            <div class="value">省略＝維持、null＝クリア…の解釈違い</div>
+          </div>
+          <div class="cell">
+            <div class="label>寄せる</div>
+            <div class="value">取得→丸ごと再送で“何が変わるか”を明確化</div>
+          </div>
+        </div>
+
+        <div class="micro">（用語）全置換=replace all / 日本語：全置換</div>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 14</div>
+
+        <p class="eyebrow">再試行の暴走を抑える</p>
+        <h1 class="title">エラーは分類＋次手に直結</h1>
+        <p class="lead">
+          エラー応答は、エージェントが読み続ける前提で「原因の分類」と「次に取るべき行動」に結びつく形にします。
+          ただし <code class="k">retryable</code> を誤って解釈させない設計が必要です。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">望ましい</div>
+            <div class="value">conflictは取得し直し、バリデーションは入力修正へ誘導</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意点</div>
+            <div class="value">粒度が粗いと原因が混ざり、“同じ呼び出し繰り返し”の原因に</div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">11 / 14</div>
+
+        <p class="eyebrow">道具を減らす</p>
+        <h1 class="title">危険操作は<span class="accent">非公開</span></h1>
+        <p class="lead">
+          依存関係の解除のように突破を促しやすい操作はツールとして公開せず、
+          相談・提案へ倒して人間側の意思決定に寄せます。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">公開しない例</div>
+            <div class="value">戻せない操作、権限変更、依存解除などの“詰まり突破”系</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="value">誤操作ではなく確認・承認へ誘導（攻撃面を縮小）</div>
+          </div>
+        </div>
+
+        <div class="micro">（用語）承認=approval / 日本語：承認</div>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">12 / 14</div>
+
+        <p class="eyebrow">“守る”ではなく“塞ぐ”</p>
+        <h1 class="title">サーバ検証が要点</h1>
+        <p class="lead">
+          <code class="k">description / instructions</code> は契約として誘導になるが、必ず守られる保証ではありません。
+          最終的な安全性は schema 検証（例： <code class="k">.strict()</code> ）と整合性チェックで担保します。
+        </p>
+
+        <div class="grid two" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">LLMへの期待</div>
+            <div class="value">読んで意図を合わせる（でも保証はしない）</div>
+          </div>
+          <div class="cell">
+            <div class="label">安全の担保</div>
+            <div class="value">入口で検証し、整合しない入力を失敗させる</div>
+          </div>
+        </div>
+
+        <div class="micro">（用語）保証=guarantee / 日本語：保証</div>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+
+        <p class="eyebrow">再現できるチェック</p>
+        <h1 class="title">要点：失敗設計</h1>
+        <p class="lead">
+          書き込みMCPは「データの作法」ではなく「失敗の設計」です。
+          <code class="k">expectedUpdatedAt</code> を必須にし、<code class="k">.strict()</code> と整合性検証、全置換、エラー分類で事故を減らします。
+        </p>
+
+        <div class="grid three" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">競合</div>
+            <div class="value">lost update を <code class="k">expectedUpdatedAt</code> で入口拒否</div>
+          </div>
+          <div class="cell">
+            <div class="label">幻覚</div>
+            <div class="value"><code class="k">.strict()</code> で未知フィールドを検知可能に</div>
+          </div>
+          <div class="cell">
+            <div class="label">曖昧さ</div>
+            <div class="value">全置換＋エラー分類で次手を一意に寄せる</div>
+          </div>
+        </div>
+
+        <div class="micro">限界もある：未徹底のツール、エラー粒度、クライアント依存は棚卸し対象。</div>
+        <div class="rule"></div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
