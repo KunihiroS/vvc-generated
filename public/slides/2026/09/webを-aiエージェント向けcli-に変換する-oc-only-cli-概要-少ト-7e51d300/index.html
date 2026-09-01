@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Webを“AIエージェント向けCLI”に変換する oc（only-cli）概要：少トークン閲覧と認証・環境制御</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;0,500;0,600;1,400;1,500&family=Inter+Tight:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); }
+    body { font-family: "Noto Serif JP", serif; }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: block;
+      overflow: visible;
+    }
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border: 1px solid var(--rule);
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      margin: 20px 0 0;
+      overflow: hidden;
+      border-radius: 6px;
+      inset: auto;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 22px; left: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 16px;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-right: 10px;
+      border-right: 1px solid var(--rule-strong);
+    }
+    .slide-num{
+      position:absolute;
+      top: 22px; right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px;
+      white-space: nowrap;
+    }
+    .title{
+      margin: 0 0 16px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      color: var(--ink);
+      font-style: italic;
+      letter-spacing: 0.01em;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .hr{
+      height: 1px;
+      background: var(--rule);
+      margin: 20px 0 16px;
+    }
+    .grid{
+      display: grid;
+      gap: 12px 16px;
+      margin-top: 18px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .text{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .emph{
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .roman{
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      margin-right: 8px;
+    }
+    .footnote{
+      position:absolute;
+      left: 72px; right: 72px; bottom: 26px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      color: var(--ink-4);
+      letter-spacing: 0.02em;
+      line-height: 1.4;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+    }
+    .cover-center{
+      position:absolute;
+      left: 72px; right: 72px; top: 50%;
+      transform: translateY(-50%);
+      text-align: left;
+    }
+    .big-hero{
+      margin: 0 0 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 86px;
+      line-height: 1.0;
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .sub-hero{
+      margin: 0;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 840px;
+      line-height: 1.5;
+      font-weight: 300;
+    }
+    .closing{
+      position:absolute;
+      left: 72px; right: 72px; top: 50%;
+      transform: translateY(-50%);
+    }
+    .closing .title{ font-size: 80px; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" style="margin-top:0;">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="cover-center">
+        <div class="eyebrow">only-cli / oc</div>
+        <h1 class="big-hero">Web→AI閲覧CLI</h1>
+        <p class="sub-hero">ocは、Webページを“コンパクトな番号付きビュー”に変換し、LLMが少トークンで段階的に読めるようにするCLIツールです。</p>
+      </div>
+      <div class="footnote">日本語併記：英語用語は括弧内に短い日本語（必要箇所のみ）。</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">トークン爆増問題</div>
+      <h2 class="title">生HTMLは重い</h2>
+      <p class="lead">HTMLをそのまま渡すとトークン数が膨れ、コストと処理時間が増えます。さらに、クローラ対策・ログイン制限・JavaScript依存で「単純取得では読めない」ことが起きます。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">入力の重さ</div>
+          <div class="text"><span class="emph">数万トークン</span>に膨張し得る</div>
+        </div>
+        <div class="cell">
+          <div class="label">取得の難しさ</div>
+          <div class="text">ブロック / 認証 / JS依存で失敗が増える</div>
+        </div>
+      </div>
+      <div class="footnote">目的：読めること + 読ませる量（token）を抑えること。</div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">番号で段階取得</div>
+      <h2 class="title">oc open</h2>
+      <p class="lead"><span class="mono">oc open &lt;url&gt;</span>はページを取得し、LLM向けの<span class="emph">番号付きコンパクトビュー</span>として返します。必要なら<span class="mono">oc do</span>や<span class="mono">oc read</span>で対象部分だけ追加取得します。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">閲覧単位</div>
+          <div class="text">番号（例：<span class="mono">[1]</span>）で選択</div>
+        </div>
+        <div class="cell">
+          <div class="label">コスト設計</div>
+          <div class="text">“数百トークン級”を狙う（圧縮）</div>
+        </div>
+        <div class="cell">
+          <div class="label">段階進行</div>
+          <div class="text">do/readで必要分だけ</div>
+        </div>
+      </div>
+      <div class="footnote">ポイント：要約だけでなく、番号アクションで“参照対象”を増減できる。</div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">読むのは命令じゃない</div>
+      <h2 class="title">データビュー</h2>
+      <p class="lead">READMEは、ページ内にコマンドのように見えるテキストが埋め込まれている可能性を前提にします。ocは、出力を“命令”ではなく“読取対象（データ）”として扱う設計思想を取ります。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">リスク</div>
+          <div class="text">プロンプトインジェクション的な誤誘導</div>
+        </div>
+        <div class="cell">
+          <div class="label">対策の方向</div>
+          <div class="text">表示形式 + 運用ルールで誤解を減らす</div>
+        </div>
+      </div>
+      <div class="footnote">“見えるテキスト”が本当に意図した操作かを分離する発想。</div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">番号付きアクション</div>
+      <h2 class="title">do / read / next</h2>
+      <p class="lead">ocの表示には<span class="emph">リンクやテキスト領域</span>が番号付きで並びます。<span class="mono">oc do &lt;n&gt;</span>は番号がリンクなら辿り、テキストなら読取対象として扱います。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">oc do</div>
+          <div class="text">番号→リンク遷移 or テキスト読取</div>
+        </div>
+        <div class="cell">
+          <div class="label">必要時だけ</div>
+          <div class="text">URL操作を増やさずに進める</div>
+        </div>
+        <div class="cell">
+          <div class="label">next</div>
+          <div class="text">段階的に次へ（構造化された流れ）</div>
+        </div>
+      </div>
+      <div class="footnote">重要：エージェントは“指示文”ではなく“データ参照（番号）”で進む。</div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">認証はCookie注入</div>
+      <h2 class="title">oc login</h2>
+      <p class="lead">ログインが必要なページは<span class="mono">oc login</span>でCookieを注入し、<span class="mono">oc open --session &lt;name&gt;</span>で閲覧します。Cookieジャー（Cookie storage）は分離保存され、<span class="emph">外部への混入回避</span>を重視します。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">運用</div>
+          <div class="text"><span class="mono">OC_HOME</span>配下に保存（ディレクトリ指定）</div>
+        </div>
+        <div class="cell">
+          <div class="label">安全</div>
+          <div class="text">権限（例：<span class="mono">0600</span>）や<em>--json</em>混入回避</div>
+        </div>
+      </div>
+      <div class="footnote">ログインページが返る場合は“失敗”として明示し、誤解釈を減らす。</div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">--jsonと秘匿性</div>
+      <h2 class="title">秘密は混ぜない</h2>
+      <p class="lead"><span class="mono">--json</span>出力にCookieなどの秘匿情報が入らない設計方針が述べられています。あわせて、<span class="mono">--cookie</span>で渡す場合はプロセスやシェル履歴に残り得る点への注意があります。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">--json</div>
+          <div class="text">Cookieジャーを<span class="emph">混入しない</span></div>
+        </div>
+        <div class="cell">
+          <div class="label">--cookie</div>
+          <div class="text">シェル履歴等に残る恐れ → 慎重利用</div>
+        </div>
+      </div>
+      <div class="footnote">目的：LLMパイプラインに載せるデータと、秘匿情報を分離。</div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">比較は2軸</div>
+      <h2 class="title">閲覧 + 実行</h2>
+      <p class="lead">ocのベンチマークは、トークン削減だけでなく、Claude CodeやCodexのような“ツール実行まで含む”費用でも比較しています。評価はWikipedia/言語ドキュメント等で示され、トークン数で<span class="emph">最大数十倍削減</span>が報告されています。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">比較対象</div>
+          <div class="text">生HTML / Jina Reader / Playwright系など</div>
+        </div>
+        <div class="cell">
+          <div class="label">評価観点</div>
+          <div class="text">閲覧コスト + エージェント実行コスト</div>
+        </div>
+      </div>
+      <div class="footnote">“読めた感”ではなく、実際の回答・コストまで見に行く。</div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">失敗の判別</div>
+      <h2 class="title">終了コード2</h2>
+      <p class="lead">読み取れるテキストが得られない場合、stderrで判定が出て終了コード2になります。さらに<span class="mono">--json</span>でも同様の扱いとして設計されており、“読めなかった”と“空である”を切り分けやすくします。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">失敗条件</div>
+          <div class="text">読み取れるテキストがない</div>
+        </div>
+        <div class="cell">
+          <div class="label">終了コード</div>
+          <div class="text"><span class="mono">2</span>で判別</div>
+        </div>
+        <div class="cell">
+          <div class="label">--json</div>
+          <div class="text">空フィールド等で一貫</div>
+        </div>
+      </div>
+      <div class="footnote">エージェント運用では“失敗をデータとして扱う”ことが重要。</div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">できないことも明記</div>
+      <h2 class="title">万能ではない</h2>
+      <p class="lead">JavaScriptレンダリング未対応のため、外形上JavaScriptのみで表示されるページは読めない（失敗の可能性）があります。加えて、ハードなbotチャレンジにより拒否されることがあり得ます。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">制約</div>
+          <div class="text">JavaScriptレンダリング未対応</div>
+        </div>
+        <div class="cell">
+          <div class="label">残余リスク</div>
+          <div class="text">botチャレンジで拒否の可能性</div>
+        </div>
+      </div>
+      <div class="footnote">導入前に「自社タスクで読めるか」を確認すべき、という前提が立つ。</div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">導入時の確認3点</div>
+      <h2 class="title">期待値調整</h2>
+      <p class="lead">ocを使う前に、(1)典型タスクのページが読めるか、(2)ログインが必要な場合にCookie注入が現実的か、(3)JavaScript必須のケースを別手段でどう組むか、を確認するのが要点です。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label"><span class="roman">i</span>可用性</div>
+          <div class="text">静的中心か、必要な情報が“取得できる形”か</div>
+        </div>
+        <div class="cell">
+          <div class="label"><span class="roman">ii</span>認証</div>
+          <div class="text">Cookieジャー運用（更新/期限/失敗時挙動）</div>
+        </div>
+        <div class="cell">
+          <div class="label"><span class="roman">iii</span>代替</div>
+          <div class="text">JS必須はブラウザ自動化等との併用を設計</div>
+        </div>
+        <div class="cell">
+          <div class="label">評価</div>
+          <div class="text">ベンチ結果は前提条件に依存 → 自前検証</div>
+        </div>
+      </div>
+      <div class="footnote">ocは“万能ブラウザ”ではなく、トークン効率と可用性のバランス型の読み取り基盤。</div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="closing">
+        <div class="eyebrow">要点まとめ</div>
+        <h2 class="title">少トークン閲覧基盤</h2>
+        <p class="lead">ocは、Webを“AIエージェント用の番号付きデータ”に変換し、段階取得・命令注入対策の思想・Cookie認証・終了コードで運用事故を減らします。ベンチは閲覧と実行の両コストで優位性を示す一方、JavaScript未対応とbot拒否の残余リスクは前提として扱います。</p>
+        <div class="grid grid-3">
+          <div class="cell">
+            <div class="label">核</div>
+            <div class="text">番号付きコンパクトビュー（token削減）</div>
+          </div>
+          <div class="cell">
+            <div class="label">運用</div>
+            <div class="text">Cookieジャー + --json非混入</div>
+          </div>
+          <div class="cell">
+            <div class="label">限界</div>
+            <div class="text">JS未対応 / botチャレンジ耐性に差</div>
+          </div>
+        </div>
+      </div>
+      <div class="footnote">Referencesは省略（提示されたソース内容の要約デッキのため）。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/only-cli/oc" target="_blank" rel="noreferrer noopener">GitHub - only-cli/oc: Turn any website into a compact CLI tailored for AI agents. Browse the web in hundreds of tokens, not tens of thousands. · GitHub</a></h2>
+<p class="reference-note">across 15 real pages: 10,936 against 1,552,491. 14x fewer than Jina Reader, 49x fewer than Playwright MCP&#39;s accessibilit…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.heyuan110.com/posts/ai/2026-04-18-playwright-cli-skill-zero-token-automation" target="_blank" rel="noreferrer noopener">Playwright CLI + Skills: 0-Token Browser Automation Pattern</a></h2>
+<p class="reference-note">The clean comparison is on the same task — Microsoft published a 10-step benchmark in February. I re-ran it on my own ma…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://bug0.com/blog/playwright-cli-vs-playwright-mcp-ai-browser-testing-2026" target="_blank" rel="noreferrer noopener">Playwright CLI vs. Playwright MCP: which to use for AI testing (2026) | Bug0</a></h2>
+<p class="reference-note">### Which is more token-efficient, Playwright CLI or MCP?
+
+The CLI. Microsoft&#39;s own docs say CLI invocations avoid loadi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://testdino.com/blog/playwright-cli" target="_blank" rel="noreferrer noopener">Playwright CLI: Every Command &amp; Setup Guide (2026)</a></h2>
+<p class="reference-note">With MCP, that same interaction returns the entire accessibility tree, often thousands of tokens per response. Over a 20…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://testcollab.com/blog/playwright-cli" target="_blank" rel="noreferrer noopener">Playwright CLI: The Token-Efficient Alternative to Playwright MCP for AI Coding Agents</a></h2>
+<p class="reference-note">```
+# Default session playwright-cli open  # Named session for a different context playwright-cli -s=admin open  # List …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
