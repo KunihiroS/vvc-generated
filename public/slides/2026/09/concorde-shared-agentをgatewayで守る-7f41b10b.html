@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Concorde：Shared AgentをGatewayで守る</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      border-radius: 2px;
+      box-sizing: border-box;
+      border: 20px solid rgba(240, 232, 216, 0.06);
+      outline: 1px solid var(--rule);
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border-radius: 2px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      padding-top: 0px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 6px;
+      position: relative;
+      z-index: 2;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 78px;
+      margin: 0 0 14px;
+      line-height: 0.95;
+      position: relative;
+      z-index: 2;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", "Noto Serif", serif;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      font-size: 0.74em;
+      margin-left: 8px;
+      display: inline-block;
+      color: var(--rust);
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin: 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .content{
+      position: relative;
+      z-index: 2;
+      margin-top: 26px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      padding: 14px 14px;
+      border-radius: 2px;
+      min-height: 92px;
+    }
+    .card h4{
+      margin: 0 0 8px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: 0.02em;
+      font-size: 13px;
+      color: var(--ink-3);
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+    .card .txt{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .note{
+      margin-top: 14px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+      max-width: 900px;
+    }
+
+    .refs{
+      margin-top: 6px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ref{
+      padding: 10px 12px;
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      border-radius: 2px;
+    }
+    .ref .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      margin-bottom: 6px;
+    }
+    .ref .v{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 36px 22px; border-width: 14px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .card .txt{ font-size: 16px; }
+      .grid-2, .grid-3{ gap: 12px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">cover / 企図</div>
+        <div class="slide-num">01 / 13</div>
+      </div>
+      <p class="eyebrow">Shared agentを“支配不能”に</p>
+      <h2 class="title">Concorde <span class="jp">共有AI</span></h2>
+      <p class="lead">複数の当事者が同じAIエージェントを使うとき、誰か一人が直接操作できる設計は不公平や秘密の介入を生みます。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>核心（Core）</h4>
+            <div class="txt">Gateway（ゲートウェイ）で入出力を一本化し、当事者の“直接到達”を遮断します。</div>
+          </div>
+          <div class="card">
+            <h4>対象（Audience）</h4>
+            <div class="txt">一般向けに言うと「同じ相談相手」を、裏切りが起きにくい形で共同利用するための骨格です。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">problem / 根本</div>
+        <div class="slide-num">02 / 13</div>
+      </div>
+      <p class="eyebrow">“誰が触れられるか”</p>
+      <h2 class="title">公平性 <span class="jp">支配</span></h2>
+      <p class="lead">shared agentでは、ある当事者がエージェント本体へ直接到達できると、指示の書き換えやメモリの改変で他者を害せます。</p>
+      <div class="content">
+        <div class="grid grid-3">
+          <div class="card">
+            <h4>改変（Tamper）</h4>
+            <div class="txt">指示を書き換える／メモリを読み替える</div>
+          </div>
+          <div class="card">
+            <h4>秘匿（Hidden）</h4>
+            <div class="txt">他者に見えない情報で誘導する</div>
+          </div>
+          <div class="card">
+            <h4>結果（Impact）</h4>
+            <div class="txt">不公平・権利侵害・合意の崩壊</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">metaphor / 比喩</div>
+        <div class="slide-num">03 / 13</div>
+      </div>
+      <p class="eyebrow">窓口が“唯一”</p>
+      <h2 class="title">Gateway <span class="jp">窓口</span></h2>
+      <p class="lead">Gatewayは、当事者それぞれの経路を一本化する“検問所”です。ここを通らないと、誰もエージェントへ直接手を伸ばせません。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>入（Input）</h4>
+            <div class="txt">当事者 → Gateway → 共通の実行経路</div>
+          </div>
+          <div class="card">
+            <h4>出（Output）</h4>
+            <div class="txt">実行結果 → Gateway → 当事者全員が同じ記録に近づく</div>
+          </div>
+        </div>
+        <div class="note">※README要約では、改ざん耐性は運用・DB管理・権限設定に依存するとされています（保証の範囲は別途要設計）。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">architecture / 全体</div>
+        <div class="slide-num">04 / 13</div>
+      </div>
+      <p class="eyebrow">部品で選べる</p>
+      <h2 class="title">構成要素 <span class="jp">コンポーネント</span></h2>
+      <p class="lead">ConcordeのGateway配下には、コアとなる部品（PostgreSQL / Signal Worker / Agent server / Public server）が含まれる前提があります。</p>
+      <div class="content">
+        <div class="grid grid-3">
+          <div class="card">
+            <h4>保存（DB）</h4>
+            <div class="txt">PostgreSQL（共有記録の土台）</div>
+          </div>
+          <div class="card">
+            <h4>実行（Worker）</h4>
+            <div class="txt">Signal Worker（処理の段取り）</div>
+          </div>
+          <div class="card">
+            <h4>提供（Server）</h4>
+            <div class="txt">Agent server / Public server（受け口と配布）</div>
+          </div>
+        </div>
+        <div class="note">加えて、必要に応じて Users / Messenger / Signatures and Decisions / Scheduler などをデプロイで選びます。</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">architecture / デプロイ</div>
+        <div class="slide-num">05 / 13</div>
+      </div>
+      <p class="eyebrow">単一エントリポイント</p>
+      <h2 class="title">Runtime+Gateway <span class="jp">開始口</span></h2>
+      <p class="lead">デプロイは「単一のエントリポイント」で Runtime と Gateway を作り、extendで必要なコンポーネントを組み上げます。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>extend（拡張）</h4>
+            <div class="txt">必要な部品だけを返す設計で、構成管理を容易にします。</div>
+          </div>
+          <div class="card">
+            <h4>ルーティング</h4>
+            <div class="txt">routesを公開サーバ／エージェント側へ追加でき、責務分離を促します。</div>
+          </div>
+        </div>
+        <div class="note">また、フレームワークは“ブロック境界（Gateway外）”にあるべき、DDL（スキーマ変更）はデプロイ移行で行う方針が示されています。</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">enumeration / 安全境界</div>
+        <div class="slide-num">06 / 13</div>
+      </div>
+      <p class="eyebrow">安全を肩代わりしない</p>
+      <h2 class="title">期待値 <span class="jp">制約</span></h2>
+      <p class="lead">Concordeは、機密性・プロンプトインジェクション耐性・エージェント隔離（confinement）・レート制限などを“意図的に提供しない”としています。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>提供しない</h4>
+            <div class="txt">機密性（Confidentiality）／プロンプトINJ耐性（Prompt Injection）</div>
+          </div>
+          <div class="card">
+            <h4>提供しない</h4>
+            <div class="txt">隔離（Confinement）／レート制限（Rate limit）</div>
+          </div>
+        </div>
+        <div class="note">結論：運用側で認証・入力検証・暗号化・隔離環境・監査ログ・DoS対策等を追加設計する前提になります。</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">evidence / 署名</div>
+        <div class="slide-num">07 / 13</div>
+      </div>
+      <p class="eyebrow">合意を“検証可能”に</p>
+      <h2 class="title">Signatures &amp; Decisions <span class="jp">署名/決定</span></h2>
+      <p class="lead">shared agentでは“誰が何を根拠に決めたか”が争点になり得ます。そこで、第三者が検証できる形でコミットする狙いがあります。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>目的（Why）</h4>
+            <div class="txt">検証可能性（Verifiability）を持たせ、後から監査できる状態にする</div>
+          </div>
+          <div class="card">
+            <h4>効果（So what）</h4>
+            <div class="txt">“改ざんされた結果”を争点にしやすい土台を作る（運用とセット）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">process / 振る舞い</div>
+        <div class="slide-num">08 / 13</div>
+      </div>
+      <p class="eyebrow">共同利用の流れ</p>
+      <h2 class="title">同一経路 <span class="jp">Shared IO</span></h2>
+      <p class="lead">shared agentの要点は「同じAIエージェントの実行結果を、複数当事者が利用する」ことです。</p>
+      <div class="content">
+        <div class="grid grid-3">
+          <div class="card">
+            <h4>i / 入力</h4>
+            <div class="txt">当事者ごとの要求を Gateway に集約</div>
+          </div>
+          <div class="card">
+            <h4>ii / 実行</h4>
+            <div class="txt">コア部品が処理し、共有実行経路で結果を生成</div>
+          </div>
+          <div class="card">
+            <h4>iii / 共有</h4>
+            <div class="txt">当事者が同じ記録・同じ出力（に近い形）へアクセス</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction / 差別化</div>
+        <div class="slide-num">09 / 13</div>
+      </div>
+      <p class="eyebrow">“チャット”ではない</p>
+      <h2 class="title">sharedの定義 <span class="jp">支配不能</span></h2>
+      <p class="lead">Concordeのsharedは「会話が同じ」ではなく、「誰も直接支配できない構造」を指します。これが単なる会話AIフレームワークとの差です。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>従来（がち）</h4>
+            <div class="txt">各当事者が直接触る → 指示や状態が非対称になりがち</div>
+          </div>
+          <div class="card">
+            <h4>Concorde（狙い）</h4>
+            <div class="txt">Gatewayで遮断 → 入出力と記録の経路を揃える</div>
+          </div>
+        </div>
+        <div class="note">だから重要なのは“AIの賢さ”より、共同運用の権限・経路・検証の仕組みです。</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction / 期待値調整</div>
+        <div class="slide-num">10 / 13</div>
+      </div>
+      <p class="eyebrow">安全は利用者設計</p>
+      <h2 class="title">リスク前提 <span class="jp">要脅威モデル</span></h2>
+      <p class="lead">README要約にある「提供しない安全領域」を踏まえると、最終的なリスク低減は利用者側の設計・検証に依存します。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>追加で必要</h4>
+            <div class="txt">認証強度／入力サニタイズ／隔離環境／ログ監査／DoS対策</div>
+          </div>
+          <div class="card">
+            <h4>確認ポイント</h4>
+            <div class="txt">脅威モデル・ログ/DB権限・検証手順・運用ポリシーの揃い具合</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">process / 進化</div>
+        <div class="slide-num">11 / 13</div>
+      </div>
+      <p class="eyebrow">APIは未確定</p>
+      <h2 class="title">0.1.0以降 <span class="jp">変更</span></h2>
+      <p class="lead">0.1.0で破壊的変更があり、公開APIは未確定です。マイナーアップでエントリポイント修正が必要になる可能性があります。</p>
+      <div class="content">
+        <div class="grid grid-2">
+          <div class="card">
+            <h4>運用コスト</h4>
+            <div class="txt">依存固定・差分監視・テスト自動化が現実的な対策になります。</div>
+          </div>
+          <div class="card">
+            <h4>導入方針</h4>
+            <div class="txt">プロダクト完成品というより「基盤として組み立てる」段階として読むのが安全です。</div>
+          </div>
+        </div>
+        <div class="note">共同利用の安全は“技術仕様＋運用”で決まるため、更新管理はセキュリティ管理の一部になります。</div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">closing / まとめ</div>
+        <div class="slide-num">12 / 13</div>
+      </div>
+      <p class="eyebrow">結論（takeaway）</p>
+      <h2 class="title">骨格 <span class="jp">Securityは別途</span></h2>
+      <p class="lead">Concordeは“共有エージェント”をGatewayで守る思想を、署名・決定・スケジューラ等の部品と共に提示します。</p>
+      <div class="content">
+        <div class="grid grid-3">
+          <div class="card">
+            <h4>強み</h4>
+            <div class="txt">支配不能な構造で、共同利用の公平性を作る</div>
+          </div>
+          <div class="card">
+            <h4>注意</h4>
+            <div class="txt">機密性・INJ耐性・隔離・レート制限は提供しない</div>
+          </div>
+          <div class="card">
+            <h4>次の一手</h4>
+            <div class="txt">脅威モデルと運用監査を前提に評価する</div>
+          </div>
+        </div>
+
+        <div class="refs">
+          <div class="ref">
+            <div class="k">References / 原典（要要約元）</div>
+            <div class="v">
+              GitHub: shutter-network / concorde（README要約情報に基づく）
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 13</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ir.isg-one.com/news-market-information/media-coverage/default.aspx" target="_blank" rel="noreferrer noopener">Media Coverage - Corporate Profile - ISG</a></h2>
+<p class="reference-note">Please enter some search terms
+
+### Sourcing &amp; Advisory
+
+Drive your transformation from a full set of target solutions.
+…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
