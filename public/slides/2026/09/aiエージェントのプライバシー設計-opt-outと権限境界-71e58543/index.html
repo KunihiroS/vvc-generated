@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>AIエージェントのプライバシー設計：opt-outと権限境界</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--paper);
+      border: 20px solid rgba(240,232,216,0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-left-color: rgba(240,232,216,0.12);
+      border-right-color: rgba(240,232,216,0.12);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slideInner {
+      position: absolute;
+      inset: 0;
+      padding: 56px 72px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .topRule {
+      position: absolute;
+      left: 56px; right: 56px; top: 46px;
+      height: 1px;
+      background: var(--rule);
+    }
+
+    .slideTag {
+      position: absolute;
+      left: 56px;
+      top: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .slideTag::before{
+      content:"";
+      width: 22px;
+      height: 1px;
+      background: var(--rust);
+      display: inline-block;
+      transform: translateY(-2px);
+    }
+
+    .slideNum {
+      position: absolute;
+      right: 56px;
+      top: 30px;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+      margin-top: 20px;
+    }
+
+    .titleRow {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.98;
+      margin: 0;
+      color: var(--ink);
+    }
+
+    .title .emph {
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead {
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 10px;
+    }
+
+    .grid {
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 10px;
+      align-content: start;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+
+    .label {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .bigText {
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .noteLine {
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      margin-top: auto;
+    }
+
+    .closingText {
+      font-size: 24px;
+      line-height: 1.55;
+      max-width: 820px;
+    }
+
+    @media (max-width: 700px){
+      .slideInner { padding: 44px 22px; }
+      .slideTag { left: 22px; }
+      .slideNum { right: 22px; }
+      .topRule { left: 22px; right: 22px; }
+      .title { font-size: 52px; }
+      .lead { font-size: 18px; }
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      .slideTag { font-size: 12px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">COVER</div>
+        <div class="slideNum">01 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">境界を誤ると崩れる</div>
+        <div class="titleRow">
+          <h1 class="title">opt-outと <span class="emph">権限</span></h1>
+        </div>
+        <div class="lead">
+          「学習に使わない」という設定（opt-out）を、AIエージェントの“実行時データアクセス許可”の境界として扱うと事故につながる。
+        </div>
+
+        <div class="noteLine closingText">
+          日本語メモ：<span class="mono">opt-out</span>＝学習再利用を止める意思（嗜好）／<span class="mono">runtime authorization</span>＝実行時の強制許可。
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">PROBLEM</div>
+        <div class="slideNum">02 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">チェックボックス信仰</div>
+        <div class="titleRow">
+          <h1 class="title"><span class="emph">誤解</span>の境界</h1>
+        </div>
+        <div class="lead">
+          opt-outを“データセットの境界”のように扱うと、読み取り・保持・結合・キャッシュ・ツール連携・エクスポートが実行時に進みうる。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">opt-outが意味するもの</div>
+            <div class="bigText">学習（training）への再利用可否を制御する嗜好（preference）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">opt-outで縛れないもの</div>
+            <div class="bigText">実行時（runtime）の取得・結合・出力・連携の許可（authorization）。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">DISTINCTION</div>
+        <div class="slideNum">03 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">終端のポリシー</div>
+        <div class="titleRow">
+          <h1 class="title">拒否≠遅延</h1>
+        </div>
+        <div class="lead">
+          拒否（refusal）は“説得の余地がある提案”ではなく、理由・スコープを伴う終端のポリシー判断として扱う必要がある。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">タイムアウト（例）</div>
+            <div class="bigText">一時的な輸送／応答の問題。リトライで復帰しうる。</div>
+          </div>
+          <div class="cell">
+            <div class="label">policy denial（拒否）</div>
+            <div class="bigText">その目的・スコープでは許されない決定。迂回やリトライで境界が崩れる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">EVIDENCE</div>
+        <div class="slideNum">04 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">“拒否ログ”罠</div>
+        <div class="titleRow">
+          <h1 class="title">監査は検証</h1>
+        </div>
+        <div class="lead">
+          監査は「拒否がログにあるか」ではなく、「拒否すべき要求で本当に拒否が起き、失われなかったか」を検証できる設計でなければ意味がない。
+        </div>
+
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">落とし穴 i</div>
+            <div class="bigText">ログ経路が誤っていて、拒否が計測されない。</div>
+          </div>
+          <div class="cell">
+            <div class="label">落とし穴 ii</div>
+            <div class="bigText">“0 blocked”＝成功、と思い込む。</div>
+          </div>
+          <div class="cell">
+            <div class="label">落とし穴 iii</div>
+            <div class="bigText">拒否がリトライ／キャッシュ／別経路で消える。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">ARCHITECTURE</div>
+        <div class="slideNum">05 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">データプレーンに強制</div>
+        <div class="titleRow">
+          <h1 class="title">Capabilityで封じる</h1>
+        </div>
+        <div class="lead">
+          “目的・有効期限・スコープ”を持つ目的拘束型の能力（capability）を、ツール呼び出しやエクスポートの直前に強制し、拒否が迂回されないようにする。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">Capabilityに入れる要素</div>
+            <div class="bigText">purpose（目的）／scope（範囲）／expiry（期限）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">強制する場所</div>
+            <div class="bigText">データが外へ出る直前：ツール呼び出し・エクスポート・派生生成の要所。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">PROCESS</div>
+        <div class="slideNum">06 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">境界の設計手順</div>
+        <div class="titleRow">
+          <h1 class="title"><span class="emph">分離</span>して運用</h1>
+        </div>
+        <div class="lead">
+          設計の要点は「学習の統制（preference）」と「実行時の許可（authorization）」を同一視しないこと。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">ステップ i</div>
+            <div class="bigText">opt-out＝学習再利用の嗜好として扱う（後ろ向きの統制）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">ステップ ii</div>
+            <div class="bigText">runtime authorization＝データプレーンの強制として扱う（その場の統制）。</div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">ステップ iii</div>
+            <div class="bigText">拒否は終端：リトライ／迂回／キャッシュで境界が失われない。</div>
+          </div>
+          <div class="cell">
+            <div class="label">ステップ iv</div>
+            <div class="bigText">監査はテスト：拒否が必要な場面で“本当に起きたか”を検証。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">METAPHOR</div>
+        <div class="slideNum">07 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">門と体裁</div>
+        <div class="titleRow">
+          <h1 class="title">同じ鍵</h1>
+        </div>
+        <div class="lead">
+          opt-outは「収蔵庫（学習）への鍵」になりがちだが、事故は“倉庫の外へ出る門（runtime）”で起きる。
+        </div>
+
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">鍵 A</div>
+            <div class="bigText">学習利用（training）を止める嗜好。</div>
+          </div>
+          <div class="cell">
+            <div class="label">門 B</div>
+            <div class="bigText">取得・保持・連携・出力（runtime）を許す能力。</div>
+          </div>
+          <div class="cell">
+            <div class="label">罠</div>
+            <div class="bigText">鍵 Aを門 Bの代わりに使う＝体裁だけ整う。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">DISTINCTION</div>
+        <div class="slideNum">08 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">ログではなく系譜</div>
+        <div class="titleRow">
+          <h1 class="title">provenanceが要る</h1>
+        </div>
+        <div class="lead">
+          ツール単位の許可リストは迂回されやすいので、データの系譜（provenance）と目的拘束を、派生やエクスポートの境界で追跡・強制する。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">よくある弱点</div>
+            <div class="bigText">“このツールはOK”のチェックは迂回や経路混線に負ける。</div>
+          </div>
+          <div class="cell">
+            <div class="label">望ましい中心</div>
+            <div class="bigText">データがどこから来て（provenance）、何の目的で（purpose）扱われるか。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">COMPARISON</div>
+        <div class="slideNum">09 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">境界の置き場所</div>
+        <div class="titleRow">
+          <h1 class="title">UI vs 実行</h1>
+        </div>
+        <div class="lead">
+          境界をUIのトグルに寄せるほど「プライバシーの体裁」が増え、データ流通経路の強制が抜けやすい。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">誤り（体裁）</div>
+            <div class="bigText">opt-outを“実行時アクセスの境界”として扱い、後から止める。</div>
+          </div>
+          <div class="cell">
+            <div class="label">正しさ（強制）</div>
+            <div class="bigText">capabilityで“直前”に検証：拒否が終端であり、迂回・キャッシュで失われない。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">ENUMERATION</div>
+        <div class="slideNum">10 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">事故を生む差分</div>
+        <div class="titleRow">
+          <h1 class="title"><span class="emph">4つ</span>の崩れ</h1>
+        </div>
+        <div class="lead">
+          次の混同が「境界の崩壊（実質無効化）」を招きやすい。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">i</div>
+            <div class="bigText">学習制御（opt-out）＝実行許可（runtime）だと思い込む。</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii</div>
+            <div class="bigText">拒否（refusal）をリトライ可能な失敗（タイムアウト）と同列にする。</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii</div>
+            <div class="bigText">監査をログの存在で済ませ、拒否の“発生”と“検証”を落とす。</div>
+          </div>
+          <div class="cell">
+            <div class="label">iv</div>
+            <div class="bigText">ツール単位の許可で終え、データの系譜と目的拘束を追わない。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">EVALUABLE</div>
+        <div class="slideNum">11 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">実装の問い</div>
+        <div class="titleRow">
+          <h1 class="title">テストで担保</h1>
+        </div>
+        <div class="lead">
+          「境界が守られたか」を“確認”ではなく“検証（evaluable）”で揃えるべきだ。
+        </div>
+
+        <div class="grid two">
+          <div class="cell">
+            <div class="label">検証すべきこと</div>
+            <div class="bigText">拒否すべき要求で拒否が発生し、リトライ・キャッシュ・別経路で失われない。</div>
+          </div>
+          <div class="cell">
+            <div class="label">測り方の方向</div>
+            <div class="bigText">“0 blocked＝安全”を疑い、拒否条件のテストケースを用意する。</div>
+          </div>
+        </div>
+
+        <div class="noteLine">
+          <div class="label">用語（短い日本語）</div>
+          <div class="bigText">
+            拒否（拒否＝終端のポリシー判断）／検証可能性（evaluable）／目的拘束（purpose restriction）／データ系譜（provenance）。
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide">
+      <div class="slideInner">
+        <div class="slideTag">CLOSING</div>
+        <div class="slideNum">12 / 12</div>
+        <div class="topRule"></div>
+
+        <div class="eyebrow">要点まとめ</div>
+        <div class="titleRow">
+          <h1 class="title">答え</h1>
+        </div>
+        <div class="lead">
+          opt-outは“学習の嗜好”として扱い、実行時のデータ流通はcapability＋provenanceで直前に強制し、拒否は終端としてテスト監査する。
+        </div>
+
+        <div class="grid three">
+          <div class="cell">
+            <div class="label">opt-out</div>
+            <div class="bigText">trainingの再利用可否（preference）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">runtime</div>
+            <div class="bigText">capabilityで許可を強制（purpose/expiry/scope）。</div>
+          </div>
+          <div class="cell">
+            <div class="label">audit</div>
+            <div class="bigText">ログではなく拒否“発生と非迂回”を検証。</div>
+          </div>
+        </div>
+
+        <div class="noteLine closingText">
+          次の一手：自社のデータライフサイクル（収集→保持→変換→配布→学習→削除→監査）で、どこで何が“強制・証明”できるかを棚卸しする。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
