@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM検索：LSP vs grep と LLM-friendliness</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 60px 0;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      pointer-events:none;
+      border: 1px solid rgba(240, 232, 216, 0.08);
+    }
+
+    .slide-top{
+      position: relative;
+      z-index: 1;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.18em;
+      font-size: 16px;
+      font-weight: 600;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 12px;
+    }
+
+    .slide-tag:before{
+      content:"";
+      width: 60px;
+      height: 0;
+      border-top: 2px solid rgba(232,129,74,0.55);
+      transform: translateY(1px);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 26px;
+      right: 30px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      z-index: 2;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 12px;
+      margin-bottom: 10px;
+    }
+
+    .title{
+      margin: 0 0 16px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      line-height: 1.02;
+      font-style: italic;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .rule{
+      height:1px;
+      background: var(--rule-strong);
+      margin: 18px 0 18px 0;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+      position: relative;
+      z-index: 1;
+      max-width: 920px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      margin-top: 18px;
+      position: relative;
+      z-index: 1;
+      max-width: 980px;
+    }
+
+    .cell{
+      border: 1px solid rgba(240, 232, 216, 0.12);
+      padding: 14px 14px;
+      border-radius: 10px;
+      background: rgba(240, 232, 216, 0.03);
+      min-height: 78px;
+    }
+    .cell h4{
+      margin: 0 0 6px 0;
+      font-size: 16px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .cell p{
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+      padding: 6px 10px;
+      border: 1px solid rgba(232,129,74,0.35);
+      background: rgba(232,129,74,0.08);
+      color: var(--ink);
+      border-radius: 999px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      margin-top: 10px;
+    }
+
+    .bilingual{
+      color: var(--ink-3);
+      font-size: 18px;
+      font-family: "Noto Serif JP", serif;
+      margin-top: 6px;
+    }
+
+    .ref-list{
+      margin-top: 18px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 960px;
+      position: relative;
+      z-index: 1;
+    }
+    .ref-item{
+      border: 1px solid rgba(240,232,216,0.12);
+      background: rgba(240,232,216,0.03);
+      padding: 14px 14px;
+      border-radius: 10px;
+    }
+    .ref-item .k{
+      font-family:"Inter Tight", system-ui, sans-serif;
+      font-weight: 700;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .ref-item .v{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    /* Responsive: keep 16:9 aspect ratio */
+    @media (max-width: 720px){
+      .slide{ padding: 34px 22px; border-width: 14px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .slide-num{ top: 16px; right: 16px; font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .slide-tag{ font-size: 13px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-top">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 17</div>
+        <div class="eyebrow">LLMの道具選び</div>
+        <h2 class="title">検索方式</h2>
+        <p class="lead">grep（字面）と LSP（意味ナビ）を、モデル性能ではなく「ハーネス込みの成功率」で比較します。</p>
+        <div class="pill">LLM-friendliness / <span style="font-style:italic;">モデル親和性</span></div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+        <div class="eyebrow">精度至上主義</div>
+        <h2 class="title">それだけでは勝てない</h2>
+        <p class="lead">「検索精度が上がればエージェントは必ず良くなる」という期待は、しばしば外れます。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>見落とし</h4>
+            <p>成功率・トークン効率は「次に使える文脈」が決める。</p>
+          </div>
+          <div class="cell">
+            <h4>鍵</h4>
+            <p>モデル単体ではなく、ツール入出力と運用ループ（ハーネス）が支配。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-top">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 17</div>
+        <div class="eyebrow">道具の相性</div>
+        <h2 class="title">LLM-friendliness</h2>
+        <p class="lead">同じ「意味検索」でも、出力形状がモデルの行動パターンに合うかで結果が変わります。</p>
+        <div class="grid3">
+          <div class="cell">
+            <h4>出力：場所だけ</h4>
+            <p><span class="mono">path:line:col</span>中心で再読みが増える。</p>
+          </div>
+          <div class="cell">
+            <h4>出力：行コンテキスト</h4>
+            <p>参照の周辺ソース（例：±2行）を同梱。</p>
+          </div>
+          <div class="cell">
+            <h4>運用：次アクション</h4>
+            <p>ループで「その場で判断」できるかが勝敗。</p>
+          </div>
+        </div>
+        <div class="bilingual">日本語補足：LLM-friendliness（モデルが扱いやすい道具設計）</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 17</div>
+        <div class="eyebrow">2つの検索</div>
+        <h2 class="title">grep vs LSP</h2>
+        <p class="lead">比較の中心は「字面（文字列）で探す grep」と「意味（定義・参照）を辿る LSP」です。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>grep（字面）</h4>
+            <p>文字列にマッチし、コメントや文字列等も拾える。</p>
+          </div>
+          <div class="cell">
+            <h4>LSP（意味）</h4>
+            <p>定義・参照・ドキュメントシンボル等をナビゲーション。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 17</div>
+        <div class="eyebrow">観測結果</div>
+        <h2 class="title">grepを選ぶ</h2>
+        <p class="lead">多くのタスクでエージェントは高精度でも LSP より grep を頻繁に選び、成功率や効率が常に LSP 有利とは限りません。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>選好</h4>
+            <p>相当頻繁に grep 採用（常に LSP ではない）。</p>
+          </div>
+          <div class="cell">
+            <h4>効率</h4>
+            <p>成功率・トークン使用は出力形状とループ次第で変動。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">07 / 17</div>
+        <div class="eyebrow">場所のみのLSP</div>
+        <h2 class="title">再読み地獄</h2>
+        <p class="lead">LSPが「位置（ファイル・行・列）」だけを返すと、各参照地点の確認で追加のファイル読みが増えます。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>コスト</h4>
+            <p>追加読み（follow-up reads）が増加。</p>
+          </div>
+          <div class="cell">
+            <h4>影響</h4>
+            <p>トークン消費増 → 成功率低下につながり得る。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="evidence2">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 17</div>
+        <div class="eyebrow">小さなUI差</div>
+        <h2 class="title">±2行で改善</h2>
+        <p class="lead">LSP応答にソース行（周辺数行）を同梱すると、同じ意味検索バックエンドでも rename タスクの pass@1 と効率が改善しました。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>追加入力</h4>
+            <p>15.2 → 3.2（減少）</p>
+          </div>
+          <div class="cell">
+            <h4>pass@1</h4>
+            <p>0.67 → 0.83（上昇）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 17</div>
+        <div class="eyebrow">タスクで反転</div>
+        <h2 class="title">常勝ではない</h2>
+        <p class="lead">LSPが常に悪いわけではなく、タスクとリポジトリのノイズで価値が反転します。</p>
+        <div class="grid3">
+          <div class="cell">
+            <h4>参照網羅</h4>
+            <p>LSP精度が grep を上回り得る。</p>
+          </div>
+          <div class="cell">
+            <h4>recallの壁</h4>
+            <p>精度が上がっても recall が大きく伸びない場合あり。</p>
+          </div>
+          <div class="cell">
+            <h4>ノイズ相関</h4>
+            <p>grep精度が落ちるほど LSP 有利になりやすい。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 17</div>
+        <div class="eyebrow">どこがボトルネック</div>
+        <h2 class="title">深さが効く</h2>
+        <p class="lead">ボトルネックは検索精度だけではなく、エージェントがどれだけ丁寧に探索・検証したか（作業の深さ）にあり得ます。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>示唆</h4>
+            <p>「探す」より「確認して決める」工程が成否を分ける。</p>
+          </div>
+          <div class="cell">
+            <h4>設計指針</h4>
+            <p>検索出力を“次の判断”に直結させる（出力形状最適化）。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-top">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">11 / 17</div>
+        <div class="eyebrow">適用の示唆</div>
+        <h2 class="title">設計原則</h2>
+        <p class="lead">検索方式は固定せず、ハーネス込みで同条件評価し、タスクに応じて役割分担する。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>i. ループで評価</h4>
+            <p>モデル性能“だけ”で比較せず、ツール入出力と復帰戦略まで揃える。</p>
+          </div>
+          <div class="cell">
+            <h4>ii. 文脈の形</h4>
+            <p>場所のみより、周辺ソース（±2行）で判断コストを下げる。</p>
+          </div>
+          <div class="cell">
+            <h4>iii. 役割分担</h4>
+            <p>grepはコメント/文字列等の編集で構造的に有利になり得る。</p>
+          </div>
+          <div class="cell">
+            <h4>iv. フォールバック</h4>
+            <p>検索バックエンドの切替（routing）と検証を前提に設計する。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="distinction2">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 17</div>
+        <div class="eyebrow">再現性の注意</div>
+        <h2 class="title">モデル×ハーネス</h2>
+        <p class="lead">別ランタイムに移すと結果が再現されない理由として「モデル×ハーネス」の観点が強調されます。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>評価すべき要素</h4>
+            <p>ツール署名、入出力形式、ループ、復帰戦略、次に見せる情報。</p>
+          </div>
+          <div class="cell">
+            <h4>運用メッセージ</h4>
+            <p>“availability”＝“採用”ではないので、導入前に計測する。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-top">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 17</div>
+        <div class="eyebrow">結論</div>
+        <h2 class="title">精度より親和性</h2>
+        <p class="lead">「検索が精密」でも「モデルがそのまま使える形で文脈が返る」ことがなければ勝てない。</p>
+        <div class="ref-list" style="margin-top: 16px;">
+          <div class="ref-item">
+            <div class="k">Takeaway</div>
+            <div class="v">LSPは出力を“場所だけ”でなく“判断に足るコンテキスト”へ最適化すると強くなる。</div>
+          </div>
+          <div class="ref-item">
+            <div class="k">Takeaway</div>
+            <div class="v">grepとLSPを統一の最強検索として扱わず、タスク特性でルーティングする。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- References slide (still single-column deck; keep as 16:9 card like others) -->
+    <section class="slide" aria-label="references" style="margin-top: 0;">
+      <div class="slide-top">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">14 / 17</div>
+        <div class="eyebrow">参照（原文・要点）</div>
+        <h2 class="title">根拠まとめ</h2>
+        <p class="lead">このページはユーザー提示文の要約スライドです。原文の正式な書誌情報は、提示文に含まれていません。</p>
+        <div class="grid">
+          <div class="cell">
+            <h4>比較対象</h4>
+            <p>grep（字面）／ LSP（意味：定義・参照・シンボル経由）</p>
+          </div>
+          <div class="cell">
+            <h4>鍵となる概念</h4>
+            <p>ハーネス（実行枠組み）／ LLM-friendliness（モデル親和性）</p>
+          </div>
+          <div class="cell">
+            <h4>定量例</h4>
+            <p>追加入力 15.2 → 3.2、pass@1 0.67 → 0.83（rename、±2行同梱）</p>
+          </div>
+          <div class="cell">
+            <h4>一般化の注意</h4>
+            <p>モデル×ハーネスで再現性が変わるため、自環境で評価が必要</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://antoniocortes.com/en/2026/03/10/claude-code-with-lsp-from-searching-text-to-understanding-code" target="_blank" rel="noreferrer noopener">Claude Code with LSP: from searching text to understanding code : AntonioCortes.com</a></h2>
+<p class="reference-note">## A practical tip
+
+Karan suggests adding instructions to your `CLAUDE.md` to make Claude Code prioritize LSP over grep.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ceaksan.com/en/code-search-for-ai-agents-which-tool-when" target="_blank" rel="noreferrer noopener">Code Search for AI Agents: ripgrep, ast-grep, or Semantic?</a></h2>
+<p class="reference-note">### The Agent Variable Breaks Everything
+
+The CoREB benchmark published in May 2026 shared a striking finding: short key…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/rajeshroyal/lsp-ide-level-code-intelligence-for-claude-4kp5" target="_blank" rel="noreferrer noopener">LSP: IDE-Level Code Intelligence for Claude - DEV Community</a></h2>
+<p class="reference-note">```
+You: Where is authenticateUser defined? Claude: authenticateUser is defined in src/services/auth/handlers.ts:156 It&#39;…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2601.20886v1" target="_blank" rel="noreferrer noopener">IDE-Bench: Evaluating Large Language Models as IDE Agents on Real-World Software Engineering Tasks</a></h2>
+<p class="reference-note">Table 3 (Appendix) reports average token usage per successful task and an efficiency score (pass@5 divided by tokens con…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@jakenesler/context-compression-to-reduce-llm-costs-and-frequency-of-hitting-limits-e11d43a26589" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">Sign up
+
+Sign in
+
+Sign up
+
+Sign in
+
+Unknown user
+Jake Nesler
+
+## Jake Nesler
+
+I like writing cool software and thinking …</p>
+</article>
+</div>
+</section>
+</div>
+
+  <script>
+    // No JS per constraints; left intentionally empty.
+  </script>
+</body>
+</html>
