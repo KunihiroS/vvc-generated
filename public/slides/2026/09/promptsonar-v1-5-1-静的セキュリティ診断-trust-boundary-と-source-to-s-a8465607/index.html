@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PromptSonar（v1.5.1）静的セキュリティ診断：trust boundary と source-to-sink</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 0 0 56px 0;
+      display:flex;
+      flex-direction:column;
+      gap: 16px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.12);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 18px;
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      inset: 0;
+    }
+
+    .frame{
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 24px;
+      left: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-size: 16px;
+      text-transform: uppercase;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 24px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 18px 0;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      font-weight: 300;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+    }
+
+    .rule{
+      position:absolute;
+      left: 28px;
+      right: 28px;
+      bottom: 18px;
+      height: 1px;
+      background: var(--rule);
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", system-ui, sans-serif;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+    }
+
+    .grid-2{
+      grid-template-columns: 1fr 1fr;
+      margin-top: 18px;
+      max-width: 920px;
+    }
+    .grid-3{
+      grid-template-columns: 1fr 1fr 1fr;
+      margin-top: 18px;
+      max-width: 980px;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+      min-height: 86px;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .note{
+      margin-top: 16px;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.4;
+      max-width: 920px;
+      border-left: 4px solid var(--rust);
+      padding-left: 14px;
+    }
+
+    .closing{
+      font-size: 26px;
+      line-height: 1.55;
+      font-weight: 300;
+      max-width: 840px;
+      margin: 0;
+      color: var(--ink);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <p class="eyebrow">LLMの「経路」を診断</p>
+      <h1 class="title">PromptSonar <span class="em">v1.5.1</span></h1>
+      <p class="lead">AIプロンプトやエージェント実行の「trust boundary（信頼境界）」を越える source-to-sink path を、静的に推定して安全性を優先順位付けします。</p>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <p class="eyebrow">危険は「文」ではなく「到達」</p>
+      <h1 class="title">Trust boundary</h1>
+      <p class="lead">プロンプトの危険さだけでは足りません。ユーザー入力が特権操作（ファイル、シェル、ネットワークなど）へ到達する「道筋」をどう確度高く推定できるかが核心です（source-to-sink path）。</p>
+
+      <div class="grid grid-2" aria-label="核心の要素">
+        <div class="cell">
+          <div class="k">What to Track</div>
+          <div class="v">信頼境界を越える“実行経路”</div>
+        </div>
+        <div class="cell">
+          <div class="k">Why It Matters</div>
+          <div class="v">開発者が「どこを切るか」を判断</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <p class="eyebrow">npm audit for prompts</p>
+      <h1 class="title">経路監査</h1>
+      <p class="lead">PromptSonarは「プロンプト本文の危険」ではなく「実行経路と権限の到達」を監査する考え方で、設定ミスの“攻撃面（execution surface）”を見つけます。</p>
+
+      <div class="grid grid-3" aria-label="関連領域">
+        <div class="cell">
+          <div class="k">入力</div>
+          <div class="v">ユーザー入力／埋め込みデータ</div>
+        </div>
+        <div class="cell">
+          <div class="k">中継</div>
+          <div class="v">MCPサーバ／ツール実行ルーター</div>
+        </div>
+        <div class="cell">
+          <div class="k">到達点</div>
+          <div class="v">filesystem / shell / network など</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <p class="eyebrow">静的解析・LLMなし</p>
+      <h1 class="title">推定の前提</h1>
+      <p class="lead">PromptSonarはスキャン中にLLM呼び出しをせず、ローカルファーストで実行します。推定結果に root cause と Confidence を添えて提示します。</p>
+
+      <div class="grid grid-2" aria-label="前提">
+        <div class="cell">
+          <div class="k">No LLM during scan</div>
+          <div class="v">“それっぽい生成”を避ける</div>
+        </div>
+        <div class="cell">
+          <div class="k">Evidence-first</div>
+          <div class="v">finding.workflow.path と root cause</div>
+        </div>
+      </div>
+
+      <div class="note">
+        <span class="mono">静的解析</span>のため、推定は「攻撃が成立することの保証」ではなく、危険の可能性が高い経路を示します。
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">06 / 16</div>
+      <p class="eyebrow">何を出すか（発見物）</p>
+      <h1 class="title">3つの核</h1>
+      <p class="lead">PromptSonarは、信頼境界越えの“経路”を、Confidenceと合わせて提示し、MCPの攻撃面をスコア化し、運用できる形で出力します。</p>
+
+      <div class="grid grid-3" aria-label="3つの核">
+        <div class="cell">
+          <div class="k">i. Path</div>
+          <div class="v">workflow.path：trust-state/taintを伴う到達</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. Confidence</div>
+          <div class="v">0–100で“推定の確度”を可視化</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. MCP Risk</div>
+          <div class="v">autoExecute／permissions／承認等を総合評価</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <p class="eyebrow">高確度の経路例</p>
+      <h1 class="title">Root Cause</h1>
+      <p class="lead">入力データの例では、<span class="mono">autoExecute=true</span> と <span class="mono">permissions="*"</span> が、最終的にMCP実行に繋がる疑いを強めます（例：<span class="mono">Root Cause: MCP Tool Poisoning</span>）。</p>
+
+      <div class="grid grid-2" aria-label="例の意味">
+        <div class="cell">
+          <div class="k">設定ミスの典型</div>
+          <div class="v"><span class="mono">permissions="*"</span>：特権的シンクへ広がる</div>
+        </div>
+        <div class="cell">
+          <div class="k">実行到達の形</div>
+          <div class="v"><span class="mono">autoExecute=true</span>：承認前に実行機会が増える</div>
+        </div>
+      </div>
+
+      <div class="note">
+        発見は「なぜ危険か」をルールと根本原因へ分解して説明する、という姿勢が強調されています。
+      </div>
+      <div class="rule"></div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">08 / 16</div>
+      <p class="eyebrow">見た目より根拠</p>
+      <h1 class="title">可視化の方針</h1>
+      <p class="lead">Playgroundのグラフは <span class="mono">finding.workflow.path</span> に基づくとされ、LLMや疑似データによる推定を避けます。色だけで判断させません。</p>
+
+      <div class="grid grid-3" aria-label="可視化の柱">
+        <div class="cell">
+          <div class="k">Trust state</div>
+          <div class="v">境界内外の状態を明示</div>
+        </div>
+        <div class="cell">
+          <div class="k">Taint / 伝播</div>
+          <div class="v">不正データの拡がりを示す</div>
+        </div>
+        <div class="cell">
+          <div class="k">Confidence</div>
+          <div class="v">推定の確度（0–100）を添える</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">09 / 16</div>
+      <p class="eyebrow">CIに載せる流れ</p>
+      <h1 class="title">継続監視</h1>
+      <p class="lead">スキャン結果はJSON/SARIFとして出力され、GitHub ActionsやPRレビュー、ゲート条件で運用されます（<span class="mono">.promptsonar.yml</span>／<span class="mono">fail_on</span>／閾値など）。</p>
+
+      <div class="grid grid-2" aria-label="運用の要点">
+        <div class="cell">
+          <div class="k">入力</div>
+          <div class="v">リポジトリ内プロンプト／設定（例：MCP）</div>
+        </div>
+        <div class="cell">
+          <div class="k">出力</div>
+          <div class="v">SARIFタグ付きの検知をゲートへ</div>
+        </div>
+      </div>
+
+      <div class="note">
+        “一度の診断”で終わらず、差分検知（回帰）を前提にする設計です。
+      </div>
+
+      <div class="rule"></div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 16</div>
+      <p class="eyebrow">OWASP / 証跡</p>
+      <h1 class="title">説明可能性</h1>
+      <p class="lead">v1.5.1では、Compliance evidence の出し方や OWASP LLM Top 10 へのマッピング、SARIFタグ付けなど、説明責任と監査向けの改善が列挙されています。</p>
+
+      <div class="grid grid-3" aria-label="改善点">
+        <div class="cell">
+          <div class="k">Compliance</div>
+          <div class="v">証跡（evidence）を発見単位で提示</div>
+        </div>
+        <div class="cell">
+          <div class="k">OWASP</div>
+          <div class="v">LLM Top 10 へのタグ付け</div>
+        </div>
+        <div class="cell">
+          <div class="k">SARIF</div>
+          <div class="v">CIに載せやすい形式・タグ</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">11 / 16</div>
+      <p class="eyebrow">fail-onの改善</p>
+      <h1 class="title">fail-open回避</h1>
+      <p class="lead"><span class="mono">--fail-on</span> が認識されない場合、以前は0で静かに終了する（fail-open）挙動だったものをやめ、未認識ならエラーに変更したとされています。CIゲートの信頼性を上げる変更です。</p>
+
+      <div class="grid grid-2" aria-label="挙動の差">
+        <div class="cell">
+          <div class="k">以前</div>
+          <div class="v">未認識 → 0で終了（見逃し）</div>
+        </div>
+        <div class="cell">
+          <div class="k">改善後</div>
+          <div class="v">未認識 → エラー（検知の沈黙を防ぐ）</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">12 / 16</div>
+      <p class="eyebrow">強みと限界</p>
+      <h1 class="title">静的推定の現実</h1>
+      <p class="lead">強みは「特権シンク到達」「承認ゲート」「ワイルドカード権限」「資格情報伝播」など、成立条件に近い論点へ焦点を当てることです。一方、静的解析ゆえ誤検知や過信には注意が必要です。</p>
+
+      <div class="grid grid-2" aria-label="強みと注意">
+        <div class="cell">
+          <div class="k">Strength</div>
+          <div class="v">経路ベースで優先順位を付けられる（Confidence付き）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Caution</div>
+          <div class="v">推定＝攻撃成立の保証ではない（人手レビュー＋実行時ガード）</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <p class="eyebrow">最終判断は運用次第</p>
+      <h1 class="title">使いどころ</h1>
+      <p class="closing">PromptSonarは「危険の可能性が高い実行経路を早期に発見し、経路を切る判断材料を提供する」価値が大きいです。静的推定の制約を前提に、<span class="mono">mcp_risk_threshold</span>・<span class="mono">waiver</span>（許可/免除）・レビュー体制を慎重に設計してください。</p>
+
+      <div class="grid grid-3" aria-label="運用の着地点">
+        <div class="cell">
+          <div class="k">1</div>
+          <div class="v">Confidenceとroot causeを確認</div>
+        </div>
+        <div class="cell">
+          <div class="k">2</div>
+          <div class="v">SARIF/CIで差分監視</div>
+        </div>
+        <div class="cell">
+          <div class="k">3</div>
+          <div class="v">実行時のガードで最終担保</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aembit.io/blog/owasp-top-10-llm-risks-explained" target="_blank" rel="noreferrer noopener">The OWASP Top 10 for LLM Applications (2025): Explained Simply</a></h2>
+<p class="reference-note">The challenge is that you can’t patch your way out of prompt injection. It exploits LLM design itself. Mitigation requir…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://cycode.com/blog/owasp-mcp-top-10" target="_blank" rel="noreferrer noopener">OWASP MCP Top 10: Risks, CVEs &amp; Defenses for 2026 - Cycode</a></h2>
+<p class="reference-note">Many MCP servers still rely on static keys, PATs in environment variables, or weak access controls instead of delegated …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.promptfoo.dev/blog/owasp-top-10-llms-tldr" target="_blank" rel="noreferrer noopener">OWASP Top 10 LLM Security Risks (2025) – 5-Minute TLDR</a></h2>
+<p class="reference-note">| Rate-limit and throttle requests | 10 |
+| Fine-tune models / use RAG | 9 |
+| Label and clarify AI-generated content | …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.trendmicro.com/en_us/what-is/ai/owasp-top-10.html" target="_blank" rel="noreferrer noopener">What are the OWASP Top 10 risks for LLMs? | Trend Micro (US)</a></h2>
+<p class="reference-note">Mitigation strategies include:
+
+Sanitizing data and excluding sensitive content from training sets.
+
+Providing clear ter…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://owasp.org/www-project-top-10-for-large-language-model-applications" target="_blank" rel="noreferrer noopener">OWASP Top 10 for Large Language Model Applications</a></h2>
+<p class="reference-note">Get the OWASP GenAI LLM Top 10 2026 — published August 4, 2026.
+
+Browse the current source and contribute
+
+## About This…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
