@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>ctx / ctx pro：過去エージェント履歴の高速検索とgit blame相当の根拠追跡</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      box-sizing: border-box;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+    }
+
+    .frame{
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 56px 72px;
+      box-sizing: border-box;
+    }
+
+    .slide-tag{
+      position:absolute;
+      left: 26px;
+      top: 18px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.16em;
+      font-style: italic;
+      font-size: 18px;
+      text-transform: uppercase;
+    }
+
+    .slide-num{
+      position:absolute;
+      right: 26px;
+      top: 18px;
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+    }
+
+    .eyebrow{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px;
+      font-style: italic;
+      color: var(--rust);
+      line-height: 1.1;
+    }
+
+    .title{
+      margin: 12px 0 10px 0;
+      font-size: 74px;
+      line-height: 0.98;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--rust-deep);
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: normal;
+      color: var(--ink);
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      max-width: 760px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0;
+      width: 100%;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      border-radius: 2px;
+      padding: 14px 16px;
+      box-sizing: border-box;
+      min-height: 96px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .value{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .bullets{
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr;
+    }
+    .bullet{
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+    }
+    .bullet:first-child{ border-top: 0; padding-top: 0; }
+    .bullet .k{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      white-space: nowrap;
+    }
+    .bullet .t{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .refs{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.6;
+      font-weight: 300;
+    }
+    .ref-item{
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+      margin-top: 10px;
+    }
+    .ref-item:first-child{ border-top: 0; padding-top: 0; margin-top: 0; }
+    @media (max-width: 720px){
+      .frame{ padding: 36px 26px; }
+      .slide-tag{ left: 14px; }
+      .slide-num{ right: 14px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">過去ログを“根拠”として取り戻す</p>
+        <div class="title">ctx / ctx pro</div>
+        <p class="lead">AIコーディングエージェントのセッション履歴をローカルで高速検索し、<span style="font-style: italic; color: var(--rust-deep);">git blame相当</span>に「この行はどのセッションで生まれたか」まで辿ります。</p>
+        <div class="rule"></div>
+        <div class="small">日本語（要点）: <span style="color: var(--rust)"><i>探索</i></span>を速くし、<span style="color: var(--rust)"><i>説明可能性</i></span>を高める。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">ログは“孤立”しがち</p>
+        <div class="title jp">根拠追跡の断絶</div>
+        <p class="lead">コードは残っても、「なぜそう判断したか／何が前提だったか」は、ログ形式がバラバラだと追えません。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">現象</div>
+            <div class="value">JSONL/SQLite/断片ログに散らばり、必要箇所へジャンプできない。</div>
+          </div>
+          <div class="card">
+            <div class="label">損失</div>
+            <div class="value">要約（エージェントメモリ）の圧縮で、前提・制約が失われる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">blameを“思考”へ</p>
+        <div class="title jp">git blameを拡張</div>
+        <p class="lead">変更の出所を追うだけでなく、その行を生んだ<span style="font-style: italic; color: var(--rust-deep);">エージェントセッション（トランスクリプト＋ツール呼び出し）</span>へ戻れます。</p>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">git</div>
+            <div class="value">「いつ／どのコミットで」</div>
+          </div>
+          <div class="card">
+            <div class="label">ctx pro</div>
+            <div class="value">「どのセッションで」</div>
+          </div>
+          <div class="card">
+            <div class="label">復元</div>
+            <div class="value">「何を見て／どう判断したか」</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">ctx：検索基盤の統一</p>
+        <div class="title jp">ローカル・インデックス化</div>
+        <p class="lead">ctxは、セッション履歴（メッセージ／イベント／ツール呼び出し／リポジトリ活動）を統一フォーマットで取り込み、必要箇所へ直接ジャンプできるようにします。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">取り込み</div>
+            <div class="value">過去ログを統一ローカルレコードへ。</div>
+          </div>
+          <div class="card">
+            <div class="label">高速検索</div>
+            <div class="value">raw transcript検索より実運用で効率的。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">Tantivyで“速い検索”</p>
+        <div class="title jp">ローカルで最適化</div>
+        <p class="lead">ctxはRustで高速化し、インデックス基盤としてTantivyを用いることで、SQLite等の別取り込み手順を省きつつ検索性を確保します。</p>
+        <div class="bullets">
+          <div class="bullet"><span class="k">速度</span><span class="t">ローカル・インデックスで検索→該当レコードへ復帰。</span></div>
+          <div class="bullet"><span class="k">効率</span><span class="t">トークン消費面でもrawログ検索より有利になり得る。</span></div>
+          <div class="bullet"><span class="k">方式</span><span class="t">デフォルトはBM25、semantic検索も併用可能。</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">要約劣化を抑える</p>
+        <div class="title jp">原本トランスクリプト</div>
+        <p class="lead">エージェントメモリが圧縮してしまう前提・制約を、ctx proは該当コードの生成元セッションへ戻して確認できます。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">よくある落とし穴</div>
+            <div class="value">“結論だけ”が残り、制約が消える→誤解の温床。</div>
+          </div>
+          <div class="card">
+            <div class="label">ctx proの狙い</div>
+            <div class="value">行単位／ファイル／コミット／PRからセッションへ復元。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">“行→セッション”手順</p>
+        <div class="title jp">根拠追跡の流れ</div>
+        <p class="lead">コードの該当箇所から出発し、その行を生んだエージェントセッション（トランスクリプトとツール呼び出し）へ辿ります。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">i（入力）</div>
+            <div class="value">コード行／ファイル／コミット／PRを指定。</div>
+          </div>
+          <div class="card">
+            <div class="label">ii（結び付け）</div>
+            <div class="value">“過去のエージェントセッション記録”に紐付け。</div>
+          </div>
+          <div class="card">
+            <div class="label">iii（参照）</div>
+            <div class="value">要約ではなく原本に近い形で復元。</div>
+          </div>
+          <div class="card">
+            <div class="label">iv（活用）</div>
+            <div class="value">再調査のやり直しを減らし、品質を上げる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">ctx pro vs エージェントメモリ</p>
+        <div class="title jp">圧縮の有無</div>
+        <p class="lead">メモリは要約として残りやすい一方、ctx proは“その瞬間のセッションログ”へ戻すことで前提の劣化を抑えます。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">エージェントメモリ</div>
+            <div class="value">会話から抽出した事実・要約を保存。</div>
+          </div>
+          <div class="card">
+            <div class="label">ctx pro</div>
+            <div class="value">該当生成元セッションへ直接参照（トランスクリプト＋ツール呼び出し）。</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="small">日本語（用語）: <span style="color: var(--rust)"><i>帰属</i></span>=「その行を生んだセッションは何か」。</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">関係性まで辿る</p>
+        <div class="title jp">親子・フォーク</div>
+        <p class="lead">親セッション、サブエージェント、フォークの関係を理解し、作業の連鎖全体を復元できます。</p>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">親セッション</div>
+            <div class="value">上流の依頼・方針へ接続。</div>
+          </div>
+          <div class="card">
+            <div class="label">サブタスク</div>
+            <div class="value">枝分かれした試行を追跡。</div>
+          </div>
+          <div class="card">
+            <div class="label">フォーク</div>
+            <div class="value">並行方針の差分を理解。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">証明の限界</p>
+        <div class="title jp">“ログがある場合のみ”</div>
+        <p class="lead">ctx proの帰属（この行を生成したのは誰のセッションか）は、該当ログがあなたのローカルに存在する場合に限り、根拠として提示できます。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">可能</div>
+            <div class="value">生成元セッションの記録（トランスクリプト＋ツール呼び出し）が手元にある。</div>
+          </div>
+          <div class="card">
+            <div class="label">難しい</div>
+            <div class="value">チーム由来などでログがローカルにないと、完全な帰属ができない。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">導入の論点</p>
+        <div class="title jp">効果と条件</div>
+        <p class="lead">再調査コストと監査性を同時に下げられる一方、効果は「ログ整備・運用ガバナンス」に強く依存します。</p>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">Practical</div>
+            <div class="value">デバッグ／仕様監査が速くなる（行・PR・コミット→セッション）。</div>
+          </div>
+          <div class="card">
+            <div class="label">Safety</div>
+            <div class="value">ローカル完結でも、トランスクリプトの秘匿運用が必要。</div>
+          </div>
+          <div class="card">
+            <div class="label">Operational</div>
+            <div class="value">初回インデックス時間・容量・取り込み範囲は事前見積り推奨。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="frame">
+        <p class="eyebrow">結論</p>
+        <div class="title jp">“次の迷路”を減らす</div>
+        <p class="lead">ctx / ctx proは、過去のエージェント作業をローカルで検索し、git blame相当で原本の根拠へ戻すことで、同じ調査のやり直しを減らします。</p>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">得られるもの</div>
+            <div class="value">高速検索（ctx）＋根拠復元（ctx pro：セッション起点のblame）。</div>
+          </div>
+          <div class="card">
+            <div class="label">成立条件</div>
+            <div class="value">帰属には“ログがローカルに存在”が前提。運用設計が鍵。</div>
+          </div>
+        </div>
+
+        <div class="rule"></div>
+        <div class="refs">
+          <div style="color: var(--rust); font-family:'Cormorant Garamond', serif; font-style: italic; font-size: 20px;">References</div>
+          <div class="ref-item">本スライドは、ユーザー提示の入力テキスト（ctx / ctx proの説明、FAQ、意見）を要約・圧縮して作成しています。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/ctxrs/ctx" target="_blank" rel="noreferrer noopener">GitHub - ctxrs/ctx: Instant recall for coding agents. Search the history already on your machine. Git blame, but for agent sessions. · GitHub</a></h2>
+<p class="reference-note">Tantivy builds the index in parallel. It creates a compact map from each term to the records containing it and searches …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ctx.rs/concepts/supported-agents" target="_blank" rel="noreferrer noopener">Supported agents - ctx</a></h2>
+<p class="reference-note">ctx
+
+Concepts
+
+# Supported agents
+
+Which coding-agent histories ctx can discover, import, and search locally.
+
+ctx suppo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.morphllm.com/ai-coding-agent" target="_blank" rel="noreferrer noopener">Best AI Coding Agent (2026): Ranked by Terminal-Bench ...</a></h2>
+<p class="reference-note">| Rank | Agent | Default model | Best public score | Entry price | License / stars |
+ ---  ---  --- |
+| 1 | Codex CLI (0…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://skillsllm.com/skill/alegau03-ctx" target="_blank" rel="noreferrer noopener">CTX - AI Agents on GitHub | SkillsLLM</a></h2>
+<p class="reference-note">Discover and explore open-source AI skills for Claude Code, Codex CLI, and ChatGPT.
+
+### Categories
+
+### Resources
+
+### …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://zackproser.com/blog/ctx-personal-context-engine" target="_blank" rel="noreferrer noopener">ctx: The Personal Context Engine Every One of My Agents…</a></h2>
+<p class="reference-note">```
+// search({ query: &quot;how I like git commits written&quot;, k: 3 })[{&quot;id&quot;: &quot;b1f2…&quot;, &quot;title&quot;: &quot;…&quot;,// distilled: a line an ag…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
