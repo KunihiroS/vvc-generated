@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM「次トークン予測器」の不完全さ（事後学習/RLVR）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+      background: transparent;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--cream);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 8px;
+      padding: 56px 72px;
+      margin: 18px 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 6px;
+    }
+    .top-row{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: .14em;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 3px;
+      bottom: 3px;
+      width: 3px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-2);
+      margin-top: 0;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 22px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 64px;
+      line-height: 1.02;
+      margin: 12px 0 10px;
+      letter-spacing: -0.01em;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .title.blackish{
+      color: var(--ink);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.45;
+      max-width: 760px;
+      margin-top: 16px;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .grid{
+      width:100%;
+      margin-top: 16px;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 16px;
+    }
+    .cells{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px 18px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: .06em;
+      font-size: 12px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.4;
+      font-family: "Noto Serif JP", serif;
+    }
+    .mono{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+    ul{ margin: 0; padding-left: 18px; }
+    li{ margin: 6px 0; }
+    .ref-list{
+      margin-top: 14px;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 14px;
+    }
+    .ref-item{
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--rule);
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .ref-item:last-child{ border-bottom: none; }
+    @media (max-width: 820px){
+      .slide{ padding: 44px 28px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .cells{ grid-template-columns: 1fr; }
+      .slide-num{ font-size: 24px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="top-row">
+        <div class="slide-tag">Cover / 表紙</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">入り口の比喩に注意</div>
+      <div class="title">次トークン観</div>
+      <div class="lead">
+        LLMは逐次トークンを生成しますが、「次トークン予測器」と捉える説明は“形”を言えても“目的”を言い切れません。
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="top-row">
+        <div class="slide-tag">Problem / 問題</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">何を学んでる？</div>
+      <div class="title">誤読の入口</div>
+      <div class="lead">
+        生成が「次々にトークンを出す」ので、モデルの最適化対象を“次を当てること”だと誤解しやすいと筆者は主張します。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">外形（形）</div>
+            <div class="v">逐次生成＝次トークンを選ぶ</div>
+          </div>
+          <div class="cell">
+            <div class="k">中身（目的）</div>
+            <div class="v">学習更新の理由は事後学習で変わる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="top-row">
+        <div class="slide-tag">Metaphor / 比喩</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">チェスの対比</div>
+      <div class="title">次手 vs 勝ち</div>
+      <div class="lead">
+        チェス比喩では、「次手を当てる」学びと、「勝率が最大になる手を選ぶ」学びは同じでもありません。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">次手予測寄り</div>
+            <div class="v">棋譜データから次に指す手を学ぶ</div>
+          </div>
+          <div class="cell">
+            <div class="k">目的志向寄り</div>
+            <div class="v">探索して勝つ確率が最大の手を選ぶ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="top-row">
+        <div class="slide-tag">Architecture / 架構</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">2段階の学習</div>
+      <div class="title">事前と事後</div>
+      <div class="lead">
+        事前学習（pre-training）は、観測された“次のトークン”に寄せる更新になりやすいので、next-token説明が当てはまりやすいです。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">Pre（事前学習）</div>
+            <div class="v">教師信号＝データ中の次トークン</div>
+          </div>
+          <div class="cell">
+            <div class="k">Post（事後学習）</div>
+            <div class="v">報酬や検証で更新理由が変わる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="top-row">
+        <div class="slide-tag">Evidence / 根拠</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">見た目は同じ</div>
+      <div class="title">生成ループ</div>
+      <div class="lead">
+        どちらも最終的にはトークン列を作りますが、学習信号の出どころ（データか、報酬か）が違うため“同じ理解”になりません。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">共通</div>
+            <div class="v">確率的に次トークンを選ぶ</div>
+          </div>
+          <div class="cell">
+            <div class="k">決定的差</div>
+            <div class="v">更新理由が「データ適合」か「成果適合」か</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="top-row">
+        <div class="slide-tag">Comparison / 対比</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">RLVRの核心</div>
+      <div class="title">報酬で学ぶ</div>
+      <div class="lead">
+        RLVR（reinforcement learning with verifiable rewards）は、探索で作った“新規シーケンス”の良し悪しに報酬を与え、その結果で更新を強めます。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">事前学習</div>
+            <div class="v">実データの次トークン＝教師信号</div>
+          </div>
+          <div class="cell">
+            <div class="k">RLVR</div>
+            <div class="v">評価関数が報酬→次トークン選択を強化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Enumeration">
+      <div class="top-row">
+        <div class="slide-tag">Enumeration / 箇条</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">更新の流れ</div>
+      <div class="title">探索→評価</div>
+      <div class="lead">
+        next-token“らしさ”は保持されつつ、肝心の最適化は「報酬が高い探索の結果」に寄っていきます。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">モデルが候補（新規シーケンス）を探索して生成する</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">評価関数で報酬を計算する（verifiable）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">報酬が高かった探索に含まれる次トークンが選ばれやすくなる</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">教師＝データ中心 → 成果中心へ学習の理由が移る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="top-row">
+        <div class="slide-tag">Distinction / 違い</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">ラベルの限界</div>
+      <div class="title">目的が見えない</div>
+      <div class="lead">
+        「make_more_likely（もっと起こりやすくする）」の形が似ていても、データ由来か報酬由来かで“何が良いか”が変わります。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">次トークン予測</div>
+            <div class="v">“次を当てる”連想が強く残る（入口としては有用）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ただし</div>
+            <div class="v">更新の理由（教師か報酬か）を覆い隠す</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="top-row">
+        <div class="slide-tag">Evidence / 関連</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">RLHFも同類</div>
+      <div class="title">人の好みで調整</div>
+      <div class="lead">
+        RLHF（reinforcement learning from human feedback）は「役に立つアシスタント」を目標に寄せる方向として言及され、目的が次トークン観を上書きし得ます。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">RLHF</div>
+            <div class="v">人間のフィードバック（human feedback）で報酬を作る</div>
+          </div>
+          <div class="cell">
+            <div class="k">含意</div>
+            <div class="v">同じ“逐次生成”でも最適化目標が変わる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Process">
+      <div class="top-row">
+        <div class="slide-tag">Process / まとめ方</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">読み解きの手順</div>
+      <div class="title">形と目的</div>
+      <div class="lead">
+        記事を安全に理解するには、「形（次トークン生成）」と「目的（何により更新されるか）」を分けて考えるのが近道です。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">Step 1</div>
+            <div class="v">形：逐次生成＝次トークン“らしさ”は事実</div>
+          </div>
+          <div class="cell">
+            <div class="k">Step 2</div>
+            <div class="v">Step 2：目的：事後学習で学習信号の出どころが変わる</div>
+          </div>
+          <div class="cell">
+            <div class="k">Step 3</div>
+            <div class="v">ラベル検証：next-token予測だけで誤解しないか確認</div>
+          </div>
+          <div class="cell">
+            <div class="k">Step 4</div>
+            <div class="v">必要なら拡張：報酬設計/評価/探索の観点へ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="top-row">
+        <div class="slide-tag">My Opinion / 私見</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">注意点</div>
+      <div class="title">実装の詳細不足</div>
+      <div class="lead">
+        比喩としては説得的ですが、報酬のトークンレベル割当、KL制約・安定化などの実装詳細がないため一般化しすぎに注意が必要です。
+      </div>
+      <div class="grid">
+        <div class="cells">
+          <div class="cell">
+            <div class="k">懸念</div>
+            <div class="v">「次トークン予測＝無意味」と誤読されるリスク</div>
+          </div>
+          <div class="cell">
+            <div class="k">安全策</div>
+            <div class="v">“間違い”でなく“補助説明”として位置づける</div>
+          </div>
+          <div class="cell">
+            <div class="k">粒度</div>
+            <div class="v">目的：UX理解か、研究/実装理解かで必要なモデルが変わる</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">目的関数が変わるなら、次トークン観だけでは不十分になり得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="Closing + References">
+      <div class="top-row">
+        <div class="slide-tag">Closing / 参照</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">最後に</div>
+      <div class="title">結論</div>
+      <div class="lead">
+        next-token predictorは入口として有用だが、事後学習（特にRLVR/RLHF）の目的・報酬を同時に見ないと誤解が起きる、というのが要点です。
+      </div>
+      <div class="ref-list" aria-label="References">
+        <div class="small mono" style="color: var(--ink-3); letter-spacing:.12em; text-transform:uppercase; font-weight:600; font-size:14px; margin-top:10px;">
+          References / 参考
+        </div>
+        <div class="ref-item">GPT系で一般的な事前学習（next-token prediction）と、RLHF/RLVRの目的関数最適化の関係（用語定義の一般参照）。</div>
+        <div class="ref-item">RLHF（human feedbackに基づく強化学習）：報酬モデル＋方策最適化という枠組みの一般理解。</div>
+        <div class="ref-item">RLVR（verifiable rewards）：検証可能な報酬で評価し、探索結果に基づき更新する考え方。</div>
+        <div class="ref-item">チェスの比喩：教師データ模倣（次手予測）と目的最大化（勝率最大化）の対比としての一般的説明。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.buildfastwithai.com/blogs/what-is-rlhf-llm-training" target="_blank" rel="noreferrer noopener">What Is RLHF? The Complete Guide to Training LLMs That Actually Work (2026)</a></h2>
+<p class="reference-note">any supervised fine-tuning, could produce emergent reasoning capabilities including self-verification and extended chain…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://cameronrwolfe.substack.com/p/online-rl" target="_blank" rel="noreferrer noopener">Online versus Offline RL for LLMs - Deep (Learning) Focus</a></h2>
+<p class="reference-note">#### Reinforcement Learning (RL) Training
+
+(from )
+
+There are two different types of reinforcement learning (RL) trainin…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/shawhintalebi_the-1st-llm-breakthrough-was-training-them-activity-7430246052181483520-Nlsv" target="_blank" rel="noreferrer noopener">LLM Training Breakthroughs: RLHF, RLAIF, and RLVR Explained | Shaw Talebi posted on the topic | LinkedIn</a></h2>
+<p class="reference-note">The 1st LLM breakthrough was training them on internet-scale data. The 2nd was training them (some more) via Reinforceme…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://developer.dataiku.com/latest/tutorials/genai/llm/alignment/index.html" target="_blank" rel="noreferrer noopener">Advanced model alignment: RLHF, RLAIF, and RLVR in Dataiku</a></h2>
+<p class="reference-note">In traditional Supervised Fine-Tuning (SFT), you force the model to mimic the exact reasoning steps provided in the data…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2508.07534v1" target="_blank" rel="noreferrer noopener">A Systematic Analysis of LLM Exploration Mechanisms in ...</a></h2>
+<p class="reference-note">Reinforcement learning with verifiable rewards (RLVR) has emerged as a powerful paradigm for enhancing the reasoning cap…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
