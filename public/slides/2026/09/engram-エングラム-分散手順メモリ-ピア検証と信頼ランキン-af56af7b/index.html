@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Engram（エングラム）分散手順メモリ：ピア検証と信頼ランキング</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: "Noto Serif JP", serif; }
+    .wrap { width: min(1120px, calc(100vw - 48px)); margin: 0 auto; padding: 24px 0 56px; }
+    .deck { display: flex; flex-direction: column; gap: 18px; }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+    .slide-inner{
+      padding: 56px 72px;
+      height: 100%;
+      box-sizing: border-box;
+      border: 20px solid var(--rule);
+      border-radius: 2px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar{
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 14px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 18px;
+      font-style: italic;
+      font-weight: 600;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-3);
+      font-style: italic;
+      font-size: 24px;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+
+    .eyebrow{
+      margin: 2px 0 8px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      font-weight: 500;
+    }
+    .title{
+      margin: 0 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+      color: var(--rust-deep);
+      font-style: italic;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    .content{
+      margin-top: 18px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .grid-2, .grid-3{
+      display: grid;
+      gap: 14px;
+      align-items: stretch;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 14px;
+      border-radius: 2px;
+      box-sizing: border-box;
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .text{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .list-grid{
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    .pill{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      padding: 10px 12px;
+      border-radius: 2px;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.25;
+      font-weight: 300;
+      box-sizing: border-box;
+      min-height: 52px;
+    }
+
+    .note{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      font-weight: 300;
+      max-width: 900px;
+    }
+
+    /* Responsive: keep 16:9; just shrink width */
+    @media (max-width: 880px){
+      .slide-inner { padding: 34px 28px; border-width: 14px; }
+      .title { font-size: 54px; }
+      .lead { font-size: 18px; }
+      .card .text { font-size: 16px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+      .list-grid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+      <!-- Slide 1 -->
+      <section class="slide" aria-label="cover slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">COVER</div>
+            <div class="slide-num">02 / 16</div>
+          </div>
+
+          <div class="eyebrow">実行で信頼が育つ手順</div>
+          <h1 class="title">Engram</h1>
+          <p class="lead">Engram（エングラム）は、AIエージェント向けに「実行された結果」によって手順の信頼度を更新し、検索・提供できる分散型メモリ基盤です。<span style="color:var(--ink-3); font-weight:300;">（エングラム＝実行アンカーされた手順倉庫）</span></p>
+
+          <div class="content" style="margin-top:18px;">
+            <div class="grid-3">
+              <div class="card">
+                <div class="label">What / 何</div>
+                <div class="text">手順（プロシージャ／手続き）を蓄積・検索</div>
+              </div>
+              <div class="card">
+                <div class="label">How / どう</div>
+                <div class="text">MCP / RESTで提供、Nostrで配信イベント化</div>
+              </div>
+              <div class="card">
+                <div class="label">Why / なぜ</div>
+                <div class="text">ピア検証（peer verification）で順位を更新</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 2 -->
+      <section class="slide" aria-label="problem slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">PROBLEM</div>
+            <div class="slide-num">03 / 16</div>
+          </div>
+
+          <div class="eyebrow">ドキュメントは古くなる</div>
+          <h1 class="title">信頼問題</h1>
+          <p class="lead">手順の品質は、書かれた内容だけでは判断しづらく、更新されないと誤情報が残ります。Engramは「実行結果」を根拠に信頼を更新することで、ズレを減らします。（信頼＝ランキングへ反映）</p>
+
+          <div class="content">
+            <div class="grid-2">
+              <div class="card">
+                <div class="label">典型のズレ</div>
+                <div class="text">手順は“読める”が“動かない”／環境差で失敗</div>
+              </div>
+              <div class="card">
+                <div class="label">狙い</div>
+                <div class="text">再現性・妥当性を、検証付きで積み上げる</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 3 -->
+      <section class="slide" aria-label="metaphor slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">METAPHOR</div>
+            <div class="slide-num">04 / 16</div>
+          </div>
+
+          <div class="eyebrow">“手順”に実地試験</div>
+          <h1 class="title">実行アンカー</h1>
+          <p class="lead">Engramの中心は、手順をただ保存するのではなく「実行（ローカル）→アテステーション（証明）」へ結びつけることです。結果に基づくピア検証が、時間とともにランキング精度を押し上げます。</p>
+
+          <div class="content">
+            <div class="grid-3">
+              <div class="pill"><span style="color:var(--rust-deep); font-style:italic;">i</span> 手順を検索</div>
+              <div class="pill"><span style="color:var(--rust-deep); font-style:italic;">ii</span> エージェントがローカル実行</div>
+              <div class="pill"><span style="color:var(--rust-deep); font-style:italic;">iii</span> 成功/失敗をアテステーション送信</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 4 -->
+      <section class="slide" aria-label="architecture slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">ARCHITECTURE</div>
+            <div class="slide-num">05 / 16</div>
+          </div>
+
+          <div class="eyebrow">取得→配信→検証</div>
+          <h1 class="title">分散アーキ</h1>
+          <p class="lead">手順はMCP／REST経由で提供され、Nostr上のイベントとして配信されます。主体（発行・検証）は公開鍵ベースで一貫し、検証者と手順の関係を追いやすくします。（pubkey=secp256k1 Schnorr）</p>
+
+          <div class="content">
+            <div class="grid-2">
+              <div class="card">
+                <div class="label">提供（提供面）</div>
+                <div class="text">MCP / REST APIで engram_search / engram_get を参照</div>
+              </div>
+              <div class="card">
+                <div class="label">配信（ネット面）</div>
+                <div class="text">Nostrイベントとして publish / attestation を配信</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="label">信頼の根拠（評価面）</div>
+              <div class="text">実行アテステーションを検証し、Wilsonベースのスコアで並べ替え</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 5 -->
+      <section class="slide" aria-label="process slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">PROCESS</div>
+            <div class="slide-num">06 / 16</div>
+          </div>
+
+          <div class="eyebrow">登録は二層審査</div>
+          <h1 class="title">fail-closed</h1>
+          <p class="lead">発行前に静的解析とGeminiレビューを組み合わせ、リスクの高い手順は厳しく制限します。特にCRITICALは「fail-closed publish」で、Geminiエラー等でも安全側に倒します。</p>
+
+          <div class="content">
+            <div class="grid-3">
+              <div class="card">
+                <div class="label">静的解析</div>
+                <div class="text">正規表現 / AST / blast-radius分類（分類で危険度を絞る）</div>
+              </div>
+              <div class="card">
+                <div class="label">Geminiレビュー</div>
+                <div class="text">レビュー結果で発行可否を判断（外部依存）</div>
+              </div>
+              <div class="card">
+                <div class="label">CRITICAL抑止</div>
+                <div class="text">Karma tierが必要（例：Maintainer等）。発行は安全側へ</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 6 -->
+      <section class="slide" aria-label="architecture slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">EVIDENCE</div>
+            <div class="slide-num">07 / 16</div>
+          </div>
+
+          <div class="eyebrow">自己申告を弱める</div>
+          <h1 class="title">アテステーション</h1>
+          <p class="lead">実行結果はサーバ側のチケット（サーバノンスに紐づく120秒TTL）に結び付けて整合性を担保します。単なる自己報告ではなく、検証フローで“裏取り”を狙う設計です。</p>
+
+          <div class="content">
+            <div class="grid-2">
+              <div class="card">
+                <div class="label">結び付け</div>
+                <div class="text">サーバ発行のチケット（nonce / 120秒TTL）と実行結果を紐付け</div>
+              </div>
+              <div class="card">
+                <div class="label">役割</div>
+                <div class="text">Relayが publish / attestation を検証する枠組み</div>
+              </div>
+            </div>
+            <div class="note">
+              重要：ここは公開情報だけでは“検証の厳密さ”が断言できないため、実装やDESIGN.mdで確認が必要です。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 7 -->
+      <section class="slide" aria-label="enumeration slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">ENUMERATION</div>
+            <div class="slide-num">08 / 16</div>
+          </div>
+
+          <div class="eyebrow">検索→統合→順位</div>
+          <h1 class="title">ランキング</h1>
+          <p class="lead">検索はFTS5（BM25）とベクトル検索（768-d埋め込み）をRRFで統合し、候補を絞ります。その後、実行アテステーションに基づくWilsonスコアで信頼度を並べ替えます。</p>
+
+          <div class="content">
+            <div class="grid-3">
+              <div class="pill">i. 候補抽出<br><span style="color:var(--ink-3); font-weight:300;">FTS5（BM25）</span></div>
+              <div class="pill">ii. 候補抽出<br><span style="color:var(--ink-3); font-weight:300;">ベクトル（768-d）</span></div>
+              <div class="pill">iii. 統合→順位<br><span style="color:var(--ink-3); font-weight:300;">RRF + Wilson</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 8 -->
+      <section class="slide" aria-label="distinction slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">DISTINCTION</div>
+            <div class="slide-num">09 / 16</div>
+          </div>
+
+          <div class="eyebrow">“ナレッジDB”とは違う</div>
+          <h1 class="title">ピア検証</h1>
+          <p class="lead">Engramの最大の差は、手順が“実行された結果”でランキングが更新される点です。閲覧数や投稿順ではなく、ピアがローカル実行して返したアテステーションが信頼を増減します。</p>
+
+          <div class="content">
+            <div class="grid-2">
+              <div class="card">
+                <div class="label">違い（従来）</div>
+                <div class="text">ドキュメント蓄積：正しさは時間とともに保証されにくい</div>
+              </div>
+              <div class="card">
+                <div class="label">違い（Engram）</div>
+                <div class="text">実行結果：ピア検証で信頼（順位）が収束しやすい</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 9 -->
+      <section class="slide" aria-label="comparison slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">COMPARISON</div>
+            <div class="slide-num">10 / 16</div>
+          </div>
+
+          <div class="eyebrow">発行・検索の境界</div>
+          <h1 class="title">アクセス</h1>
+          <p class="lead">公開カタログの検索はREADME上で認証なしでも動作する一方、登録・アテスト・シャード管理などはBearerセッション（例：7日）が必要です。用途ごとに“開放面”と“保護面”を分けています。</p>
+
+          <div class="content">
+            <div class="grid-2">
+              <div class="card">
+                <div class="label">公開（例）</div>
+                <div class="text"><span class="mono">engram_search</span> / <span class="mono">engram_get</span>（認証なし）</div>
+              </div>
+              <div class="card">
+                <div class="label">保護（例）</div>
+                <div class="text">手順登録・アテスト・自分のシャード管理など（Bearer: 7日など）</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 10 -->
+      <section class="slide" aria-label="distinction slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">DISTINCTION</div>
+            <div class="slide-num">11 / 16</div>
+          </div>
+
+          <div class="eyebrow">不正を抑える仕組み</div>
+          <h1 class="title">Karma</h1>
+          <p class="lead">Karma制度が評価の動機づけと安全側の権限設計に使われます。自己アテスト（self-attestation）はkarmaに影響しないため、自己評価でランキングを不正に上げにくい意図があります。</p>
+
+          <div class="content">
+            <div class="grid-3">
+              <div class="card">
+                <div class="label">Karma</div>
+                <div class="text">成功/失敗で評価が更新されうる</div>
+              </div>
+              <div class="card">
+                <div class="label">self-attestation</div>
+                <div class="text">karmaに影響しない（自己評価の無効化）</div>
+              </div>
+              <div class="card">
+                <div class="label">CRITICAL</div>
+                <div class="text">Karma tierが必要（発行を絞る）</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 11 -->
+      <section class="slide" aria-label="evidence slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">EVIDENCE</div>
+            <div class="slide-num">12 / 16</div>
+          </div>
+
+          <div class="eyebrow">良さと未確定</div>
+          <h1 class="title">評価の注意</h1>
+          <p class="lead">技術的方向性は筋が良い一方、公開情報からはWilson計算式や検証の厳密さ、Gemini審査の失敗時挙動の詳細まで確定できません。導入前にリポジトリ実装・設計資料・テスト結果の追加確認が必要です。</p>
+
+          <div class="content">
+            <div class="grid-2">
+              <div class="card">
+                <div class="label">未確定ポイント</div>
+                <div class="text">Wilsonの具体式／失敗定義／未評価の扱い／attestation検証フロー</div>
+              </div>
+              <div class="card">
+                <div class="label">運用リスク</div>
+                <div class="text">Geminiの可用性（審査遅延・誤判定）／Relay障害時のフォールバック</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="label">鍵・主体</div>
+              <div class="text">Nostr(pubkey)前提のため、鍵管理・紛失・委譲・回復戦略も脅威モデルで確認が必要</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 12 -->
+      <section class="slide" aria-label="closing slide">
+        <div class="slide-inner">
+          <div class="topbar">
+            <div class="slide-tag">CLOSING</div>
+            <div class="slide-num">13 / 16</div>
+          </div>
+
+          <div class="eyebrow">結論：実行で信頼を更新</div>
+          <h1 class="title">Takeaway</h1>
+          <p class="lead">Engramは「手順を共有」して終わりではなく、「ローカル実行のアテステーション」を根拠に信頼（Wilson）を更新します。ピア検証＋二層審査（静的解析＋Gemini）＋CRITICALのfail-closedが、安全性と改善を狙う核です。</p>
+
+          <div class="content">
+            <div class="grid-3">
+              <div class="pill">中心：<br><span style="color:var(--rust-deep); font-style:italic;">実行→証明</span></div>
+              <div class="pill">検索：<br>BM25 + ベクトル（RRF）</div>
+              <div class="pill">順位：<br>Wilson + ピア検証</div>
+            </div>
+            <div class="note" style="margin-top:2px;">
+              次の確認先：Wilsonの実装式、attestation検証の厳密条件、Gemini/Relay障害時の挙動、鍵管理の実運用ドキュメント。
+            </div>
+          </div>
+        </div>
+      </section>
+
+    
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://plur.ai/spec.html" target="_blank" rel="noreferrer noopener">The Engram Specification — An Open Standard for AI Agent Memory</a></h2>
+<p class="reference-note">Open Specification · v2.1 · March 2026
+
+# The Engram Specification
+
+An open standard for persistent AI agent memory. Eng…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.hpcwire.com/bigdatawire/this-just-in/weaviate-makes-engram-generally-available-giving-ai-agents-production-grade-memory-2" target="_blank" rel="noreferrer noopener">BigDATAwire - Data Science • AI • Advanced Analytics</a></h2>
+<p class="reference-note">### TCI Media: Home of the Wire Publications
+
+Header Logo 1
+Header Logo 2
+Header Logo 3
+Logo
+
+## Off the Wire Press Rele…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.weaviate.io/engram" target="_blank" rel="noreferrer noopener">Engram | Weaviate Documentation</a></h2>
+<p class="reference-note">Engram
+
+Persistent memory for LLM agents and applications
+
+#### Additional resources
+
+Integrations
+
+Weaviate Academy
+
+##…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://engram.so/" target="_blank" rel="noreferrer noopener">Engram — Persistent Memory for AI Agents</a></h2>
+<p class="reference-note">```
+# MCP Server (SSE transport) # Endpoint:  # Requires API key in Authorization header { &quot;mcpServers&quot;: { &quot;engram&quot;: { &quot;…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Gentleman-Programming/engram" target="_blank" rel="noreferrer noopener">Gentleman-Programming/engram: Persistent memory ...</a></h2>
+<p class="reference-note">&gt; Trademark notice: The Engram names and logos are trademarks of Alan Buscaglia. The MIT License applies to the code; it…</p>
+</article>
+</div>
+</section>
+</div>
+  </div>
+</body>
+</html>
