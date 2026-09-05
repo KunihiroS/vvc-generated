@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Provocateur — カナリア型欺瞞検知</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.45;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: block;
+      /* single column vertical stack */
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      margin: 18px auto;
+      border-radius: 10px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      pointer-events: none;
+    }
+
+    .slide-topbar {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 16px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-top: 4px;
+      padding-top: 2px;
+      border-top: 2px solid rgba(232, 129, 74, 0.55);
+      width: fit-content;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      margin-top: 0px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      font-size: 68px;
+      line-height: 1.03;
+      margin: 0 0 16px 0;
+      color: var(--ink);
+      position: relative;
+      z-index: 2;
+    }
+
+    .title .em {
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .lead {
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      margin-top: 22px;
+      width: 100%;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.04);
+    }
+
+    .label {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .small {
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .note {
+      font-size: 18px;
+      color: var(--ink-2);
+      margin: 0;
+      font-weight: 300;
+    }
+
+    .refs a {
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: rgba(232,129,74,0.55);
+      text-underline-offset: 3px;
+    }
+
+    @media (max-width: 900px) {
+      .slide { padding: 44px 34px; }
+      .title { font-size: 48px; }
+      .lead { font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-topbar">
+        <div class="slide-tag">Agent Provocateur</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <h2 class="eyebrow">欺瞞から検知へ</h2>
+      <div class="title"><span class="em">自</span>白させる<span class="em">カ</span>ナリア</div>
+      <p class="lead">AIエージェントを「倒す」のではなく、対話と行動の兆候を高信頼に“見つけて止める”ための、カナリア型欺瞞（deception）検知を要約します。</p>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide" aria-label="Problem">
+      <div class="slide-topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <h2 class="eyebrow">エージェント悪用</h2>
+      <div class="title">目的志向</div>
+      <p class="lead">AIエージェントはネットワークや情報源へアクセスし、探索・問い合わせ・行動を繰り返します。そのため、こちらの“情報設計”が検知の成否を左右しやすくなります。</p>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="slide-topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <h2 class="eyebrow">触れたくなる入口</h2>
+      <div class="title">Canary（<span class="em">カ</span>ナリア）</div>
+      <p class="lead">カナリア（監視用の仕掛け）は、攻撃者が“触れたくなる情報・入口”を用意し、接触を検知します。この記事では、エージェントの対話性まで含めて拡張します。</p>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide" aria-label="Metaphor/AP">
+      <div class="slide-topbar">
+        <div class="slide-tag">INTRO</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <h2 class="eyebrow">対話で確度UP</h2>
+      <div class="title">AP（Agent Provocateur）</div>
+      <p class="lead">Agent Provocateur（AP）は、エージェントが見つけた資源と相互作用する流れを前提に、AP側が“役に立つ存在”として応答し、警報（アラート）を確実に発火させる設計です。</p>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="slide-topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <h2 class="eyebrow">行動ログに変換</h2>
+      <div class="title">設計の骨格</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">狙い（claim）</div>
+            <p class="small">探索・問い合わせ・行動の“兆候”を、対話イベントとして捕まえる</p>
+          </div>
+          <div class="card">
+            <div class="label">仕組み（evidence）</div>
+            <p class="small">エージェントがAPへ関与するほど、検知に必要な信号が増える</p>
+          </div>
+          <div class="card">
+            <div class="label">入力（evidence）</div>
+            <p class="small">Webサーバ等の到達・相互作用（情報源を“見つける”状態）</p>
+          </div>
+          <div class="card">
+            <div class="label">出力（decision）</div>
+            <p class="small">SOCまたは自動応答が介入できるタイミングでアラート</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide" aria-label="Process/breadcrumbs">
+      <div class="slide-topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <h2 class="eyebrow">パンくずで誘導</h2>
+      <div class="title">breadcrumbs（導線）</div>
+      <p class="lead">breadcrumbsは、APへの手がかりを“実環境の共有情報やドキュメント”に置き、エージェントの発見・接触確率を上げる考え方です。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">i</div>
+            <p class="small">攻撃者の目的に合う手がかりを提示</p>
+          </div>
+          <div class="card">
+            <div class="label">ii</div>
+            <p class="small">エージェントが辿る（探索ループが成立）</p>
+          </div>
+          <div class="card">
+            <div class="label">iii</div>
+            <p class="small">APへの接触で検知シグナルが増える</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide" aria-label="Evidence/canary effectiveness">
+      <div class="slide-topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <h2 class="eyebrow">刺さりやすい理由</h2>
+      <div class="title">目的と一致</div>
+      <p class="lead">カナリアは、攻撃者が欲しがるもの（例：クラウドAPIキー、インフラ情報）に合わせて置くほど効きます。エージェントも目的達成のために行動するため、同じ原理が強く働きます。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">従来</div>
+            <p class="small">鍵・ファイルなど“触れると分かる”仕掛け</p>
+          </div>
+          <div class="card">
+            <div class="label">エージェント時代</div>
+            <p class="small">見えている情報を手がかりに“対話と行動”が進む</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide" aria-label="Distinction/deception vs guardrails">
+      <div class="slide-topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <h2 class="eyebrow">ガード依存しない</h2>
+      <div class="title">guard railsの限界</div>
+      <p class="lead">エージェント攻撃はガードレール（policies）なしで実行され得るため、ガードレールのトリガーに依存した設計は長期解として弱い、という見立てです。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">弱点</div>
+            <p class="small">攻撃側がモデル運用・ポリシー設定を変えられる</p>
+          </div>
+          <div class="card">
+            <div class="label">指向</div>
+            <p class="small">検知を“対話と行動の兆候”へ寄せる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide" aria-label="Evidence/hallucination">
+      <div class="slide-topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <h2 class="eyebrow">幻覚が混ざる</h2>
+      <div class="title">GenAI（幻覚）</div>
+      <p class="lead">生成AIは幻覚（hallucination）で、SSHキーのような厳密情報すら“本物ではない内容”として作る可能性があります。検知には有用でも、真偽判断を別途要します。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">検知（use）</div>
+            <p class="small">対話ログから“探索している”兆候を拾える</p>
+          </div>
+          <div class="card">
+            <div class="label">意思決定（risk）</div>
+            <p class="small">取得情報をそのまま攻撃前提にしてはいけない</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide" aria-label="Risk/Safety">
+      <div class="slide-topbar">
+        <div class="slide-tag">RISK</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <h2 class="eyebrow">安全は万能でない</h2>
+      <div class="title">境界条件</div>
+      <p class="lead">APはエージェントを対話させるため、設計や到達範囲を誤ると“攻撃を進める”方向へ働く可能性があります。運用では隔離、レスポンス安全設計、ログ設計が重要です。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">起こり得ること</div>
+            <p class="small">説得によりダウンロード・実行などへ進む可能性</p>
+          </div>
+          <div class="card">
+            <div class="label">必要な対策</div>
+            <p class="small">ネットワーク到達の制限／隔離／遮断・調査の接続</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide" aria-label="Opinion/Takeaway">
+      <div class="slide-topbar">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <h2 class="eyebrow">“止める前の層”</h2>
+      <div class="title">検知→検証→封じ込め</div>
+      <p class="lead">APの位置づけは“最後の砦”ではなく、攻撃の兆候を高信頼に捉える手前の層です。再現するなら、誤検知・適応耐性・安全性をレッドチームで評価する必要があります。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">Practical</div>
+            <p class="small">数分デプロイ／即導入が進めば段階強化が可能</p>
+          </div>
+          <div class="card">
+            <div class="label">Security</div>
+            <p class="small">対話の副作用を運用で境界化する</p>
+          </div>
+          <div class="card">
+            <div class="label">Evaluable</div>
+            <p class="small">条件の詳細不足に注意し、前提確認が必須</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide refs" aria-label="References">
+      <div class="slide-topbar">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <h2 class="eyebrow">読解の入口</h2>
+      <div class="title">追加確認</div>
+      <p class="lead">元記事では Thinkst Thoughts、Cloud Security Alliance の提言、BlackHat 等での Deception／Canaries の文脈、ならびに幻覚・運用の注意点が扱われています。</p>
+      <div class="content">
+        <div class="card">
+          <div class="label">参考</div>
+          <p class="note">
+            • Thinkst Thoughts（Agent Provocateur / Agent-to-Canaryの話題）<br/>
+            • Cloud Security Alliance（欺瞞・Canaries に関する提言）<br/>
+            • OpenAI（BlackHat等でのDeception／Canaries文脈）<br/>
+            • GenAIの幻覚（hallucination）に関する一般的知見
+          </p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://trapster.cloud/en/blog/thinkst-canary-alternatives" target="_blank" rel="noreferrer noopener">Thinkst Canary alternatives in 2026: comparison and buyer&#39;s guide | Trapster</a></h2>
+<p class="reference-note">Thinkst Canary made deception accessible: simple appliances you drop onto the network, free canary tokens, and a kept pr…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://blog.thinkst.com/2026/09/getting-agents-to-tell-on-themselves.html" target="_blank" rel="noreferrer noopener">Getting Agents to tell on themselves</a></h2>
+<p class="reference-note">Thinkst Thoughts 
+
+## Thinkst Thoughts
+
+LEARN MORE
+
+Thinkst Thoughts 
+
+## Thinkst Thoughts
+
+ Visit Thinkst
+ Visit Thinks…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.thinkst.com/2026/06/one-for-all-the-models-out-there.html" target="_blank" rel="noreferrer noopener">One for all the models out there! – Thinkst Thoughts</a></h2>
+<p class="reference-note">You can either download it as a standalone JSON file, or copy this token and add it to an existing configuration (i.e. c…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://agentic.tracebit.com/" target="_blank" rel="noreferrer noopener">AI Agents &amp; Canaries | Tracebit Research</a></h2>
+<p class="reference-note">04:30 think &quot;I&#39;m considering data-engineering, but I&#39;m deliberately skipping the obviously honeypotted ones like master-…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.operant.ai/resources/2026-securing-agents-everywhere" target="_blank" rel="noreferrer noopener">2026 Guide to Securing Agents Everywhere - Download now</a></h2>
+<p class="reference-note">Our 2026 guide to securing your Agentic ecosystem provides a comprehensive framework for securing AI agents across distr…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
