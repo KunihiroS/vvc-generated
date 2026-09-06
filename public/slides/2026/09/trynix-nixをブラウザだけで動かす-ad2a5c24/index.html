@@ -1,0 +1,1756 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>trynix — Nixをブラウザだけで動かす</title>
+  <meta name="description" content="trynixの仕組み、価値、制約、セキュリティ上の論点を整理したリーディングデック">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: var(--ink-2);
+      text-decoration: none;
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    .deck {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      width: 100%;
+      padding: 40px 0 80px;
+    }
+
+    .slide {
+      position: relative;
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      overflow: hidden;
+      margin: 0 auto;
+      padding: 56px 72px;
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.6);
+      container-type: inline-size;
+      isolation: isolate;
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 30px;
+      left: 72px;
+      display: flex;
+      align-items: center;
+      gap: min(10px, 0.89cqw);
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(11px, 0.99cqw);
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      line-height: 1;
+      text-transform: uppercase;
+      z-index: 3;
+    }
+
+    .slide-tag::before {
+      content: "";
+      display: block;
+      width: min(28px, 2.5cqw);
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 24px;
+      right: 72px;
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(20px, 1.79cqw);
+      font-style: italic;
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      z-index: 3;
+    }
+
+    .intro {
+      position: relative;
+      z-index: 2;
+    }
+
+    .eyebrow {
+      margin: 0 0 min(5px, 0.45cqw);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(22px, 1.97cqw);
+      font-style: italic;
+      font-weight: 400;
+      line-height: 1.1;
+      letter-spacing: 0.03em;
+    }
+
+    .title {
+      margin: 0;
+      max-width: min(960px, 85.71cqw);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      font-size: min(60px, 5.36cqw);
+      font-weight: 500;
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .title.compact {
+      font-size: min(54px, 4.82cqw);
+    }
+
+    .accent {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+
+    .lead {
+      max-width: min(760px, 67.86cqw);
+      margin: min(13px, 1.16cqw) 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(22px, 1.97cqw);
+      font-weight: 300;
+      line-height: 1.58;
+      letter-spacing: 0.01em;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      margin-top: min(24px, 2.14cqw);
+    }
+
+    .label {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(11px, 0.99cqw);
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .card-title {
+      margin: 0 0 min(8px, 0.71cqw);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(20px, 1.79cqw);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .card-copy {
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(15px, 1.34cqw);
+      font-weight: 300;
+      line-height: 1.7;
+    }
+
+    .latin {
+      font-family: "Inter Tight", sans-serif;
+    }
+
+    .roman {
+      display: block;
+      margin-bottom: min(8px, 0.71cqw);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(24px, 2.14cqw);
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .three-grid,
+    .two-grid,
+    .four-grid {
+      display: grid;
+      gap: min(18px, 1.61cqw);
+    }
+
+    .three-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .two-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .four-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .editorial-card {
+      min-width: 0;
+      padding: min(17px, 1.52cqw) min(18px, 1.61cqw);
+      border-top: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .boxed-card {
+      min-width: 0;
+      padding: min(16px, 1.43cqw) min(18px, 1.61cqw);
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .callout {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: min(22px, 1.96cqw);
+      margin-top: min(18px, 1.61cqw);
+      padding: min(14px, 1.25cqw) min(18px, 1.61cqw);
+      border-left: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.024);
+    }
+
+    .callout-main {
+      color: var(--ink);
+      font-size: min(18px, 1.61cqw);
+      font-weight: 400;
+      line-height: 1.45;
+    }
+
+    .callout-side {
+      flex: 0 0 auto;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(12px, 1.07cqw);
+      letter-spacing: 0.08em;
+      line-height: 1.4;
+      text-align: right;
+      text-transform: uppercase;
+    }
+
+    .footnote {
+      position: absolute;
+      right: 72px;
+      bottom: 34px;
+      left: 72px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: min(11px, 0.99cqw);
+      letter-spacing: 0.04em;
+      line-height: 1.45;
+      z-index: 2;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1.2fr);
+      align-items: stretch;
+      gap: min(10px, 0.89cqw);
+    }
+
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
+      min-height: min(154px, 13.75cqw);
+      padding: min(15px, 1.34cqw);
+      border: 1px solid var(--rule);
+    }
+
+    .flow-node strong {
+      color: var(--ink);
+      font-size: min(17px, 1.52cqw);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .flow-node p {
+      margin: min(10px, 0.89cqw) 0 0;
+      color: var(--ink-3);
+      font-size: min(13px, 1.16cqw);
+      line-height: 1.55;
+    }
+
+    .flow-arrow {
+      align-self: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(30px, 2.68cqw);
+      font-style: italic;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: min(10px, 0.89cqw);
+    }
+
+    .step {
+      min-width: 0;
+      padding: min(15px, 1.34cqw);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .step p {
+      margin: min(7px, 0.63cqw) 0 0;
+      color: var(--ink-2);
+      font-size: min(13px, 1.16cqw);
+      line-height: 1.55;
+    }
+
+    .step strong {
+      color: var(--ink);
+      font-size: min(17px, 1.52cqw);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .metric-layout {
+      display: grid;
+      grid-template-columns: 0.8fr 1.8fr;
+      gap: min(32px, 2.86cqw);
+      align-items: stretch;
+    }
+
+    .metric {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-right: min(28px, 2.5cqw);
+      border-right: 1px solid var(--rule-strong);
+    }
+
+    .metric-value {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(82px, 7.32cqw);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 0.85;
+      letter-spacing: -0.04em;
+    }
+
+    .metric-caption {
+      margin-top: min(12px, 1.07cqw);
+      color: var(--ink-2);
+      font-size: min(16px, 1.43cqw);
+      line-height: 1.5;
+    }
+
+    .chain {
+      display: grid;
+      gap: min(9px, 0.8cqw);
+    }
+
+    .chain-row {
+      display: grid;
+      grid-template-columns: min(145px, 12.95cqw) 1fr;
+      gap: min(18px, 1.61cqw);
+      align-items: baseline;
+      padding-bottom: min(9px, 0.8cqw);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .chain-row:last-child {
+      border-bottom: 0;
+    }
+
+    .chain-key {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(15px, 1.34cqw);
+      font-weight: 500;
+    }
+
+    .chain-value {
+      color: var(--ink-2);
+      font-size: min(14px, 1.25cqw);
+      line-height: 1.55;
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: min(24px, 2.14cqw);
+    }
+
+    .comparison-column {
+      padding: min(17px, 1.52cqw) min(20px, 1.79cqw);
+      border: 1px solid var(--rule);
+    }
+
+    .comparison-column.emphasis {
+      border-top: 2px solid var(--rust);
+    }
+
+    .comparison-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: min(12px, 1.07cqw);
+      margin-bottom: min(12px, 1.07cqw);
+    }
+
+    .comparison-head strong {
+      font-size: min(19px, 1.7cqw);
+      font-weight: 500;
+    }
+
+    .sequence {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: min(7px, 0.63cqw);
+    }
+
+    .sequence-cell {
+      position: relative;
+      min-width: 0;
+      padding: min(10px, 0.89cqw) min(8px, 0.71cqw);
+      border-top: 1px solid var(--rule-strong);
+      color: var(--ink-2);
+      font-size: min(12px, 1.07cqw);
+      line-height: 1.45;
+    }
+
+    .sequence-cell:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: min(-7px, -0.63cqw);
+      transform: translateY(-50%);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+    }
+
+    .store-path {
+      padding: min(14px, 1.25cqw) min(16px, 1.43cqw);
+      border: 1px solid var(--rule);
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(14px, 1.25cqw);
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .closure-layout {
+      display: grid;
+      grid-template-columns: 0.95fr 1.55fr;
+      gap: min(26px, 2.32cqw);
+      align-items: stretch;
+    }
+
+    .closure-root {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: min(18px, 1.61cqw);
+      border-left: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.024);
+    }
+
+    .closure-root .root-name {
+      color: var(--ink);
+      font-size: min(24px, 2.14cqw);
+      font-weight: 500;
+    }
+
+    .closure-root .root-path {
+      margin-top: min(12px, 1.07cqw);
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(12px, 1.07cqw);
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .dependency-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: min(10px, 0.89cqw);
+    }
+
+    .dependency {
+      padding: min(13px, 1.16cqw) min(15px, 1.34cqw);
+      border: 1px solid var(--rule);
+    }
+
+    .dependency strong {
+      display: block;
+      color: var(--ink);
+      font-size: min(15px, 1.34cqw);
+      font-weight: 500;
+    }
+
+    .dependency span {
+      display: block;
+      margin-top: min(5px, 0.45cqw);
+      color: var(--ink-3);
+      font-size: min(12px, 1.07cqw);
+      line-height: 1.45;
+    }
+
+    .code-panel {
+      padding: min(16px, 1.43cqw) min(18px, 1.61cqw);
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(14px, 1.25cqw);
+      line-height: 1.65;
+      letter-spacing: 0.01em;
+    }
+
+    .code-accent {
+      color: var(--rust);
+    }
+
+    .gate-layout {
+      display: grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: min(22px, 1.96cqw);
+    }
+
+    .gate-result {
+      display: grid;
+      gap: min(10px, 0.89cqw);
+    }
+
+    .gate-item {
+      padding: min(13px, 1.16cqw) min(15px, 1.34cqw);
+      border-left: 1px solid var(--rule-strong);
+    }
+
+    .gate-item strong {
+      display: block;
+      color: var(--ink);
+      font-size: min(16px, 1.43cqw);
+      font-weight: 500;
+    }
+
+    .gate-item span {
+      display: block;
+      margin-top: min(4px, 0.36cqw);
+      color: var(--ink-3);
+      font-size: min(12px, 1.07cqw);
+      line-height: 1.5;
+    }
+
+    .matrix {
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .matrix-row {
+      display: grid;
+      grid-template-columns: 0.78fr 0.72fr 1.5fr;
+      gap: min(16px, 1.43cqw);
+      align-items: center;
+      padding: min(10px, 0.89cqw) min(4px, 0.36cqw);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .matrix-row.header {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(10px, 0.89cqw);
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .matrix-name {
+      color: var(--ink);
+      font-size: min(15px, 1.34cqw);
+      font-weight: 500;
+    }
+
+    .matrix-place {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(18px, 1.61cqw);
+      font-style: italic;
+    }
+
+    .matrix-copy {
+      color: var(--ink-2);
+      font-size: min(13px, 1.16cqw);
+      line-height: 1.5;
+    }
+
+    .limit-number {
+      display: block;
+      margin: min(5px, 0.45cqw) 0 min(9px, 0.8cqw);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(42px, 3.75cqw);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .trust-chain {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: min(12px, 1.07cqw);
+    }
+
+    .trust-item {
+      min-width: 0;
+      padding: min(15px, 1.34cqw);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .trust-item strong {
+      display: block;
+      color: var(--ink);
+      font-size: min(16px, 1.43cqw);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .trust-item p {
+      margin: min(7px, 0.63cqw) 0 0;
+      color: var(--ink-3);
+      font-size: min(12px, 1.07cqw);
+      line-height: 1.55;
+    }
+
+    .use-card {
+      display: flex;
+      flex-direction: column;
+      min-height: min(175px, 15.63cqw);
+      padding: min(17px, 1.52cqw);
+      border: 1px solid var(--rule);
+    }
+
+    .use-card .use-outcome {
+      margin-top: auto;
+      padding-top: min(12px, 1.07cqw);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: min(18px, 1.61cqw);
+      font-style: italic;
+      line-height: 1.35;
+    }
+
+    .dimension-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: min(9px, 0.8cqw);
+    }
+
+    .dimension {
+      min-width: 0;
+      padding: min(14px, 1.25cqw) min(12px, 1.07cqw);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .dimension .dimension-en {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(18px, 1.61cqw);
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .dimension strong {
+      display: block;
+      margin-top: min(8px, 0.71cqw);
+      color: var(--ink);
+      font-size: min(14px, 1.25cqw);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .dimension p {
+      margin: min(6px, 0.54cqw) 0 0;
+      color: var(--ink-3);
+      font-size: min(11px, 0.99cqw);
+      line-height: 1.55;
+    }
+
+    .evidence-columns {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: min(26px, 2.32cqw);
+    }
+
+    .evidence-column {
+      border-top: 1px solid var(--rule-strong);
+      padding-top: min(13px, 1.16cqw);
+    }
+
+    .evidence-column h3 {
+      margin: 0 0 min(9px, 0.8cqw);
+      color: var(--ink);
+      font-size: min(18px, 1.61cqw);
+      font-weight: 500;
+    }
+
+    .fact-row {
+      display: grid;
+      grid-template-columns: min(28px, 2.5cqw) 1fr;
+      gap: min(10px, 0.89cqw);
+      padding: min(7px, 0.63cqw) 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .fact-index {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(17px, 1.52cqw);
+      font-style: italic;
+    }
+
+    .fact-copy {
+      color: var(--ink-2);
+      font-size: min(13px, 1.16cqw);
+      line-height: 1.5;
+    }
+
+    .fit-column {
+      min-width: 0;
+      padding: min(16px, 1.43cqw);
+      border-top: 2px solid var(--rule-strong);
+    }
+
+    .fit-column.preferred {
+      border-top-color: var(--rust);
+    }
+
+    .fit-status {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(22px, 1.96cqw);
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .fit-column h3 {
+      margin: min(8px, 0.71cqw) 0 min(10px, 0.89cqw);
+      color: var(--ink);
+      font-size: min(18px, 1.61cqw);
+      font-weight: 500;
+    }
+
+    .fit-row {
+      padding: min(7px, 0.63cqw) 0;
+      border-bottom: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-size: min(12px, 1.07cqw);
+      line-height: 1.5;
+    }
+
+    .cover,
+    .closing {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .cover .intro,
+    .closing .intro {
+      width: 100%;
+      margin-top: min(18px, 1.61cqw);
+    }
+
+    .cover .eyebrow,
+    .closing .eyebrow {
+      text-align: center;
+    }
+
+    .cover .title {
+      max-width: min(930px, 83.04cqw);
+      margin: 0 auto;
+      font-size: min(82px, 7.32cqw);
+      line-height: 1.02;
+    }
+
+    .closing .title {
+      max-width: min(930px, 83.04cqw);
+      margin: 0 auto;
+      font-size: min(68px, 6.07cqw);
+      line-height: 1.1;
+    }
+
+    .cover .lead,
+    .closing .lead {
+      max-width: min(820px, 73.21cqw);
+      margin-right: auto;
+      margin-left: auto;
+      text-align: center;
+    }
+
+    .hero-meta {
+      display: flex;
+      justify-content: center;
+      gap: min(24px, 2.14cqw);
+      margin-top: min(28px, 2.5cqw);
+    }
+
+    .hero-meta span {
+      padding-top: min(8px, 0.71cqw);
+      border-top: 1px solid var(--rule-strong);
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(12px, 1.07cqw);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .closing-principles {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: min(18px, 1.61cqw);
+      max-width: min(780px, 69.64cqw);
+      margin: min(28px, 2.5cqw) auto 0;
+      text-align: left;
+    }
+
+    .closing-principle {
+      padding-top: min(10px, 0.89cqw);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .closing-principle strong {
+      display: block;
+      color: var(--ink);
+      font-size: min(14px, 1.25cqw);
+      font-weight: 500;
+    }
+
+    .closing-principle span {
+      display: block;
+      margin-top: min(5px, 0.45cqw);
+      color: var(--ink-3);
+      font-size: min(11px, 0.99cqw);
+      line-height: 1.45;
+    }
+
+    .reference-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: min(12px, 1.07cqw);
+    }
+
+    .reference-card {
+      display: grid;
+      grid-template-columns: min(34px, 3.04cqw) 1fr;
+      gap: min(13px, 1.16cqw);
+      min-width: 0;
+      padding: min(12px, 1.07cqw) min(14px, 1.25cqw);
+      border: 1px solid var(--rule);
+    }
+
+    .reference-index {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(20px, 1.79cqw);
+      font-style: italic;
+    }
+
+    .reference-card strong {
+      display: block;
+      color: var(--ink);
+      font-size: min(14px, 1.25cqw);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .reference-card p {
+      margin: min(4px, 0.36cqw) 0 0;
+      color: var(--ink-3);
+      font-size: min(11px, 0.99cqw);
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1168px) {
+      .slide {
+        padding: 5% 6.43%;
+      }
+
+      .slide::after {
+        inset: 3.17% 1.78%;
+      }
+
+      .slide-tag {
+        top: 4.76%;
+        left: 6.43%;
+      }
+
+      .slide-num {
+        top: 3.81%;
+        right: 6.43%;
+      }
+
+      .footnote {
+        right: 6.43%;
+        bottom: 5.4%;
+        left: 6.43%;
+      }
+    }
+
+    @media print {
+      @page {
+        size: 16in 9in;
+        margin: 0;
+      }
+
+      html,
+      body {
+        background: var(--paper);
+      }
+
+      .deck {
+        gap: 0;
+        padding: 0;
+      }
+
+      .slide {
+        width: 16in;
+        height: 9in;
+        box-shadow: none;
+        break-after: page;
+        page-break-after: always;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck" aria-label="trynix解説スライドデック">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover" aria-labelledby="slide-01-title">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">02 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Browser-native Nix</p>
+        <h1 class="title" id="slide-01-title">Nixを、ブラウザで <span class="accent">Run</span></h1>
+        <p class="lead">trynixは、キャッシュ済みのNix store closure（依存関係を含む閉包）を取得し、WebAssembly上のLinux VMで実行する。ホストへのNix導入も、ユーザー側の評価・ビルドも要らない。</p>
+        <div class="hero-meta" aria-label="主要テーマ">
+          <span>Store paths</span>
+          <span>qemu-wasm</span>
+          <span>CORS caches</span>
+          <span>Snapshot resume</span>
+        </div>
+      </header>
+    </section>
+
+    <section class="slide problem" aria-labelledby="slide-02-title">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">The friction</p>
+        <h2 class="title" id="slide-02-title">再現性は高い。入口が <span class="accent">Heavy</span></h2>
+        <p class="lead">Nixは環境を正確に固定できる一方、初めて試す人には準備工程が見えやすい。trynixが取り除くのは、パッケージそのものではなく「実行までの手順負債」だ。</p>
+      </header>
+      <div class="content">
+        <div class="three-grid">
+          <article class="editorial-card">
+            <span class="roman">i</span>
+            <h3 class="card-title">評価の理解</h3>
+            <p class="card-copy">Nix式を評価し、依存関係とビルド計画を確定する。初見では成果物までの経路が長い。</p>
+          </article>
+          <article class="editorial-card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">ホストの準備</h3>
+            <p class="card-copy">Nix本体、設定、ビルド環境、キャッシュ設定などをローカル側で整える必要がある。</p>
+          </article>
+          <article class="editorial-card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">ネイティブ実行</h3>
+            <p class="card-copy">ブラウザは通常、x86_64やaarch64向けのELF実行ファイルを直接起動できない。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">「少し試したい」に対して、環境構築の責務が大きすぎる。</div>
+          <div class="callout-side">Reproducible<br>but not frictionless</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-labelledby="slide-03-title">
+      <div class="slide-tag">Core idea</div>
+      <div class="slide-num">04 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">The shortcut</p>
+        <h2 class="title" id="slide-03-title">Nix式ではなく、完成済みの <span class="accent">Artifact</span> へ</h2>
+        <p class="lead">trynixの中核は、評価・ビルドをブラウザ内で再現することではない。バージョンから既知のストアパスへ直行し、Hydraが既に作った成果物を利用することだ。</p>
+      </header>
+      <div class="content">
+        <div class="comparison">
+          <article class="comparison-column">
+            <div class="comparison-head">
+              <strong>通常の入口</strong>
+              <span class="label">Plan first</span>
+            </div>
+            <div class="sequence">
+              <div class="sequence-cell">Nix式を<br>評価</div>
+              <div class="sequence-cell">依存関係を<br>解決</div>
+              <div class="sequence-cell">ビルド／<br>代替取得</div>
+              <div class="sequence-cell">環境へ<br>導入</div>
+            </div>
+          </article>
+          <article class="comparison-column emphasis">
+            <div class="comparison-head">
+              <strong>trynixの入口</strong>
+              <span class="label">Identity first</span>
+            </div>
+            <div class="sequence">
+              <div class="sequence-cell">バージョンを<br>選ぶ</div>
+              <div class="sequence-cell">ストアパスを<br>特定</div>
+              <div class="sequence-cell">閉包を<br>取得</div>
+              <div class="sequence-cell">VMで<br>実行</div>
+            </div>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">計画を再計算するのではなく、成果物の同一性を参照する。</div>
+          <div class="callout-side">Requires cached<br>store paths</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-labelledby="slide-04-title">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">05 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Version universe</p>
+        <h2 class="title" id="slide-04-title">過去を含む巨大な <span class="accent">History</span> が入口になる</h2>
+        <p class="lead">nixpkgs-multiverseは、過去から現在までのパッケージバージョンをストアパスへ結びつける。提供資料では、その参照範囲は31万超のパッケージバージョンとされる。</p>
+      </header>
+      <div class="content metric-layout">
+        <div class="metric">
+          <div class="metric-value">310,000+</div>
+          <div class="metric-caption">参照可能とされる<br>パッケージバージョン</div>
+        </div>
+        <div class="chain" aria-label="バージョンから実行までの対応関係">
+          <div class="chain-row">
+            <div class="chain-key">Version catalog</div>
+            <div class="chain-value">「どの年代の、どのパッケージか」を選択可能な一覧として扱う。</div>
+          </div>
+          <div class="chain-row">
+            <div class="chain-key">Store identity</div>
+            <div class="chain-value">選んだバージョンを、内容で識別される具体的な <span class="latin">/nix/store/…</span> へ対応させる。</div>
+          </div>
+          <div class="chain-row">
+            <div class="chain-key">Hydra cache</div>
+            <div class="chain-value">Hydraが既にビルドし、バイナリキャッシュへ置いた成果物を取得する。</div>
+          </div>
+          <div class="chain-row">
+            <div class="chain-key">Fast-mode idea</div>
+            <div class="chain-value">ユーザー側の重い評価やビルドを避け、実行可能な成果物へ先に到達する。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-labelledby="slide-05-title">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">06 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Execution path</p>
+        <h2 class="title" id="slide-05-title">Web配布とタブ内 <span class="accent">VM</span> を接続する</h2>
+        <p class="lead">外部オリジンはメタデータとストア内容を配布し、実際のLinux実行環境はブラウザのタブ内に置かれる。Webページは、成果物の検索・搬送・起動をつなぐ制御面になる。</p>
+      </header>
+      <div class="content">
+        <div class="flow" aria-label="trynixのアーキテクチャ">
+          <article class="flow-node">
+            <span class="label">Browser UI</span>
+            <strong>パッケージと<br>バージョンを選択</strong>
+            <p>静的ページから実行要求を組み立てる。</p>
+          </article>
+          <div class="flow-arrow">→</div>
+          <article class="flow-node">
+            <span class="label">Metadata</span>
+            <strong>バージョンを<br>ストアパスへ変換</strong>
+            <p>nixpkgs-multiverseが履歴を索引化する。</p>
+          </article>
+          <div class="flow-arrow">→</div>
+          <article class="flow-node">
+            <span class="label">Web cache</span>
+            <strong><span class="latin">narinfo / NAR</span><br>と閉包を取得</strong>
+            <p>CORS対応の静的配信元を参照する。</p>
+          </article>
+          <div class="flow-arrow">→</div>
+          <article class="flow-node">
+            <span class="label">Inside the tab</span>
+            <strong>qemu-wasm + Linux<br>+ <span class="latin">/nix/store</span></strong>
+            <p>VM内のPATHへ対象パッケージを提示し、ネイティブ成果物を実行する。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">配布はWeb、計算はタブ、実行環境はLinux VM。</div>
+          <div class="callout-side">Origins outside<br>Runtime inside</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor" aria-labelledby="slide-06-title">
+      <div class="slide-tag">Store model</div>
+      <div class="slide-num">07 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">The runnable unit</p>
+        <h2 class="title" id="slide-06-title">運ぶ単位はファイルではなく <span class="accent">Closure</span></h2>
+        <p class="lead">実行対象のバイナリだけを持ってきても、ランタイム依存が欠ければ動かない。Nixの閉包は、対象ストアパスから到達可能な依存ストアパスをまとめて実行可能な集合にする。</p>
+      </header>
+      <div class="content">
+        <div class="closure-layout">
+          <article class="closure-root">
+            <div>
+              <span class="label">Selected output</span>
+              <div class="root-name">Package</div>
+              <div class="root-path">/nix/store/&lt;hash&gt;-selected-version</div>
+            </div>
+            <p class="card-copy">PATHへ追加する主役。ただし、これ単体が実行環境の全体ではない。</p>
+          </article>
+          <div class="dependency-grid">
+            <article class="dependency">
+              <strong>Shared libraries</strong>
+              <span>リンク対象の共有ライブラリとランタイム。</span>
+            </article>
+            <article class="dependency">
+              <strong>Loader / interpreter</strong>
+              <span>動的ローダー、シェル、言語処理系。</span>
+            </article>
+            <article class="dependency">
+              <strong>Runtime data</strong>
+              <span>設定、証明書、タイムゾーンなどのデータ。</span>
+            </article>
+            <article class="dependency">
+              <strong>Transitive paths</strong>
+              <span>依存先がさらに参照するストアパス群。</span>
+            </article>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="callout-main">閉包 ＝ 選択した出力 ＋ 実行時に到達するすべての依存。</div>
+          <div class="callout-side">Self-contained<br>by store identity</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-labelledby="slide-07-title">
+      <div class="slide-tag">Web boundary</div>
+      <div class="slide-num">08 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">The browser gate</p>
+        <h2 class="title" id="slide-07-title">キャッシュをWeb化する鍵は <span class="accent">CORS</span></h2>
+        <p class="lead">ブラウザは、別オリジンのキャッシュを自由には読めない。配信元が適切なCORSヘッダを返すことで、trynixはnarinfoやNARを直接取得できる。</p>
+      </header>
+      <div class="content gate-layout">
+        <div class="code-panel" aria-label="CORSレスポンス例">
+          <span class="label">Response contract</span><br><br>
+          HTTP/1.1 200 OK<br>
+          Content-Type: application/octet-stream<br>
+          <span class="code-accent">Access-Control-Allow-Origin: *</span><br><br>
+          GET /&lt;store-hash&gt;.narinfo<br>
+          GET /nar/&lt;archive&gt;.nar
+        </div>
+        <div class="gate-result">
+          <article class="gate-item">
+            <strong>ヘッダあり</strong>
+            <span>ブラウザのFetch APIからキャッシュ内容を読み、VMへの取り込みへ進める。</span>
+          </article>
+          <article class="gate-item">
+            <strong>ヘッダなし</strong>
+            <span>ファイルが公開されていても、別オリジンのページからはレスポンスを利用できない。</span>
+          </article>
+          <article class="gate-item">
+            <strong>重要な区別</strong>
+            <span>CORSは「取得可能性」を制御する。成果物の真正性や安全性を保証する仕組みではない。</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-labelledby="slide-08-title">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">09 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Click to execution</p>
+        <h2 class="title" id="slide-08-title">選択からシェルまで、一本道の <span class="accent">Path</span></h2>
+        <p class="lead">ユーザー操作はバージョン選択に圧縮されるが、内部では成果物の識別、閉包取得、ストア提示、VM再開、実行準備が順番に進む。</p>
+      </header>
+      <div class="content">
+        <div class="steps" aria-label="実行プロセス">
+          <article class="step">
+            <span class="roman">i</span>
+            <strong>Choose</strong>
+            <p>パッケージ名と試したいバージョンを選ぶ。</p>
+          </article>
+          <article class="step">
+            <span class="roman">ii</span>
+            <strong>Resolve</strong>
+            <p>履歴メタデータから対象ストアパスを特定する。</p>
+          </article>
+          <article class="step">
+            <span class="roman">iii</span>
+            <strong>Fetch</strong>
+            <p>narinfoを読み、必要な閉包のNARを取得する。</p>
+          </article>
+          <article class="step">
+            <span class="roman">iv</span>
+            <strong>Expose</strong>
+            <p>VM内のNix storeへ内容を提示し、PATHを構成する。</p>
+          </article>
+          <article class="step">
+            <span class="roman">v</span>
+            <strong>Run</strong>
+            <p>Linux VMを起動または再開し、対象コマンドを実行する。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">複雑さは消えていない。ユーザーの手順から、ランナーの実装へ移された。</div>
+          <div class="callout-side">Operational complexity<br>is relocated</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-labelledby="slide-09-title">
+      <div class="slide-tag">Performance</div>
+      <div class="slide-num">10 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Perceived speed</p>
+        <h2 class="title" id="slide-09-title">待ち時間を消さず、先回りする <span class="accent">Resume</span></h2>
+        <p class="lead">WebAssembly上のエミュレーションとLinuxブートには本質的なコストがある。trynixは、その重い処理を事前ダウンロードとスナップショット再開で操作のクリティカルパスから外す。</p>
+      </header>
+      <div class="content">
+        <div class="three-grid">
+          <article class="boxed-card">
+            <span class="roman">i</span>
+            <h3 class="card-title">先に取得する</h3>
+            <p class="card-copy">qemu-wasmエンジン、Linuxカーネル、初期イメージ、スナップショットをユーザー操作より前に用意する。</p>
+          </article>
+          <article class="boxed-card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">初回ブートを準備する</h3>
+            <p class="card-copy">起動処理を一度済ませた状態を保存し、毎回ゼロからLinuxを立ち上げる経路を避ける。</p>
+          </article>
+          <article class="boxed-card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">状態から再開する</h3>
+            <p class="card-copy">後続の実行ではスナップショットからVMを戻し、対象閉包の提示とコマンド実行へ早く移る。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">高速化の本質は「処理を速くする」より「遅い処理を見える前に済ませる」。</div>
+          <div class="callout-side">Prefetch<br>Prepare<br>Resume</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-labelledby="slide-10-title">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">11 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Serverless, precisely</p>
+        <h2 class="title" id="slide-10-title">「サーバ不要」の正確な <span class="accent">Meaning</span></h2>
+        <p class="lead">HTMLやNARを配るWebサーバは必要だが、ビルドや実行を肩代わりする常駐バックエンドは要らない。実行計算の責務が、リモートAPIではなくブラウザタブへ置かれる。</p>
+      </header>
+      <div class="content">
+        <div class="matrix" role="table" aria-label="コンポーネントと責務">
+          <div class="matrix-row header" role="row">
+            <div role="columnheader">Component</div>
+            <div role="columnheader">Location</div>
+            <div role="columnheader">Responsibility</div>
+          </div>
+          <div class="matrix-row" role="row">
+            <div class="matrix-name" role="cell">静的ページ</div>
+            <div class="matrix-place" role="cell">Web origin</div>
+            <div class="matrix-copy" role="cell">UI、Wasm、カーネル、スナップショットなどを配布する。</div>
+          </div>
+          <div class="matrix-row" role="row">
+            <div class="matrix-name" role="cell">バイナリキャッシュ</div>
+            <div class="matrix-place" role="cell">Web origin</div>
+            <div class="matrix-copy" role="cell">narinfo、NAR、閉包を構成するストア内容を配る。</div>
+          </div>
+          <div class="matrix-row" role="row">
+            <div class="matrix-name" role="cell">ビルドAPI</div>
+            <div class="matrix-place" role="cell">Not required</div>
+            <div class="matrix-copy" role="cell">クリック後にNix評価やビルドを行う専用サービスは前提にしない。</div>
+          </div>
+          <div class="matrix-row" role="row">
+            <div class="matrix-name" role="cell">Linux実行</div>
+            <div class="matrix-place" role="cell">Browser tab</div>
+            <div class="matrix-copy" role="cell">qemu-wasm上のVMが、取得済み成果物をユーザー端末内で実行する。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-labelledby="slide-11-title">
+      <div class="slide-tag">Distribution</div>
+      <div class="slide-num">12 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Beyond public caches</p>
+        <h2 class="title" id="slide-11-title">公開キャッシュ以外も <span class="accent">Cache</span> になる</h2>
+        <p class="lead">必要なのは特定の運営主体ではなく、ブラウザから読めるバイナリキャッシュとしての配信契約だ。CORSを許可した静的配信が成立すれば、自作ストアパスも実行候補になる。</p>
+      </header>
+      <div class="content">
+        <div class="three-grid">
+          <article class="editorial-card">
+            <span class="label">Example 01</span>
+            <h3 class="card-title">GitHub Pages</h3>
+            <p class="card-copy">静的ファイルとしてnarinfoとNARを配置し、ブラウザから読めるヘッダで配信する構成が考えられる。</p>
+          </article>
+          <article class="editorial-card">
+            <span class="label">Example 02</span>
+            <h3 class="card-title">Cachix</h3>
+            <p class="card-copy">組織やプロジェクト独自の成果物を公開し、trynix側から直接参照できる可能性がある。</p>
+          </article>
+          <article class="editorial-card">
+            <span class="label">Example 03</span>
+            <h3 class="card-title">Static origin</h3>
+            <p class="card-copy">標準的なキャッシュ構造、到達可能性、CORS、必要な完全性検証を満たせば配信元になり得る。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">自作成果物の共有範囲は広がるが、配布元の品質がそのまま実行環境へ入る。</div>
+          <div class="callout-side">Accessibility<br>is not trust</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem" aria-labelledby="slide-12-title">
+      <div class="slide-tag">Constraints</div>
+      <div class="slide-num">13 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Reality check</p>
+        <h2 class="title" id="slide-12-title">成立範囲を決める3つの <span class="accent">Limits</span></h2>
+        <p class="lead">ブラウザ内Linuxは万能なローカルマシンではない。エミュレーション、タブメモリ、ブラウザとアーキテクチャの差が、実行できるワークロードを絞る。</p>
+      </header>
+      <div class="content">
+        <div class="three-grid">
+          <article class="boxed-card">
+            <span class="label">Latency</span>
+            <span class="limit-number">Cost</span>
+            <p class="card-copy">ネイティブ命令のエミュレーションや動的変換が入り、初回実行や計算量の大きい処理は遅くなり得る。</p>
+          </article>
+          <article class="boxed-card">
+            <span class="label">Memory</span>
+            <span class="limit-number">≈ 1.5 GiB</span>
+            <p class="card-copy">提供資料が示す現在のタブ上限の目安。閉包全体が収まらない巨大な依存ツリーは成立しにくい。</p>
+          </article>
+          <article class="boxed-card">
+            <span class="label">Compatibility</span>
+            <span class="limit-number">Matrix</span>
+            <p class="card-copy">対象ELF、CPUアーキテクチャ、必要syscall、ブラウザ実装、外部デバイス依存を個別に確認する必要がある。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">得意領域は、小さなCLI、限定テスト、再現可能なデモ、短時間の比較実行。</div>
+          <div class="callout-side">Bounded workloads<br>fit best</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem" aria-labelledby="slide-13-title">
+      <div class="slide-tag">Security</div>
+      <div class="slide-num">14 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">The missing contract</p>
+        <h2 class="title" id="slide-13-title">取得できることと、信頼できることは <span class="accent">Different</span></h2>
+        <p class="lead">キャッシュから即実行する設計では、配布元からVMまでの信頼連鎖が製品要件になる。提供資料だけでは、署名検証、隔離、ネットワーク方針、監査の詳細は確認できない。</p>
+      </header>
+      <div class="content">
+        <div class="trust-chain">
+          <article class="trust-item">
+            <span class="roman">i</span>
+            <strong>Provenance<br>出所</strong>
+            <p>誰がどの入力からビルドした成果物か。許可するキャッシュと鍵を定義する。</p>
+          </article>
+          <article class="trust-item">
+            <span class="roman">ii</span>
+            <strong>Integrity<br>完全性</strong>
+            <p>narinfo、NAR、ストアパスの署名・ハッシュを、実行前にどこまで検証するか。</p>
+          </article>
+          <article class="trust-item">
+            <span class="roman">iii</span>
+            <strong>Isolation<br>隔離</strong>
+            <p>VM境界、ブラウザ権限、永続領域、ホストとの入出力範囲を明確にする。</p>
+          </article>
+          <article class="trust-item">
+            <span class="roman">iv</span>
+            <strong>Policy<br>運用</strong>
+            <p>ネットワーク接続、リソース上限、ログ、失効、インシデント時の追跡を設計する。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">CORSは「誰が読めるか」への回答であり、「何を実行してよいか」への回答ではない。</div>
+          <div class="callout-side">VM isolation alone<br>is not a trust model</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration" aria-labelledby="slide-14-title">
+      <div class="slide-tag">Applications</div>
+      <div class="slide-num">15 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Runnable sharing</p>
+        <h2 class="title" id="slide-14-title">成果物を説明せず、<span class="accent">URL</span> で渡す</h2>
+        <p class="lead">trynixの価値は、Nixをブラウザで見せる派手さだけではない。固定された成果物と実行環境をリンクに圧縮し、レビューや再現の待ち時間を減らせる。</p>
+      </header>
+      <div class="content">
+        <div class="three-grid">
+          <article class="use-card">
+            <span class="roman">i</span>
+            <h3 class="card-title">CI成果物レビュー</h3>
+            <p class="card-copy">CIが生成したストアパスを、レビュアがローカル環境を汚さずクリックして確認する。</p>
+            <div class="use-outcome">Build → Link → Test</div>
+          </article>
+          <article class="use-card">
+            <span class="roman">ii</span>
+            <h3 class="card-title">エージェント成果物</h3>
+            <p class="card-copy">AIエージェントが作ったツールや修正を、再現可能な実行URLとして人間へ返す。</p>
+            <div class="use-outcome">Agent → Artifact → Review</div>
+          </article>
+          <article class="use-card">
+            <span class="roman">iii</span>
+            <h3 class="card-title">動く報告・文書</h3>
+            <p class="card-copy">バグ報告、教材、ドキュメントに、問題や例を再現する固定バージョンの環境を添える。</p>
+            <div class="use-outcome">Read → Run → Verify</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration" aria-labelledby="slide-15-title">
+      <div class="slide-tag">Implications</div>
+      <div class="slide-num">16 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">More than a demo</p>
+        <h2 class="title" id="slide-15-title">価値は技術単体でなく、接続した <span class="accent">System</span> にある</h2>
+        <p class="lead">Nixの成果物同一性、Webの静的配布、ブラウザの隔離、VMスナップショットを一本の体験へ結んだことが新しい。各要素より、境界を越えた統合が普及可能性を生む。</p>
+      </header>
+      <div class="content">
+        <div class="dimension-grid">
+          <article class="dimension">
+            <div class="dimension-en">Technological</div>
+            <strong>実行基盤を転送</strong>
+            <p>APIを呼ぶのではなく、Linux実行環境そのものをタブ内へ持ち込む。</p>
+          </article>
+          <article class="dimension">
+            <div class="dimension-en">Practical</div>
+            <strong>待機を先送りしない</strong>
+            <p>事前取得と再開により、ユーザーが感じる起動コストを抑える。</p>
+          </article>
+          <article class="dimension">
+            <div class="dimension-en">Educational</div>
+            <strong>正しい初期環境</strong>
+            <p>学習者は設定作業より先に、固定バージョンの挙動を比較できる。</p>
+          </article>
+          <article class="dimension">
+            <div class="dimension-en">Strategic</div>
+            <strong>開発工程へ入る</strong>
+            <p>CI、レビュー、バグ報告の節目に「実行リンク」を差し込める。</p>
+          </article>
+          <article class="dimension">
+            <div class="dimension-en">Security</div>
+            <strong>信頼が採用条件</strong>
+            <p>配布の容易さと実行許可を分離し、組織ポリシーで統制する必要がある。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">これはパッケージマネージャの移植というより、「再現環境の配送方式」の再設計である。</div>
+          <div class="callout-side">Environment<br>as a deliverable</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-labelledby="slide-16-title">
+      <div class="slide-tag">Evidence boundary</div>
+      <div class="slide-num">17 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Claims and unknowns</p>
+        <h2 class="title" id="slide-16-title">分かっていることと、まだ見えない <span class="accent">Unknowns</span></h2>
+        <p class="lead">魅力的なデモを実用性と混同しないため、提供資料が述べる事実と、一次資料・検証が必要な項目を分ける。数値や対応範囲は時点依存である。</p>
+      </header>
+      <div class="content evidence-columns">
+        <article class="evidence-column">
+          <h3>提供資料で説明されている</h3>
+          <div class="fact-row">
+            <div class="fact-index">i</div>
+            <div class="fact-copy">qemu-wasm上でLinuxを起動し、VM内にNix storeを提示する構成。</div>
+          </div>
+          <div class="fact-row">
+            <div class="fact-index">ii</div>
+            <div class="fact-copy">nixpkgs-multiverseによる31万超のバージョン履歴への参照。</div>
+          </div>
+          <div class="fact-row">
+            <div class="fact-index">iii</div>
+            <div class="fact-copy">CORS対応キャッシュ、事前取得、スナップショット再開の利用。</div>
+          </div>
+          <div class="fact-row">
+            <div class="fact-index">iv</div>
+            <div class="fact-copy">タブメモリ上限の現在目安として約1.5GiBという制約。</div>
+          </div>
+        </article>
+        <article class="evidence-column">
+          <h3>追加確認が必要</h3>
+          <div class="fact-row">
+            <div class="fact-index">i</div>
+            <div class="fact-copy">署名検証、許可信頼鍵、改ざん時の拒否動作と失効方法。</div>
+          </div>
+          <div class="fact-row">
+            <div class="fact-index">ii</div>
+            <div class="fact-copy">VMの脅威モデル、ネットワーク制御、ホストとの境界条件。</div>
+          </div>
+          <div class="fact-row">
+            <div class="fact-index">iii</div>
+            <div class="fact-copy">ブラウザ、OS、CPUアーキテクチャ別の互換性マトリクス。</div>
+          </div>
+          <div class="fact-row">
+            <div class="fact-index">iv</div>
+            <div class="fact-copy">キャッシュ整合性、監査ログ、帯域・保存・運用コスト。</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-labelledby="slide-17-title">
+      <div class="slide-tag">Decision support</div>
+      <div class="slide-num">18 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Adoption filter</p>
+        <h2 class="title" id="slide-17-title">採用判断はワークロードとの <span class="accent">Fit</span> で行う</h2>
+        <p class="lead">「ブラウザで動くか」だけでは判断できない。閉包サイズ、必要性能、成果物の信頼、ブラウザ互換性、隔離要件を導入前のゲートにする。</p>
+      </header>
+      <div class="content">
+        <div class="three-grid">
+          <article class="fit-column preferred">
+            <div class="fit-status">Strong fit</div>
+            <h3>すぐ価値が出やすい</h3>
+            <div class="fit-row">信頼済みキャッシュの小さなCLI</div>
+            <div class="fit-row">固定バージョンの教材・デモ</div>
+            <div class="fit-row">短時間で完了するCI成果物レビュー</div>
+            <div class="fit-row">速度より再現性が重要な比較</div>
+          </article>
+          <article class="fit-column">
+            <div class="fit-status">Pilot first</div>
+            <h3>検証してから使う</h3>
+            <div class="fit-row">独自キャッシュと独自署名ポリシー</div>
+            <div class="fit-row">ネットワーク接続を必要とするツール</div>
+            <div class="fit-row">複数ブラウザ・複数CPUへの配布</div>
+            <div class="fit-row">繰り返し起動と状態保存を伴う用途</div>
+          </article>
+          <article class="fit-column">
+            <div class="fit-status">Poor fit</div>
+            <h3>別の基盤を選ぶ</h3>
+            <div class="fit-row">高性能・低遅延が主目的の処理</div>
+            <div class="fit-row">閉包が約1.5GiBへ近づく用途</div>
+            <div class="fit-row">GPU、特殊デバイス、強いホスト連携</div>
+            <div class="fit-row">統制なしで未信頼コードを実行する用途</div>
+          </article>
+        </div>
+        <div class="callout">
+          <div class="callout-main">導入ゲート：provenance、resource budget、browser matrix、isolation policy。</div>
+          <div class="callout-side">Trust<br>Size<br>Compatibility<br>Control</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-labelledby="slide-18-title">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">19 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">The takeaway</p>
+        <h2 class="title" id="slide-18-title">環境を手順ではなく、<span class="accent">Link</span> にする</h2>
+        <p class="lead">trynixは、Nixの再現性をWebの配布性へ接続し、「試す前の準備」を成果物の検索・取得・タブ内実行へ置き換える。実用化の鍵は、速さの演出だけでなく、信頼と適用範囲を明文化することだ。</p>
+        <div class="closing-principles">
+          <div class="closing-principle">
+            <strong>Identify exactly</strong>
+            <span>バージョンを不変のストアパスへ結びつける。</span>
+          </div>
+          <div class="closing-principle">
+            <strong>Deliver openly</strong>
+            <span>CORS対応キャッシュから閉包をWeb配布する。</span>
+          </div>
+          <div class="closing-principle">
+            <strong>Execute deliberately</strong>
+            <span>タブ内VMで動かし、信頼・資源・隔離を統制する。</span>
+          </div>
+        </div>
+      </header>
+    </section>
+
+    <section class="slide evidence" aria-labelledby="slide-19-title">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">20 / 23</div>
+      <header class="intro">
+        <p class="eyebrow">Source map</p>
+        <h2 class="title compact" id="slide-19-title">根拠と、次に確認する <span class="accent">Sources</span></h2>
+        <p class="lead">本デッキは提供された事前知識、要約、論点、FAQ、意見を一次の材料として圧縮した。実装採用時は、各プロジェクトとWeb標準の最新一次資料で数値・互換性・安全性を再確認する。</p>
+      </header>
+      <div class="content">
+        <div class="reference-grid">
+          <article class="reference-card">
+            <div class="reference-index">i</div>
+            <div>
+              <strong>提供資料 — trynixの要約と評価</strong>
+              <p>アーキテクチャ、31万超という規模、約1.5GiBという目安、利用例、セキュリティ上の不足情報の根拠。</p>
+            </div>
+          </article>
+          <article class="reference-card">
+            <div class="reference-index">ii</div>
+            <div>
+              <strong>Nix Reference Manual / nix.dev</strong>
+              <p>Store paths、closure、narinfo、NAR、binary cache protocol、署名と代替取得の正式仕様を確認する。</p>
+            </div>
+          </article>
+          <article class="reference-card">
+            <div class="reference-index">iii</div>
+            <div>
+              <strong>nixpkgs-multiverse / Hydra / Cachix</strong>
+              <p>バージョンからストアパスへの対応、履歴の範囲、キャッシュ可用性、独自成果物の配信条件を確認する。</p>
+            </div>
+          </article>
+          <article class="reference-card">
+            <div class="reference-index">iv</div>
+            <div>
+              <strong>qemu-wasm / WebAssembly / Linux</strong>
+              <p>対応CPU、実行方式、スナップショット、ブラウザ制限、メモリモデル、性能特性を実装資料で確認する。</p>
+            </div>
+          </article>
+          <article class="reference-card">
+            <div class="reference-index">v</div>
+            <div>
+              <strong>MDN Web Docs / Fetch・CORS</strong>
+              <p>Access-Control-Allow-Origin、プリフライト、レスポンス可視性、オリジン境界の現在のブラウザ挙動を確認する。</p>
+            </div>
+          </article>
+          <article class="reference-card">
+            <div class="reference-index">vi</div>
+            <div>
+              <strong>導入前に必要な独自資料</strong>
+              <p>脅威モデル、許可信頼鍵、ネットワーク方針、互換性試験、監査ログ、キャッシュ運用とコストの基準を作成する。</p>
+            </div>
+          </article>
+        </div>
+      </div>
+      <div class="footnote">Scope note — 本デッキ中の数値と機能説明は、提供資料に記載された内容を基準とする。最新状態の独立検証は含まない。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">21 / 23</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/fzakaria/nixpkgs-multiverse" target="_blank" rel="noreferrer noopener">GitHub - fzakaria/nixpkgs-multiverse: Any version of any nixpkgs package, from one flake input · GitHub</a></h2>
+<p class="reference-note">309,529 package versions across 32,101 attributes, from 1,542 revisions
+ 2012-07-05 → 2026-09-02, newest `3ed67ec0a4d3` …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://fzakaria.com/2026/08/09/nixpkgs-multiverse-every-version-that-ever-existed" target="_blank" rel="noreferrer noopener">nixpkgs-multiverse: every version that ever existed | Farid Zakaria’s Blog</a></h2>
+<p class="reference-note">`revisions.json` is one ordered array of every revision from Nixpkgs, 1,393 as of this writing, from 2017 to 2026.33A Ni…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">22 / 23</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.cachix.org/" target="_blank" rel="noreferrer noopener">Welcome to Cachix documentation — documentation</a></h2>
+<p class="reference-note"># Welcome to Cachix documentation¶
+
+Cachix is a service for Nix binary cache hosting.
+
+New to Cachix? Read What is a Bin…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://wiki.nixos.org/wiki/Binary_Cache" target="_blank" rel="noreferrer noopener">Binary Cache - Official NixOS Wiki</a></h2>
+<p class="reference-note">```
+ $  StorePath: /nix/store/gdh8165b7rg4y53v64chjys7mbbw89f9-hello-2.10URL: nar/gdh8165b7rg4y53v64chjys7mbbw89f9.narCo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">23 / 23</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://discourse.nixos.org/t/nixpkgs-multiverse-every-version-that-ever-existed/79490" target="_blank" rel="noreferrer noopener">Nixpkgs-multiverse: every version that ever existed - Links - NixOS Discourse</a></h2>
+<p class="reference-note">I definitely want to limit it to commits that were channel bumps so that they have access to the cache.
+
+I will update t…</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
