@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OKF Agent Memory（OKF v0.2）— Gitネイティブな永続AIメモリ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.18);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar {
+      position: absolute;
+      left: 56px;
+      right: 72px;
+      top: 28px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      pointer-events:none;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .slide-tag::before{
+      content:"";
+      width: 46px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+
+    .content {
+      position: relative;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      line-height: 1.15;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 68px;
+      margin: 0;
+      letter-spacing: 0.01em;
+      line-height: 1.02;
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead {
+      font-size: 22px;
+      color: var(--ink);
+      font-weight: 300;
+      max-width: 760px;
+      line-height: 1.45;
+      margin-top: 6px;
+    }
+
+    .meta {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      margin-top: 6px;
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+      max-width: 860px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 6px;
+      width: 100%;
+      max-width: 980px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 10px;
+      max-width: 980px;
+    }
+
+    .cell {
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+
+    .cell h4{
+      margin: 0 0 6px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.4;
+      font-weight: 300;
+    }
+
+    .two-col-3 {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .codebox{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      border-radius: 12px;
+      padding: 14px 16px;
+      max-width: 980px;
+      margin-top: 10px;
+    }
+    pre{
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .smallnote{
+      color: var(--ink-3);
+      font-size: 16px;
+      font-weight: 300;
+      margin-top: 10px;
+      max-width: 980px;
+      line-height: 1.45;
+    }
+
+    .ref-list{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 14px;
+      max-width: 980px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .ref-item .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      color: var(--rust);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .ref-item .v{
+      margin-top: 8px;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.42;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 44px 28px; }
+      .topbar{ left: 28px; right: 28px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 20px; }
+      .grid{ grid-template-columns: 1fr; }
+      .two-col-3{ grid-template-columns: 1fr; }
+      .ref-list{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover">
+      <div class="topbar">
+        <div class="slide-tag">OKF Agent Memory</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Persistent memory for agents</div>
+        <h1 class="title">Git<em>ネイティブ</em>永続メモリ</h1>
+        <div class="lead">
+          AIエージェントの“会話が閉じて知見が消える”問題に対し、OKF v0.2準拠で永続的に残し、レビュー可能にするための仕組みです（Progressive Disclosure付き）。
+          <span style="color:var(--rust)"></span>
+        </div>
+        <div class="meta">
+          Key terms: 永続メモリ / Gitネイティブ / BM25（語彙検索）/ Progressive Disclosure（段階的開示） / MCP（統合）
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Context windowの期限切れ</div>
+        <h1 class="title"><em>知見</em>が消える</h1>
+        <div class="lead">
+          会話のコンテキストウィンドウが閉じると、重要な判断材料や設計知見が失われがちです。
+          そのため“再利用できる永続メモリ”が必要になります（永続 / persistent memory：日本語）。
+        </div>
+        <div class="divider"></div>
+        <div class="grid">
+          <div class="cell">
+            <h4>よくある症状</h4>
+            <p>判断理由が次回に引き継がれない / 再学習・再設計が発生</p>
+          </div>
+          <div class="cell">
+            <h4>求める性質</h4>
+            <p>残る・探せる・直せる・監査できる（audit：監査）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="metaphor">
+      <div class="topbar">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">DBではなく“開発物”</div>
+        <h1 class="title">メモリを<em>リポジトリ</em>へ</h1>
+        <div class="lead">
+          知識をベクタDBのようなブラックボックスに預けず、リポジトリ内の `knowledge/` 配下にプレーンMarkdownとして保存し、Gitの履歴で監査できるようにします。
+          （Git-native：Gitでネイティブに運用）
+        </div>
+        <div class="codebox">
+          <pre>knowledge/
+  ├─ index.md
+  ├─ concepts/
+  └─ pages/
+（例）YAML frontmatter + Markdown本文で出所・信頼度・ライフサイクルを扱う</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="topbar">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">検索→必要分だけ投入</div>
+        <h1 class="title">ローカル検索<em>＋</em>段階開示</h1>
+        <div class="lead">
+          検索はローカルでBM25（語彙ベース）を使い、埋め込みAPIのコストやネットワーク往復を抑えます。
+          さらにProgressive Disclosureで、必要な概念だけを読み込んでtoken肥大を回避します。
+        </div>
+        <div class="grid two-col-3" style="margin-top:16px;">
+          <div class="cell">
+            <h4>Search</h4>
+            <p>BM25 / 語彙検索</p>
+          </div>
+          <div class="cell">
+            <h4>Control</h4>
+            <p>index.md / 階層</p>
+          </div>
+          <div class="cell">
+            <h4>Load</h4>
+            <p>必要部分のみ（リンク）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="topbar">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ベクタDB vs OKF</div>
+        <h1 class="title">ブラックボックス回避</h1>
+        <div class="lead">
+          重要な狙いは、ベクタDBのような外部ブラックボックスへ依存しないことです。
+          Git上の差分と監査性を優先しつつ、BM25で高速検索を行います。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <h4>ベクタDB中心</h4>
+            <p>埋め込み・外部管理 / 監査が難しくなりがち</p>
+          </div>
+          <div class="cell">
+            <h4>OKF Agent Memory</h4>
+            <p>Markdown（YAML frontmatter付き）/ Git履歴で追跡</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="topbar">
+        <div class="slide-tag">Core moves</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">5つの運用原則</div>
+        <h1 class="title"><em>品質</em>を守る設計</h1>
+        <div class="lead">
+          新規作成では重複や発散を抑え、知識の寿命と整合性を保つためのルールが提示されています（Search-Before-Write等）。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <h4><i>i</i> Gitネイティブ</h4>
+            <p>knowledge/へ保存し、レビュー・差分で監査</p>
+          </div>
+          <div class="cell">
+            <h4><i>ii</i> ローカルBM25</h4>
+            <p>埋め込みAPI不要 / 高速・低コスト指向</p>
+          </div>
+          <div class="cell">
+            <h4><i>iii</i> Progressive Disclosure</h4>
+            <p>index.md＋リンクで必要分だけ読み込み</p>
+          </div>
+          <div class="cell">
+            <h4><i>iv</i> Search-Before-Write</h4>
+            <p>既存検索後に追記し、分裂を抑制</p>
+          </div>
+          <div class="cell">
+            <h4><i>v</i> MCP統合</h4>
+            <p>Claude Code / Cursor等とstdioで連携</p>
+          </div>
+          <div class="cell">
+            <h4>狙い</h4>
+            <p>速度・監査性・運用コストを両立</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">主張される性能</div>
+        <h1 class="title">コストを<em>削る</em></h1>
+        <div class="lead">
+          入力では、ローカルBM25による概念検索の高速性や、1,000クエリあたり$0のようなコスト指標が強調されています。
+          これにより、エージェントの高頻度ツール呼び出しでもレイテンシと費用の悪化を抑えやすい、という含意があります。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <h4>速度指標</h4>
+            <p>&lt;300µs（概念検索）という主張</p>
+          </div>
+          <div class="cell">
+            <h4>コスト指標</h4>
+            <p>埋め込みAPIを介さないため、クエリ費用を抑制</p>
+          </div>
+        </div>
+        <div class="smallnote">
+          注意：BM25は語彙一致に強く、意味的類似は弱くなり得ます。用途によりメタデータ設計や補助戦略が必要です。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="topbar">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">token bloat対策</div>
+        <h1 class="title">必要分だけ<em>読む</em></h1>
+        <div class="lead">
+          知識が増えるほど、毎回全文を投入するとtokenが膨張します。
+          index.mdの階層構造とリンクグラフにより、エージェントが必要な概念だけをロードする方針です（Progressive Disclosure）。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <h4>問題</h4>
+            <p>全文投入 → token肥大 / 応答遅延</p>
+          </div>
+          <div class="cell">
+            <h4>解決</h4>
+            <p>階層インデックス＋リンクで絞り込み</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="topbar">
+        <div class="slide-tag">Workflow</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">CLIとMCPで回す</div>
+        <h1 class="title">運用を<em>自動化</em></h1>
+        <div class="lead">
+          `okf` CLIは validate/search/show/create/update/bootstrap を備え、リポジトリ整合性と検索・参照を日常作業へ落とし込みます。
+          さらにMCPサーバ内蔵により、エージェント基盤へ統合しやすくします。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <h4>CLI（例）</h4>
+            <p>validate / search / show / create / update / bootstrap</p>
+          </div>
+          <div class="cell">
+            <h4>MCP（統合）</h4>
+            <p>Claude Code / Cursor等とstdioで連携</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="topbar">
+        <div class="slide-tag">Limits</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">導入判断の落とし穴</div>
+        <h1 class="title">検証が<em>必要</em></h1>
+        <div class="lead">
+          入力には、検索精度の評価条件・ベンチマークの再現条件・失敗ケース分析などの詳細が不足しています。
+          そのため導入時は、自分たちのクエリで期待通りに動くかを実データで検証するのが推奨です。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <h4>検索品質</h4>
+            <p>BM25の意味的弱さ → タグ/命名/メタデータが効く</p>
+          </div>
+          <div class="cell">
+            <h4>運用設計</h4>
+            <p>stale_after等のライフサイクル運用ルールの具体性が要確認</p>
+          </div>
+          <div class="cell">
+            <h4>性能の頭打ち</h4>
+            <p>大規模データでの性能上限は追加情報が必要</p>
+          </div>
+          <div class="cell">
+            <h4>ガバナンス</h4>
+            <p>PII/機密の混入防止は、入力チェックとアクセス制御が鍵</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="closing">
+      <div class="topbar">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論</div>
+        <h1 class="title">監査できる<em>永続メモリ</em></h1>
+        <div class="lead">
+          OKF Agent Memoryは、AIメモリをGit上のプレーンテキストへ寄せ、監査性・運用しやすさ・コスト最適化（BM25＋Progressive Disclosure）を狙う設計です。
+          採用するなら、提示ベンチマークに加えて自分たちの実クエリで“当たるか”を必ず検証してください。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <h4>強み</h4>
+            <p>Git差分でレビュー / ローカルBM25 / token肥大の抑制</p>
+          </div>
+          <div class="cell">
+            <h4>次の一手</h4>
+            <p>小さく始め、検索精度と運用ルールを固める</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="references">
+      <div class="topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">出典の当たり先</div>
+        <h1 class="title">確認用リンク</h1>
+        <div class="lead">
+          本デッキはユーザー提示テキストの要約です。一次情報はリポジトリのREADME、OKF v0.2仕様、CLI/MCPのドキュメントで確認してください。
+        </div>
+        <div class="ref-list">
+          <div class="ref-item">
+            <div class="k">OKF v0.2</div>
+            <div class="v">Open Knowledge Format（仕様：YAML frontmatter、ライフサイクル等）</div>
+          </div>
+          <div class="ref-item">
+            <div class="k">OKF Agent Memory</div>
+            <div class="v">Gitネイティブなknowledge/構造、検索、Progressive Disclosure、MCP統合</div>
+          </div>
+          <div class="ref-item">
+            <div class="k">CLI: okf</div>
+            <div class="v">validate/search/show/create/update/bootstrap の挙動とオプション</div>
+          </div>
+          <div class="ref-item">
+            <div class="k">MCPサーバ</div>
+            <div class="v">Claude Code / Cursor等とのstdio連携仕様</div>
+          </div>
+        </div>
+        <div class="smallnote">
+          追加検証推奨：あなたのドメインのクエリセットでBM25のヒット率と誤ヒットを評価。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://wavect.io/blog/open-knowledge-format-okf" target="_blank" rel="noreferrer noopener">Open Knowledge Format (OKF): Enterprise Guide 2026 | Wavect</a></h2>
+<p class="reference-note">Open Knowledge Format (OKF) is Google Cloud&#39;s open, vendor-neutral specification for packaging organizational knowledge …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md" target="_blank" rel="noreferrer noopener">knowledge-catalog/okf/SPEC.md at main · GoogleCloudPlatform/knowledge-catalog</a></h2>
+<p class="reference-note">undefinedyaml
+verified: { by: human:ahormati, at: 2026-06-25T09:00:00Z }
+undefined
+
+### 5.3 Trust tiers
+
+. Trust tiers a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cloud.google.com/blog/products/data-analytics/okf-v0-2-adds-trust-signals" target="_blank" rel="noreferrer noopener">OKF v0.2 adds trust signals | Google Cloud Blog</a></h2>
+<p class="reference-note">Try now
+
+When we introduced the Open Knowledge Format (OKF) in June 2026, we asserted that the context that agents need …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/origintrail/googles-okf-comes-to-the-origintrail-dkg-a-memory-ai-agents-can-trust-43c6d87e1de8" target="_blank" rel="noreferrer noopener">Google&#39;s OKF comes to the OriginTrail DKG: A memory AI ...</a></h2>
+<p class="reference-note">This integration begins to close that gap. We’ve connected Google’s Open Knowledge Format (OKF) (an open, vendor-neutral…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/google-open-knowledge-format-okf-ai-agents-2026" target="_blank" rel="noreferrer noopener">Open Knowledge Format (OKF): Google AI Agent Standard</a></h2>
+<p class="reference-note">Go deeper: Claude Code Mastery →
+
+← Back to blog
+explainx / blog
+
+# Open Knowledge Format (OKF): Google&#39;s Standard for A…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
