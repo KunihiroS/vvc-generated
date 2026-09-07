@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KVキャッシュは実行状態になる：インタラクティブAIの推論ランタイム設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      position: relative;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border-radius: 2px;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      left: 22px;
+      right: 22px;
+      top: 22px;
+      height: 1px;
+      background: var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      z-index: 1;
+      min-height: 30px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 22px;
+      border-left: 3px solid var(--rust);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 10px;
+      z-index: 1;
+    }
+
+    .title{
+      font-size: 76px;
+      font-weight: 500;
+      margin: 6px 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      line-height: 0.98;
+      z-index: 1;
+    }
+
+    .lead{
+      font-size: 22px;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+      font-weight: 300;
+      z-index: 1;
+    }
+
+    .content{
+      margin-top: auto;
+      z-index: 1;
+      padding-top: 18px;
+    }
+
+    .grid{
+      width: 100%;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+      margin-top: 18px;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+      min-height: 72px;
+    }
+    .cell h4{
+      margin:0 0 8px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .cell p{
+      margin:0;
+      color: var(--ink);
+      font-size: 20px;
+      font-weight: 300;
+    }
+
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .refs{
+      margin-top: 14px;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 760px;
+    }
+    .refitem{
+      color: var(--ink-2);
+      font-size: 20px;
+      font-weight: 300;
+    }
+    .muted{
+      color: var(--ink-3);
+      font-weight: 300;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 46px 28px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .cell p{ font-size: 17px; }
+      .cell h4{ font-size: 13px; }
+      .slide-tag{ font-size: 16px; }
+      .slide-num{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">KVキャッシュで再定義</div>
+      <div class="title">実行状態</div>
+      <p class="lead">インタラクティブAI（観測しながら考え、書きながら考え、ツール結果に即応）を支える鍵を、学習ではなく「推論ランタイム」に置きます。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>Key idea</h4>
+            <p>KVキャッシュ＝最適化ではなく、共有メモリ（実行状態）</p>
+          </div>
+          <div class="cell">
+            <h4>Outcome</h4>
+            <p>複数ストリームを待たずに進め、軌道修正と部分出力を両立</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">待ちが致命傷</div>
+      <div class="title">インタラクション</div>
+      <p class="lead">通常のLLMは「入力→推論→発話」を同期的に進めがちで、非同期な観測・ツール・行動には追従しにくいです。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>問題</h4>
+            <p>沈黙が長い：読む→考える→答えるの逐次ループ</p>
+          </div>
+          <div class="cell">
+            <h4>別問題</h4>
+            <p>同期前提が壊れる：カメラ/音声/ツール更新は時間的にズレる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">メモリは“共有進行”</div>
+      <div class="title">可視性</div>
+      <p class="lead">KVキャッシュを「過去計算の受け身保存」から「今起きている推論の状態を他者が見られる共有メモリ」へ変えます（visibility/因果順序の設計）。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>従来</h4>
+            <p>キャッシュ＝再計算を避けるためのテーブル（計算は固定）</p>
+          </div>
+          <div class="cell">
+            <h4>主張</h4>
+            <p>キャッシュの分割・順序・可視性が attention の参照因果を変える</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">フラット追記→ブロック共有</div>
+      <div class="title">多視点メモリ</div>
+      <p class="lead">キャッシュを“フラットな追記テンソル”ではなく、キャッシュブロックとして進化させ、複数ストリームが同一物理ブロックを異なる論理オフセットで参照できるようにします。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>機構</h4>
+            <p>ブロック共有（shared cache blocks）＝物理は共通、見え方は論理で変える</p>
+          </div>
+          <div class="cell">
+            <h4>根拠</h4>
+            <p>RoPEで回転（位置変換）を合成でき、参照時に“ローカル座標”を作れる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">なぜ挙動が変わる</div>
+      <div class="title">因果順序</div>
+      <p class="lead">attentionが参照する「どの過去トークンが、どの相対位置として見えるか」が変わるため、学習済み重みは同じでも出力は変化し得ます。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>前提</h4>
+            <p>自己回帰：次トークンは過去状態に依存</p>
+          </div>
+          <div class="cell">
+            <h4>論点</h4>
+            <p>キャッシュの分割/順序/可視性＝参照因果そのもの</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">同時進行を“待たない”</div>
+      <div class="title">Hogwild!</div>
+      <p class="lead">Hogwild! Inferenceは、同一モデルを複数ワーカーで並列実行し、生成途中の状態を共有キャッシュへ書き込みます（互いの途中結果を見て分岐）。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>狙い</h4>
+            <p>外部で決め打ちした協調ではなく、“その場で”検証と打ち切りを判断</p>
+          </div>
+          <div class="cell">
+            <h4>違い</h4>
+            <p>投票/ラウンド統合より早い：途中生成が他者に即可視</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">考える/出すを分離</div>
+      <div class="title">AsyncReasoning</div>
+      <p class="lead">AsyncReasoningは、推論（private reasoning）と可視出力（public output）を同じ推論プロセス内で別ストリームとして扱い、互いに待たないようスケジューリングします。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>効果</h4>
+            <p>初の非推論トークンまでの時間を短縮し得る</p>
+          </div>
+          <div class="cell">
+            <h4>本質</h4>
+            <p>高速化（計算削減）だけでなく、可視出力の進みを推論の遅延から切り離す</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">2つの協調の型</div>
+      <div class="title">共有 vs 分離</div>
+      <p class="lead">Hogwild!は「並列ワーカー間で共有して協調」、AsyncReasoningは「推論と出力を分離して応答性」を高めるアプローチです。</p>
+      <div class="content">
+        <div class="grid grid3">
+          <div class="cell">
+            <h4>Hogwild!</h4>
+            <p>共有キャッシュで途中結果を可視化（並列）</p>
+          </div>
+          <div class="cell">
+            <h4>AsyncReasoning</h4>
+            <p>推論/出力を別ストリームで進行（非同期）</p>
+          </div>
+          <div class="cell">
+            <h4>共通点</h4>
+            <p>キャッシュの可視性と因果順序を“設計対象”にする</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">ランタイムはOS級</div>
+      <div class="title">ストリーム規則</div>
+      <p class="lead">SGLang等のサービング基盤では、名前付きストリーム、可視性規則、割り込み、状態回収、連続バッチなど“OSのランタイムに似た”インタフェースが必要になります。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>必要要素</h4>
+            <p>ストリーム管理・割り込み・可視性（誰が何を見えるか）</p>
+          </div>
+          <div class="cell">
+            <h4>運用論点</h4>
+            <p>バッチ化/状態回収/メモリ管理/推測デコードの整合</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">学習なしでも進む、ただし</div>
+      <div class="title">training-free</div>
+      <p class="lead">記事の主張は「学習なし（training-free）でインタラクティブ挙動を引き出せる」こと。ただしタスク依存になり得て、失敗条件の評価が必要です。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>期待</h4>
+            <p>既存モデルに“実行プロトコル”を載せ、待たずに軌道修正</p>
+          </div>
+          <div class="cell">
+            <h4>注意</h4>
+            <p>部分情報・不整合時の挙動が弱い可能性／定量条件が不足</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">KPIを変えるべき</div>
+      <div class="title">指標</div>
+      <p class="lead">スループット（tokens/s）だけでなく、初動遅延・反応遅延・重なり量・待たない割合など、非同期性に合うKPI設計が採用判断に直結します。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <h4>見るべき</h4>
+            <p>初の非推論トークンまで/出力の立ち上がり（responsiveness）</p>
+          </div>
+          <div class="cell">
+            <h4>見落とし禁止</h4>
+            <p>計算・メモリ・実装コスト増、失敗時の悪化（安全用途で重要）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">次のフロンティアは推論</div>
+      <div class="title">要点</div>
+      <p class="lead">KVキャッシュを“能動的な実行状態（共有メモリ）”として扱うと、並列化と非同期化が「設計問題」になり、インタラクティブ性を学習以外でも引き出せます。</p>
+      <div class="content">
+        <div class="grid grid3">
+          <div class="cell">
+            <h4>再定義</h4>
+            <p>キャッシュ＝計算を変える因果の制御</p>
+          </div>
+          <div class="cell">
+            <h4>技術</h4>
+            <p>RoPEでブロックを多視点化（ローカル座標）</p>
+          </div>
+          <div class="cell">
+            <h4>実装</h4>
+            <p>サービングはOS級ストリーム/可視性/回収が要る</p>
+          </div>
+        </div>
+
+        <div class="refs">
+          <div class="refitem muted" style="font-family:'Inter Tight', system-ui, sans-serif; font-weight:600; letter-spacing:0.02em; text-transform:uppercase; font-size:14px; color:var(--ink-2);">
+            References
+          </div>
+          <div class="refitem">Yandex Research ブログ記事（本稿の出典：KVキャッシュを実行状態として捉えるインタラクティブ推論ランタイム）</div>
+          <div class="refitem">Hogwild! Inference（並列ワーカーで共有キャッシュを活用）</div>
+          <div class="refitem">AsyncReasoning（推論ストリームと可視出力ストリームを非同期スケジュール）</div>
+          <div class="refitem">RoPE（Relative/Rotary Position Embedding：位置変換の合成で論理オフセットを実現）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://proceedings.neurips.cc/paper_files/paper/2025/file/4293727fc48c60b4adfe7a8e44f6a446-Paper-Conference.pdf" target="_blank" rel="noreferrer noopener">Hogwild! Inference: Parallel LLM Generation via ...</a></h2>
+<p class="reference-note">B Implementation Details Here we discuss additional implementation details and possible alternatives. To recall Section …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2504.06261v4" target="_blank" rel="noreferrer noopener">Hogwild! Inference: Parallel LLM Generation via Concurrent Attention</a></h2>
+<p class="reference-note">Here we discuss additional implementation details and possible alternatives. To recall Section 3.4, Hogwild! inference c…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openreview.net/forum?id=roKj4IwaVT&amp;noteId=LTvjC1eFIb" target="_blank" rel="noreferrer noopener">Hogwild! Inference: Parallel LLM Generation via ...</a></h2>
+<p class="reference-note">Hogwild! Inference presents a novel shared KV-cache framework enabling multiple LLM workers to collaborate concurrently …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.alphaxiv.org/abs/2504.06261" target="_blank" rel="noreferrer noopener">Hogwild! Inference: Parallel LLM Generation via ...</a></h2>
+<p class="reference-note">Hogwild! Inference takes advantage of Rotary Position Embeddings (RoPE) to avoid recomputation while improving parallel …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aiengineeringfromscratch.com/lesson?path=phases%2F10-llms-from-scratch%2F22-async-hogwild-inference" target="_blank" rel="noreferrer noopener">Async and Hogwild! Inference | AI Engineering from Scratch</a></h2>
+<p class="reference-note">the core Hogwild! setup: multiple workers, one shared KV cache, emergent coordination via self-prompting. Compute the wa…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
