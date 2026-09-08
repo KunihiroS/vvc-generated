@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude Code vs Instinct：隔離VM・推論境界・永続化の違い</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 0 48px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 18px;
+      border: inset 20px rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius: 18px;
+      pointer-events:none;
+      background: rgba(0,0,0,0);
+    }
+    .inner{
+      position:absolute;
+      inset:0;
+      padding: 56px 72px;
+    }
+    .tag{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 16px;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border-top: 3px solid rgba(232, 129, 74, 0.35);
+      padding-top: 10px;
+    }
+    .tag::before{
+      content:"";
+      width: 26px;
+      height: 0;
+      border-top: 2px solid rgba(232, 129, 74, 0.7);
+      transform: translateY(-10px);
+      display:block;
+    }
+    .slide-num{
+      position:absolute;
+      top: 26px;
+      right: 30px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 34px;
+      color: var(--ink-3);
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 10px;
+    }
+    .title{
+      margin: 10px 0 10px;
+      font-size: 72px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 18px;
+      width: 100%;
+    }
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 14px;
+      background: rgba(255,255,255,0.01);
+    }
+    .card h4{
+      margin: 0 0 8px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      color: var(--rust);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .card p{
+      margin: 0;
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .cols3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cols2{ grid-template-columns: 1fr 1fr; }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink);
+    }
+    .cite{
+      font-size: 18px;
+      color: var(--ink-3);
+    }
+    @media (max-width: 980px){
+      .inner{ padding: 44px 40px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .slide-num{ font-size: 28px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="inner">
+        <div class="slide-num">02 / 16</div>
+        <div class="tag">Study</div>
+        <div class="eyebrow">隔離境界を読む</div>
+        <div class="title">Claude × Instinct</div>
+        <p class="lead">エージェントが「計算・推論・実行・永続化（記憶）・認証」をどこに置くかで、設計の安全性と体験が分かれます。</p>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="inner">
+        <div class="slide-num">03 / 16</div>
+        <div class="tag">Problem</div>
+        <div class="eyebrow">要点は3つ</div>
+        <div class="title">境界の所在</div>
+        <p class="lead">本レポートは「計算を行う場所」「分離（セキュリティ）の層」「永続化（記憶・ログ・認証情報）の保存先」を軸に比較します。</p>
+        <div class="grid cols3">
+          <div class="card">
+            <h4>i 計算場所</h4>
+            <p>VMの中？VMの外？SSE/GraphQLなど通信の終端はどこ？</p>
+          </div>
+          <div class="card">
+            <h4>ii 分離層</h4>
+            <p>Firecracker microVM、ホスト制御、サーバ側保護の役割分担</p>
+          </div>
+          <div class="card">
+            <h4>iii 永続化</h4>
+            <p>会話やメモリ、認証トークン、ブラウザセッションをどこへ保存するか</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="architecture">
+      <div class="inner">
+        <div class="slide-num">04 / 16</div>
+        <div class="tag">Claude Code</div>
+        <div class="eyebrow">VMがオペレータを保持</div>
+        <div class="title">制御を封じる</div>
+        <p class="lead">Claude CodeはFirecracker microVMの中に「ツール実行ハーネス／operator（PID 1）」を置き、推論本体はVM外で行うよう観察されます。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>実行（VM内）</h4>
+            <p><span class="mono">process_api</span> がPID 1、init/権限、デバッグ耐性に工夫（痕跡ベース）</p>
+          </div>
+          <div class="card">
+            <h4>推論（VM外）</h4>
+            <p>推論結果を <span class="mono">SSE</span> 経由で受領する形として整理（ストリーミング）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="evidence">
+      <div class="inner">
+        <div class="slide-num">05 / 16</div>
+        <div class="tag">Claude Code</div>
+        <div class="eyebrow">永続はディスク</div>
+        <div class="title">vda継続</div>
+        <p class="lead">Claude CodeはVMに割り当てたブロックデバイス（例：<span class="mono">vda</span>）を永続化に使い、再起動時の会話連続性を作っているよう見えます。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>記憶（Memory）</h4>
+            <p>読み書き可能ディスクの再アタッチで状態を維持</p>
+          </div>
+          <div class="card">
+            <h4>認証（Auth）</h4>
+            <p>ホスト発行のOAuthトークンをディスクにキャッシュし、ブートごとにローテーション</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="inner">
+        <div class="slide-num">06 / 16</div>
+        <div class="tag">Instinct</div>
+        <div class="eyebrow">頭脳は外、手足は中</div>
+        <div class="title">器の設計</div>
+        <p class="lead">InstinctはE2Bのsandbox-as-a-serviceを借りる形でVM上にUbuntu/systemd等が立ち上がる一方、推論呼び出しはVM内で行わないよう観察されます。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>VM内の役割</h4>
+            <p>実行・デスクトップ環境（例：XFCE）などオーケストレーション中心</p>
+          </div>
+          <div class="card">
+            <h4>推論/ツール処理</h4>
+            <p>VMから <span class="mono">GraphQL</span> 経由で <span class="mono">api.instinct.com</span> 側サーバが処理</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="inner">
+        <div class="slide-num">07 / 16</div>
+        <div class="tag">Instinct</div>
+        <div class="eyebrow">記憶はgit bundle</div>
+        <div class="title">/memory</div>
+        <p class="lead">Instinctの永続メモリは <span class="mono">/memory</span> のMarkdownで構成され、S3へ<em>git repo</em>として <em>git bundle</em> 形式で保存されます。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>メリット</h4>
+            <p>人間が読める形＋差分/履歴管理で検証・復元の導線を作りやすい</p>
+          </div>
+          <div class="card">
+            <h4>評価ポイント</h4>
+            <p>「何が」「どの粒度で」「どれくらい保持」されるかでリスクが変わる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="distinction">
+      <div class="inner">
+        <div class="slide-num">08 / 16</div>
+        <div class="tag">Auth</div>
+        <div class="eyebrow">秘密の置き場所</div>
+        <div class="title">session設計</div>
+        <p class="lead">認証情報・ブラウザセッションの扱いが両者で異なり、利便性（ログイン維持）と安全性（秘密露出最小化）の軸が見えます。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>Claude Code</h4>
+            <p>ホスト発行OAuthトークンをVM側ディスクへキャッシュ（ブートでローテーション）</p>
+          </div>
+          <div class="card">
+            <h4>Instinct</h4>
+            <p><span class="mono">STS</span>の短寿命権限＋<span class="mono">Vault</span>による認証挿入、<span class="mono">cloud_browser</span> leaseでクッキー持続</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="comparison">
+      <div class="inner">
+        <div class="slide-num">09 / 16</div>
+        <div class="tag">Comparison</div>
+        <div class="eyebrow">設計思想の対比</div>
+        <div class="title">隔離の哲学</div>
+        <p class="lead">差は「隔離環境の中にどこまで“頭脳”と“状態”を閉じ込めるか」に対応していると整理できます。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>Claude Code</h4>
+            <p>VM内にoperator（制御）をシールし、状態はVM側の永続ディスクへ寄せる</p>
+          </div>
+          <div class="card">
+            <h4>Instinct</h4>
+            <p>推論・秘匿性の高い状態（認証/セッション）をサーバ側へ寄せ、VMは実行に徹する</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="architecture">
+      <div class="inner">
+        <div class="slide-num">10 / 16</div>
+        <div class="tag">Security</div>
+        <div class="eyebrow">攻撃面の移動</div>
+        <div class="title">同じ結果でも違う</div>
+        <p class="lead">「VMが推論しない／秘密をサーバ側に寄せる」は安全性を上げうる一方、別のリスク（APIゲートウェイ、通信、サーバ侵害、権限逸脱）も増えます。</p>
+        <div class="grid cols3">
+          <div class="card">
+            <h4>境界</h4>
+            <p>保護はVMだけでなく通信終端とサーバ権限モデルも必要</p>
+          </div>
+          <div class="card">
+            <h4>監査</h4>
+            <p>SSE/GraphQLの監査・ログ・改ざん耐性が評価点</p>
+          </div>
+          <div class="card">
+            <h4>鍵管理</h4>
+            <p>暗号化・認可・削除ポリシーが不明だと結論の確度が下がる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="process">
+      <div class="inner">
+        <div class="slide-num">11 / 16</div>
+        <div class="tag">Operational</div>
+        <div class="eyebrow">体験の連続性</div>
+        <div class="title">使い捨てでも継続</div>
+        <p class="lead">どちらも「VM破棄を前提にしつつ体験を維持」する方向が見えますが、継続の担い手が異なります。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>Claude Code</h4>
+            <p>vdaの再アタッチで会話の連続性（ディスク継続）</p>
+          </div>
+          <div class="card">
+            <h4>Instinct</h4>
+            <p>S3上の記憶（git bundle）＋サーバ側ブラウザ leaseでログイン維持</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="distinction">
+      <div class="inner">
+        <div class="slide-num">12 / 16</div>
+        <div class="tag">Takeaway</div>
+        <div class="eyebrow">読むべき追加情報</div>
+        <div class="title">評価の観点</div>
+        <p class="lead">設計理解は進んでも、セキュリティ評価の核心は「暗号化・認可・監査・保持期間・削除手順」が実装でどう成立しているかにあります。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>確認したい</h4>
+            <p>推論（SSE/GraphQL）監査、S3のgit bundle暗号化と復号権限、leaseの隔離/削除</p>
+          </div>
+          <div class="card">
+            <h4>注意</h4>
+            <p>観察ベースの推定は強いが万能ではないため、「安全＝自動ではない」を前提にする</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 (References) -->
+    <section class="slide" aria-label="references">
+      <div class="inner">
+        <div class="slide-num">13 / 16</div>
+        <div class="tag">References</div>
+        <div class="eyebrow">参照の前提</div>
+        <div class="title">観察メモ要約</div>
+        <p class="lead">本デッキは、ユーザ提示の「観察メモ」とそこからの整理に基づく比較です。外部一次情報（公式仕様や監査報告）の引用はこの入力内にありません。</p>
+        <div class="grid cols2">
+          <div class="card">
+            <h4>登場要素</h4>
+            <p>
+              Firecracker microVM／process_api（PID 1）／SSE／vda／OAuthトークン／E2B／systemd／XFCE／GraphQL／api.instinct.com／<span class="mono">/memory</span>／git bundle／S3／STS／Vault／cloud_browser lease
+            </p>
+          </div>
+          <div class="card">
+            <h4>要確認</h4>
+            <p>暗号化方式、アクセス制御、保持期間、削除ポリシー、監査ログ、鍵管理、通信終端の防御</p>
+          </div>
+        </div>
+        <p class="cite" style="margin-top:16px;">※「bilingual term handling（英語＋短い日本語）」が必要な箇所は、本文内で英語専門語＋補足を中心に扱っています。</p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://firecracker-microvm.github.io/" target="_blank" rel="noreferrer noopener">Firecracker microVM</a></h2>
+<p class="reference-note">Docs Workshop
+
+Firecracker
+
+Firecracker is an open source virtualization technology purpose-built for creating and manag…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/firecracker-microvm/firecracker" target="_blank" rel="noreferrer noopener">GitHub - firecracker-microvm/firecracker: Secure and fast microVMs for serverless computing. · GitHub</a></h2>
+<p class="reference-note">Firecracker is an open source virtualization technology that is purpose-built for creating and managing secure, multi-te…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://northflank.com/blog/what-is-aws-firecracker" target="_blank" rel="noreferrer noopener">What is AWS Firecracker? The microVM technology, explained | Blog — Northflank</a></h2>
+<p class="reference-note">## 📌 TL;DR
+
+AWS Firecracker is an open-source virtual machine monitor (VMM) that creates and manages lightweight virtual…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://browserbase.com/blog/what-is-firecracker" target="_blank" rel="noreferrer noopener">What is Firecracker? MicroVMs Behind AWS Lambda | Browserbase | Browserbase</a></h2>
+<p class="reference-note">seccomp + capabilities: capabilities chop root&#39;s powers into ~40 separate privileges so you can grant only the ones you …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://e2b.dev/blog/firecracker-vs-qemu" target="_blank" rel="noreferrer noopener">Firecracker vs QEMU</a></h2>
+<p class="reference-note">## Firecracker
+
+Firecracker is a virtual machine monitor (VMM) built by AWS specifically for running serverless workload…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
