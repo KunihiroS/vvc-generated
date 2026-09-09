@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM Attention可視化：生成トークンが参照した過去トークンを追跡</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); }
+    body { font-family: "Noto Serif JP", serif; }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-sizing: border-box;
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    @media (max-width: 720px){
+      .slide { padding: 40px 28px; }
+    }
+
+    .slide-topbar{
+      position: absolute;
+      top: 20px;
+      left: 18px;
+      right: 18px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink-2);
+      font-size: 22px;
+      opacity: 0.95;
+    }
+
+    .inset-border{
+      position: absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+    .content{
+      position: relative;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      letter-spacing: 0.02em;
+    }
+    .title{
+      font-size: 72px;
+      line-height: 0.95;
+      margin: 0;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      color: var(--rust);
+    }
+    @media (max-width: 720px){
+      .title{ font-size: 52px; }
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 2px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 6px;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px;
+      margin-top: 6px;
+      width: 100%;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(20,17,13,0.28);
+      padding: 14px 14px;
+      box-sizing: border-box;
+      border-radius: 10px;
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-4);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .text{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .text.small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .callout{
+      border: 1px solid rgba(232,129,74,0.28);
+      background: rgba(232,129,74,0.08);
+      padding: 14px 14px;
+      border-radius: 10px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+    .jp-inline{
+      font-weight: 300;
+      color: var(--ink-3);
+      font-size: 18px;
+    }
+
+    .refs{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 6px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      padding: 14px;
+      background: rgba(20,17,13,0.22);
+    }
+    a{ color: var(--ink); }
+    a:visited{ color: var(--ink-2); }
+    .nowrap{ white-space: nowrap; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide cover">
+      <div class="slide-topbar">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">Attentionを“見える化”</div>
+        <h1 class="title" style="font-style: italic;">追跡</h1>
+        <div class="lead">
+          LLMが生成する各トークンが、過去のどのトークンを強く参照したかをブラウザで可視化します。
+          ただし表示は内部計算の近似（簡略化）です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">主役</div>
+            <div class="text">Attention（注意）</div>
+          </div>
+          <div class="card">
+            <div class="label">操作</div>
+            <div class="text">ホバー / タップ</div>
+          </div>
+          <div class="card">
+            <div class="label">焦点</div>
+            <div class="text">参照元トークン</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide problem">
+      <div class="slide-topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">ブラックボックス</div>
+        <h2 class="title" style="font-style: italic;">不透明</h2>
+        <div class="lead">
+          Transformer型LLMのAttentionは重要ですが、通常は人間が内部の寄与を直感的に確認しにくいです。
+          そのため「何が効いたか」が見えません。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">見たいもの</div>
+            <div class="text">参照される過去トークン</div>
+            <div class="text small">（どこを手がかりに次を作るか）</div>
+          </div>
+          <div class="card">
+            <div class="label">難しさ</div>
+            <div class="text">内部値がそのまま読めない</div>
+            <div class="text small">（計算・抽出・表示の制約）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide metaphor">
+      <div class="slide-topbar">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">“出力”ではなく“参照”</div>
+        <h2 class="title" style="font-style: italic;">流れ</h2>
+        <div class="lead">
+          文章を読むだけではなく、各生成トークンが過去トークンのどれを“引き当てたか”を追います。
+          これにより、コピーのように見える挙動の裏側を観察できます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">過去</div>
+            <div class="text">入力トークン列</div>
+          </div>
+          <div class="card">
+            <div class="label">観察対象</div>
+            <div class="text">生成トークン t</div>
+          </div>
+          <div class="card">
+            <div class="label">結果</div>
+            <div class="text">強調表示される参照元</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide architecture">
+      <div class="slide-topbar">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">ホバーで因子追跡</div>
+        <h2 class="title" style="font-style: italic;">UI</h2>
+        <div class="lead">
+          ユーザーが生成された任意のトークンにホバー／タップすると、そのトークン生成に効いた過去トークンが強調されます。
+          出力の正誤ではなく「情報の流れ」を見ます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">操作</div>
+            <div class="text">生成トークンへカーソル</div>
+            <div class="text small">（hover / tap）</div>
+          </div>
+          <div class="card">
+            <div class="label">表示</div>
+            <div class="text">参照元トークンの強調</div>
+            <div class="text small">（“affected”として要約）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide distinction">
+      <div class="slide-topbar">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">近似に注意</div>
+        <h2 class="title" style="font-style: italic;">解釈</h2>
+        <div class="lead">
+          可視化される “affected” はAttentionをそのまま表示せず、集約（簡略化）した指標です。
+          よって「因果」そのものではなく「参照が強い傾向」の手がかりとして読むのが安全です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">何が起きる</div>
+            <div class="text">集約＋数値化</div>
+            <div class="text small">（各トークンを1値に圧縮）</div>
+          </div>
+          <div class="card">
+            <div class="label">読み方</div>
+            <div class="text">“解釈可能な近似”</div>
+            <div class="text small">（真の注意分布ではない）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide evidence">
+      <div class="slide-topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">コピーが見える</div>
+        <h2 class="title" style="font-style: italic;">再掲</h2>
+        <div class="lead">
+          住所や日付など「そのまま繰り返す」箇所を調べると、元データがはっきり参照されます。
+          これにより、モデルが情報を選択的に“引いて”いる可能性を観察できます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">入力の特徴</div>
+            <div class="text">住所・日付</div>
+          </div>
+          <div class="card">
+            <div class="label">観察</div>
+            <div class="text">参照元が強く点灯</div>
+          </div>
+          <div class="card">
+            <div class="label">含意</div>
+            <div class="text">丸暗記より“選択参照”</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide evidence">
+      <div class="slide-topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">合成参照</div>
+        <h2 class="title" style="font-style: italic;">混ぜる</h2>
+        <div class="lead">
+          生成フレーズが、離れた箇所の複数トークンを組み合わせた結果に見えるケースがあります。
+          例：別語・別箇所（例「work」「stay the same」）が同時に関与します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">現象</div>
+            <div class="text">複数参照元の同時強調</div>
+            <div class="text small">（単純コピーだけではない）</div>
+          </div>
+          <div class="card">
+            <div class="label">例（語）</div>
+            <div class="text">
+              <span class="nowrap mono">work</span> × <span class="nowrap mono">stay the same</span>
+            </div>
+            <div class="text small">（記事中の観察例）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide process">
+      <div class="slide-topbar">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">ブラウザ制約</div>
+        <h2 class="title" style="font-style: italic;">工夫</h2>
+        <div class="lead">
+          Transformers.js／ONNX／WASMの制約で、内部値を通常の形で取り出しにくいです。
+          そのため記事は、計測用にONNXを最小限書き換えた “instrumented model” を用意します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">制約</div>
+            <div class="text">内部値の抽出が難しい</div>
+          </div>
+          <div class="card">
+            <div class="label">対策</div>
+            <div class="text">instrumented model</div>
+            <div class="text small">（計測用）</div>
+          </div>
+          <div class="card">
+            <div class="label">理由</div>
+            <div class="text">可視化に必要な値を露出</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide comparison">
+      <div class="slide-topbar">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">厳密さ vs 教材性</div>
+        <h2 class="title" style="font-style: italic;">トレード</h2>
+        <div class="lead">
+          “affected”は厳密なAttention分布ではありませんが、参照の手がかりを直感的に提示します。
+          そのため研究の確定より、観察と仮説生成に向きます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">強み（教育）</div>
+            <div class="text">情報の流れを体験</div>
+            <div class="text small">コピー／合成の観察</div>
+          </div>
+          <div class="card">
+            <div class="label">弱み（誤解）</div>
+            <div class="text">因果と誤読しがち</div>
+            <div class="text small">集約で情報が失われる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide enumeration">
+      <div class="slide-topbar">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">よくある誤解</div>
+        <h2 class="title" style="font-style: italic;">整理</h2>
+        <div class="lead">
+          可視化を読むときの要点は「affected＝因果ではない」「強調＝単一要因でもない」です。
+          追加で、instrumented model が必要な理由も押さえます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">i. affected</div>
+            <div class="text">因果ではなく近似</div>
+            <div class="text small">（集約指標）</div>
+          </div>
+          <div class="card">
+            <div class="label">ii. “強く光る”</div>
+            <div class="text">複数要素の合成</div>
+            <div class="text small">（層・ヘッド・集約）</div>
+          </div>
+          <div class="card" style="grid-column: 1 / -1;">
+            <div class="label">iii. instrumented model</div>
+            <div class="text">ONNX改変で計測可能に</div>
+            <div class="text small">（Transformers.js / WASMの制約）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide process">
+      <div class="slide-topbar">
+        <div class="slide-tag">Practical</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">観察の進め方</div>
+        <h2 class="title" style="font-style: italic;">使い方</h2>
+        <div class="lead">
+          まずコピーが起きそうな語（住所・日付）を見て参照元の偏りを確認します。
+          次に、離れた箇所が同時に強調されるかで“合成参照”の有無を見ます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three" style="margin-top: auto;">
+          <div class="card">
+            <div class="label">i. 入口</div>
+            <div class="text">住所・日付</div>
+            <div class="text small">（コピー判定）</div>
+          </div>
+          <div class="card">
+            <div class="label">ii. 観察</div>
+            <div class="text">参照元の偏り</div>
+            <div class="text small">（強調の集中）</div>
+          </div>
+          <div class="card">
+            <div class="label">iii. 探索</div>
+            <div class="text">合成参照</div>
+            <div class="text small">（複数箇所）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide closing">
+      <div class="slide-topbar">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="inset-border"></div>
+      <div class="content">
+        <div class="eyebrow">結論（要点）</div>
+        <h2 class="title" style="font-style: italic;">要約</h2>
+        <div class="lead">
+          LLMのAttentionをブラウザで触れる形にし、「生成トークンが参照した過去トークン」を観察できます。
+          ただし表示は簡略化した近似なので、因果確定ではなく手がかりとして扱いましょう。
+        </div>
+        <div class="rule"></div>
+
+        <div class="refs" aria-label="References">
+          <div class="ref-item">
+            <div class="label">出典</div>
+            <div class="text small">
+              ishamf.dev の記事：LLM Attention Visualization（生成トークンごとに参照元過去トークンを可視化／instrumented model などの実装説明）
+            </div>
+          </div>
+          <div class="ref-item">
+            <div class="label">補足</div>
+            <div class="text small">
+              可視化の “affected” はAttention内部値の完全再現ではない（集約・要約による近似）ことが記事内で明示されています。
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ishamf.dev/p/llm-attention-visualizer" target="_blank" rel="noreferrer noopener">LLM Attention Visualization</a></h2>
+<p class="reference-note">Another tricky thing is that some of the things in the visualization are not actually meant to be read, so they&#39;re not d…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://poloclub.github.io/transformer-explainer" target="_blank" rel="noreferrer noopener">Transformer Explainer: LLM Transformer Model Visually Explained</a></h2>
+<p class="reference-note">In each head, we perform masked self-attention calculations. This mechanism allows the model to generate sequences by fo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=-Ll8DtpNtvk" target="_blank" rel="noreferrer noopener">Build an LLM from Scratch 3: Coding attention mechanisms</a></h2>
+<p class="reference-note">works because each single-head attention module is initialized with a different set of weights. And then each of them wi…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=KMHkbXzHn7s" target="_blank" rel="noreferrer noopener">How Attention Mechanism Works in Transformer Architecture</a></h2>
+<p class="reference-note">First, we multiply query and key to get the raw attention scores. Then, we scale the scores by dividing by the square ro…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://magazine.sebastianraschka.com/p/visual-attention-variants" target="_blank" rel="noreferrer noopener">A Visual Guide to Attention Variants in Modern LLMs - Ahead of AI</a></h2>
+<p class="reference-note">In Qwen3-Next, this pattern appears as a 3:1 mix of Gated DeltaNet and Gated Attention blocks. Gated DeltaNet is also cl…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
