@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenAI Defense Factory：脆弱性対応を“ループ”へ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream:#14110d;
+      --paper:#1c1813;
+      --ink:#f0e8d8;
+      --ink-2:#d4ccbc;
+      --ink-3:#948b7c;
+      --ink-4:#645c50;
+      --rust:#e8814a;
+      --rust-deep:#c9683a;
+      --rule:rgba(240, 232, 216, 0.10);
+      --rule-strong:rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--paper);
+      color:var(--ink);
+      font-family:"Noto Serif JP", serif;
+      line-height:1.35;
+    }
+    .deck{
+      width:min(1120px, calc(100vw - 48px));
+      margin:0 auto;
+      padding:24px 0 64px 0;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width:100%;
+      border:1px solid var(--rule);
+      background:var(--paper);
+      padding:56px 72px;
+      position:relative;
+      box-shadow:0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow:hidden;
+      border-radius:2px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-inner{position:relative; z-index:1; height:100%; display:flex; flex-direction:column;}
+    .eyebrow{
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      color:var(--rust);
+      letter-spacing:0.06em;
+      font-size:22px;
+      margin-bottom:8px;
+      text-transform:none;
+    }
+    .title-row{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+    }
+    .title{
+      font-family:"Cormorant Garamond", serif;
+      font-weight:500;
+      font-size:72px;
+      line-height:1.0;
+      margin:0;
+      color:var(--ink);
+      font-style:italic;
+    }
+    .title .jp-em{
+      font-family:"Noto Serif JP", serif;
+      font-style:italic;
+      font-weight:500;
+    }
+    .lead{
+      margin-top:16px;
+      font-size:22px;
+      font-weight:300;
+      color:var(--ink-2);
+      max-width:760px;
+    }
+    .slide-tag{
+      position:absolute;
+      top:18px; left:22px;
+      font-family:"Inter Tight", system-ui, sans-serif;
+      font-weight:600;
+      letter-spacing:0.14em;
+      color:var(--ink-2);
+      font-size:13px;
+      text-transform:uppercase;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width:10px; height:1px;
+      background:var(--rust);
+      margin-right:10px;
+      transform:translateY(-4px);
+    }
+    .slide-num{
+      position:absolute;
+      top:18px; right:22px;
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      color:var(--ink-3);
+      font-size:26px;
+      letter-spacing:0.02em;
+    }
+    .grid{
+      margin-top:18px;
+      width:100%;
+      display:grid;
+      gap:14px;
+    }
+    .grid.two{grid-template-columns:1fr 1fr;}
+    .grid.three{grid-template-columns:1fr 1fr 1fr;}
+    .cell{
+      border:1px solid var(--rule);
+      padding:14px 16px;
+      border-radius:2px;
+      background:rgba(20,17,13,0.06);
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, sans-serif;
+      font-size:12px;
+      color:var(--ink-3);
+      letter-spacing:0.12em;
+      text-transform:uppercase;
+      margin-bottom:6px;
+      font-weight:600;
+    }
+    .cell .v{
+      font-size:18px;
+      color:var(--ink-2);
+      font-weight:400;
+    }
+    .hr{
+      height:1px;
+      background:var(--rule-strong);
+      margin:14px 0 0 0;
+      width:100%;
+      max-width:760px;
+    }
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:18px;
+      color:var(--ink-2);
+      font-weight:400;
+    }
+    @media (max-width: 720px){
+      .slide{padding:40px 22px;}
+      .title{font-size:52px;}
+      .lead{font-size:18px;}
+      .slide-tag{top:14px; left:14px;}
+      .slide-num{top:14px; right:14px;}
+      .grid.two{grid-template-columns:1fr;}
+      .grid.three{grid-template-columns:1fr;}
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="slide-tag">Defense Factory</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">防御を“工場化”</div>
+        <h1 class="title">Defense Factory</h1>
+        <div class="lead">脆弱性対応を「見つける」だけで終わらせず、分離環境で“証拠付きで直して検証するループ”へ寄せる取り組みです。</div>
+        <div class="hr"></div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="slide-tag">問題設定</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">速度と確実性</div>
+        <h1 class="title">対応が遅い</h1>
+        <div class="lead">脆弱性対応は「発見→検証→修正→本番で効いたか確認」の一連が必要ですが、担当者や手作業の引き継ぎが多く時間がかかりがちです。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">必要な流れ</div>
+            <div class="v">発見 / 検証 / 修正 / 確認</div>
+          </div>
+          <div class="cell">
+            <div class="k">詰まりやすい点</div>
+            <div class="v">“本当に効いたか”の確認工程</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide architecture">
+      <div class="slide-tag">核となる思想</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">ループ設計</div>
+        <h1 class="title">直して検証</h1>
+        <div class="lead">Defense Factoryは、疑わしい不具合を分離環境で再現し、パッチ案を作ってテストし、その後に本番で効果があったかまで回す枠組みです。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k"><i>i</i></div>
+            <div class="v">再現できるか調査</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>ii</i></div>
+            <div class="v">修正パッチを提案</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>iii</i></div>
+            <div class="v">本番の効果を確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide enumeration">
+      <div class="slide-tag">前提条件</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">再現性が鍵</div>
+        <h1 class="title">分離環境</h1>
+        <div class="lead">AIが調査・修正の妥当性を検証するには、コードや依存関係、サービスを切り出した“再現可能な環境”が必要です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">必要</div>
+            <div class="v">依存関係・設定・挙動の切り出し</div>
+          </div>
+          <div class="cell">
+            <div class="k">課題</div>
+            <div class="v">検証できないと判断が止まる</div>
+          </div>
+        </div>
+        <div class="mono" style="margin-top:14px;">例：再現率 19.5%</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide evidence">
+      <div class="slide-tag">スプリント結果</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">数字で見る</div>
+        <h1 class="title">運用の現実</h1>
+        <div class="lead">初期スプリントでは大規模に進めた一方、検知精度だけでなく“実行時検証”と“展開ギャップ”がボトルネックになり得ることが数値で示されています。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">ルーティング後</div>
+            <div class="v">オーナー確定率 90.6%</div>
+          </div>
+          <div class="cell">
+            <div class="k">重複案件</div>
+            <div class="v">割合 37%</div>
+          </div>
+          <div class="cell">
+            <div class="k">誤検知（実行時）</div>
+            <div class="v">0.81%</div>
+          </div>
+          <div class="cell">
+            <div class="k">再現できた割合</div>
+            <div class="v">19.5%</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide distinction">
+      <div class="slide-tag">難所</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">“置いて終わり”</div>
+        <h1 class="title">デプロイ</h1>
+        <div class="lead">マージされた修正が各システムへ確実にデプロイ（配布・反映）されないと、修正が“存在するだけ”になり、リスク低減が保証されません。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">誤検知</div>
+            <div class="v">0.81%（低い）</div>
+          </div>
+          <div class="cell">
+            <div class="k">より致命的</div>
+            <div class="v">実行時に再現不能 / 展開ギャップ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide process">
+      <div class="slide-tag">自動化の境界</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">安全設計</div>
+        <h1 class="title">人間レビュー</h1>
+        <div class="lead">影響の大きい変更は人がレビューし、デプロイ済み修正は独立に確認する方針が明記されています。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">AI</div>
+            <div class="v">調査・準備を加速</div>
+          </div>
+          <div class="cell">
+            <div class="k">人</div>
+            <div class="v">重要判断とレビュー</div>
+          </div>
+          <div class="cell">
+            <div class="k">独立確認</div>
+            <div class="v">本当に効いたか検証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide comparison">
+      <div class="slide-tag">評価ポイント</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">“目的”が違う</div>
+        <h1 class="title">見つける→下げる</h1>
+        <div class="lead">Defense Factoryの価値は「検知したか」ではなく「実際にリスクが下がったか」を同じループで扱う点にあります。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">従来寄り</div>
+            <div class="v">発見中心（その後は別工程）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Defense Factory</div>
+            <div class="v">証拠→修正→本番確認まで統合</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide evidence">
+      <div class="slide-tag">限界と望み</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">検証品質が未確定</div>
+        <h1 class="title">基盤が効く</h1>
+        <div class="lead">再現率 19.5% が示す通り、AIの能力だけでなく「分離環境の範囲」「観測可能性」「リリース整合性」が効果を左右します。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">不足情報（例）</div>
+            <div class="v">ログ/トレース形式、基準、判断ルール</div>
+          </div>
+          <div class="cell">
+            <div class="k">今後ほしい指標</div>
+            <div class="v">時間短縮・重大インシデント減の検証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide closing">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">結論</div>
+        <h1 class="title">防御のループ化</h1>
+        <div class="lead">Defense Factoryは、脆弱性対応を“再現・修正・本番効果確認”へ一体化することで運用を速くしようとする試みです。一方で、再現できない案件やデプロイギャップが残るため、基盤整備と安全な境界設計が鍵になります。</div>
+        <div class="hr"></div>
+        <div class="lead" style="margin-top:12px;">
+          重要語：ループ（<span style="font-style:italic; color:var(--ink-2);">loop</span>）／分離環境（<span style="font-style:italic; color:var(--ink-2);">sandbox</span> サンドボックス）
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://thehackernews.com/2026/03/openai-codex-security-scanned-12.html" target="_blank" rel="noreferrer noopener">OpenAI Codex Security Scanned 1.2 Million Commits and Found 10,561 High-Severity Issues</a></h2>
+<p class="reference-note">According to the AI company, the latest iteration of the application security agent leverages the reasoning capabilities…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://openai.com/the-defense-factory" target="_blank" rel="noreferrer noopener">Defense Factory | OpenAI</a></h2>
+<p class="reference-note">Agents can now conduct long-running cyber operations by abusing increasingly available open-weight models. In response, …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aiweekly.co/ai-use-cases/function/security-ops" target="_blank" rel="noreferrer noopener">AI in security operations: 22 real deployments | AI Weekly</a></h2>
+<p class="reference-note">Microsoft
+
+Microsoft is reorganizing its cybersecurity business around AI-assisted vulnerability discovery and automated…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://openai.com/index/hugging-face-model-evaluation-security-incident" target="_blank" rel="noreferrer noopener">OpenAI and Hugging Face partner to address security incident during ...</a></h2>
+<p class="reference-note">now to translate these capabilities into better prevention, faster detection, and more effective incident response. [...…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/openai-daybreak-codex-security-cyber-defense" target="_blank" rel="noreferrer noopener">OpenAI Daybreak: frontier AI for cyber defenders—what | explainx.ai Blog | explainx.ai</a></h2>
+<p class="reference-note">Codex Security is the product manifestation of Daybreak. According to OpenAI&#39;s site, it:
+
+Codex Security workflow diagra…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
