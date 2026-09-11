@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Edge0: SSD Streaming MoE 推論（prerouter + Recover-LoRA）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: block;
+      single: ;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0;
+      margin: 16px auto;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .slide-inner{
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      padding-top: 6px;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 30px;
+      left: 40px;
+      font-family: "Inter Tight", sans-serif;
+      font-size: 16px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-weight: 600;
+      text-transform: uppercase;
+      background: rgba(0,0,0,0.0);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 30px;
+      right: 40px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 6px 0;
+    }
+
+    .title{
+      font-size: 74px;
+      line-height: 0.98;
+      margin: 0 0 18px 0;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .grid{
+      margin-top: 18px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+    }
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .value{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.25;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .ref-note{
+      margin-top: 10px;
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.35;
+    }
+
+    .closing-hero{
+      position:absolute;
+      inset: 0;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      padding-left: 72px;
+      padding-right: 72px;
+      z-index: 1;
+    }
+
+    .closing-hero .title{
+      font-size: 86px;
+      margin-bottom: 10px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="slide-inner closing-hero">
+        <div class="eyebrow">SSDで賢く動かすMoE</div>
+        <h1 class="title"><em>Edge0</em> Streaming MoE</h1>
+        <div class="lead">
+          SSDストリーミングでMoE推論を軽くし、<span style="color:var(--rust); font-style: italic;">prerouter</span>と
+          <span style="color:var(--rust); font-style: italic;">Recover-LoRA</span>で待ち時間と品質を回復するフレームワーク。
+          <span style="font-weight:400; color:var(--ink-3);">（日: SSD専門家遅延ロード＋ルーティング予測）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">MoEの“重い現実”</div>
+        <h2 class="title">Why MoE hurts</h2>
+        <div class="lead">
+          MoEは入力ごとに専門家（experts）の一部だけ計算できる一方、experts重みのロードがボトルネックになりやすい。特にGPU外ではメモリとI/Oが効いてきます。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">瓶の口</div>
+            <div class="value">experts重みのI/O</div>
+          </div>
+          <div class="cell">
+            <div class="label">効き方</div>
+            <div class="value">RAMピーク増・待ち</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">“次を先回り”する設計</div>
+        <h2 class="title">Load &amp; Predict</h2>
+        <div class="lead">
+          Edge0は「必要になった専門家だけSSDから読む」だけでなく、<span style="color:var(--rust); font-style: italic;">prerouter</span>で次手のルーティングも先に予測し、ロード待ちを計算で隠します。
+        </div>
+        <div class="grid grid3" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">i</div>
+            <div class="value">SSD expert offload<br><span style="color:var(--ink-3); font-weight:300;">（遅延ロード）</span></div>
+          </div>
+          <div class="cell">
+            <div class="label">ii</div>
+            <div class="value">prerouter routing<br><span style="color:var(--ink-3); font-weight:300;">（一手先の予測）</span></div>
+          </div>
+          <div class="cell">
+            <div class="label">iii</div>
+            <div class="value">Recover-LoRA<br><span style="color:var(--ink-3); font-weight:300;">（4-bit損失を回復）</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">一体型パイプライン</div>
+        <h2 class="title">“定番構成”を実装化</h2>
+        <div class="lead">
+          コアの主張は、実運用で使われる <span style="color:var(--rust); font-style: italic;">SSD expert offload + Recover-LoRA + prerouter routing prediction</span> を、拡張可能なフレームワークとして一般化した点です。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">セット配送</div>
+            <div class="value">checkpoint + LoRA + prerouter head</div>
+          </div>
+          <div class="cell">
+            <div class="label">ロード方針</div>
+            <div class="value">mmapped / on-demand experts</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">性能の主因は“隠蔽”</div>
+        <h2 class="title">I/O を計算で覆う</h2>
+        <div class="lead">
+          結果として、prerouterによりエキスパート読込とフォワード計算を重ね、デコードスループットが最大<span style="color:var(--rust); font-style: italic;">約+59%</span>向上すると主張されています。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="value">ロード待ちの隠蔽</div>
+          </div>
+          <div class="cell">
+            <div class="label">手段</div>
+            <div class="value">“次のrouting”を先読み</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">2モデル、プロファイル差</div>
+        <h2 class="title">Edge0-35b vs Edge0-8b</h2>
+        <div class="lead">
+          違いは主にモデル規模、prerouterのK値、必要メモリ、推論スループットです。いずれも4-bitチェックポイントで提供されます。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">Edge0-35b</div>
+            <div class="value">4-bit / 40層 / 256 experts / prerouter K=4</div>
+          </div>
+          <div class="cell">
+            <div class="label">Edge0-8b</div>
+            <div class="value">4-bit / 24層 / 128 experts / prerouter K=8</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">Recover-LoRAの役割</div>
+        <h2 class="title">4-bitの穴を埋める</h2>
+        <div class="lead">
+          4-bit量子化で起きる品質低下を、distillation（蒸留）でLoRAを学習し、量子化由来の損失を回復するのがRecover-LoRAの狙いです。
+        </div>
+        <div class="grid grid3" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">入力</div>
+            <div class="value">FP教師モデル</div>
+          </div>
+          <div class="cell">
+            <div class="label">学習</div>
+            <div class="value">LoRA蒸留（distillation）</div>
+          </div>
+          <div class="cell">
+            <div class="label">運用</div>
+            <div class="value">アダプタを非マージ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">FP16との差は小さめ</div>
+        <h2 class="title">品質回復の主張</h2>
+        <div class="lead">
+          提示ベンチでは、FP16ベースに対してRecover-LoRAにより平均損失が小さいとされ、MMLU-ProなどでFP16を上回る例もあると説明されています。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">想定</div>
+            <div class="value">FP16に近づける</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意</div>
+            <div class="value">ベンチ条件に依存する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">バックエンド抽象化</div>
+        <h2 class="title">MLXを隔離して拡張</h2>
+        <div class="lead">
+          core logicはbackend facadeに依存し、MLXコードは特定ディレクトリに隔離されています。将来CUDAなどを追加しても中核変更を小さくできる設計です。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">現状</div>
+            <div class="value">MLXバックエンド（Apple Silicon向け）</div>
+          </div>
+          <div class="cell">
+            <div class="label">将来</div>
+            <div class="value">CUDA等を差し込みやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">導入時に詰まる点</div>
+        <h2 class="title">環境差が出る</h2>
+        <div class="lead">
+          古いMLXでA18/A18 Proにおける混在言語出力が崩れる可能性があり、<span class="mono">mlx==0.30.6</span> と <span class="mono">mlx-metal==0.30.6</span>へピン留めする必要があると明記されています。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">バージョン</div>
+            <div class="value"><span class="mono">mlx==0.30.6</span> / <span class="mono">mlx-metal==0.30.6</span></div>
+          </div>
+          <div class="cell">
+            <div class="label">実務観点</div>
+            <div class="value">依存関係固定・メモリ見積り</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">“再現性”と“検証”</div>
+        <h2 class="title">ベンチは参考値</h2>
+        <div class="lead">
+          <span class="mono">examples/bench.py</span>でcold/warm（初回ロードとページキャッシュ後）を区別する手順が示されていますが、SSD性能・OS差・プロンプト分布などは残り得ます。
+        </div>
+        <div class="grid" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">良い点</div>
+            <div class="value">測定手順が公開されている</div>
+          </div>
+          <div class="cell">
+            <div class="label">残る点</div>
+            <div class="value">環境差は完全には消えない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="slide-inner">
+        <div class="eyebrow">結論：一体化が価値</div>
+        <h2 class="title">実装が“運用向け”</h2>
+        <div class="lead">
+          Edge0はSSDストリーミング・prerouter・Recover-LoRA・アダプタ運用を統合し、さらにbackend分離で拡張も見据えたフレームワークです。導入前は依存バージョンとベンチ条件を押さえるのが安全です。
+        </div>
+        <div class="grid grid3" style="margin-top:26px;">
+          <div class="cell">
+            <div class="label">価値</div>
+            <div class="value">再現しやすい一体型</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意</div>
+            <div class="value">I/O・依存・ベンチ条件</div>
+          </div>
+          <div class="cell">
+            <div class="label">次</div>
+            <div class="value">自環境でcold/warm検証</div>
+          </div>
+        </div>
+        <div class="ref-note">（補足: 本スライドはREADME抜粋の要約です。内部実装やprerouter学習条件は未確認のため、性能主張は記載範囲で理解してください。）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
