@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenAI Agents API：durableエージェントをクラウドで動かす</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.45;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.12);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+      inset: 0;
+      border-radius: 10px;
+      outline: 1px solid var(--rule);
+      outline-offset: 0px;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius: 8px;
+    }
+    .topline{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 44px;
+      height: 0;
+      border-top: 1px solid var(--rule);
+      pointer-events:none;
+      opacity: 0.0;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 28px;
+      left: 72px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag:before{
+      content:"";
+      width: 26px;
+      height: 1px;
+      background: var(--rust);
+      box-shadow: 0 0 0 0 rgba(0,0,0,0);
+    }
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 72px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+      margin-top: 14px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 74px;
+      font-weight: 500;
+      margin: 0 0 14px 0;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .lead{
+      max-width: 760px;
+      font-size: 22px;
+      font-weight: 300;
+      margin: 0;
+      color: var(--ink-2);
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 18px;
+    }
+
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 14px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.12);
+      border-radius: 10px;
+      padding: 14px 14px;
+      min-height: 74px;
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .v{
+      font-size: 20px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .muted{ color: var(--ink-3); }
+    .nowrap{ white-space: nowrap; }
+
+    .smallnote{
+      font-size: 16px;
+      color: var(--ink-3);
+      margin-top: -6px;
+    }
+
+    .refs{
+      max-width: 980px;
+      width: 100%;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+    }
+    .refs .list{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 18px;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .linkstyle{
+      color: var(--ink-2);
+      text-decoration: underline;
+      text-decoration-color: rgba(240,232,216,0.35);
+      text-underline-offset: 4px;
+    }
+
+    @media (max-width: 760px){
+      .slide{ padding: 48px 20px; }
+      .slide-tag{ left: 20px; }
+      .slide-num{ right: 20px; }
+      .eyebrow{ margin-top: 0; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+        <div class="eyebrow">クラウドで動く耐久エージェント</div>
+        <h1 class="title">Agents APIで<span class="em">durable</span>実行</h1>
+        <p class="lead">OpenAIのAgents APIを使い、サンドボックス実行とセッション継続を備えた“耐久性のある”エージェントを、クラウド上で構築・運用します。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+        <div class="eyebrow">会話だけでは足りない</div>
+        <h1 class="title"><span class="em">作業</span>を完遂したい</h1>
+        <p class="lead">調査・再現・編集・成果物生成を“途中からでも続けられる”設計が必要で、単なるチャット入出力では運用が崩れがちです。</p>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">よくある詰まり</div>
+            <div class="v">進捗が見えない／失敗で止まる／状態を毎回作り直す</div>
+          </div>
+          <div class="card">
+            <div class="k">求める状態</div>
+            <div class="v">セッション継続＋イベント監視＋サンドボックス実行</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+        <div class="eyebrow">設計図と整備士</div>
+        <h1 class="title">あなたは<span class="em">設計</span>、OpenAIは<span class="em">運用</span></h1>
+        <p class="lead">アプリ側は「モデル・指示・ツール/MCP・実行環境」を決め、OpenAI側はセッション管理・オーケストレーション・回復まで面倒を見ます。</p>
+
+        <div class="grid grid-3" style="margin-top:6px;">
+          <div class="card">
+            <div class="k">アプリ側</div>
+            <div class="v">設計する</div>
+            <div class="smallnote">instructions / tools / MCP</div>
+          </div>
+          <div class="card">
+            <div class="k">OpenAI側</div>
+            <div class="v">進める</div>
+            <div class="smallnote">session / orchestration</div>
+          </div>
+          <div class="card">
+            <div class="k">目的</div>
+            <div class="v">完遂</div>
+            <div class="smallnote">durable実行</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+        <div class="eyebrow">4つで整理する</div>
+        <h1 class="title"><span class="em">Agent</span> / Environment / Session</h1>
+        <p class="lead">エージェント（LLM+指示+ツール/MCP）、環境（サンドボックス等）、セッション（状態保持）、イベント/アイテム（入出力）で全体像を把握します。</p>
+
+        <div class="grid grid-2" style="margin-top:8px;">
+          <div class="card">
+            <div class="k">Agent（エージェント）</div>
+            <div class="v">LLM＋instructions＋tools/MCP</div>
+          </div>
+          <div class="card">
+            <div class="k">Environment（実行環境）</div>
+            <div class="v">任意のサンドボックス等</div>
+          </div>
+          <div class="card">
+            <div class="k">Session（セッション）</div>
+            <div class="v">状態を保持する実行単位</div>
+          </div>
+          <div class="card">
+            <div class="k">Events / items（イベント）</div>
+            <div class="v">進捗や要求のやり取り</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">06 / 16</div>
+        <div class="eyebrow">サンドボックスで実行</div>
+        <h1 class="title">成果物まで<span class="em">出す</span></h1>
+        <p class="lead">単なる回答ではなく、サンドボックス上でコード実行・ファイル編集・外部接続（MCP等）を行い、artifact（成果物）を生成できます。</p>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">コード実行</div>
+            <div class="v">再現・検証を実施</div>
+          </div>
+          <div class="card">
+            <div class="k">ファイル編集</div>
+            <div class="v">修正・整理</div>
+          </div>
+          <div class="card">
+            <div class="k">成果物（artifact）</div>
+            <div class="v">出力として納品</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
+          <div class="k">外部連携</div>
+          <div class="v">MCPサーバ接続／tools組み合わせで知識やデータ取得を強化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 16</div>
+        <div class="eyebrow">運用フローは4ステップ</div>
+        <h1 class="title"><span class="em">作成→投入→観測→継続</span></h1>
+        <p class="lead">セッションを作成し、準備完了後にタスク投入し、ストリーミング/Webhookで進捗や追加入力を把握し、同じセッションに追加タスクで継続します。</p>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">i. セッション作成</div>
+            <div class="v">状態の入れ物を用意</div>
+          </div>
+          <div class="card">
+            <div class="k">ii. タスク投入</div>
+            <div class="v">エージェントに実行開始</div>
+          </div>
+          <div class="card">
+            <div class="k">iii. 進捗観測</div>
+            <div class="v">出力ストリーミング／Webhook</div>
+          </div>
+          <div class="card">
+            <div class="k">iv. 追加タスク</div>
+            <div class="v">同一セッションで誘導・継続</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 16</div>
+        <div class="eyebrow">“durable”の要点</div>
+        <h1 class="title">ターン跨ぎで<span class="em">継続</span></h1>
+        <p class="lead">セッション状態が維持されるため、会話履歴を毎回作り直さずに、長い調査・修正ワークフローを段階的に進めやすくなります。</p>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">メリット</div>
+            <div class="v">途中成果を次の判断に再利用</div>
+          </div>
+          <div class="card">
+            <div class="k">向く用途</div>
+            <div class="v">調査／修復／再現／編集／実務レビュー</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">09 / 16</div>
+        <div class="eyebrow">チャットとの違い</div>
+        <h1 class="title">“実行管理”が<span class="em">中核</span></h1>
+        <p class="lead">チャットAPIはテキスト入出力中心ですが、Agents APIはセッション状態・進捗イベント・サンドボックス実行・連携機能を含めて進行を管理します。</p>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">通常のチャット</div>
+            <div class="v">主にテキスト</div>
+            <div class="smallnote">コンテキストは外部で再構築が必要になりがち</div>
+          </div>
+          <div class="card">
+            <div class="k">Agents API</div>
+            <div class="v">主にワークフロー</div>
+            <div class="smallnote">session / orchestration / sandbox</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">10 / 16</div>
+        <div class="eyebrow">コストの決まり方</div>
+        <h1 class="title">モデル＋環境で<span class="em">変動</span></h1>
+        <p class="lead">基本は選択したモデルのAPIレートで課金され、加えてOpenAIツールやOpenAIホストのサンドボックスも標準レートで課金されます。</p>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">ベース</div>
+            <div class="v">モデルAPIレート</div>
+          </div>
+          <div class="card">
+            <div class="k">追加要素</div>
+            <div class="v">OpenAIツール</div>
+          </div>
+          <div class="card">
+            <div class="k">追加要素</div>
+            <div class="v">OpenAIホストSB</div>
+          </div>
+        </div>
+
+        <p class="smallnote">実コストは、どのtools/MCPや環境タイプを使うかで変わる可能性があります。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">11 / 16</div>
+        <div class="eyebrow">ガバナンスは最優先</div>
+        <h1 class="title">データレジデンシ<span class="em">注意</span></h1>
+        <p class="lead">データレジデンシは米国のみ対応で、Zero Data Retention（ZDR）には対応していません。セルフホスト型サンドボックス選択でもZDR適格にならないと明記されています。</p>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">データレジデンシ</div>
+            <div class="v">米国のみ対応</div>
+            <div class="smallnote">Data Residency（データ所在地）</div>
+          </div>
+          <div class="card">
+            <div class="k">ZDR（保持なし）</div>
+            <div class="v">非対応</div>
+            <div class="smallnote">Zero Data Retention（保持ゼロ）</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
+          <div class="k">結論</div>
+          <div class="v">情報取り扱い要件（コンプライアンス/保持ポリシー）を事前確認必須</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">12 / 16</div>
+        <div class="eyebrow">設計判断のFAQ</div>
+        <h1 class="title">最低限の<span class="em">前提</span></h1>
+
+        <div class="grid grid-2" style="margin-top:8px;">
+          <div class="card">
+            <div class="k">Q1 違いは？</div>
+            <div class="v">セッション保持＋サンドボックス実行管理</div>
+          </div>
+          <div class="card">
+            <div class="k">Q2 進捗は？</div>
+            <div class="v">ストリーミング or Webhookで把握</div>
+          </div>
+          <div class="card">
+            <div class="k">Q3 ZDRは？</div>
+            <div class="v">セルフホストでもZDR適格ではない</div>
+          </div>
+          <div class="card">
+            <div class="k">Q5 MCPは必須？</div>
+            <div class="v">必須とは書かれていない（toolsで構成可能）</div>
+          </div>
+        </div>
+
+        <p class="smallnote">“durable”とデータ制約（レジデンシ/ZDR）が、最初に効いてくる判断軸です。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+        <div class="eyebrow">導入の安全な進め方</div>
+        <h1 class="title"><span class="em">強み</span>は明確、確認も必須</h1>
+        <p class="lead">Agents APIは管理された実行ハーネスとして強力ですが、この断片だけではイベント形式や失敗時回復、権限モデルの詳細が不足します。導入前にガバナンスと仕様確認を補完して設計に落とすのが安全です。</p>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="card">
+            <div class="k">事前確定</div>
+            <div class="v">データ分類／保持期間／監査／越境の可否</div>
+          </div>
+          <div class="card">
+            <div class="k">追加で埋める</div>
+            <div class="v">tools/MCPのアクセス範囲、実行制約、安全策、課金内訳</div>
+          </div>
+        </div>
+
+        <div class="refs">
+          <div class="card" style="margin-top:12px;">
+            <div class="k">参考（提示断片ベース）</div>
+            <div class="v muted">OpenAI Agents API / Codex harness / サンドボックス / セッション / ZDR / Data Residency に関する記述を要約</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.spendhound.com/marketplace/openai-pricing" target="_blank" rel="noreferrer noopener">OpenAI Pricing 2026: Plans, Spend Data, and How to Pay Less</a></h2>
+<p class="reference-note">| Service | Pricing |
+ --- |
+| Web Search | $10 per 1,000 calls (search content tokens free) |
+| Containers (Code Execut…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.cloudzero.com/blog/openai-pricing" target="_blank" rel="noreferrer noopener">OpenAI API pricing in 2026: every model after the July ...</a></h2>
+<p class="reference-note">Quick Answer
+
+OpenAI API pricing is billed per million tokens, and the ladder just moved. After OpenAI&#39;s July 30, 2026 p…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://zylo.com/blog/openai-api-pricing" target="_blank" rel="noreferrer noopener">OpenAI API Pricing 2026: Models, Tokens &amp; Costs | Zylo</a></h2>
+<p class="reference-note">OpenAI API pricing is based on tokens, with separate rates for input and output. Costs vary by model, but pricing is typ…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://openai.com/business/pricing" target="_blank" rel="noreferrer noopener">Business Pricing | OpenAI</a></h2>
+<p class="reference-note">Advanced data privacy with custom data retention policies, encryption at rest and in transit, and no training on your bu…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.metacto.com/blogs/unlocking-the-true-cost-of-openai-api-a-deep-dive-into-usage-integration-and-maintenance" target="_blank" rel="noreferrer noopener">OpenAI API Pricing May 2026: GPT-5.5, o4-mini &amp; All Models</a></h2>
+<p class="reference-note">Navigate to the OpenAI Usage Dashboard to track your spending in real time. OpenAI provides detailed logs broken down by…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
