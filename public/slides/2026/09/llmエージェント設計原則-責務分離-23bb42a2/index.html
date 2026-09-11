@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLMエージェント設計原則（責務分離）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    html, body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--paper);
+      border-radius: 16px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      pointer-events:none;
+    }
+
+    .inner {
+      position: absolute;
+      inset: 0;
+      padding: 56px 72px 56px 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      box-sizing: border-box;
+    }
+
+    .tag-row{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 12px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-size: 18px;
+      text-transform: uppercase;
+      line-height: 1;
+      padding-top: 2px;
+      border-left: 6px solid var(--rust);
+      padding-left: 14px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 78px;
+      font-weight: 500;
+      line-height: 0.95;
+      letter-spacing: 0.01em;
+      margin: 0;
+    }
+
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-size: 54px;
+      font-weight: 500;
+      display: inline-block;
+      transform: translateY(-2px);
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+    }
+
+    .grid{
+      margin-top: 2px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .kv-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+      width: 100%;
+      align-items: start;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+
+    .cell .v{
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .list-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+      margin-top: 6px;
+    }
+
+    .pill{
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 10px 12px;
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      color: var(--ink-2);
+      background: rgba(0,0,0,0.08);
+      display:inline-block;
+    }
+
+    .refs{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .ref-item{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+
+    .ref-title{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+
+    .ref-body{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    @media (max-width: 860px){
+      .inner{ padding: 44px 44px 44px 44px; }
+      .title{ font-size: 62px; }
+      .title .jp{ font-size: 42px; }
+      .lead{ font-size: 18px; }
+      .kv-grid{ grid-template-columns: 1fr; }
+      .list-grid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">LLM AGENT</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">保証は分ける、実行は縛る</div>
+        <h2 class="title"><em>責務</em>分離設計 <span class="jp">（設計原則）</span></h2>
+        <div class="lead">
+          LLMは「次に来そうなトークン」を確率的に生成する仕組みであり、業務の厳密な保証（真偽・順序・状態・権限）を単独で担うのは危険です。
+          だから境界（採用条件）を外側のコンポーネントで設計します。<span class="mono"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">誤りが“事故”になる</div>
+        <h2 class="title">チャットの誤り <span class="jp">は別物</span></h2>
+        <div class="lead">
+          チャットでは誤答でも致命傷になりにくい一方、エージェントでは誤った出力が「状態変更」や「実行」に直結し得ます。
+          そのため“何を保証すべきか”を、LLMの内側に置かない設計が要点になります。
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide architecture">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">MODEL LIMIT</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">統計生成＝保証ではない</div>
+        <h2 class="title">次トークン予測 <span class="jp">（生成器）</span></h2>
+        <div class="lead">
+          LLMは文字列そのものを「正しい事実」として扱うのではなく、Tokenizer後のトークン列を確率的に生成します。
+          そのため「1文字単位の編集」「厳密な識別子照合」などの保証はコード/Parser/Schema/Validator側に寄せます。 
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide metaphor">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">SEPARATION</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">LLMは“候補”、外側が“採用”</div>
+        <h2 class="title">採用条件を <span class="jp">別管理</span></h2>
+        <div class="lead">
+          LLMは「候補（言い換え・判断のたたき台）」を作り、最終採用はWorkflow/DB/形式レイヤ/検証が決めます。
+          温度（Temperature）を下げるだけでは保証にならず、“出せない操作”を作る設計が必要です。
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide process">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">FLOW</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">役割分担（入口→根拠→状態→実行）</div>
+        <h2 class="title">責務のレイヤ分解</h2>
+        <div class="lead">
+          設計の基本は、情報取得・意味構造・業務状態・制約・実行を別コンポーネントへ分けることです。
+          下の対応付けはその代表例です。<span class="jp"></span>
+        </div>
+
+        <div class="kv-grid" aria-label="責務レイヤ対応">
+          <div class="cell">
+            <div class="k">文書取得</div>
+            <div class="v">検索 / RAG（根拠の提示）</div>
+          </div>
+          <div class="cell">
+            <div class="k">意味構造</div>
+            <div class="v">Knowledge Graph（関係の整形）</div>
+          </div>
+          <div class="cell">
+            <div class="k">業務状態</div>
+            <div class="v">Database / Workflow（状態遷移の正解）</div>
+          </div>
+          <div class="cell">
+            <div class="k">可否判断</div>
+            <div class="v">形式レイヤ（制約評価・採用判定）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide distinction">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">STATE</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">Attentionは状態の正解を持たない</div>
+        <h2 class="title">順序・状態遷移 <span class="jp">は保証外</span></h2>
+        <div class="lead">
+          自己注意（Self-Attention）は内容同士の関係づけは得意でも、「新規→仕分け済→承認済→実行済」の正解状態を更新する機構ではありません。
+          長期稼働では状態の正解をContext WindowではなくDB/Workflow側に置きます。 
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide evidence">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">TRUTH</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">CoTの数値は“真”ではない</div>
+        <h2 class="title">中間結果の <span class="jp">採用禁止</span></h2>
+        <div class="lead">
+          CoT（Chain of Thought）を外部化して参照できても、その中間結果がDatabaseの事実や権限条件と一致する保証はありません。
+          例：在庫=32のような数値は、モデル出力を“真”として採用せず外部参照と検証で確定します。<span class="jp"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide comparison">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">CONTROL</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">温度は安全策ではない</div>
+        <h2 class="title">Temperature vs 制約</h2>
+        <div class="lead">
+          Temperatureを下げてばらつきは減っても、ルール遵守の保証にはなりません。
+          「採用できない操作を出せない」構造（Constrained Decoding / JSON Schema / 型チェック / 外部検証）が必要です。
+        </div>
+
+        <div class="list-grid" aria-label="比較">
+          <div class="cell">
+            <div class="k">Temperature</div>
+            <div class="v">誤り低減の“可能性”</div>
+            <div class="small">保証ではない／境界を変えない</div>
+          </div>
+          <div class="cell">
+            <div class="k">Structured Output</div>
+            <div class="v">形（スキーマ）を強制</div>
+            <div class="small">型・範囲で落とす</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証・制約</div>
+            <div class="v">採用可否を決める</div>
+            <div class="small">外部真偽・権限・順序を確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide enumeration">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">KEY RISKS</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">“どこで壊れるか”を分類</div>
+        <h2 class="title">誤りの種 <span class="jp">（分類）</span></h2>
+        <div class="lead">
+          記事の主張は、ハルシネーションを一括で処理するのでなく、誤りが出る領域と潰す領域を対応づけることです。
+          下は要点の整理です。<span class="jp"></span>
+        </div>
+
+        <div class="kv-grid" aria-label="リスク分類">
+          <div class="cell">
+            <div class="k"><span style="font-style:italic;color:var(--rust)">i</span> 粒度不一致</div>
+            <div class="v">文字数・編集・識別子は保証が必要</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span style="font-style:italic;color:var(--rust)">ii</span> 状態管理欠落</div>
+            <div class="v">順序・遷移の正解はDB/Workflowへ</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span style="font-style:italic;color:var(--rust)">iii</span> 真偽の採用ミス</div>
+            <div class="v">CoT/数値を“真”として扱わない</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span style="font-style:italic;color:var(--rust)">iv</span> 代替の誤解</div>
+            <div class="v">Temperatureでルールは保証できない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide problem">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">FAQ</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">よくある疑問：設計の答え</div>
+        <h2 class="title">Q→A <span class="jp">要約</span></h2>
+        <div class="lead">
+          主要な疑問には一貫した結論があります：RAGやTemperatureだけでは“採用条件”は保証できず、外側で検証・制約・監査を設計します。
+        </div>
+
+        <div class="grid" style="margin-top:6px;">
+          <div class="kv-grid">
+            <div class="cell">
+              <div class="k">Q: LLMは理解しているのに？</div>
+              <div class="v">保証ではなく、統計生成が目的だから</div>
+              <div class="small">監査可能性は外側で担保</div>
+            </div>
+            <div class="cell">
+              <div class="k">Q: RAGで消える？</div>
+              <div class="v">完全には消えない</div>
+              <div class="small">制約・状態遷移は別途検証</div>
+            </div>
+          </div>
+          <div class="kv-grid">
+            <div class="cell">
+              <div class="k">Q: CoTを見せるのは？</div>
+              <div class="v">中間結果を“真”扱いしない</div>
+              <div class="small">採用は外部事実で決める</div>
+            </div>
+            <div class="cell">
+              <div class="k">Q: Temperatureで？</div>
+              <div class="v">保証にはならない</div>
+              <div class="small">スキーマ・型・制約で狭める</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide closing">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">TAKEAWAY</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">最終結論：境界とガバナンス</div>
+        <h2 class="title"><em>設計</em>の着地点</h2>
+        <div class="lead">
+          AIエージェントでは誤りが状態変更へ直結するため、「どこまでをLLMに任せ、どこで検証・監査・承認するか」を先に決めます。
+          さらに複数SoR（System of Record）がある場合は、最終採用ルールと矛盾解消（優先順位・整合性復旧）まで含めて設計します。<span class="jp"></span>
+        </div>
+
+        <div class="list-grid" aria-label="実装の指針">
+          <div class="cell">
+            <div class="k">任せる</div>
+            <div class="v">候補生成（文章・操作案）</div>
+          </div>
+          <div class="cell">
+            <div class="k">決める</div>
+            <div class="v">採用可否（制約・形式・検証）</div>
+          </div>
+          <div class="cell">
+            <div class="k">保証する</div>
+            <div class="v">状態・監査（DB/Workflow/ログ）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 References -->
+    <section class="slide closing">
+      <div class="inner">
+        <div class="tag-row">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参考（この要約で触れた領域）</div>
+        <h2 class="title">参照トピック <span class="jp">（概念）</span></h2>
+        <div class="lead">
+          元記事の詳細な引用は提供されていないため、ここでは本文中で論じられた主要概念の参照先を“カテゴリ”として整理します。
+        </div>
+
+        <div class="refs" aria-label="参考カテゴリ">
+          <div class="ref-item">
+            <div class="ref-title">LLMの基礎</div>
+            <div class="ref-body">次トークン予測（probabilistic token generation）／Tokenizer／推論の中間表現</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">エージェント設計</div>
+            <div class="ref-body">状態管理（state machine）／Workflow / DB（System of Record）／監査ログ</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">検証・形式手法</div>
+            <div class="ref-body">JSON Schema / 型チェック / Constrained Decoding / 形式レイヤ（制約評価）</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">根拠付け</div>
+            <div class="ref-body">RAG（Retrieval-Augmented Generation）／検索・根拠参照／Knowledge Graph</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://zenn.dev/knowledge_graph/articles/llm-what-is-not-guaranteed" target="_blank" rel="noreferrer noopener">LLMの構造的限界から考える、AIエージェントの設計原則</a></h2>
+<p class="reference-note">モデルが学習によってうまく出来るようになることはあります。それでも「できること」と「その表現形式が操作を保証していること」は違います。本番で文字単位の正確さが必要なら、コード、Parser、Schema、制約付きの出力、Validator …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dx-pro.resocia.jp/rpa_column/093" target="_blank" rel="noreferrer noopener">【2026年最新】AIエージェントフレームワークとは？比較と本番運用に向けた選定ガイド</a></h2>
+<p class="reference-note">プロンプト管理とLLMインターフェース：多様な言語モデル（GPT-4、Claude、Geminiなど）と接続し、指示を最適化する機能
+ メモリ・状態管理（ステート管理）：過去の対話履歴や現在進行中のタスクの進捗を記憶し、文脈を維持する機能
+…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://learn.microsoft.com/ja-jp/agent-framework/journey/llm-fundamentals" target="_blank" rel="noreferrer noopener">LLM の基礎 | Microsoft Learn</a></h2>
+<p class="reference-note">Note
+
+これらの制限の多くは、エージェントが対処するように設計されているものです。 ツールを使用すると、エージェントはリアルタイムの知識を操作または取得したり、コードを実行して応答を取得したりでき、セッションは永続的なメモリを提供します…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.truefoundry.com/ja/blog/llm-agents" target="_blank" rel="noreferrer noopener">LLMエージェント：2026年版完全ガイド</a></h2>
+<p class="reference-note">## LLMエージェントとは？
+
+LLMエージェントは、大規模言語モデルの上に構築されたインテリジェントなシステムであり、単にプロンプトに応答するだけでなく、行動を起こすように設計されています。計画を立て、推論し、ツールを使用し、メモリを維…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ai-heartland.com/explain/ai-agent-token-optimization-guide-2026" target="_blank" rel="noreferrer noopener">AIエージェントのトークン最適化｜コスト削減とコンテキスト管理の5アプローチ2026</a></h2>
+<p class="reference-note">### なぜトークン消費が増えるのか
+
+1. コマンド出力の冗長性 `git status`や`ls -la`の出力には、LLMが本当に必要とする情報以外のものが大量に含まれる。パーミッション情報、タイムスタンプ、無関係なファイルパス——こ…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
