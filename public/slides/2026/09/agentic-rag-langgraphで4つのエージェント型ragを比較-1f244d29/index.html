@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agentic RAG：LangGraphで4つのエージェント型RAGを比較</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: block;
+    }
+
+    .slide{
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 14px;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      overflow: hidden;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 30px;
+      height: 1px;
+      background: var(--rule);
+      opacity: 0.9;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      letter-spacing: .16em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1.1;
+      position:absolute;
+      top: 26px;
+      left: 28px;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 24px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      letter-spacing: .02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+    }
+
+    .title{
+      margin: 0 0 16px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: -0.02em;
+      line-height: 1.02;
+      color: var(--ink);
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: 0;
+    }
+
+    .sub{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      margin-top: 10px;
+      max-width: 760px;
+    }
+
+    .grid{
+      display: grid;
+      gap: 16px 14px;
+      margin-top: 18px;
+      width: 100%;
+    }
+
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      border-radius: 12px;
+      padding: 14px 14px;
+      min-height: 76px;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: .04em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      line-height: 1.1;
+    }
+
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .refs{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .ref-item .rtitle{
+      font-size: 18px;
+      color: var(--ink);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .ref-item .rmeta{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    /* Responsive: keep 16:9 and scale down width; never change aspect ratio */
+    @media (max-width: 700px){
+      .deck{ width: calc(100vw - 28px); padding: 16px 0 56px; }
+      .slide{ padding: 28px 20px; border-radius: 12px; }
+      .slide-tag{ top: 18px; left: 16px; }
+      .slide-num{ top: 16px; right: 16px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .slide::after{ left: 20px; right: 20px; bottom: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="slide-tag">Agentic RAG</div>
+      <div class="slide-num">02 / 18</div>
+      <p class="eyebrow">自分で判断するRAG</p>
+      <h1 class="title">Agentic <em>RAG</em></h1>
+      <p class="lead">検索＋生成（RAG）に「分岐する仕組み（agent）」を足し、検索要否・検索先・再検索・採否をLLMに任せます。</p>
+      <p class="sub">本デッキは LangGraph の4つのNotebook（パターン）を、どこで判断・どこで検証するかの観点で圧縮整理します。</p>
+    </section>
+
+    <section class="slide" aria-label="Problem framing">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 18</div>
+      <p class="eyebrow">固定パイプラインの限界</p>
+      <h1 class="title">通常RAGは <em>分岐しない</em></h1>
+      <p class="lead">通常のRAGは「一度検索→そのまま生成」が基本で、状況に応じた“検索の要否”や“検索先”の切り替えが苦手です。</p>
+      <div class="grid grid-2" style="margin-top:16px;">
+        <div class="cell">
+          <div class="k">無駄</div>
+          <div class="v">不要な検索や過剰な取り込み</div>
+        </div>
+        <div class="cell">
+          <div class="k">事故</div>
+          <div class="v">不十分な根拠で生成（誤り/取り違え）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Core idea">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 18</div>
+      <p class="eyebrow">判断をワークフローへ</p>
+      <h1 class="title">Agentic は <em>分岐する</em></h1>
+      <p class="lead">Agentic RAGはLLMが「検索が必要か」「どのナレッジベースか」「根拠が足りないなら修正や再検索」を状況に応じて選びます。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">いつ</div>
+          <div class="v">検索する/しない</div>
+        </div>
+        <div class="cell">
+          <div class="k">何を</div>
+          <div class="v">検索先（KB/ Web）</div>
+        </div>
+        <div class="cell">
+          <div class="k">どうする</div>
+          <div class="v">再検索・採否・失敗時の処理</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Repo overview">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 18</div>
+      <p class="eyebrow">4つの段階的パターン</p>
+      <h1 class="title">LangGraph <em>4Notebook</em></h1>
+      <p class="lead">「Agentic」「Corrective」「Adaptive」「Human-in-the-Loop」を、自己完結Jupyter Notebookとして比較できるリポジトリです。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">共通基盤</div>
+          <div class="v">RAG（ローカル検索/ベクトル）＋自己評価（grounding等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">差分の軸</div>
+          <div class="v">“自信確認”の深さと、自動化の範囲（人への委譲含む）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Notebook 1 Agentic RAG">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">06 / 18</div>
+      <p class="eyebrow">最初の判断：Agentic</p>
+      <h1 class="title">Notebook 1：<em>Agentic RAG</em></h1>
+      <p class="lead">LLMが「検索するか」「どの知識源を検索するか」「取得が十分なら回答、足りなければクエリ修正」をツール呼び出しで分岐します。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">分岐 i</div>
+          <div class="v">検索要否（必要/不要）</div>
+        </div>
+        <div class="cell">
+          <div class="k">分岐 ii</div>
+          <div class="v">検索先（KBの選択）</div>
+        </div>
+        <div class="cell">
+          <div class="k">分岐 iii</div>
+          <div class="v">十分性→回答/不足→再構成</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Notebook 2 Corrective RAG">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">07 / 18</div>
+      <p class="eyebrow">ローカルで不十分なら</p>
+      <h1 class="title">Notebook 2：<em>Corrective RAG</em></h1>
+      <p class="lead">まずローカル文書を検索し、関連性が不十分なら Tavily によるライブWeb検索へフォールバックします。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">手順</div>
+          <div class="v">ローカル検索 → 関連性評価</div>
+        </div>
+        <div class="cell">
+          <div class="k">失敗時</div>
+          <div class="v">Tavily（Web）で補完</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Notebook 3 Adaptive RAG">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">08 / 18</div>
+      <p class="eyebrow">ルーティング＋自己検証</p>
+      <h1 class="title">Notebook 3：<em>Adaptive RAG</em></h1>
+      <p class="lead">冒頭で「ローカルベクトルへ送るかWebへ行くか」をルーティングし、生成後も grounding（根拠）と回答適合性を自己チェックします。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">最初</div>
+          <div class="v">ルーティング（KB→Web）</div>
+        </div>
+        <div class="cell">
+          <div class="k">最後</div>
+          <div class="v">groundedチェック（根拠）</div>
+        </div>
+        <div class="cell">
+          <div class="k">失敗時</div>
+          <div class="v">自己検証失敗→リトライ</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Notebook 4 HITL">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">09 / 18</div>
+      <p class="eyebrow">最終判断は人へ</p>
+      <h1 class="title">Notebook 4：<em>HITL RAG</em></h1>
+      <p class="lead">Adaptiveと同様に自己評価を行いつつ、判断の最終権限を人間に移します。LangGraph の interrupt/resume で承認・修正を挟めます。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">停止</div>
+          <div class="v">interruptで一時停止し、評価結果を提示</div>
+        </div>
+        <div class="cell">
+          <div class="k">再開</div>
+          <div class="v">Command(resume=...)で処理を継続</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Vocabulary and dependencies">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">10 / 18</div>
+      <p class="eyebrow">知っておくと速い語</p>
+      <h1 class="title">用語の <em>依存関係</em></h1>
+      <p class="lead">理解を早めるため、RAG・vectorstore・ツール呼び出し・自己評価（grounding/relevance/ hallucination対策）の役割だけ整理します。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">検索/格納</div>
+          <div class="v">vectorstore（ベクトルDB）＋retrieval（関連文書取得）</div>
+        </div>
+        <div class="cell">
+          <div class="k">分岐/実行</div>
+          <div class="v">ツール呼び出し＋agent（検索要否・検索先・再試行の判断）</div>
+        </div>
+        <div class="cell">
+          <div class="k">自己評価</div>
+          <div class="v">grounding（根拠）/ relevance（関連性）/ answer check</div>
+        </div>
+        <div class="cell">
+          <div class="k">リスク</div>
+          <div class="v">hallucination対策（根拠不足の抑制）※LLM評価ゆえ誤判定は残る</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence: why it helps">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">11 / 18</div>
+      <p class="eyebrow">効きそうな理由</p>
+      <h1 class="title">品質とコストの <em>両面</em></h1>
+      <p class="lead">Agenticにより「不要検索を減らす」「誤りに気づいて修正へ寄せる」ことが狙えます。一方、自己判断が外れると逆効果の可能性もあります。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">期待できること</div>
+          <div class="v">検索の要否・検索先を適応的に選ぶ（計算削減＋品質向上）</div>
+        </div>
+        <div class="cell">
+          <div class="k">残ること</div>
+          <div class="v">自己判断の根拠が弱いと誤ルート（再検索ループ等）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Comparison: automation spectrum">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">12 / 18</div>
+      <p class="eyebrow">自信確認の深さ</p>
+      <h1 class="title">自動化の <em>スペクトラム</em></h1>
+      <p class="lead">自信確認（自己チェック）が増えるほど、自動での修正・リトライが可能になり、ただしLLM評価依存のリスクとコストも増えます。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">Agentic</div>
+          <div class="v">主に“検索の分岐”</div>
+        </div>
+        <div class="cell">
+          <div class="k">Adaptive</div>
+          <div class="v">“検索/生成後”の自己検証＋リトライ</div>
+        </div>
+        <div class="cell">
+          <div class="k">HITL</div>
+          <div class="v">“最終判断”を人へ委譲</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Risks and mitigations">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">13 / 18</div>
+      <p class="eyebrow">落とし穴：評価は推定</p>
+      <h1 class="title">自己チェックの <em>限界</em></h1>
+      <p class="lead">自己評価はLLMの推定なので、誤判定で自動リトライが増える可能性があります。重要用途ではHITLや追加検証が無難です。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">誤判定</div>
+          <div class="v">関連性/根拠/回答適合の“critic”が外れる</div>
+        </div>
+        <div class="cell">
+          <div class="k">コスト</div>
+          <div class="v">リトライ増→レイテンシ・API費用が上がる</div>
+        </div>
+        <div class="cell">
+          <div class="k">Webの外部性</div>
+          <div class="v">ページ更新で結果が変動、情報源の信頼性も揺れる</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">最大ループ回数、ガードレール、ログ/監査設計が必要</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Implementation notes">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">14 / 18</div>
+      <p class="eyebrow">動かすための要点</p>
+      <h1 class="title">セットアップの <em>実務</em></h1>
+      <p class="lead">ローカル埋め込み（sentence-transformers：bge-m3）とChroma、APIキー（GROQ/Tavily）、uv環境、そして“実行時の変動要因”を前提に理解します。</p>
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="k">推奨構成</div>
+          <div class="v">sentence-transformers（bge-m3）＋Chroma（vectorstore）</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意点</div>
+          <div class="v">chromaデータはコミットしない／kernelミスで依存解決が崩れる</div>
+        </div>
+        <div class="cell">
+          <div class="k">実行時</div>
+          <div class="v">スクレイピング→ページ更新でベクトル化内容が変わる</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">APIキー分離、再現性（uv）、ログ、失敗時挙動を明確化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Closing">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">15 / 18</div>
+      <p class="eyebrow">結論：選べる設計</p>
+      <h1 class="title">“どこまで自動化”が <em>教材の価値</em></h1>
+      <p class="lead">このリポジトリは、Agentic→Corrective→Adaptive→HITLへと段階的に「判断・検証・責任分界」を見せます。</p>
+      <div class="grid grid-2" style="margin-top:14px;">
+        <div class="cell">
+          <div class="k">強み（学習）</div>
+          <div class="v">LangGraph実装パターンで比較できる（理論で終わらない）</div>
+        </div>
+        <div class="cell">
+          <div class="k">前提（実運用）</div>
+          <div class="v">自己評価の誤差・Web変動・コスト増を想定し、ガードレールと評価設計を追加</div>
+        </div>
+      </div>
+
+      <div class="refs" style="margin-top:18px;">
+        <div class="ref-item">
+          <div class="rtitle">次に読むと良い観点</div>
+          <div class="rmeta">定量指標（正解率/根拠一致率/拒否率）、最大リトライ回数、個人情報・機密の扱い、プロンプト更新時の回帰テスト。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://mcpservers.org/agent-skills/langchain-ai/langgraph-human-in-the-loop" target="_blank" rel="noreferrer noopener">langgraph-human-in-the-loop | Claude Skills &amp; Agent ...</a></h2>
+<p class="reference-note">`interrupt()`
+`from langgraph.types import interrupt, Command
+from langgraph.checkpoint.memory import InMemorySaver
+from…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/@amitkumaryadav27/1-introduction-fb0ae94c0ed9" target="_blank" rel="noreferrer noopener">Human Intervention using Langgraph</a></h2>
+<p class="reference-note">4. Resume Mechanism: A way to feed human input back into the graph using the `Command` primitive.
+
+## 3. Multiple Approa…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.langchain.com/oss/python/langgraph/interrupts" target="_blank" rel="noreferrer noopener">Interrupts - Docs by LangChain</a></h2>
+<p class="reference-note">from typing import TypedDict from  typing import  TypedDict from langgraph.checkpoint.memory import MemorySaver from  la…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://forum.langchain.com/t/problems-encountered-when-study-is-interrupted/3084" target="_blank" rel="noreferrer noopener">Problems encountered when study is interrupted - LangGraph - LangChain Forum</a></h2>
+<p class="reference-note">`import uuid
+from typing import TypedDict, Annotated
+from autobahn.wamp.gen.wamp.proto.AnyMessage import AnyMessage
+from…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://huggingface.co/BAAI/bge-m3" target="_blank" rel="noreferrer noopener">BAAI/bge-m3</a></h2>
+<p class="reference-note">`from FlagEmbedding import BGEM3FlagModel
+model = BGEM3FlagModel(&#39;BAAI/bge-m3&#39;, use_fp16=True) # Setting use_fp16 to Tru…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
