@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>計算効率（Compute Efficiency）で迫るLLM事前学習レシピ｜Magicチーム</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      line-height: 1.25;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-image: linear-gradient(to right, var(--rule), var(--rule)) 1;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 0px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .tag{
+      position:absolute;
+      top: 22px;
+      left: 28px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Noto Serif JP", serif;
+      letter-spacing: .16em;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+    .tag::before{
+      content:"";
+      display:inline-block;
+      width: 14px;
+      height: 1px;
+      background: var(--rust);
+      margin-right: 10px;
+      transform: translateY(-5px);
+    }
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: .04em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 0.95;
+      margin: 0 0 14px 0;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+    .hr{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0;
+    }
+    .grid{
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr 1fr;
+      width: 100%;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px 12px;
+      border-radius: 6px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: var(--ink-3);
+      font-size: 12px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--ink);
+    }
+    .list-grid{
+      margin-top: 18px;
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      width:100%;
+    }
+    .pill{
+      font-family: "Inter Tight", system-ui, -apple-system;
+      font-size: 12px;
+      color: var(--ink-3);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .bignote{
+      margin-top: 16px;
+      max-width: 880px;
+      font-size: 20px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+    .ref-grid{
+      margin-top: 18px;
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      width:100%;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 400;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 40px 22px; border-width: 20px; }
+      .tag{ top: 16px; left: 18px; }
+      .slide-num{ top: 16px; right: 18px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .list-grid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide">
+      <div class="tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">計算効率が主役</div>
+      <h1 class="title">Magicチーム <em>事前学習</em></h1>
+      <p class="lead">「強いベースモデル」を作る鍵として、学習計算の効率（compute efficiency）を最大化し、主張する“>10倍”の改善と評価哲学を整理します。</p>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide">
+      <div class="tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">大規模資源の壁</div>
+      <h1 class="title"><em>資源依存</em>問題</h1>
+      <p class="lead">従来は「巨大モデル＝大規模計算機（例：100kチップ級）が勝つ」と見なされがちです。では、その“計算量を増やす以外”で能力を引き上げられるのかが論点になります。</p>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide">
+      <div class="tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">同じ腕で速く</div>
+      <h1 class="title">計算を <em>圧縮</em>する</h1>
+      <p class="lead">ポイントは単一の魔法ではなく、最適化・目的関数・データ精製など複数改善の“乗算的効果”で、同等能力に必要なFLOPsを大きく減らす戦略です（>10x主張）。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Idea / 発想（英→日）</div>
+          <div class="v">Compute efficiency / 計算効率 を最適化して、能力獲得を“同一コスト”に寄せる</div>
+        </div>
+        <div class="cell">
+          <div class="k">Outcome / 成果（英→日）</div>
+          <div class="v">同等性能に必要な学習計算を 1/50 規模まで削減したと報告</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">勝負は事前学習</div>
+      <h1 class="title">狙う工程：<em>Pretraining</em></h1>
+      <p class="lead">“強いモデル”の土台として事前学習を最大化し、後工程（SFTやRLなど）に進む前に損失・汎化の土台を整えます。そこで効率改善が効く前提を置きます。</p>
+      <div class="list-grid">
+        <div class="cell">
+          <div class="pill">Step i</div>
+          <div class="v">事前学習レシピ（アルゴリズム×最適化×データ設計）の改善</div>
+        </div>
+        <div class="cell">
+          <div class="pill">Step ii</div>
+          <div class="v">ホールドアウト評価で計算効率（bits-per-byte）を追跡</div>
+        </div>
+        <div class="cell">
+          <div class="pill">Step iii</div>
+          <div class="v">小規模RL（数学・16k CoT予算）で“繋がり”を確認</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">>10倍の主張</div>
+      <h1 class="title"><em>&gt;10x</em> efficiency</h1>
+      <p class="lead">Magicチームは、DeepSeek V4 Pro Baseに対し“同等の性能”を、約50分の1のFLOPsで達成したと報告します。さらに追加計算（約$4M規模）でもオープンベースをperplexityで上回ったと述べます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Claim / 主張</div>
+          <div class="v">同等能力：必要FLOPs ≒ 1/50（効率 約50x相当の方向性）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Scaling / スケーリング</div>
+          <div class="v">追加計算でperplexity評価が有意に改善、コスト推計では1億ドル超も</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide">
+      <div class="tag">DISTINCTION</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">評価指標の工夫</div>
+      <h1 class="title">bits-per-byte：<em>公平化</em></h1>
+      <p class="lead">ベースモデルはプロンプト形式に敏感で、サンプリング評価がブレやすい可能性があります。そこでトークナイザ差をならした指標としてbits-per-byte（低いほど良い）を採用するとしています。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Why / なぜ</div>
+          <div class="v">per-token loss がトークン化差で歪む → 比較の“ズレ”を抑える</div>
+        </div>
+        <div class="cell">
+          <div class="k">How / どう測る</div>
+          <div class="v">ホールドアウトに対して、bits-per-byte loss をスケーリング則にフィット</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide">
+      <div class="tag">PROCESS</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">汚染と暗記の管理</div>
+      <h1 class="title"><em>decontaminate</em>と抑制</h1>
+      <p class="lead">オープンモデル側は同じ“汚染除去”ができず不公平が残り得ます。そこでOCR/パーサ差・一致窓の閾値・類似度で除外し、知識評価では“暗記報酬”を抑える工夫も入れます。</p>
+      <div class="list-grid">
+        <div class="cell">
+          <div class="pill">i 汚染対策</div>
+          <div class="v">OCR/パーサが異なる形で作成、一定閾値以上の一致/類似を除外</div>
+        </div>
+        <div class="cell">
+          <div class="pill">ii 知識評価</div>
+          <div class="v">完全除去ではなく暗記へ寄る報酬を抑える設計</div>
+        </div>
+        <div class="cell">
+          <div class="pill">iii 第三者LLM</div>
+          <div class="v">言い換え・要約で意味を維持しつつ暗記を薄める方向</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide">
+      <div class="tag">EVIDENCE</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">一般化の測り方</div>
+      <h1 class="title">ホールドアウトで <em>検証</em></h1>
+      <p class="lead">一般化はホールドアウトデータで測り、推論・数学ではCoT生成や正解フィルタリングも実施すると述べています。加えて知識評価は分野別バケットに分解して見ます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Generalization</div>
+          <div class="v">ホールドアウト（OCR/パーサ差を含む）＋スケーリング則のフィット</div>
+        </div>
+        <div class="cell">
+          <div class="k">Reasoning / Math</div>
+          <div class="v">CoT生成＋正解フィルタリングで“推論らしさ”を安定化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide">
+      <div class="tag">PROCESS</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">小さい実験の罠</div>
+      <h1 class="title">スケールで <em>効くか</em></h1>
+      <p class="lead">NanoGPT的な小規模で出た改善が大規模にそのまま効かないことがある、という前提があります。そこで各変更を“計算量が2桁程度異なる3つのモデル”で検証し、パワー則のフィットで利益を見極めます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Decision Rule</div>
+          <div class="v">2桁差のモデル群でトレンドを確認 → スケーリング利益を判断</div>
+        </div>
+        <div class="cell">
+          <div class="k">Why it matters</div>
+          <div class="v">「小規模で良い」が「大規模で維持される」とは限らない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide">
+      <div class="tag">DISTINCTION</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">事前学習→RLへ</div>
+      <h1 class="title">低計算RLで <em>橋渡し</em></h1>
+      <p class="lead">事前学習の損失が、その後のRL性能にどう繋がるかを確かめるため、短い数学RL（16k CoT予算）を行いpass@1等を示したとあります。これは“決定的証明”ではなく傾向確認として読むのが妥当です。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Metric / 指標</div>
+          <div class="v">pass@1 など（数学・短いRL予算）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Interpretation</div>
+          <div class="v">事前学習だけでRLが決まらないため、結論は慎重に</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide">
+      <div class="tag">COMPARISON</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">強みと限界</div>
+      <h1 class="title">評価哲学は <em>筋が良い</em></h1>
+      <p class="lead">良い点は、計算効率をbits-per-byteで定量化し、ホールドアウト作成の工夫や、一般化と知識の測り分けを設計していることです。弱い点は、第三者が同条件追試できるだけの“細目”が十分に見えず、比較の確証が読み手に委ねられる点です。</p>
+      <div class="list-grid">
+        <div class="cell">
+          <div class="pill">Strength</div>
+          <div class="v">bits-per-byte×ホールドアウト×スケーリング則で計測の土台を作る</div>
+        </div>
+        <div class="cell">
+          <div class="pill">Skepticism</div>
+          <div class="v">データ量・ハイパーパラ・再現条件が不足し“検証可能性”は限定</div>
+        </div>
+        <div class="cell">
+          <div class="pill">Risk</div>
+          <div class="v">第三者LLM要約は暗記を薄めつつ、意味手掛かりも変えうる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide">
+      <div class="tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">次の焦点</div>
+      <h1 class="title"><em>これから</em>何を見よう</h1>
+      <p class="lead">次は長いホライゾンRL、長文コンテキストを使った“デプロイ後の学習エージェント”、整合（alignment）の理論的堅牢性、そして事前学習レシピの追加改善が挙げられています。公開の詳細と再現条件で、主張の確からしさを再チェックするのが鍵です。</p>
+      <div class="ref-grid">
+        <div class="ref-item"><span style="color:var(--rust); font-style:italic;">i</span> 長ホライズンRL（長期意思決定の安定性）</div>
+        <div class="ref-item"><span style="color:var(--rust); font-style:italic;">ii</span> デプロイ後学習（deployment後に学び続けるエージェント）</div>
+        <div class="ref-item"><span style="color:var(--rust); font-style:italic;">iii</span> alignmentの堅牢性（理論的に頑健な整合学習）</div>
+        <div class="ref-item"><span style="color:var(--rust); font-style:italic;">iv</span> 事前学習の追加改善（compute efficiencyの更新）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.techtimes.com/articles/327148/20260910/magic-matched-deepseek-v4-pro-base-quality-500k-using-50-times-less-compute.htm" target="_blank" rel="noreferrer noopener">Magic Matched DeepSeek V4 Pro Base Quality for $500K, Using 50 Times Less Compute</a></h2>
+<p class="reference-note">On September 8, 2026, Magic — a 43-person AI startup targeting autonomous coding and AI research automation — published …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://magic.dev/blog/pretraining" target="_blank" rel="noreferrer noopener">Magic</a></h2>
+<p class="reference-note">We match DeepSeek V4 Pro Base using ~50x fewer FLOPs – that’s around half of GPT3’s pretraining compute, or ~$0.5M on GB…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://deepinfra.com/blog/deepseek-v4-pro-model-overview" target="_blank" rel="noreferrer noopener">DeepSeek V4 Pro: Model Overview, Features &amp; Performance Guide</a></h2>
+<p class="reference-note">DeepSeek V4 Pro is a 1.6-trillion parameter Mixture-of-Experts (MoE) model from DeepSeek, released on April 24, 2026 und…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.heise.de/en/news/AI-Model-DeepSeek-v4-New-Generation-with-1-6-Trillion-Parameters-11271628.html" target="_blank" rel="noreferrer noopener">AI Model DeepSeek v4: New Generation with 1.6 Trillion Parameters | heise online</a></h2>
+<p class="reference-note">V3.2 had 685 billion parameters; V4-Pro reaches 1.6 trillion – more than double. The new model can process up to one mil…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.datacamp.com/blog/deepseek-v4" target="_blank" rel="noreferrer noopener">DeepSeek V4: Features, Benchmarks, and Comparisons | DataCamp</a></h2>
+<p class="reference-note">DeepSeek V4 is the highly anticipated new series of open-weight large language models from Chinese AI lab DeepSeek. Rele…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
