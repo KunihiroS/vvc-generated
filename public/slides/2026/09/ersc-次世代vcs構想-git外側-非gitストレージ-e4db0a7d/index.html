@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ERSC 次世代VCS構想：Git外側×非Gitストレージ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border-radius: 10px;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.12) 100%);
+      pointer-events:none;
+    }
+
+    .topline {
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 44px;
+      height: 1px;
+      background: var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag {
+      position: absolute;
+      left: 72px;
+      top: 32px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: .14em;
+      color: var(--rust);
+      font-size: 18px;
+      text-transform: uppercase;
+    }
+
+    .slide-num {
+      position: absolute;
+      right: 72px;
+      top: 32px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 26px;
+      letter-spacing: .02em;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title {
+      font-size: 68px;
+      line-height: 1.02;
+      font-weight: 500;
+      margin: 0 0 14px 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title .em {
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      display: inline-block;
+      transform: translateY(2px);
+    }
+
+    .lead {
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.55;
+      position: relative;
+      z-index: 1;
+      margin-top: 0;
+    }
+
+    .rule {
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 32px;
+      border-top: 1px solid var(--rule);
+      z-index: 0;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .grid2, .grid3{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v {
+      font-family: "Noto Serif JP", serif;
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .jp {
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-left: 6px;
+      font-weight: 300;
+    }
+
+    .refs {
+      font-size: 20px;
+      line-height: 1.55;
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 700px){
+      .slide { padding: 34px 20px; }
+      .slide-tag { left: 20px; top: 20px; font-size: 14px; }
+      .slide-num { right: 20px; top: 20px; font-size: 20px; }
+      .eyebrow { font-size: 18px; }
+      .title { font-size: 42px; }
+      .lead { font-size: 18px; }
+      .topline, .rule, .slide-tag, .slide-num { display: none; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">ERSC構想</div>
+      <h1 class="title"><span class="em">Git</span>外側は残す、内側を次世代化</h1>
+      <p class="lead">Gitプロトコル（入口）は維持しつつ、サーバの保存層（ストレージ）だけを非Gitの仕組みに置き換える――ERSCの方針です。</p>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">VCSの“重さ”変化</div>
+      <h2 class="title">AI時代の負荷</h2>
+      <p class="lead">AIエージェントによる開発が加速すると、リポジトリ肥大・アクティブブランチ増・マージ競合増・高速クローン要求が同時に起き、従来のGit前提運用がボトルネックになり得ます。</p>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">速度だけではない</div>
+      <h2 class="title">運用も再設計</h2>
+      <p class="lead">ERSCは「速さ」だけでなく、運用・競合・インフラ負荷まで含めてVCSの再設計が必要だと主張します。</p>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">入口は同じ</div>
+      <h2 class="title">プロトコル＝看板</h2>
+      <p class="lead">Gitを全面否定するのではなく、Gitプロトコルを“当面の共通言語”として残し、内部の保存方式だけを替える発想です（<span class="mono">Git protocol</span>維持）。</p>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">戦略</div>
+      <h2 class="title">Git外側 × 非Git内側</h2>
+      <p class="lead">クライアントからはGitサーバに見える一方、サーバ内部ではGitリポジタリをそのまま保存せず「非Gitのカスタムストレージ」を使うことで、水平スケールと信頼性・運用制御を高めます。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">入口（互換）</div>
+            <div class="v">Gitクライアント → Gitプロトコルで接続（そのまま）</div>
+          </div>
+          <div class="cell">
+            <div class="k">内側（改善）</div>
+            <div class="v">保存層を非Gitに置換して、スケール/運用を最適化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">2005の制約</div>
+      <h2 class="title">設計の時代差</h2>
+      <p class="lead">Gitは現在も有効だが、2005年の制約で設計されており、2035年を見据えた大規模・高頻度・クラウド分散開発には最適化されていない、という立場です。</p>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">段階導入</div>
+      <h2 class="title">乗り換えを現実化</h2>
+      <p class="lead">“別VCSへ完全移行”ではなく、技術的ボトルネックだけを減らすことで導入コストを抑える思想です（段階導入に適合）。</p>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">入口（Gitプロトコル）を維持</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">サーバ保存層（ストレージ）を置換</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">運用・スケール課題から改善を反映</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">手本：jj</div>
+      <h2 class="title">複数バックエンド</h2>
+      <p class="lead">Jujutsu（<span class="mono">jj</span>）は複数バックエンドと通信できる設計で、ERSCは同様に将来「ネイティブプロトコル橋渡し」のように複数の流儀を同一ストレージ基盤につなげたいと述べています。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">参照元</div>
+            <div class="v"><span class="mono">jj</span>：複数バックエンド通信</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">将来：複数プロトコルを同一ストレージ基盤へ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">注意</div>
+      <h2 class="title">今は“計画”</h2>
+      <p class="lead">記事は「将来の取り組み」であり、現時点では利用可能な機能が限定される可能性が高いことを明確にしています（例：<span class="mono">jj</span>ネイティブプロトコルの前提不在）。</p>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">単体フォージではない</div>
+      <h2 class="title">ビルディングブロック</h2>
+      <p class="lead">VCSはコードレビュー・CI・課題管理など周辺スタックと一体運用されがちですが、ERSCはまずストレージ基盤を作り、他のスタックと協調できる部品として展開する方向性です。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">ERSCの焦点</div>
+            <div class="v">まずストレージ（保存・提供）を土台化</div>
+          </div>
+          <div class="cell">
+            <div class="k">協調</div>
+            <div class="v">コードレビュー/CI/課題管理へ“接続可能”に</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">判断の観点</div>
+      <h2 class="title">評価指標が要る</h2>
+      <p class="lead">ERSCアプローチは「互換性を守りつつボトルネック改善」を狙う点で説得力がありますが、“いつ・どこまで・どれくらい”が不明なため、性能（クローン時間等）・信頼性・運用コスト・移行容易性・機能互換の検証計画が必要です。</p>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="topline"></div>
+
+      <div class="eyebrow">要点まとめ</div>
+      <h2 class="title"><span class="em">結論</span></h2>
+      <p class="lead">Gitを入口として残し、ストレージ層を非Gitへ置換することで、AI時代のスケール/運用課題に段階的に対処する――これがERSCの次世代VCS構想です。</p>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">入口</div>
+            <div class="v">Gitプロトコルを維持</div>
+          </div>
+          <div class="cell">
+            <div class="k">本丸</div>
+            <div class="v">非Gitストレージで改善</div>
+          </div>
+          <div class="cell">
+            <div class="k">未来</div>
+            <div class="v">複数プロトコルを同一基盤へ（計画）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.kunalganglani.com/blog/jujutsu-jj-git-version-control" target="_blank" rel="noreferrer noopener">2026 Jujutsu (jj) vs Git: Undoable Ops, No Staging</a></h2>
+<p class="reference-note">Think about it: most developers don&#39;t write raw HTTP requests. They use libraries and frameworks. Jujutsu is positioning…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.to/kunal_d6a8fea2309e1571ee7/jujutsu-jj-the-git-compatible-version-control-tool-that-might-actually-fix-gits-worst-problems-4m3c" target="_blank" rel="noreferrer noopener">Jujutsu (jj): The Git-Compatible Version Control Tool That Might Actually Fix Git&#39;s Worst Problems [2026] - DEV Community</a></h2>
+<p class="reference-note">Jujutsu uses Git&#39;s on-disk format. Reads and writes the same `.git` directory. Your teammates keep using `git` while you…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://fallthrough.transistor.fm/43" target="_blank" rel="noreferrer noopener">Fallthrough | JJ and How to Evolve an Open Source Ecosystem</a></h2>
+<p class="reference-note">Jujutsu is a new version control system that&#39;s gaining in popularity. Its swappable backends allow users to continue usi…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.classcentral.com/course/youtube-jj-con-keynote-by-martin-von-zweigbergk-495377" target="_blank" rel="noreferrer noopener">Free Video: Jujutsu Version Control System - JJ Con 2025 Keynote from Google | Class Central</a></h2>
+<p class="reference-note">while maintaining compatibility with existing Git workflows. Gain understanding of the system&#39;s design philosophy and ke…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=44195211" target="_blank" rel="noreferrer noopener">East River Source Control | Hacker News</a></h2>
+<p class="reference-note">|  |  |  |  |
+ ---  --- |
+| |  |  |  |  ---  |  |  | tfsh on June 5, 2025  | next (javascript:void(0))   A JJ forge is t…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
