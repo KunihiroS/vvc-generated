@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Apple ANE逆解析：データフロー機械として読む</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: block;
+      border-radius: 2px;
+      inset: auto;
+    }
+    .slide .frame{
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity: 0.65;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 26px;
+      left: 36px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .slide-num{
+      position:absolute;
+      top: 24px;
+      right: 38px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 26px;
+      letter-spacing: 0.04em;
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 14px 0;
+      max-width: 800px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      margin: 0 0 18px 0;
+      line-height: 1.0;
+    }
+    .title .accent{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.45;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 26px 0 18px;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      margin-top: 14px;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.08);
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .text{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 16px;
+      margin-top: 14px;
+      max-width: 1060px;
+    }
+    .pill{
+      display:inline-block;
+      padding: 6px 10px;
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      color: var(--ink-2);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      margin-right: 8px;
+      margin-top: 10px;
+    }
+    .bilingual{
+      color: var(--ink-2);
+      font-size: 18px;
+      margin-top: 6px;
+      font-weight: 300;
+    }
+    .bigcenter{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 72px;
+      text-align: left;
+    }
+    .center{
+      text-align:center;
+    }
+    .footnote{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 28px;
+      font-size: 14px;
+      color: var(--ink-3);
+      line-height: 1.4;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .ref{
+      font-size: 20px;
+      line-height: 1.35;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .kbd{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.08);
+      white-space: nowrap;
+    }
+    @media (max-width: 900px){
+      .slide{ padding: 40px 44px; }
+      .slide-tag{ left: 18px; }
+      .slide-num{ right: 18px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="frame"></div>
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <p class="eyebrow">ブラックボックスを“データの流れ”で読む</p>
+      <h1 class="title">Apple ANE <span class="accent">再構成</span></h1>
+      <p class="lead">ANEを“汎用命令のプロセッサ”ではなく、“特定のデータフローを高速化する固定機能”として捉えると、Transformer時代に不利になり得る理由が見えてきます。</p>
+      <div class="bigcenter">
+        <span class="pill">Compute（MAC）</span>
+        <span class="pill">Scheduler（TD）</span>
+        <span class="pill">Memory（DMA / 階層）</span>
+      </div>
+      <div class="footnote">本スライドは入力文の要約・圧縮です（推定部分は推定として扱います）。</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="frame"></div>
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <p class="eyebrow">ピーク性能と実効性能のズレ</p>
+      <h2 class="title">TOP/sだけで <span class="accent">決められない</span></h2>
+      <p class="lead">ANEは高い演算ピーク（例：TOP/s）を示しても、DRAMからのデータ移動と再利用の前提が崩れると、実際のトークン生成速度に直結しにくくなります。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">見えやすいもの</div>
+          <div class="text">ピーク：<span class="kbd">TOP/s</span> と指標（例：11 TOP/s）</div>
+          <div class="bilingual">計算能力を“見た目”で比較しがち</div>
+        </div>
+        <div class="cell">
+          <div class="label">効きやすいもの</div>
+          <div class="text">律速：<span class="kbd">GB/s</span>（帯域）と再利用（オンチップ前提）</div>
+          <div class="bilingual">データが“どこから来て、どこで使い回すか”</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="frame"></div>
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <p class="eyebrow">MACはエンジン、勝敗は周辺</p>
+      <h2 class="title">速い車でも <span class="accent">燃料がない</span></h2>
+      <p class="lead">MAC（掛け算＋加算）は核ですが、性能と得意不得意は主に“データフロー”“スケジューリング”“メモリ階層とDMA設計”で決まる、というのが中心主張です。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="label">i. Compute</div>
+          <div class="text">MAC並列度／FP16・INT8（FP16/INT8）</div>
+          <div class="bilingual">“速さ”はあるが十分条件ではない</div>
+        </div>
+        <div class="cell">
+          <div class="label">ii. Scheduler</div>
+          <div class="text">TD（タスク記述子）で固定機能を起動</div>
+          <div class="bilingual">“実行の自由度”が限定されやすい</div>
+        </div>
+        <div class="cell">
+          <div class="label">iii. Memory</div>
+          <div class="text">DRAM↔オンチップ（L2 / KMem）と帯域</div>
+          <div class="bilingual">“燃料供給”が間に合うか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="frame"></div>
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <p class="eyebrow">命令ではなく“構成情報”</p>
+      <h2 class="title">TDで投げる <span class="accent">固定実行</span></h2>
+      <p class="lead">ANEドライバはCONV/MATMUL/RELUのような“命令”をその場で柔軟実行するのではなく、コンパイル済みタスクストリーム（TD）をMMIOレジスタへ展開し、TM_PUSHで起動します。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">実行の形</div>
+          <div class="text">TD → MMIOレジスタ → <span class="kbd">TM_PUSH</span> 実行開始</div>
+          <div class="bilingual">実行最適化は事前に寄りがち</div>
+        </div>
+        <div class="cell">
+          <div class="label">含意</div>
+          <div class="text">GPU的な“動的な最適化”はやりにくい可能性</div>
+          <div class="bilingual">正しく構成できたときに強い</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">06 / 16</div>
+      <p class="eyebrow">CNNの思想が核に残る</p>
+      <h2 class="title">データ再利用前提 <span class="accent">が強い</span></h2>
+      <p class="lead">2017年のA11 BionicからのCNN向け思想が、Transformer（特に自動回帰的デコード）へ移る中で、“同じピークでも実効トークン速度に直結しにくい問題”として現れていく、と整理されています。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">CNN向け</div>
+          <div class="text">予測可能な再利用パターン（オンチップで繰り返す）</div>
+          <div class="bilingual">ローカリティが効きやすい</div>
+        </div>
+        <div class="cell">
+          <div class="label">Transformerの壁</div>
+          <div class="text">重みを大量に読み直す局面で再利用が薄れやすい</div>
+          <div class="bilingual">帯域制約が顕在化しやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Roofline">
+      <div class="frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <p class="eyebrow">roofline：DRAMが律速になる条件</p>
+      <h2 class="title">計算より先に <span class="accent">帯域が詰まる</span></h2>
+      <p class="lead">roofline的に見ると、MACへ必要データをDRAMから毎回供給すると必要帯域が急増し、実効性能がオンチップ再利用に大きく依存します。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">ピークだけの式</div>
+          <div class="text">TOP/s（計算ピーク）だけでは時間が決まらない</div>
+          <div class="bilingual">“必要データ量”が別軸</div>
+        </div>
+        <div class="cell">
+          <div class="label">律速の式</div>
+          <div class="text">DRAM帯域（GB/s） ≫ 必要供給 → 計算が待たされる</div>
+          <div class="bilingual">実行はデータ搬送に支配される</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Quant">
+      <div class="frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">08 / 16</div>
+      <p class="eyebrow">11 TOP/s と 68GB/s の含意</p>
+      <h2 class="title">ピークが高いほど <span class="accent">要求も増える</span></h2>
+      <p class="lead">例として“11 TOP/sで68GB/s”のような指標を前提に逆算すると、もし毎回DRAMから読み続けるなら、達成に必要な帯域が桁違いに膨らむため、オンチップ再利用が強い前提だったと結論づけられます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">帰結</div>
+          <div class="text">オンチップ（L2 / KMem等）で再利用できる前提が必要</div>
+          <div class="bilingual">“都度DRAM”では成立しにくい</div>
+        </div>
+        <div class="cell">
+          <div class="label">Transformerへの示唆</div>
+          <div class="text">重み再利用が薄い局面ほど、帯域制約が出やすい</div>
+          <div class="bilingual">単一トークンデコードで厳しくなりがち</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="SchedulerMemory">
+      <div class="frame"></div>
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">09 / 16</div>
+      <p class="eyebrow">得意の条件は“データ流れの形”</p>
+      <h2 class="title">同じMACでも <span class="accent">入力の置き方</span></h2>
+      <p class="lead">ANEはMAC自体が似ていても、入力・出力をいつどこへ流すか、リダクション軸をどうスケジュールするかで性能が変わる、と説明されます。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="label">i. データフロー</div>
+          <div class="text">入力/出力の“流れ”を設計できるか</div>
+          <div class="bilingual">データ配置が効く</div>
+        </div>
+        <div class="cell">
+          <div class="label">ii. スケジューリング</div>
+          <div class="text">リダクション軸の切り方で待ちが変わる</div>
+          <div class="bilingual">固定機能の都合が出る</div>
+        </div>
+        <div class="cell">
+          <div class="label">iii. メモリ階層</div>
+          <div class="text">DRAMをどれだけ“避けられるか”</div>
+          <div class="bilingual">再利用が鍵</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="KernelTile">
+      <div class="frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">10 / 16</div>
+      <p class="eyebrow">KernelDMAとTileDMAの直列性</p>
+      <h2 class="title">重みと入力が <span class="accent">重なると遅い</span></h2>
+      <p class="lead">致命的になり得る観測として、DRAM読み出しにおけるKernelDMA（重み側）とTileDMA（入力側）の要求が“直列に振る舞う”可能性が挙げられます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">KernelDMA</div>
+          <div class="text">重み側の読み出し（例：<span class="kbd">約38GB/s</span>）</div>
+          <div class="bilingual">単独では弱く見え得る</div>
+        </div>
+        <div class="cell">
+          <div class="label">TileDMA</div>
+          <div class="text">入力側の読み出し（例：<span class="kbd">約60GB/s</span>）</div>
+          <div class="bilingual">単独では別ボトルネック</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Overlap">
+      <div class="frame"></div>
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">11 / 16</div>
+      <p class="eyebrow">足し合わせ＝オーバーラップ無し</p>
+      <h2 class="title">時間の加法性が <span class="accent">見える</span></h2>
+      <p class="lead">kernel単独とtile単独の実行時間の和が、kernel+tile同時実行の実行時間と一致するなら、オーバーラップが効かず“直列に近い”動作と解釈できます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">観測の形</div>
+          <div class="text"><span class="kbd">T(kernel)</span> + <span class="kbd">T(tile)</span> ≈ <span class="kbd">T(kernel+tile)</span></div>
+          <div class="bilingual">重なって短縮されない</div>
+        </div>
+        <div class="cell">
+          <div class="label">意味</div>
+          <div class="text">DRAM活用が最大化しにくく、単一トークンデコードが伸びにくくなる</div>
+          <div class="bilingual">帯域の“使い切り”が難しい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="TransformerFocus">
+      <div class="frame"></div>
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">12 / 16</div>
+      <p class="eyebrow">最悪ケース：再利用が薄いデコード</p>
+      <h2 class="title">単一トークン <span class="accent">で顕在化</span></h2>
+      <p class="lead">入力文では、重み再利用が少ない（=毎ステップで必要データが増えやすい）単一トークンデコードのようなケースで、不利が出やすいと論理が展開されます。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="label">Prefill</div>
+          <div class="text">状況次第で再利用が残る可能性</div>
+          <div class="bilingual">一概に最悪とは限らない</div>
+        </div>
+        <div class="cell">
+          <div class="label">Decode</div>
+          <div class="text">重み再利用が崩れやすい</div>
+          <div class="bilingual">DRAM要求が目立つ</div>
+        </div>
+        <div class="cell">
+          <div class="label">結果</div>
+          <div class="text">帯域制約とDMA直列性が効きやすい</div>
+          <div class="bilingual">実効性能が頭打ち</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="FAQ1">
+      <div class="frame"></div>
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">13 / 16</div>
+      <p class="eyebrow">固定機能＝実行不可ではない</p>
+      <h2 class="title">不利の本質は <span class="accent">帯域と前提</span></h2>
+      <p class="lead">ANEが固定機能であることはTransformerに“必ず”不利とは限らないものの、TD駆動の都合から入力形状や動的状況への柔軟最適化は限定され、さらにメモリ移動・再利用前提が支配的になり得ます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">NGではない</div>
+          <div class="text">Transformer自体を理論的に実行できないわけではない</div>
+          <div class="bilingual">ただし“構成できた時だけ強い”</div>
+        </div>
+        <div class="cell">
+          <div class="label">勝負所</div>
+          <div class="text">データ搬送（DRAM/階層）と再利用（オンチップ前提）</div>
+          <div class="bilingual">計算ピークより先に効く</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="Risk">
+      <div class="frame"></div>
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">14 / 16</div>
+      <p class="eyebrow">推定と状況依存を残す</p>
+      <h2 class="title">“断定”より <span class="accent">検証が必要</span></h2>
+      <p class="lead">直列解釈やDMA競合の説明は推定を含みます。実データの粒度や、オーバーラップが“見えていないだけ”の可能性もあり、追加プロファイリングが重要です。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">推定の例</div>
+          <div class="text">L2→KMemを省いた理由、オーバーラップがないという解釈</div>
+          <div class="bilingual">“数値”と“解釈”は別物</div>
+        </div>
+        <div class="cell">
+          <div class="label">一般化の注意</div>
+          <div class="text">デコード以外（prefill、KVキャッシュ、量子化、融合度）で支配要因が変わる</div>
+          <div class="bilingual">最悪側だけを代表にしない</div>
+        </div>
+      </div>
+      <div class="footnote">入力文でも「推定が多い」ことが明示されています。</div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="Closing">
+      <div class="frame"></div>
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">15 / 16</div>
+      <p class="eyebrow">次の最適化の方向が見える</p>
+      <h2 class="title">ANEは“演算器”でなく <span class="accent">データフロー機械</span></h2>
+      <p class="lead">MACの速さだけでなく、TD/TQ/TMの起動とDMAの重なり、オンチップ再利用を前提にした設計が性能を決めます。だからこそコンパイル戦略・DMA並列化・モデル側の再利用設計が勝ち筋になります。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="label">What to optimize</div>
+          <div class="text">データ配置とオペ融合（fusion）</div>
+          <div class="bilingual">“待ち”を減らす</div>
+        </div>
+        <div class="cell">
+          <div class="label">Where to improve</div>
+          <div class="text">DMAの並列化余地（overlap）</div>
+          <div class="bilingual">直列化を避ける</div>
+        </div>
+        <div class="cell">
+          <div class="label">Why it matters</div>
+          <div class="text">Transformerのデコード局面で帯域が支配的</div>
+          <div class="bilingual">実効性能に直結</div>
+        </div>
+      </div>
+      <div class="footnote">References（入力文内に固有URLは含まれていないため、省略）。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
