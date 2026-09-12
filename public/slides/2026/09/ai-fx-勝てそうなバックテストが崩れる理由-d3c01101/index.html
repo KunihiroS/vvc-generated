@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>AI×FX：勝てそうなバックテストが崩れる理由</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    a{ color: inherit; }
+    .deck{
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 24px 48px;
+      align-items: center;
+    }
+    .slide{
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1.5px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      overflow: hidden;
+      padding: 56px 72px;
+      position: relative;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      pointer-events: none;
+    }
+    .slide-topline{
+      position:absolute;
+      left:72px;
+      right:72px;
+      top:56px;
+      height: 0;
+      border-top: 1px solid var(--rule);
+    }
+    .slide-tag{
+      position:absolute;
+      top:56px;
+      left:72px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .16em;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--ink-2);
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag:before{
+      content:"";
+      width: 20px;
+      height: 0;
+      border-top: 2px solid var(--rust);
+      display:block;
+    }
+    .slide-num{
+      position:absolute;
+      top:56px;
+      right:72px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 24px;
+      color: var(--ink-3);
+    }
+    .eyebrow{
+      position: relative;
+      margin-top: 18px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: .01em;
+    }
+    .title{
+      margin-top: 14px;
+      font-size: 64px;
+      font-weight: 500;
+      line-height: 1.02;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-style: italic;
+      color: var(--rust);
+      display: block;
+    }
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+      position: relative;
+    }
+
+    .grid2, .grid3{
+      margin-top: 16px;
+      width: 100%;
+      display: grid;
+      gap: 14px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.06);
+      border-radius: 10px;
+      padding: 14px 14px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 19px;
+      line-height: 1.38;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .smallnote{
+      margin-top: 14px;
+      font-size: 18px;
+      color: var(--ink-3);
+      max-width: 760px;
+      font-weight: 300;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 40px 24px; }
+      .slide-tag{ left:24px; }
+      .slide-num{ right:24px; }
+      .slide:before{ inset: 12px; }
+      .slide-topline{ left:24px; right:24px; top:40px; }
+      .eyebrow{ font-size: 18px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">バックテストの罠をほどく</div>
+      <div class="title">AI依頼</div>
+      <div class="lead">「勝てそうな結果」を出しても、現実の相場で崩れるのはなぜか。AIへの頼み方を“検証設計”へ変える要点を整理します。</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">合計利益だけでは危険</div>
+      <div class="title">評価誤り</div>
+      <div class="lead">バックテストは過去の値動きにルールを当てて成績を計算するだけで、総利益が良い＝将来も良い、ではありません。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">見落とし</div>
+          <div class="v">最大DD（最大下落）やPFなどの“耐える力”</div>
+        </div>
+        <div class="cell">
+          <div class="k">典型ミス</div>
+          <div class="v">月次で偏る勝ち方を“良い戦略”と誤認</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">過去問対策</div>
+      <div class="title">過学習</div>
+      <div class="lead">条件を大量に組み合わせるほど、特定期間にだけ当たる“ノイズ”を本質だと誤認しやすくなります。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">入力</div>
+          <div class="v">MA / RSI / ボリンジャーバンド等</div>
+        </div>
+        <div class="cell">
+          <div class="k">探索</div>
+          <div class="v">損切り幅・利確幅・時間帯を多数試行</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">開発では上振れ、未使用で逆転</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">目的関数の置き換え</div>
+      <div class="title">命令変更</div>
+      <div class="lead">AIに「利益最大化」を直接命じると、最良の過去成績を探しに行って過学習しがちです。代わりに“固定した仮説を公平に検証”させます。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">悪い指示</div>
+          <div class="v">“一番儲かるルールを作って”</div>
+        </div>
+        <div class="cell">
+          <div class="k">良い指示</div>
+          <div class="v">“この仮説を、この条件・合格基準で検証して”</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">崩れやすい理由</div>
+      <div class="title">3つ</div>
+      <div class="lead">現実でバックテストが崩れる主因は、(i)過学習、(ii)評価指標の不足、(iii)実装の現実性の欠落です。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v">過剰最適化（過学習）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">合計利益偏重（DD/PF等を無視）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">未来情報・コスト・約定の非現実</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">開発と確認の分離</div>
+      <div class="title">分けない</div>
+      <div class="lead">開発期間で“改善”しても、未使用（フォワード/検証期間）で逆転することがあるため、分離しないと結論が誤ります。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">開発</div>
+          <div class="v">条件調整で上振れしやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">確認</div>
+          <div class="v">別期間で再現性が試される</div>
+        </div>
+      </div>
+      <div class="smallnote">※「確認データを見て条件を直す」は、調整の材料になって過学習を強化しやすいです。</div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">“AIの役割”を固定</div>
+      <div class="title">検証機</div>
+      <div class="lead">AIは勝利を保証する道具ではなく、間違った仮説を速く落とす計算機として使うべきだ、という立場です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">人が決める</div>
+          <div class="v">仮説 / 期間 / 合格基準 / 終了条件</div>
+        </div>
+        <div class="cell">
+          <div class="k">AIがやる</div>
+          <div class="v">コード化 / 集計 / 比較（公平に検証）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">頼み方の型</div>
+      <div class="title">仮説検証</div>
+      <div class="lead">AIへ投げる前に、次の“枠”を人が固定し、AIはその枠内で検証・集計を行います。</div>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i 仮説</div>
+          <div class="v">例：この条件下でエッジが出る</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii 合格基準</div>
+          <div class="v">利益だけでなく最大DD/PFも含む</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii 終了</div>
+          <div class="v">いつ切り替えるか（調整禁止線）</div>
+        </div>
+      </div>
+
+      <div class="smallnote mono">依頼文の核： “この枠を守って検証して。基準は変えないで。”</div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">現実性の要点</div>
+      <div class="title">執行</div>
+      <div class="lead">バックテストは、スプレッドや手数料、未来の価格を使わない、計算の現実性が崩れると過大評価になります。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">コスト</div>
+          <div class="v">スプレッド / 手数料 / スリッページ仮定</div>
+        </div>
+        <div class="cell">
+          <div class="k">時間</div>
+          <div class="v">確定前の値を使わない（先読み排除）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">初心者が先に見る項目</div>
+      <div class="title">7点</div>
+      <div class="lead">“良い数字”に飛びつく前に、次の観点で崩れやすさを点検します。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">1</div>
+          <div class="v">スプレッド等の取引コスト反映</div>
+        </div>
+        <div class="cell">
+          <div class="k">2</div>
+          <div class="v">未来情報の混入有無</div>
+        </div>
+        <div class="cell">
+          <div class="k">3</div>
+          <div class="v">開発期間と確認期間の分離</div>
+        </div>
+        <div class="cell">
+          <div class="k">4</div>
+          <div class="v">最大DD / PFなど多面的評価</div>
+        </div>
+        <div class="cell">
+          <div class="k">5</div>
+          <div class="v">月次・年次の偏り</div>
+        </div>
+        <div class="cell">
+          <div class="k">6</div>
+          <div class="v">パラメータ変更耐性（すぐ壊れないか）</div>
+        </div>
+        <div class="cell">
+          <div class="k">7</div>
+          <div class="v">検証統計の妥当性（再現性の確認）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">同じ“結果”でも意味が違う</div>
+      <div class="title">比較</div>
+      <div class="lead">過去の利益が同じでも、“調整の仕方”と“検証の公平さ”で将来の信用度は変わります。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">調整あり</div>
+          <div class="v">確認後に基準を下げる / 条件を追加すると、偶然当たりを強化しやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">固定あり</div>
+          <div class="v">仮説・期間・基準・終了条件を固定し、AIに集計だけさせると再現性を試せる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">結論：AIの使い方を変える</div>
+      <div class="title">再設計</div>
+      <div class="lead">AIに“儲かる答え”を求めるほど過学習に寄り、現実性も崩れやすくなります。仮説検証へ切り替え、未来情報・コスト・DD/PFまで含めて再点検しましょう。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">再点検</div>
+          <div class="v">現実性（執行・未来情報）</div>
+        </div>
+        <div class="cell">
+          <div class="k">設計</div>
+          <div class="v">検証分割・基準固定</div>
+        </div>
+        <div class="cell">
+          <div class="k">姿勢</div>
+          <div class="v">AI＝仮説を落とす計算機</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://qiita.com/pandausa/items/2930e07a29e5049c22b7" target="_blank" rel="noreferrer noopener">AIにおける過学習と正則化 #G検定 - Qiita</a></h2>
+<p class="reference-note">データ分割を誤ると、リーク（Data Leakage）と呼ばれる問題が発生する。
+
+リークとは、本来は使えない未来情報をモデル評価時に使用してしまうことである。特に時系列データでは注意が必要である。
+
+例えば、訓練データの中に検証データより…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://service.shiftinc.jp/column/10751" target="_blank" rel="noreferrer noopener">過学習とは？機械学習で起きる原因や対策、解決方法について解説｜ソフトウェアテストのSHIFT</a></h2>
+<p class="reference-note">### ホールドアウト法で検証する
+
+ホールドアウト法とは、データを分割して、モデルを構築していくたびに検証を行う方法です。分割した二つのデータから、平均値、中央値、標準偏差などを比較し、どちらも同じ傾向になっていれば、過学習は起きていない…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aismiley.co.jp/ai_news/overtraining" target="_blank" rel="noreferrer noopener">過学習とは？具体例と発生する原因・防ぐための対策方法をご紹介 | DXを推進するAIポータルメディア「AIsmiley」</a></h2>
+<p class="reference-note">データをランダムに分割することで、未知のデータに対する汎化性を高められるため、過学習の起きにくいモデルの構築自体にも役立ちます。ただ、データ分割は1通りしかないため、分割がうまくいかないとデータの傾向に偏りが出る可能性があります。
+
+なお、…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.nri.com/jp/knowledge/glossary/overfitting.html" target="_blank" rel="noreferrer noopener">過学習 | 用語解説 | 野村総合研究所(NRI)</a></h2>
+<p class="reference-note"># NRI 野村総合研究所
+
+#### よく検索されているワード
+
+用語解説
+
+# 過学習
+
+Overfitting
+
+## 過学習とは
+
+過学習とは、統計、機械学習において、データの傾向に沿うようにモデルを学習させた結果、学習時のデータに…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://data-viz-lab.com/overfitting" target="_blank" rel="noreferrer noopener">過学習とは？初心者向けに原因から解決法までわかりやすく解説 - DATA VIZ LAB｜データビズラボ</a></h2>
+<p class="reference-note">#### ホールドアウト法のメリット
+
+メリットは実装が簡単なことと、コンピューターが計算する負担が少ないことです。
+
+データ数が10万以上でコンピューターのスペックがあまり高くないときにはホールドアウト法が便利です。
+
+#### ホールド…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
