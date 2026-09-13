@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>novgraph｜意図・共変更・計算アーキテクチャで“文脈不足”を埋める</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      position: relative;
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      border-radius: 4px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 26px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: .18em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      font-style: italic;
+      background: rgba(0,0,0,0);
+      padding: 0;
+      white-space: nowrap;
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-3);
+      font-size: 20px;
+      font-style: italic;
+      letter-spacing: .02em;
+    }
+    .eyebrow{
+      margin: 2px 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+      font-size: 22px;
+    }
+    .title{
+      margin: 0 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 70px;
+      line-height: 1.02;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .divider{
+      margin-top: 16px;
+      border-top: 1px solid var(--rule);
+      width: 100%;
+    }
+    .grid{
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.08);
+      border-radius: 8px;
+      padding: 14px 14px;
+      min-height: 84px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: .06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .quote{
+      border-left: 4px solid var(--rust);
+      padding-left: 14px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 40px 22px; }
+      .slide::before{ inset: 14px; }
+      .slide-tag{ left: 18px; top: 14px; font-size: 12px; }
+      .slide-num{ right: 18px; top: 14px; font-size: 18px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">novgraph</div>
+      <div class="slide-num">02 / 17</div>
+      <div class="eyebrow">文脈不足を“知識”で補う</div>
+      <div class="title">novgraph</div>
+      <p class="lead">コーディングエージェントがリポジトリを調べるたびに必要な全体像を、知識グラフ（knowledge graph）で“意図・共変更・計算アーキテクチャ”まで含めて返します。</p>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 17</div>
+      <div class="eyebrow">毎回、ゼロから探す</div>
+      <div class="title">文脈が足りない</div>
+      <p class="lead">エージェントはファイル読解や検索で進めますが、「なぜ変更したのか」「一緒に変わる関係」「システム全体の構造」を毎回復元できません。</p>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Idea</div>
+      <div class="slide-num">04 / 17</div>
+      <div class="eyebrow">問い合わせ中心へ</div>
+      <div class="title">KGで復元</div>
+      <p class="lead">novgraphは、リポジトリのファイル＋シンボルだけでなく、コミット履歴の意図（why）、共変更（co-change）、全体解析のアーキテクチャをノード／エッジ化してMCPやコマンド経由で問い合わせます。</p>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">Core</div>
+      <div class="slide-num">05 / 17</div>
+      <div class="eyebrow">返す観点は3つ</div>
+      <div class="title">why / co-change / overview</div>
+      <div class="grid three" role="list" aria-label="core points">
+        <div class="cell" role="listitem">
+          <div class="k">i. why-entry（意図）</div>
+          <div class="v">subject/intent/reasoning等を保持し、短時間で“理由”を把握。</div>
+        </div>
+        <div class="cell" role="listitem">
+          <div class="k">ii. co-change（共変更）</div>
+          <div class="v">静的に見えない連動を、履歴から関連づけ。</div>
+        </div>
+        <div class="cell" role="listitem">
+          <div class="k">iii. overview（計算アーキテクチャ）</div>
+          <div class="v">ハブ／レイヤリング／依存サイクル等をグラフから導出。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Why</div>
+      <div class="slide-num">06 / 17</div>
+      <div class="eyebrow">diffだけでは弱い</div>
+      <div class="title">意図を再利用</div>
+      <p class="lead">コミットごとの“変更理由”がknowledge graphに保存されるため、エージェントはdiff追跡だけでは復元できない設計意図や修正方針を参照できます。</p>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">入力</div>
+          <div class="v">コミット subject / intent / reasoning</div>
+        </div>
+        <div class="cell">
+          <div class="k">出力</div>
+          <div class="v">whyの問い合わせ結果（why-entry）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide" aria-label="connections">
+      <div class="slide-tag">Co-change</div>
+      <div class="slide-num">07 / 17</div>
+      <div class="eyebrow">見えない依存を拾う</div>
+      <div class="title">一緒に変わる</div>
+      <p class="lead">connectionsは履歴ベースのco-changeを含み、import/callのような静的関係だけでは見落とす“実務上の連鎖”を掴めます。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">静的解析</div>
+          <div class="v">import/call等（関係が見える範囲に限定）</div>
+        </div>
+        <div class="cell">
+          <div class="k">novgraph</div>
+          <div class="v">同時更新されたファイル同士の連動（co-change）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide" aria-label="overview">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">08 / 17</div>
+      <div class="eyebrow">最初に“全体図”</div>
+      <div class="title">計算アーキテクチャ</div>
+      <p class="lead">overviewは、グラフ全体から負荷の大きいハブ、デファクトなサブシステム、レイヤリング、依存サイクルなどを導出します。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">導出例</div>
+          <div class="v">ハブ / サブシステム / レイヤリング</div>
+        </div>
+        <div class="cell">
+          <div class="k">導出例</div>
+          <div class="v">依存サイクル / 構造的な要所</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide" aria-label="tokens">
+      <div class="slide-tag">Economics</div>
+      <div class="slide-num">09 / 17</div>
+      <div class="eyebrow">節約を“測定”へ</div>
+      <div class="title">トークン削減</div>
+      <p class="lead">78%〜99.74%の節約はモデル推定ではなく、「回答が引用するファイルを読むコスト」との差として報告されています。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">主張</div>
+          <div class="v">78%〜99.74%（読み取りコスト比較）</div>
+        </div>
+        <div class="cell">
+          <div class="k">設計</div>
+          <div class="v">baselineが立たない場合は無理に主張しない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide" aria-label="freshness">
+      <div class="slide-tag">Freshness</div>
+      <div class="slide-num">10 / 17</div>
+      <div class="eyebrow">古い情報を抑える</div>
+      <div class="title">鮮度の扱い</div>
+      <p class="lead">更新中の新コミットでは、古いインデックスより優先順位を落とすなど“鮮度”を意識した運用が明示されています。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">セッションで参照される根拠の新しさを確保</div>
+        </div>
+        <div class="cell">
+          <div class="k">例</div>
+          <div class="v mono">new commits &gt; older index（優先度調整）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide" aria-label="security">
+      <div class="slide-tag">Risk</div>
+      <div class="slide-num">11 / 17</div>
+      <div class="eyebrow">万能ではない</div>
+      <div class="title">推定と品質</div>
+      <p class="lead">返る情報には推定（inferred edges）が混ざり得ます。whyの記録品質や推論の精度に依存するため、最終判断はdiffや実装確認とセットで行うべきです。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">inferred edges</div>
+          <div class="v">LLMパスで追加される推定関係（根拠の確認が必要）</div>
+        </div>
+        <div class="cell">
+          <div class="k">why-entry</div>
+          <div class="v">コミットメッセージ／record-why運用の影響を受ける</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide" aria-label="security2">
+      <div class="slide-tag">Ops</div>
+      <div class="slide-num">12 / 17</div>
+      <div class="eyebrow">導入の前提</div>
+      <div class="title">サーバ型</div>
+      <p class="lead">クライアント（Python製）はローカル要件を軽くし、インデクシングや検索はホスト側が担う構成です。情報管理（保存期間・アクセス制御・監査）は組織要件に合わせて確認が必要です。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">要件</div>
+          <div class="v">Python 3.11+、標準ライブラリのみ</div>
+        </div>
+        <div class="cell">
+          <div class="k">処理</div>
+          <div class="v">Novayaサーバ側でインデックス／検索</div>
+        </div>
+        <div class="cell">
+          <div class="k">設計</div>
+          <div class="v">ソース内容をクライアントからアップロードしない旨</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">13 / 17</div>
+      <div class="eyebrow">“探索”から“参照”へ</div>
+      <div class="title">導入の指針</div>
+      <p class="lead">novgraphは、エージェントの調査負担を「読む」から「問い合わせる」へ寄せ、意図・関係・構造を短く再構築します。一方で推定やデータ品質の影響は残るため、根拠確認と併用して使うのが安全です。</p>
+      <div class="grid two">
+        <div class="cell quote">
+          <div class="k">推奨</div>
+          <div class="v">回答をそのまま採用せず、必要に応じてコード／diffで検証</div>
+        </div>
+        <div class="cell quote">
+          <div class="k">確認</div>
+          <div class="v">節約率の条件・データ保持・アクセス制御は事前に再確認</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://redis.io/blog/5-agent-architectures-mcp-a2a-protocol-guide" target="_blank" rel="noreferrer noopener">5 agent architecture scenarios: assess MCP vs A2A</a></h2>
+<p class="reference-note">spec is catching up around OAuth 2.1, but until authorization is required by default, treat MCP as a convenience layer f…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://neo4j.com/videos/architecting-trusted-agents-turning-knowledge-graphs-into-secure-policy-engines" target="_blank" rel="noreferrer noopener">Video: Architecting Trusted Agents: Turning Knowledge Graphs into Secure Policy Engines</a></h2>
+<p class="reference-note">## Scene Memory for Robots: Mapping What They See, Reasoning About What Changed – Neo4j @ WAD2026
+
+From Apple Health to …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@visrow/knowledge-graphs-in-action-building-ai-powered-graph-databases-with-mcp-and-agentic-workflows-3acf50b1e36f" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">--
+
+Listen
+
+Share
+
+Knowledge graphs have evolved from theoretical concepts to powerful practical tools that revolutioniz…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/angrysky56/project-synapse-mcp" target="_blank" rel="noreferrer noopener">GitHub - angrysky56/project-synapse-mcp: Transforms raw text into interconnected knowledge graphs and autonomously generates insights through advanced pattern detection. It combines formal semantic analysis (Montague Grammar) with Zettelkasten methodology to create a true cognitive partnership with AI. · GitHub</a></h2>
+<p class="reference-note">## Key Features
+
+### Knowledge Graph (Neo4j 2026.x)
+
+ Native VECTOR type with ANN semantic search
+ Fulltext BM25 indexes…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://neo4j.com/blog/developer/knowledge-graph-generation" target="_blank" rel="noreferrer noopener">Knowledge graph generation</a></h2>
+<p class="reference-note">This type of retrieval would be impossible in vector stores and difficult in other non-graph databases due to the absenc…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
