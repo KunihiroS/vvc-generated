@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Replay Doctor｜プロンプトキャッシュ破損の二重課金を診断</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height:1.55;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 10px;
+      padding: 56px 72px;
+      position: relative;
+      overflow:hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+    .tag{
+      position:absolute;
+      top: 18px;
+      left: 22px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: .14em;
+      color: var(--rust);
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 8px 0;
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      font-size: 64px;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      margin: 0 0 14px 0;
+      position: relative;
+      z-index: 1;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      margin: 0;
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      width: 100%;
+      margin-top: 20px;
+      position: relative;
+      z-index: 1;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+    }
+    .cell h4{
+      margin: 0 0 6px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 700;
+    }
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .pill{
+      display:inline-block;
+      border: 1px solid var(--rule-strong);
+      padding: 6px 10px;
+      border-radius: 999px;
+      color: var(--ink-2);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      margin-right: 10px;
+      margin-top: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .refgrid{
+      display:grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 14px 18px;
+      width: 100%;
+      margin-top: 20px;
+      position: relative;
+      z-index: 1;
+    }
+    .subtle{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 10px;
+    }
+    @media (max-width: 900px){
+      .slide{ padding: 44px 46px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .refgrid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" data-slide-type="cover" aria-label="Cover">
+      <div class="tag">Replay Doctor</div>
+      <div class="slide-num">02 / 12</div>
+      <div class="eyebrow">キャッシュ破損を追跡</div>
+      <h1 class="title">二重課金</h1>
+      <p class="lead">AIエージェント運用で、プロンプトキャッシュが壊れた瞬間をログから特定し、再請求されたトークン量まで示す診断ツール。</p>
+    </section>
+
+    <section class="slide" data-slide-type="problem" aria-label="Problem">
+      <div class="tag">Problem</div>
+      <div class="slide-num">03 / 12</div>
+      <div class="eyebrow">静かに損失</div>
+      <h1 class="title">壊れるのに気づかない</h1>
+      <p class="lead">プロンプトはキャッシュできるが、セッション途中で条件が変わるとキャッシュが無効化され、同じ文脈を“再読み込み”して高いレートで課金され得ます。</p>
+      <div class="grid2" role="group" aria-label="What happens">
+        <div class="cell">
+          <h4>起きること</h4>
+          <p><span class="mono">cache broke on turn</span> → 文脈が再適用 → <span class="mono">re-billed</span>（書き込み価格で再請求）</p>
+        </div>
+        <div class="cell">
+          <h4>困りごと</h4>
+          <p>総額だけ見ても原因（どのターンで壊れたか）が分からず、対策が後手になります。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide-type="metaphor" aria-label="Metaphor">
+      <div class="tag">Metaphor</div>
+      <div class="slide-num">04 / 12</div>
+      <div class="eyebrow">同じ道をもう一度</div>
+      <h1 class="title">キャッシュ再走</h1>
+      <p class="lead">本来は“前回の道順”を再利用すべきところが、途中で地図条件が変わって“やり直し”になり、料金だけが二重に積み上がります。</p>
+      <div class="pill">利用者側の実感：エラーなしでも請求だけ増える</div>
+    </section>
+
+    <section class="slide" data-slide-type="architecture" aria-label="Architecture">
+      <div class="tag">How it works</div>
+      <div class="slide-num">05 / 12</div>
+      <div class="eyebrow">ログ診断</div>
+      <h1 class="title">Replay Doctor</h1>
+      <p class="lead">ディスク上のトランスクリプトを読み取り、キャッシュが壊れたターン、原因（条件差分）、再請求トークン数を提示します。</p>
+      <div class="grid2" role="group" aria-label="Inputs and outputs">
+        <div class="cell">
+          <h4>入力</h4>
+          <p>手元のトランスクリプト（記録ログ）</p>
+        </div>
+        <div class="cell">
+          <h4>出力</h4>
+          <p>壊れたターン / 原因 / <span class="mono">tokens re-billed</span> / 関連差分（diff）</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide-type="evidence" aria-label="Evidence">
+      <div class="tag">Evidence</div>
+      <div class="slide-num">06 / 12</div>
+      <div class="eyebrow">観測結果</div>
+      <h1 class="title">42.9M tokens</h1>
+      <p class="lead">ある運用サンプル（1台のマシン、119セッション、1,881のエージェント・レーン）では、読み直しが発生したトークンが<span class="mono">42.9M</span>。支出全体に対する“避けられた（二重課金）”部分は5%（$199.77）とされています。</p>
+      <div class="grid2" role="group" aria-label="Key numbers">
+        <div class="cell">
+          <h4>再請求（読み直し）</h4>
+          <p><span class="mono">42.9M tokens</span></p>
+        </div>
+        <div class="cell">
+          <h4>避けられた支出</h4>
+          <p>5%（$199.77）</p>
+        </div>
+      </div>
+      <div class="subtle">※入力データは市場の統計ではなく、特定環境の観測と明言されています。</div>
+    </section>
+
+    <section class="slide" data-slide-type="process" aria-label="Causes">
+      <div class="tag">Causes</div>
+      <div class="slide-num">07 / 12</div>
+      <div class="eyebrow">なぜ壊れる</div>
+      <h1 class="title">条件変化</h1>
+      <p class="lead">キャッシュ破損は、プロンプト入力を左右する“条件”が変わることで起き得ます。具体例として、ツール名の追加・削除や、特定の待機系ツールの扱い変更が挙げられます。</p>
+      <div class="grid2" role="group" aria-label="Examples of changes">
+        <div class="cell">
+          <h4>ツール</h4>
+          <p>追加・削除（例：ツール名の差分）</p>
+        </div>
+        <div class="cell">
+          <h4>実行待機</h4>
+          <p>待機系ツールの扱い変更</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide-type="comparison" aria-label="When it matters">
+      <div class="tag">When useful</div>
+      <div class="slide-num">08 / 12</div>
+      <div class="eyebrow">対策の現実性</div>
+      <h1 class="title">優先度の差</h1>
+      <p class="lead">短いセッション主体なら、TTL（キャッシュ保持時間）調整や構成安定で済む場合があります。無人運用やサブエージェント運用では、診断の価値が上がります。</p>
+      <div class="grid2" role="group" aria-label="Decision framing">
+        <div class="cell">
+          <h4>短セッション</h4>
+          <p>TTL調整（例：1時間）で十分になり得る</p>
+        </div>
+        <div class="cell">
+          <h4>無人運用</h4>
+          <p>サブエージェント＋計測が細かいほど、二重課金の損失が見逃されやすい</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide-type="distinction" aria-label="Limitations">
+      <div class="tag">Limitations</div>
+      <div class="slide-num">09 / 12</div>
+      <div class="eyebrow">数字の解釈</div>
+      <h1 class="title">万能ではない</h1>
+      <p class="lead">5%や42.9Mは“市場の平均”ではなく、観測範囲に偏り得る1台・特定期間の実証です。また、金額換算は<span class="mono">list prices</span>前提で、契約単価と一致しない可能性があります。</p>
+      <div class="grid2" role="group" aria-label="What to watch">
+        <div class="cell">
+          <h4>一般化の限界</h4>
+          <p>条件依存：ツール構成、モデル切替、TTL等で変動</p>
+        </div>
+        <div class="cell">
+          <h4>換算の前提</h4>
+          <p>あなたの契約割引が反映されない恐れ</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide-type="enumeration" aria-label="FAQ key points">
+      <div class="tag">FAQ</div>
+      <div class="slide-num">10 / 12</div>
+      <div class="eyebrow">要点だけ</div>
+      <h1 class="title">5つの疑問</h1>
+      <p class="lead">入力データの説明を、意思決定に必要な形に圧縮します。</p>
+      <div class="grid2" role="group" aria-label="FAQ grid">
+        <div class="cell">
+          <h4>i. “broke”</h4>
+          <p>セッション途中で条件が変わり、キャッシュが無効→再読み込み→再請求。</p>
+        </div>
+        <div class="cell">
+          <h4>ii. “何を出す”</h4>
+          <p>壊れたターン／原因（diff）／再請求トークン数。</p>
+        </div>
+        <div class="cell">
+          <h4>iii. 料金</h4>
+          <p><span class="mono">list prices</span>換算であり、支払額と一致しない場合がある。</p>
+        </div>
+        <div class="cell">
+          <h4>iv. プライバシー</h4>
+          <p>“Nothing leaves your machine”（外へ出ない）前提。利用者が自分でファイル投稿。</p>
+        </div>
+        <div class="cell" style="grid-column: 1 / -1;">
+          <h4>v. 5%は当たる？</h4>
+          <p>条件依存が強い。自分のログで再請求率を診断して確認するのが合理的。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide-type="closing" aria-label="Closing">
+      <div class="tag">Takeaway</div>
+      <div class="slide-num">11 / 12</div>
+      <div class="eyebrow">結論</div>
+      <h1 class="title">まず診断</h1>
+      <p class="lead">Replay Doctorの価値は、総額ではなく“二重課金が起きたターンと原因”をログから特定し、設定変更（TTL、ツール構成の安定化）へ直結させる点にあります。</p>
+      <div class="grid2" role="group" aria-label="Actionable next steps">
+        <div class="cell">
+          <h4>今すぐ</h4>
+          <p>自分のトランスクリプトで診断→壊れたターンと<span class="mono">re-billed tokens</span>を確認。</p>
+        </div>
+        <div class="cell">
+          <h4>次に</h4>
+          <p>TTL調整（例：1時間）やツール差分の抑制を検討し、再請求が減るか検証。</p>
+        </div>
+      </div>
+      <div class="subtle">EN term：Prompt cache（プロンプトキャッシュ） / re-billed（再請求）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 12</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
