@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Crab Bot と OpenAPPA：Slack→修正→PRの自動化と情報漏えい対策</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+    }
+
+    .slide-inner{
+      height: 100%;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      border-radius: 8px;
+      padding: 18px 18px 14px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar{
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 2px 6px 0;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", serif;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .slide-tag::before{
+      content: "▍";
+      color: var(--rust);
+      margin-right: 10px;
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 18px 0 6px;
+      padding: 0 6px;
+      max-width: 760px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      color: var(--ink);
+      margin: 0 0 10px;
+      padding: 0 6px;
+    }
+
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 56px;
+      letter-spacing: 0.01em;
+    }
+
+    .title .oneword{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      padding: 0 6px;
+      max-width: 760px;
+      margin-top: 8px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 16px 6px 14px;
+    }
+
+    .grid{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 0 6px;
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      background: rgba(0,0,0,0.06);
+      min-height: 84px;
+    }
+
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", serif;
+      color: var(--rust);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .cell .text{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .grid3{
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      padding: 0 6px;
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      padding: 0 6px;
+      margin-top: 8px;
+      max-width: 980px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+    }
+
+    .anchor{
+      color: var(--ink);
+      text-decoration: none;
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 34px 28px; }
+      .slide-inner{ padding: 14px 14px 12px; border-width: 14px; }
+      .title{ font-size: 52px; }
+      .title .jp{ font-size: 42px; }
+      .lead{ font-size: 18px; }
+      .grid, .grid3{ grid-template-columns: 1fr; }
+      .cell .text{ font-size: 18px; }
+      .slide-tag{ font-size: 11px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / cover -->
+    <section class="slide" aria-label="1. Cover">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Crab Bot</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">Slack 起点の自動化デモ</div>
+        <div class="title">
+          <span class="oneword">Crab</span> Bot
+          <div class="jp">と OpenAPPA</div>
+        </div>
+        <div class="lead">Slackのバグ報告から、隔離環境で調査・修正し、レビューを経てPR作成まで進める仕組みと、情報漏えいを抑える実行時ガードレールを整理します。</div>
+        <div class="rule"></div>
+        <div class="small">Bilingual / バイリンガル：<span class="mono">Slack</span> → <span class="mono">Agent</span> → <span class="mono">PR</span>（自動化）/ <span class="mono">Guardrails</span>（安全制御）</div>
+      </div>
+    </section>
+
+    <!-- 2 / problem -->
+    <section class="slide" aria-label="2. Problem">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">便利さの裏にある穴</div>
+        <div class="title"><span class="oneword">漏えい</span> リスク</div>
+        <div class="lead">内部データを“読める”だけでなく、“出せる”経路があり、さらに無人実行になっていると、プロンプト禁止だけでは情報漏えいを十分に抑止できません。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">危険要素 i</div>
+            <div class="text">内部データの閲覧権（Slack / クラスタ / ログなど）</div>
+          </div>
+          <div class="cell">
+            <div class="label">危険要素 ii</div>
+            <div class="text">公開先へ出力できる（例：公開GitHub issue / 外部通信）</div>
+          </div>
+          <div class="cell">
+            <div class="label">危険要素 iii</div>
+            <div class="text">無人で実行（LLMがツール呼び出しまで進める）</div>
+          </div>
+          <div class="cell">
+            <div class="label">結論</div>
+            <div class="text">“モデルの従順”ではなく“実行時の政策”が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / architecture -->
+    <section class="slide" aria-label="3. Core loop">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">閉じたループ</div>
+        <div class="title"><span class="oneword">Slack</span> 起点</div>
+        <div class="lead">Slackの投稿をコントローラが取り込み、隔離された開発環境で情報取得→修正→デモ生成→PR提示までを一連の流れとして回します。</div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">i. Ingest</div>
+            <div class="text">Slackスレッドを取り込み（指示・ログ・文脈）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. Execute</div>
+            <div class="text">隔離VMで環境構築（リポ取得 / Tilt / headless Chromium）</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. Ship</div>
+            <div class="text">PRを作成し、レビューを経てマージ手前まで</div>
+          </div>
+        </div>
+        <div class="small">人の操作は「バグ記述」「動画を見る」「Ship it」「Promote」へ圧縮（in the loop / 二段階）</div>
+      </div>
+    </section>
+
+    <!-- 4 / evidence -->
+    <section class="slide" aria-label="4. Example">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">UI不具合を修正</div>
+        <div class="title"><span class="oneword">デモ</span> 例</div>
+        <div class="lead">コンテキスト圧縮中に入力できないというUI不具合を、エージェントが動作確認デモ付きで修正し、PRとして提示しました。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">入力</div>
+            <div class="text">Slackのバグ報告（何が起きるか）</div>
+          </div>
+          <div class="cell">
+            <div class="label">出力</div>
+            <div class="text">修正PR + 動作確認デモ動画（再現性の補助）</div>
+          </div>
+          <div class="cell">
+            <div class="label">価値</div>
+            <div class="text">調査コストを「チケット作成・環境構築」から切り離す</div>
+          </div>
+          <div class="cell">
+            <div class="label">適用範囲</div>
+            <div class="text">“少しのバグ”で自己完結しているほど向く</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / distinction -->
+    <section class="slide" aria-label="5. Read vs Output">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">読む vs 出す</div>
+        <div class="title"><span class="oneword">分離</span> が鍵</div>
+        <div class="lead">内部データを読むこと自体は必要ですが、理解した内容を外部へ“持ち出す”ルートを制度として塞ぐ必要があります。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">安全寄り</div>
+            <div class="text">読む（調査・修正に必要な材料を得る）</div>
+          </div>
+          <div class="cell">
+            <div class="label">危険寄り</div>
+            <div class="text">出す（公開先や外部通信に直接出力する）</div>
+          </div>
+          <div class="cell">
+            <div class="label">実装思想</div>
+            <div class="text">プロンプトより「実行前にブロック」が効く</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="text">“内部化→公開”の連鎖を断つ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / architecture -->
+    <section class="slide" aria-label="6. OpenAPPA role">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">実行時政策エンジン</div>
+        <div class="title"><span class="oneword">OpenAPPA</span></div>
+        <div class="lead">OpenAPPAは、内部ツールから何を読んだかを追跡し、その“理解の状態”に応じて公開先へのツール呼び出しを事前ブロックします。</div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">i. Track</div>
+            <div class="text">内部ツールの読取・内部化を追跡</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. Decide</div>
+            <div class="text">公開先へ出すべきか判定（政策適用）</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. Block</div>
+            <div class="text">公開系ツール呼び出しを直接止める</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / process -->
+    <section class="slide" aria-label="7. Policy flow">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">抜け道を“塞ぐ手順”</div>
+        <div class="title"><span class="oneword">多層</span> 検知</div>
+        <div class="lead">MCPゲートウェイ／MCPツール／CLI／クラスタ参照／クラウドAPI判定／LLM分類など多層で検知し、検知回避への耐性を狙います。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">対象</div>
+            <div class="text">MCPツールとCLIツールをカバー</div>
+          </div>
+          <div class="cell">
+            <div class="label">判定軸</div>
+            <div class="text">参照先（クラウド/ローカル）、読取に該当するか</div>
+          </div>
+          <div class="cell">
+            <div class="label">補助</div>
+            <div class="text">手動注釈のない呼び出しをLLM分類で補助（二段階防御）</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="text">公開へ“勝手に転載”するルートを制度的に遮断</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / comparison -->
+    <section class="slide" aria-label="8. Prompt vs Policy">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">プロンプト依存の限界</div>
+        <div class="title"><span class="oneword">政策</span> 依存</div>
+        <div class="lead">“禁止しろ”はモデルの気分や挙動に依存しがちです。そこで、ツール呼び出しレベルで実行時に政策を適用します。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">プロンプト</div>
+            <div class="text">期待：従うだろう / しかし挙動は揺れる</div>
+          </div>
+          <div class="cell">
+            <div class="label">実行時政策</div>
+            <div class="text">実際：出力先のツール呼び出しを事前にブロック</div>
+          </div>
+          <div class="cell">
+            <div class="label">効果</div>
+            <div class="text">内部化→公開の“現実的ルート”を塞ぐ</div>
+          </div>
+          <div class="cell">
+            <div class="label">要点</div>
+            <div class="text">安全は仕様（policy）で担保する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / enumeration -->
+    <section class="slide" aria-label="9. What it fits / doesn't">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Fit</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">向き・不向き</div>
+        <div class="title"><span class="oneword">適用</span> 条件</div>
+        <div class="lead">定型で自己完結しやすい“少しのバグ修正”は自動化向き。一方で難問は無人ではなく人のループ前提に寄せます。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">向いている</div>
+            <div class="text">文脈が揃う / 既存範囲で修正可能 / 再現・検証しやすい</div>
+          </div>
+          <div class="cell">
+            <div class="label">向いていない</div>
+            <div class="text">味・アーキテクチャ判断 / 高度な推論が必要</div>
+          </div>
+          <div class="cell">
+            <div class="label">方針</div>
+            <div class="text">“in the loop”を維持（独立実行を広げない）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ガバナンス</div>
+            <div class="text">private mirror / Promote は人が判断</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / architecture -->
+    <section class="slide" aria-label="10. Opinion strengths">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Opinion</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">説得力の核心</div>
+        <div class="title"><span class="oneword">実装</span> で語る</div>
+        <div class="lead">強みは“夢の自動化”ではなく、実務で問題になる情報漏えいを、実装レベルの制御（OpenAPPA）として扱っている点です。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">良い点</div>
+            <div class="text">読み取った事実→出力先を実行時に遮断する設計</div>
+          </div>
+          <div class="cell">
+            <div class="label">良い点</div>
+            <div class="text">依頼者ごとのアクセス範囲や、公開は二段階フローで統制</div>
+          </div>
+          <div class="cell">
+            <div class="label">良い点</div>
+            <div class="text">小さなバグは費用対効果が高いという適用戦略が明確</div>
+          </div>
+          <div class="cell">
+            <div class="label">含意</div>
+            <div class="text">安全は“運用と政策”で回す（policy engine 依存）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / evidence -->
+    <section class="slide" aria-label="11. Limitations">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Limits</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">過信は禁物</div>
+        <div class="title"><span class="oneword">検証</span> が要る</div>
+        <div class="lead">OpenAPPAが完全に抜け道を塞げるかは別問題で、判定網羅性・誤判定・検知回避への評価指標やテスト範囲が読み手には不足しています。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">未提示の論点</div>
+            <div class="text">攻撃シナリオ、第三者評価、再現可能なセキュリティ検証</div>
+          </div>
+          <div class="cell">
+            <div class="label">懸念</div>
+            <div class="text">CLI/LLM分類の誤判定、ルールの外側を突く可能性</div>
+          </div>
+          <div class="cell">
+            <div class="label">別経路</div>
+            <div class="text">ログ、動画/スクリーンショットのメタデータ、PR本文以外</div>
+          </div>
+          <div class="cell">
+            <div class="label">結論</div>
+            <div class="text">“方向性の良さ”を評価しつつ、評価・監視で補う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / closing + references-style -->
+    <section class="slide" aria-label="12. Closing">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">持ち帰る要点</div>
+        <div class="title"><span class="oneword">安全</span> 自動化</div>
+        <div class="lead">小さなバグ修正は自動化しやすい。だが内部データを扱うほど、出力先を実行時に政策で制御するガードレールが不可欠です。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">Key idea</div>
+            <div class="text">読取（Track）→ 公開ブロック（Block）を“制度として”つなぐ</div>
+          </div>
+          <div class="cell">
+            <div class="label">Operational</div>
+            <div class="text">private mirror + Promote 人承認で無人暴走を抑える</div>
+          </div>
+          <div class="cell">
+            <div class="label">Next check</div>
+            <div class="text">評価（どれだけの脅威に、どれだけの精度で対処）と監視手順</div>
+          </div>
+          <div class="cell">
+            <div class="label">Bilingual</div>
+            <div class="text">安全（Safety）× セキュリティ（Security）× ガバナンス（Governance）</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:auto; padding-bottom: 2px;">
+          References（記事内容要約に基づく要点）：
+          <span class="mono">Crab Bot</span>（Slack起点の自動修正デモ）、
+          <span class="mono">OpenAPPA</span>（実行時政策エンジン）、
+          <span class="mono">MCP / CLI</span>（ツール呼び出し制御）、
+          <span class="mono">in the loop</span>（人の承認前提の運用）
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://labs.cloudsecurityalliance.org/research/csa-research-note-mcp-security-crisis-20260504-csa-styled" target="_blank" rel="noreferrer noopener">MCP Security Crisis: Systemic Design Flaws in AI Agent ...</a></h2>
+<p class="reference-note">Pipelab. “The State of MCP Security 2026: Incidents, Attack Patterns, and Defense Coverage.” Pipelab, April 2026.
+
+ The …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/affaan-m/ecc/blob/main/the-security-guide.md" target="_blank" rel="noreferrer noopener">ECC/the-security-guide.md at main · affaan-m/ECC · GitHub</a></h2>
+<p class="reference-note">Simon Willison&#39;s lethal trifecta framing is still the cleanest way to think about this: private data, untrusted content,…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://simonwillison.net/tags/model-context-protocol" target="_blank" rel="noreferrer noopener">Simon Willison on model-context-protocol</a></h2>
+<p class="reference-note">This makes a lot of sense to me. Most of my MCP usage with coding agents like Claude Code has been replaced by custom sh…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://simonwillison.net/tags/security?page=3" target="_blank" rel="noreferrer noopener">Simon Willison on security</a></h2>
+<p class="reference-note">&gt; The Chore: Go label every data input, and every tool (especially MCP tools). For MCP tools &amp; resources, you can use th…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.practical-devsecops.com/mcp-security-statistics-2026-report" target="_blank" rel="noreferrer noopener">MCP Security Statistics 2026: CVEs, Vulnerabilities &amp; ...</a></h2>
+<p class="reference-note">Docker State of Agentic AI (800+ developers): 46% of teams earlier in their journey name security/compliance the top MCP…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
