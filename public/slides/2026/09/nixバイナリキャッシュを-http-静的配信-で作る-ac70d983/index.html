@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nixバイナリキャッシュを“HTTP/静的配信”で作る</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.45;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.08);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 10px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 16px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 52px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+      font-size: 22px;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 14px 0 6px;
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      font-weight: 500;
+      font-size: 72px;
+      font-style: italic;
+      color: var(--rust);
+      margin-right: 10px;
+    }
+    .title .oneword{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .lead{
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin-top: 2px;
+      position: relative;
+      z-index: 1;
+    }
+    .divider{
+      margin-top: 16px;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.10);
+      padding: 14px 14px;
+      min-height: 92px;
+    }
+    .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .v{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink-2);
+    }
+    .emph{
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .refs{
+      margin-top: 6px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.10);
+    }
+    .ref .name{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .ref .desc{
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .closing-note{
+      font-size: 22px;
+      max-width: 820px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 44px 20px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 54px; }
+      .title .jp{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid2, .grid3{ gap: 12px; }
+      .card{ min-height: 84px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">Nix Remote Cache</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">“Nix以外”も代理できる</div>
+      <h1 class="title"><span class="jp">発見</span><span class="oneword">転用</span></h1>
+      <div class="lead">Nixのバイナリキャッシュは、Nix専用サーバである必要がありません。<br/>必要なのは最小IFと、検証（署名・ハッシュ）です。</div>
+      <div class="content"></div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">“場所”は要らない</div>
+      <h1 class="title"><span class="jp">前提</span><span class="oneword">非依存</span></h1>
+      <div class="lead">Nixは、配布サーバの“住所”や“プロトコル”を信用しません。<br/>だからこそ、別のHTTP配信や静的配信が同じ仕事をできます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">Nixが信用しない</div>
+            <div class="v">通信経路 / ホスト / URL / 圧縮形式</div>
+          </div>
+          <div class="card">
+            <div class="k">Nixが検証する</div>
+            <div class="v mono">Sig（署名） + NarHash（ハッシュ一致）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="topbar">
+        <div class="slide-tag">Core</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">最小IFは3要求</div>
+      <h1 class="title"><span class="jp">結論</span><span class="oneword">三つ</span></h1>
+      <div class="lead">Nixバイナリキャッシュを提供するIFは3つの要求だけです。<br/>これが満たされれば、サブストレータは“既存配信基盤”になり得ます。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="k">①</div>
+            <div class="v mono">nix-cache-info</div>
+            <div class="small">StoreDirを得る</div>
+          </div>
+          <div class="card">
+            <div class="k">②</div>
+            <div class="v mono">&lt;hash&gt;.narinfo</div>
+            <div class="small">メタデータ取得</div>
+          </div>
+          <div class="card">
+            <div class="k">③</div>
+            <div class="v mono">nar.xz（URLの圧縮本体）</div>
+            <div class="small">アーカイブ取得</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Verification">
+      <div class="topbar">
+        <div class="slide-tag">Security</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">検証が主役</div>
+      <h1 class="title"><span class="jp">鍵</span><span class="oneword">NarHash</span></h1>
+      <div class="lead">Sigは特定フィールドをカバーし、URLや圧縮方式自体は署名対象外です。<br/>それでも取得後にNarHashが一致すれば、内容は確定します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">Sigが守る範囲</div>
+            <div class="v">StorePath / NarHash / NarSize / References など</div>
+          </div>
+          <div class="card">
+            <div class="k">最終合否</div>
+            <div class="v">取得したアーカイブの <span class="mono">NarHash</span> 一致で受理</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="How to host with GitHub Pages">
+      <div class="topbar">
+        <div class="slide-tag">Example</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">GitHub Pagesで配る</div>
+      <h1 class="title"><span class="jp">実例</span><span class="oneword">file://</span></h1>
+      <div class="lead">記事の具体例は、GitHub Pages（静的配信）をHTTP配信の代役にします。<br/>CORSヘッダ（例：<span class="mono">Access-Control-Allow-Origin: *</span>）が常に効く点が有利でした。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">生成</div>
+            <div class="v mono">nix copy --to file:// で /nix/store を書き出し</div>
+          </div>
+          <div class="card">
+            <div class="k">公開</div>
+            <div class="v">そのディレクトリをGitにコミットし、Pagesで配信</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Clients don't care">
+      <div class="topbar">
+        <div class="slide-tag">Client</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">クライアントは追わない</div>
+      <h1 class="title"><span class="jp">転用</span><span class="oneword">場所不問</span></h1>
+      <div class="lead">Nixクライアントはサーバの“場所”や“プロトコル”に依存しません。<br/>IFが3要求を満たし、取得物がNarHashで正しいことが確認できれば成立します。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="k">StoreDir</div>
+            <div class="v mono">nix-cache-info</div>
+          </div>
+          <div class="card">
+            <div class="k">narinfo</div>
+            <div class="v mono">&lt;hash&gt;.narinfo</div>
+          </div>
+          <div class="card">
+            <div class="k">本体</div>
+            <div class="v mono">narinfoのURL → nar.xz</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="URL quirks">
+      <div class="topbar">
+        <div class="slide-tag">Gotcha</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">URL調整が必要</div>
+      <h1 class="title"><span class="jp">注意</span><span class="oneword">名前空間</span></h1>
+      <div class="lead">何でもできる一方で、配信側の“仕様差”に合わせる必要があります。<br/>特にGitHub Releasesはフラットな名前空間で、通常のパス構造とズレやすいです。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">問題の例</div>
+            <div class="v">通常想定（例：<span class="mono">nar/</span>接頭辞）と一致しない</div>
+          </div>
+          <div class="card">
+            <div class="k">対応</div>
+            <div class="v">narinfo内の <span class="mono">URL</span> を剥がす／組み替える</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Broader applications">
+      <div class="topbar">
+        <div class="slide-tag">Extensions</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">応用の地平</div>
+      <h1 class="title"><span class="jp">広がる</span><span class="oneword">配信先</span></h1>
+      <div class="lead">同じIFと検証を満たせば、配信先は“Nix的”である必要がありません。<br/>記事では、いくつかのアイデアが列挙されています。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="k">Git化</div>
+            <div class="v">narをGitオブジェクトとして保持</div>
+          </div>
+          <div class="card">
+            <div class="k">DNS</div>
+            <div class="v">TXTレコードで一部応答</div>
+          </div>
+          <div class="card">
+            <div class="k">レジストリ</div>
+            <div class="v">pastebin / OCIレジストリで配布</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Encoding and video">
+      <div class="topbar">
+        <div class="slide-tag">Weird, but works</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">動画でも配れる</div>
+      <h1 class="title"><span class="jp">極端</span><span class="oneword">YouTube</span></h1>
+      <div class="lead">圧縮アーカイブ（nar）をメタ情報と結びつけて取得できれば、メディア形式は問われます。<br/>発想としては、YouTube動画へエンコードして配る案も挙げられています。</div>
+      <div class="content">
+        <div class="card">
+          <div class="k">成立条件（要点）</div>
+          <div class="v">取得できること + <span class="mono">NarHash</span> 検証で内容を確定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="npm distribution">
+      <div class="topbar">
+        <div class="slide-tag">Abuse & Channel</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">npmで配る</div>
+      <h1 class="title"><span class="jp">提案</span><span class="oneword">配布網</span></h1>
+      <div class="lead">さらにnpmを“バイナリキャッシュ兼チャネル”として使う例が詳述されています。<br/>nix copyで作ったディレクトリをnpm publishすると、Nix成果物の依存込みパッケージとして配れます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">再現できること</div>
+            <div class="v">配布の入口（channel感）を <span class="mono">dist-tags</span> で表現</div>
+          </div>
+          <div class="card">
+            <div class="k">懸念（ニュアンス）</div>
+            <div class="v">技術は可能でも、コミュニティ期待とのギャップがある</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Limitations">
+      <div class="topbar">
+        <div class="slide-tag">Limitations</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">差分配信が弱い</div>
+      <h1 class="title"><span class="jp">弱点</span><span class="oneword">重複</span></h1>
+      <div class="lead">npmは差分的なインクリメンタル配信が基本的に弱いです。<br/>そのため同一ライブラリ（例：glibc）を含む複数版で重複アップロードが起きやすくなります。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">具体例</div>
+            <div class="v">glibcのような共有ライブラリが版ごとに再アップ</div>
+          </div>
+          <div class="card">
+            <div class="k">影響</div>
+            <div class="v">帯域・ストレージが膨らむ（長期運用ほど効く）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="Practical risks">
+      <div class="topbar">
+        <div class="slide-tag">Risk</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">セキュリティ以外もある</div>
+      <h1 class="title"><span class="jp">現場</span><span class="oneword">可用性</span></h1>
+      <div class="lead">成功の背景にはCORSや静的配信ヘッダなど“周辺環境依存”があります。<br/>また、URL先が壊れる・期限切れで落ちると、ハッシュ検証以前に取得できません。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="k">依存</div>
+            <div class="v">CORS / キャッシュ制御 / 配信ヘッダ</div>
+          </div>
+          <div class="card">
+            <div class="k">壊れた時</div>
+            <div class="v">取得失敗（署名/ハッシュがあっても届かない）</div>
+          </div>
+          <div class="card">
+            <div class="k">期限</div>
+            <div class="v">pastebinのGCのような削除リスク</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide" aria-label="How to think">
+      <div class="topbar">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">できる→設計する</div>
+      <h1 class="title"><span class="jp">要点</span><span class="oneword">設計手順</span></h1>
+      <div class="lead">“転用可能”の本質は、Nixの検証ロジックが経路の信用を不要にする点です。<br/>実運用では、配信側の制約（ヘッダ/構造）と可用性運用（GC・ミラー）を別途評価します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="k">最初に確認</div>
+            <div class="v">3要求：<span class="mono">nix-cache-info</span> / <span class="mono">&lt;hash&gt;.narinfo</span> / nar本体</div>
+          </div>
+          <div class="card">
+            <div class="k">次に設計</div>
+            <div class="v">Sig運用 + <span class="mono">NarHash</span>一致 + URL/GC/保持期間を計画</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide" aria-label="References">
+      <div class="topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">参照先（概念）</div>
+      <h1 class="title"><span class="jp">前提</span><span class="oneword">IF</span></h1>
+      <div class="lead">以下は、この内容を理解するための参照対象（概念）です。原文の細部（具体手順・URLの扱い等）は必ず元記事を参照してください。</div>
+      <div class="content">
+        <div class="refs">
+          <div class="ref">
+            <div class="name">Nix Binary Cache IF</div>
+            <div class="desc">nix-cache-info / &lt;hash&gt;.narinfo / narinfo内URLからnar.xz取得、という3要求モデル。</div>
+          </div>
+          <div class="ref">
+            <div class="name">検証設計（Sig + NarHash）</div>
+            <div class="desc">Sig対象フィールドと、最終的な受理を決めるNarHash一致チェックの考え方。</div>
+          </div>
+          <div class="ref">
+            <div class="name">配信基盤の差</div>
+            <div class="desc">GitHub Pages/GitHub ReleasesのCORSや名前空間、narinfoのURL表現調整が必要になり得る点。</div>
+          </div>
+          <div class="ref">
+            <div class="name">npm配布の性質</div>
+            <div class="desc">dist-tagsでチャンネル感は作れるが、差分配信が弱く重複アップロードが起きやすい点。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://fzakaria.com/2026/09/11/a-nix-store-is-three-functions" target="_blank" rel="noreferrer noopener">A Nix store is three functions - Farid Zakaria</a></h2>
+<p class="reference-note">The only requirement seemed to be a lenient Cross-Origin Resource Sharing (CORS) policy, `access-control-allow-origin: `…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://bmcgee.ie/posts/2023/06/nats-building-a-nix-binary-cache" target="_blank" rel="noreferrer noopener">NATS: building a Nix binary cache | Brian McGee</a></h2>
+<p class="reference-note">`GET /nix-cache-info` returns some metadata about the cache in question. Here is one taken from :
+
+```
+StoreDir: /nix/st…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=36484609" target="_blank" rel="noreferrer noopener">The Magic Nix Cache, a GitHub Action for speeding up your Nix workflows | Hacker News</a></h2>
+<p class="reference-note">```
+  - uses: actions/cache@v3
+    with:
+      # npm cache files are stored in `~/.npm` on Linux/macOS
+      path: ~/.np…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/DeterminateSystems/magic-nix-cache/blob/main/README.md" target="_blank" rel="noreferrer noopener">magic-nix-cache/README.md at main · DeterminateSystems/magic-nix-cache · GitHub</a></h2>
+<p class="reference-note">&gt; Note: the Magic Nix Cache doesn&#39;t offer a publicly available cache. This means the cache is only usable in CI. Zero to…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/marketplace/actions/magic-nix-cache" target="_blank" rel="noreferrer noopener">Magic Nix Cache · Actions · GitHub Marketplace · GitHub</a></h2>
+<p class="reference-note"># Magic Nix Cache
+
+Save 30-50%+ of CI time without any effort or cost. Use Magic Nix Cache, a totally free and zero-conf…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
