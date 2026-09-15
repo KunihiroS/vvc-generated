@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>圧縮で見る：研究エージェントはなぜ過学習しにくいのか</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+    .card-frame{
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius: 6px;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 28px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px;
+      font-style: italic;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+      line-height: 1.1;
+    }
+    .title{
+      font-size: 64px;
+      font-weight: 500;
+      margin: 0 0 12px 0;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: -0.01em;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+    .title .accent{
+      font-style: italic;
+      color: var(--rust);
+      text-transform:none;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .rule-line{
+      height: 1px;
+      background: var(--rule);
+      margin: 22px 0;
+      width: 100%;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.06);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      font-weight: 400;
+      line-height: 1.4;
+      color: var(--ink);
+    }
+
+    .lead-small{
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.55;
+      margin-top: 6px;
+      max-width: 900px;
+    }
+
+    @media (max-width: 820px){
+      .slide{ padding: 44px 52px; }
+      .slide-tag{ left: 18px; }
+      .slide-num{ right: 18px; }
+      .card-frame{ inset: 14px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .cell .v{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="card-frame"></div>
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <p class="eyebrow">過学習の謎を圧縮で</p>
+      <h1 class="title"><span class="accent">圧縮</span>で見る<br><span class="jp">研究エージェント</span></h1>
+      <p class="lead">研究エージェントがベンチマークで改良を重ねても、なぜ過学習（overfitting）が起きにくいのかを「圧縮可能性」で説明する。</p>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="card-frame"></div>
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <p class="eyebrow">理屈では起きるはず</p>
+      <h2 class="title"><span class="accent">ホールドアウト</span>問題</h2>
+      <p class="lead">同じ検証データ（ホールドアウト）を繰り返し見ながら改良すると、いつかそのデータに合わせてしまい、新規データで性能が落ちるはずだ。</p>
+      <div class="grid two">
+        <div class="cell"><div class="k">失敗モード</div><div class="v">検証では良い<br>初見で悪い</div></div>
+        <div class="cell"><div class="k">教科書的予測</div><div class="v">見えないデータの代理が崩れる</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="card-frame"></div>
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <p class="eyebrow">丸暗記じゃない</p>
+      <h2 class="title"><span class="accent">レシピ</span>仮説</h2>
+      <p class="lead">成功戦略が「短いレシピ」に圧縮できるなら、検証データ固有の細部を丸暗記していない可能性が高い。</p>
+      <p class="lead-small">圧縮できる＝情報ボトルネックを通過できる、という見立て。</p>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="card-frame"></div>
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <p class="eyebrow">圧縮テストで判定</p>
+      <h2 class="title"><span class="accent">実験</span>の形</h2>
+      <p class="lead">LLM研究エージェントで、研究者コミュニティと同型の「改良ループ」を再現し、得られた戦略を少数トークンのプロンプトへ圧縮して再現可能性を測る。</p>
+      <div class="grid three">
+        <div class="cell"><div class="k">1</div><div class="v">探索側（Explorer）が改良</div></div>
+        <div class="cell"><div class="k">2</div><div class="v">戦略を圧縮（短プロンプト化）</div></div>
+        <div class="cell"><div class="k">3</div><div class="v">記憶なし再現側（Reproducer）が同等性能</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="card-frame"></div>
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">06 / 16</div>
+      <p class="eyebrow">検査の論理</p>
+      <h2 class="title"><span class="accent">反証</span>の流れ</h2>
+      <p class="lead">「過学習仮説」を狙い撃ちできるのは、圧縮で検証データ固有の手がかりがボトルネックを通れるかを確認するからだ。</p>
+      <div class="grid two">
+        <div class="cell"><div class="k">仮説A：過学習</div><div class="v">検証依存の細部が必要</div></div>
+        <div class="cell"><div class="k">予測A：圧縮困難</div><div class="v">短プロンプトでは再現不能</div></div>
+      </div>
+      <div class="grid two" style="margin-top:12px;">
+        <div class="cell"><div class="k">仮説B：圧縮可能</div><div class="v">短い意思決定に還元できる</div></div>
+        <div class="cell"><div class="k">予測B：圧縮成功</div><div class="v">再現性能が保たれる</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="card-frame"></div>
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <p class="eyebrow">短い戦略ほど強い</p>
+      <h2 class="title"><span class="accent">16–32</span>トークン</h2>
+      <p class="lead">成功した戦略が16〜32トークン程度まで圧縮しても再現性能が保たれる例がある。</p>
+      <div class="grid two">
+        <div class="cell"><div class="k">直感</div><div class="v">最終的なレシピが短い</div></div>
+        <div class="cell"><div class="k">含意</div><div class="v">細部記憶の余地が小さい</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="distinction">
+      <div class="card-frame"></div>
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">08 / 16</div>
+      <p class="eyebrow">境界が見える</p>
+      <h2 class="title"><span class="accent">圧縮の限界</span></h2>
+      <p class="lead">トークン数を8に削ると再現できなくなる境界例が提示される。成功が「完全に一般知識」なだけではないことを示す。</p>
+      <div class="grid two">
+        <div class="cell"><div class="k">“成功”</div><div class="v">必要な選択がレシピに含まれる</div></div>
+        <div class="cell"><div class="k">“失敗”</div><div class="v">検出に必要な非自明要素が落ちる</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="comparison">
+      <div class="card-frame"></div>
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">09 / 16</div>
+      <p class="eyebrow">チーター検知</p>
+      <h2 class="title"><span class="accent">直接最大化</span>で破綻</h2>
+      <p class="lead">エージェントに検証セットへ直接アクセスし、最大化させた場合は真のホールドアウトとの差が大きくなる。その後、短プロンプトへ圧縮すると優位性が消える。</p>
+      <div class="grid two">
+        <div class="cell"><div class="k">過学習モード</div><div class="v">検証固有の攻略が残る</div></div>
+        <div class="cell"><div class="k">圧縮結果</div><div class="v">短いレシピでは再現できない</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="process">
+      <div class="card-frame"></div>
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">10 / 16</div>
+      <p class="eyebrow">圧縮デコーダ</p>
+      <h2 class="title"><span class="accent">LLM</span>が復元する</h2>
+      <p class="lead">圧縮デコーダとしてのLLMが重要だ。短い指示から、MLパイプライン（学習・推論の手順）を一般知識で復元できる。</p>
+      <div class="grid three">
+        <div class="cell"><div class="k">役割</div><div class="v">短プロンプト→手順へ展開</div></div>
+        <div class="cell"><div class="k">背景</div><div class="v">世界知識（training knowledge）を大量に保持</div></div>
+        <div class="cell"><div class="k">条件</div><div class="v">情報がボトルネック内に収まること</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="distinction">
+      <div class="card-frame"></div>
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">11 / 16</div>
+      <p class="eyebrow">前提が肝</p>
+      <h2 class="title"><span class="accent">情報経路</span>だけは注意</h2>
+      <p class="lead">圧縮テストが効く前提は「検証→戦略」へ至る情報経路がプロンプト経由だけであること。事前学習や公開情報のリークが別経路になると、検知できない可能性がある。</p>
+      <div class="grid two">
+        <div class="cell"><div class="k">必要前提</div><div class="v">経路＝プロンプトのみ（推定）</div></div>
+        <div class="cell"><div class="k">リスク</div><div class="v">別経路で検証情報を横取り</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="evidence">
+      <div class="card-frame"></div>
+      <div class="slide-tag">TAKEAWAY</div>
+      <div class="slide-num">12 / 16</div>
+      <p class="eyebrow">結論はこれ</p>
+      <h2 class="title"><span class="accent">過学習</span>しにくい理由</h2>
+      <p class="lead">成功戦略が圧縮可能で、検証データ固有の記憶を再現する余地が小さいから。圧縮境界を観測し、過学習を“検知”できる枠組みを提示している。</p>
+      <div class="grid two">
+        <div class="cell"><div class="k">強み（Scientific）</div><div class="v">圧縮で反証可能</div></div>
+        <div class="cell"><div class="k">強み（Practical）</div><div class="v">チーター検知の可能性</div></div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="card-frame"></div>
+      <div class="slide-tag">CLOSING</div>
+      <div class="slide-num">13 / 16</div>
+      <p class="eyebrow">使いどころ</p>
+      <h2 class="title"><span class="accent">提案</span>：短いレシピで診断</h2>
+      <p class="lead">ベンチマーク偏重の開発・研究では、「短い要約（レシピ）で再現できるか」を診断軸にすると、過学習リスクを早期にあぶり出せる。</p>
+      <div class="grid two" style="margin-top:14px;">
+        <div class="cell"><div class="k">注意</div><div class="v">圧縮成功＝万能一般化ではない</div></div>
+        <div class="cell"><div class="k">次の一手</div><div class="v">新規評価で最終確認が必要</div></div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.amazon.science/blog/why-dont-machine-learning-research-agents-overfit" target="_blank" rel="noreferrer noopener">Why machine learning research agents don&#39;t overfit — and what compression has to do with it - Amazon Science</a></h2>
+<p class="reference-note">A few caveats are in order. The whole framework assumes that the only path from the validation data to the final model r…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2604.07569v1" target="_blank" rel="noreferrer noopener">Learning is Forgetting: LLM Training As Lossy Compression</a></h2>
+<p class="reference-note">Vitányi and Li, 2000). Bayesian approaches to human cognition offer accounts of how a broad array of human behaviour can…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://icml.cc/virtual/2025/poster/43798" target="_blank" rel="noreferrer noopener">ICML Poster In-Context Learning and Occam&#39;s Razor</a></h2>
+<p class="reference-note">A major challenge in machine learning (ML) is teaching models to make accurate predictions on data they&#39;ve never seen be…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=4wXge2cY3R8" target="_blank" rel="noreferrer noopener">Evaluating Data Misuse in LLMs: Introducing Adversarial ...</a></h2>
+<p class="reference-note">[42:29] but on the other hand, you know, if I only care about the outcome, uh then I probably didn&#39;t memorize uh
+[42:35]…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9882019" target="_blank" rel="noreferrer noopener">How Occam’s razor guides human decision-making</a></h2>
+<p class="reference-note">new insights into how ANNs might be analyzed to better understand the kinds of solutions they produce for particular pro…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
