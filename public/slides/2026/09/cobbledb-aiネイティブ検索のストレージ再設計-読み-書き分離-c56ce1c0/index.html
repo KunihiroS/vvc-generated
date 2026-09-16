@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CobbleDB: AIネイティブ検索のストレージ再設計（読み/書き分離）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+    .wrap{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 0;
+      padding: 56px 72px;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      isolation: isolate;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      pointer-events:none;
+      z-index:0;
+    }
+    .content{
+      position:relative;
+      z-index:1;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      height:100%;
+      min-height: 0;
+    }
+
+    .top-row{
+      display:flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 2px solid var(--rust);
+      padding-top: 8px;
+      line-height: 1;
+      white-space: nowrap;
+      max-width: 70%;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      white-space: nowrap;
+      margin-top: 2px;
+    }
+
+    .eyebrow{
+      margin-top: 2px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      line-height: 0.98;
+      margin-top: -2px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 54px;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+    }
+
+    .grid{
+      margin-top: 6px;
+      display:grid;
+      gap: 14px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 14px 16px;
+      background: rgba(240,232,216,0.02);
+      min-height: 64px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 500;
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+
+    .footer-rule{
+      margin-top:auto;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 14px;
+      display:flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .small{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      line-height: 1.25;
+      max-width: 560px;
+    }
+    .small i{ color: var(--rust); font-style: italic; }
+    .ref-note{
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 820px){
+      .slide{ padding: 44px 28px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+  <div class="wrap">
+
+    <!-- 1 / 12 -->
+    <section class="slide" aria-label="cover slide">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 17</div>
+        </div>
+
+        <div class="eyebrow">Hot store × Durable state</div>
+        <div class="title">AI検索の <em>読み/書き</em> 分離</div>
+        <div class="lead">CobbleDB中心のストレージ再設計が、レイテンシとコストを同時に改善する考え方を要点で整理します。</div>
+
+        <div class="footer-rule">
+          <div class="small">対象：AIネイティブ検索（LLMが参照して回答生成する用途） / <i>Hot store</i>（高速読み出し）と<i>Durable document state</i>（耐久状態）を軸に理解します。</div>
+          <div class="small ref-note"><span style="font-style:italic; color:var(--rust);">EN</span> concepts + <span style="font-style:italic; color:var(--rust);">JP</span> gloss</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide" aria-label="problem framing">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 17</div>
+        </div>
+
+        <div class="eyebrow">汎用DBがズレる</div>
+        <div class="title">人間向け最適化の <em>衝突</em></div>
+        <div class="lead">従来の検索スタックは「ページを人が読む」前提なので、チャンク単位の事前処理・バッチ読み・頻繁更新・低遅延参照に合いません。</div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Mismatch</div>
+            <div class="v">更新（再処理）が読み取り経路へ干渉し得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">Billing</div>
+            <div class="v">読み出しバイト量課金が効きやすい（多数キー参照）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Control</div>
+            <div class="v">キャッシュ/レプリカ/パーティション配置をワークロード最適化しにくい</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">結論：<i>読み取り</i>（クエリ時）を別物として設計しないと、レイテンシとコストが同時に悪化しやすい。</div>
+          <div class="small"><span style="color:var(--rust); font-style:italic;">JP</span>「Hot store」発想へ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide" aria-label="core idea architecture">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">04 / 17</div>
+        </div>
+
+        <div class="eyebrow">書き込み経路を分離</div>
+        <div class="title">分離設計で <em>速さ</em> を作る</div>
+        <div class="lead">「書き込み（更新反映）」と「読み込み（クエリ時参照）」を用途別に分け、読み取りは高速参照用に最適化します。</div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Pillar（Durable</div>
+            <div class="v">耐久状態：ページのバージョン/公開指示を管理</div>
+          </div>
+          <div class="cell">
+            <div class="k">Lorry（Batch delivery）</div>
+            <div class="v">配信層：公開指示→パーティション整合のバッチへ変換しS3配送</div>
+          </div>
+          <div class="cell">
+            <div class="k">CobbleDB（Hot store）</div>
+            <div class="v">読み取り最適化：キー（page ID）で事前処理済み表現をMultiGet</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">狙い：<i>低テールレイテンシ</i>と<i>読み出し効率</i>を、クエリ経路で確実に取る。</div>
+          <div class="small">Runbookは非同期許容へ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide" aria-label="key performance claim">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">05 / 17</div>
+        </div>
+
+        <div class="eyebrow">数字で見る改善</div>
+        <div class="title">クエリ時 <em>約5倍</em> 改善</div>
+        <div class="lead">Perplexity EngineeringはCobbleDB移行により、クエリ時のバッチ読みレイテンシを約5倍改善し、DynamoDB比で少なくとも20%コスト削減を報告しています。</div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Latency</div>
+            <div class="v">中央値・p90・p99のいずれも改善（方向性は合成ベンチでも一致）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Cost</div>
+            <div class="v">読み書きバイト課金のボトルネックに対し、課金要因を抑える設計で効果</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">注意：完全な同条件A/Bではなく、運用時刻・負荷等の外部要因が残り得ます。</div>
+          <div class="small"><span style="font-style:italic; color:var(--rust);">EN</span> observational comparison + synthetic bench</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide" aria-label="hot store workload">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Hot store</div>
+          <div class="slide-num">06 / 17</div>
+        </div>
+
+        <div class="eyebrow">読み方に合わせる</div>
+        <div class="title">10〜15キーの <em>MultiGet</em></div>
+        <div class="lead">CobbleDBは「10〜15キー規模、各50KB前後」のバッチ読み（MultiGet）に合わせて設計し、汎用DBでは難しい最適化を取り込みます。</div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Batch read</div>
+            <div class="v">RocksDBのバッチ読み（MultiGet）を前提化</div>
+          </div>
+          <div class="cell">
+            <div class="k">Parallel routing</div>
+            <div class="v">パーティション並列化で並列ルーティング</div>
+          </div>
+          <div class="cell">
+            <div class="k">Tail control</div>
+            <div class="v">必要に応じて遅延レプリカへヘッジ</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">設計思想：<i>「その読み方」</i>を最初から中心に置く（workload-aware）。</div>
+          <div class="small">Key→page ID</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide" aria-label="durable state and reprocessing">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Durable state</div>
+          <div class="slide-num">07 / 17</div>
+        </div>
+
+        <div class="eyebrow">やり直し可能にする</div>
+        <div class="title">Pillarで <em>再処理</em> を隔離</div>
+        <div class="lead">Pillar（耐久状態）でバージョン付きに状態を保持し、必要な表現だけを公開指示として出すことで、再チャンクやモデル更新でも無駄な全再処理を抑えます。</div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Versioned state</div>
+            <div class="v">ページのバージョン管理（公開すべき範囲を明確化）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Publish intent</div>
+            <div class="v">必要な表現の生成指示だけを「公開」へ回す</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">狙い：更新の影響をHot storeの読み取り経路へ直に波及させない。</div>
+          <div class="small"><span style="font-style:italic; color:var(--rust);">JP</span> Durable document state</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide" aria-label="lorry batch conversion and s3">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Batch delivery</div>
+          <div class="slide-num">08 / 17</div>
+        </div>
+
+        <div class="eyebrow">指示を配信形に変換</div>
+        <div class="title">Lorryが <em>整合バッチ</em> を作る</div>
+        <div class="lead">LorryはPillarの「公開指示」を、CobbleDBが受けやすいパーティション整合のバッチへ変換し、S3経由で配送します。</div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Transform</div>
+            <div class="v">公開指示 → パーティション整合のバッチ</div>
+          </div>
+          <div class="cell">
+            <div class="k">S3 delivery</div>
+            <div class="v">データ面と制御面を分離した配送</div>
+          </div>
+          <div class="cell">
+            <div class="k">Catch-up</div>
+            <div class="v">遅いノードだけ追いつく運用を可能にする</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">ポイント：クエリの読み取りを守るため、更新は「バッチ配信」として扱う。</div>
+          <div class="small">Batch update</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide" aria-label="consistency and tradeoff">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">09 / 17</div>
+        </div>
+
+        <div class="eyebrow">整合性の最小化</div>
+        <div class="title">厳密一致を <em>捨てる</em></div>
+        <div class="lead">整合性やトランザクションの保証を厳密に不要とし、短い反映遅延を許容することでオーバーヘッドを削減しています。</div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Allowed</div>
+            <div class="v">短い鮮度ギャップ（遅延レプリカ/非同期反映）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Not universal</div>
+            <div class="v">法的・医療など「鮮度が致命的」領域では要慎重検討</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">結論：検索品質が許す範囲で、<i>consistencyのコスト</i>を最適化する。</div>
+          <div class="small">Trade-off awareness</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide" aria-label="why dynamodb cost">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">10 / 17</div>
+        </div>
+
+        <div class="eyebrow">課金モデルの罠</div>
+        <div class="title">「読み書きバイト」連動</div>
+        <div class="lead">DynamoDBのようなマネージドDBでは、読み書きバイト量に連動しやすく、クエリが多数キー（ページID）を参照する設計と相性が悪化し得ます。</div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Many keys</div>
+            <div class="v">1リクエストで多数のpage ID参照</div>
+          </div>
+          <div class="cell">
+            <div class="k">Large items</div>
+            <div class="v">平均50KB級のアイテムが中心</div>
+          </div>
+          <div class="cell">
+            <div class="k">Amplification</div>
+            <div class="v">読み出しバイトが指数的に効いてくる</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">対応：Hot storeで「必要表現だけ」を最短の読み方で引く（MultiGet前提）。</div>
+          <div class="small">Cost model alignment</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide" aria-label="how to evaluate">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">11 / 17</div>
+        </div>
+
+        <div class="eyebrow">移行評価の読み方</div>
+        <div class="title">A/Bの限界も <em>理解</em></div>
+        <div class="lead">改善根拠は「観測的な移行前後比較」＋「合成ベンチ」ですが、完全に同一条件のA/Bではないため再現検証の余地があります。</div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">What’s strong</div>
+            <div class="v">レイテンシ指標（中央値/p90/p99）と改善倍率の提示、ベンチでも方向性一致</div>
+          </div>
+          <div class="cell">
+            <div class="k">What remains</div>
+            <div class="v">運用時刻・負荷・周辺要因差で差が出る可能性</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">教訓：<i>「設計差」</i>の説明を受けつつ、自社データ分布での再現を計画する。</div>
+          <div class="small">Reproducibility check</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide" aria-label="my opinion critique">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">My view</div>
+          <div class="slide-num">12 / 17</div>
+        </div>
+
+        <div class="eyebrow">強みと注意点</div>
+        <div class="title">実務示唆は <em>大</em>、条件は厳しめ</div>
+        <div class="lead">この投稿の強みは「別DBへ置換」ではなく、バッチ読み規模・キー参照形・低テール要件・頻繁前処理を分解して、読み/書きを再設計した点です。</div>
+
+        <div class="grid grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Why convincing</div>
+            <div class="v">パーティション分散、RocksDB read-heavy最適化、ルータ並列と遅延ヘッジ、整合性の最小化</div>
+          </div>
+          <div class="cell">
+            <div class="k">What to verify</div>
+            <div class="v">品質指標・鮮度遅延影響が本文からは読みづらく、自社の安全性/鮮度要件での適合確認が必要</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">さらに自前Hot storeは運用自由度の代償として、障害/バックアップ/スケーリング/整合の責任が増える。</div>
+          <div class="small">Operational maturity matters</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide" aria-label="closing references">
+      <div class="content">
+        <div class="top-row">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 17</div>
+        </div>
+
+        <div class="eyebrow">持ち帰りポイント</div>
+        <div class="title"><em>Hot store</em>最適化の勘所</div>
+        <div class="lead">成功の鍵は「ワークロードの読み方」に合わせてHot storeを作り、更新はDurable state→バッチ配信で非同期に隔離することです。</div>
+
+        <div class="grid grid-3" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">i. Split</div>
+            <div class="v">読み取り経路と書き込み経路を分離（interferenceを遮断）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. Batch</div>
+            <div class="v">10〜15キー規模のMultiGet前提でホット読みを最適化</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. Trade-off</div>
+            <div class="v">短い反映遅延と整合性最小化でオーバーヘッドを削る</div>
+          </div>
+        </div>
+
+        <div class="footer-rule">
+          <div class="small">References（原典）：Perplexity EngineeringのCobbleDB関連投稿（“CobbleDB” “Pillar” “Lorry” を参照）。</div>
+          <div class="small"><span style="font-style:italic; color:var(--rust);">EN</span> CobbleDB / Hot store / Durable state</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.threads.com/@perplexity/post/DdUjNC6AV2h/optimizing-reads-also-required-changing-how-updates-reached-the-store-we" target="_blank" rel="noreferrer noopener">Optimizing reads also required changing how updates reached the store.
+
+We separated durable document state, update delivery, and serving across Pillar, Lorry, and CobbleDB.</a></h2>
+<p class="reference-note">Pillar stores versioned document state in YTsaurus and queues exports. Lorry writes partitioned S3 batches that CobbleDB…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/denisyarats/status/2099972119157510199" target="_blank" rel="noreferrer noopener">Denis Yarats on X: &quot;we are sharing how we built CobbleDB, our replacement for AWS DynamoDB that powers key-value storage for our web-scale search engine. we optimized CobbleDB for our exact read and write patterns. result: 5x lower batch read latency and at least 20% lower serving cost (in practic… / X</a></h2>
+<p class="reference-note">@perplexity_ai
+
+Perplexity
+
+@perplexity\_ai
+
+16h
+
+We’re publishing research on how we built CobbleDB, our key-value data…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=r_kxO-BnB8I" target="_blank" rel="noreferrer noopener">CockroachDB in Comparison:  Latency and DynamoDB</a></h2>
+<p class="reference-note">Key takeaways
+DynamoDB had low read write latencies when operating against the same region, but latencies would increase…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2604.06273v2" target="_blank" rel="noreferrer noopener">CobbleDB: Modelling Levelled Storage by Composition</a></h2>
+<p class="reference-note">The map has lower latency than the journal: its key-sharded structure leads to smaller effect lists to process.
+Otherwis…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/cockroach-labs_when-it-comes-to-latency-how-does-cockroachdb-activity-7292223686575546370-K3gF" target="_blank" rel="noreferrer noopener">When it comes to latency, how does CockroachDB compare to DynamoDB? To answer this question, our Technical Evangelist Rob Reid put together a demo that examines: ✔️ A US-based user and an EU-based… | Cockroach Labs</a></h2>
+<p class="reference-note">13
+
+  Like   Comment
+
+  To view or add a comment, sign in
+ Andy P.
+
+  + Report this post
+
+  Struggling to connect your g…</p>
+</article>
+</div>
+</section>
+</body>
+</html>
