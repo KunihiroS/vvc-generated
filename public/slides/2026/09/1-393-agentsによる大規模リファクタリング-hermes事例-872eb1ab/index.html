@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1,393 Agentsによる大規模リファクタリング：Hermes事例</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+      position: relative;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      margin: 18px auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        linear-gradient(to bottom, rgba(255,255,255,0.02), rgba(255,255,255,0) 40%);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 20px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 16px;
+      letter-spacing: 0.22em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 40px;
+      height: 2px;
+      background: var(--rust);
+      display:inline-block;
+      opacity: 0.85;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 20px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
+      display:inline-block;
+      max-width: 100%;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 66px;
+      letter-spacing: -0.02em;
+      margin: 0;
+      line-height: 1.02;
+      position: relative;
+      z-index: 1;
+      color: var(--ink);
+      max-width: 900px;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      margin-top: 14px;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin: 18px 0 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid-2, .grid-3{
+      display:grid;
+      gap: 14px 14px;
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      margin-top: 18px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      padding: 14px 16px;
+      border-radius: 0px;
+      min-height: 86px;
+    }
+
+    .card .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-weight: 500;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .card .text{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.45;
+    }
+    .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    @media (max-width: 920px){
+      .slide{ padding: 44px 48px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .card .text{ font-size: 17px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 15</div>
+      <div class="eyebrow">巨大変更を“実行基盤”へ</div>
+      <h1 class="title">1,393 <i>Agents</i> による<br/>Hermes大規模リファクタ</h1>
+      <div class="lead">
+        19Kトークン規模のモデル実行で、非テストPython行数を34.4%削減し、互換と退行を検証で担保した事例を要約します。
+      </div>
+      <div class="rule"></div>
+      <div class="small">対象：オープンソースのエージェント「Hermes」／焦点：自律並列・厳密同一性・統合検証・学習継承</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 15</div>
+      <div class="eyebrow">“直したい”が壊れる</div>
+      <h2 class="title">巨大コードが<br/><i>手作業</i>を阻む</h2>
+      <div class="lead">
+        Hermesは非テストPythonだけで100万行超（2024年9月時点）で、特に <span class="mono">gateway/run.py</span> は約3.4万行・巨大関数と分岐長鎖が問題になっていました。
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">負荷</div>
+          <div class="text">変更調査が重い／バグ修正の探索コストが高い</div>
+        </div>
+        <div class="card">
+          <div class="label">リスク</div>
+          <div class="text">統合で衝突・意味の破壊・“テスト未発見”の退行</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">04 / 15</div>
+      <div class="eyebrow">並列で割って、統合で揃える</div>
+      <h2 class="title">36グループ×<i>worktree</i></h2>
+      <div class="lead">
+        9/2に自律的クリーニングと再構成を依頼し、1,393サブエージェントを最大218並列で稼働、主実行は約19時間でPR統合まで到達しました。
+      </div>
+      <div class="grid-3">
+        <div class="card">
+          <div class="label">実行</div>
+          <div class="text">主：19時間稼働</div>
+        </div>
+        <div class="card">
+          <div class="label">規模</div>
+          <div class="text">1,393サブエージェント</div>
+        </div>
+        <div class="card">
+          <div class="label">並列</div>
+          <div class="text">最大218並列</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div class="small"><span class="em">設計ポイント</span>：三段階目は“編集”ではなく調整・統合に徹するため、巨大リファクタの衝突を抑えました。</div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">05 / 15</div>
+      <div class="eyebrow">成果は行数削減だけじゃない</div>
+      <h2 class="title">34.4%削減／<i>PR</i>マージ</h2>
+      <div class="lead">
+        9/4にPRがマージされ、非テストPythonの行数を <span class="mono">34.4%</span> 削減。さらに検証とレビューで“意味の破壊”を拾いました。
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">規模</div>
+          <div class="text">9月時点で非テストPython：100万行超</div>
+        </div>
+        <div class="card">
+          <div class="label">到達</div>
+          <div class="text">9/4：コミュニティレビュー後にマージ</div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">例</div>
+          <div class="text">巨大関数の分割・分岐整理・重複ヘルパ統合</div>
+        </div>
+        <div class="card">
+          <div class="label">検証</div>
+          <div class="text">互換（公開シンボル削除等）と退行（例外処理）を検知</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">06 / 15</div>
+      <div class="eyebrow">互換を“壊さない”同一性</div>
+      <h2 class="title">厳密一致で<br/><i>意味</i>を守る</h2>
+      <div class="lead">
+        JSONスキーマやCLI <span class="mono">--help</span> のバイト一致など、外部利用が破れる変更を防ぐための“同一性チェック”が入っていました。
+      </div>
+      <div class="grid-3">
+        <div class="card">
+          <div class="label">JSON</div>
+          <div class="text"><span class="mono">JSONスキーマ</span>の同一性</div>
+        </div>
+        <div class="card">
+          <div class="label">CLI</div>
+          <div class="text"><span class="mono">--help</span>バイト一致</div>
+        </div>
+        <div class="card">
+          <div class="label">公開性</div>
+          <div class="text">公開名の削除をレビューで検知</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div class="small">結果： “AIが直したつもり”を、現実の品質保証（検証＋レビュー）に接続。</div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">07 / 15</div>
+      <div class="eyebrow">LOC削減より、探索コスト</div>
+      <h2 class="title">“読ませる”が<br/><i>実行も</i>効く</h2>
+      <div class="lead">
+        分割後は参照探索の平均トークンが減り、追加の読み窓を下げる効果が観測されたとされています（人間の可読性だけでなくエージェント視点も改善）。
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">懸念</div>
+          <div class="text">分割で依存や探索が増える可能性</div>
+        </div>
+        <div class="card">
+          <div class="label">観測</div>
+          <div class="text">少なくとも参照探索コストは改善</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div class="small">補足：依存増（import負荷）等のトレードオフは“状況依存”として明示されています。</div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">08 / 15</div>
+      <div class="eyebrow">止まっても戻れる運用</div>
+      <h2 class="title">失敗前提の<br/><i>再開</i>設計</h2>
+      <div class="lead">
+        認証トークン期限などで停止し得ても、コミット済み成果とブリーフが残り、別セッションで診断して引き継ぐ運用が示されています。
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">問題</div>
+          <div class="text">実行中に認証トークンが切れる可能性</div>
+        </div>
+        <div class="card">
+          <div class="label">対策</div>
+          <div class="text">成果・ブリーフを残して再開／引き継ぎ</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div class="small">“停止しても復帰できる”が、大規模自律実行の前提条件。</div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">09 / 15</div>
+      <div class="eyebrow">学習をスキル化して蓄積</div>
+      <h2 class="title">自己改善する<br/><i>手順</i>の保管</h2>
+      <div class="lead">
+        リファクタ過程で得た手順（例：失敗確認をclean envで再現し差分原因を切り分ける等）をMarkdownに保存し、次回作業に引き継ぎます。
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">狙い</div>
+          <div class="text">単発で終わらず、組織の作業能力を漸進的に上げる</div>
+        </div>
+        <div class="card">
+          <div class="label">仕組み</div>
+          <div class="text">エージェントの“スキル（手順書）”自体が改善される</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">10 / 15</div>
+      <div class="eyebrow">モデル費用 vs 人的レビュー</div>
+      <h2 class="title">約$19.3k→約$25k<br/><i>資産化</i></h2>
+      <div class="lead">
+        主実行のモデル推定費用は約 <span class="mono">$19,300</span>、フォローアップ込みで約 <span class="mono">$25k</span>。一方で人的見積は <span class="mono">$150k〜$1.8M</span> と言及され、費用差が示唆されています。
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">AI側</div>
+          <div class="text">モデル推定費用（19Kトークン規模の文脈）</div>
+        </div>
+        <div class="card">
+          <div class="label">人側</div>
+          <div class="text">2か月〜2年の人的工数レンジ（前提依存あり）</div>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div class="small">重要：モデルコスト（トークン費用）と人的レビューコストは別物。</div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">11 / 15</div>
+      <div class="eyebrow">強みと限界（意思決定用）</div>
+      <h2 class="title">“できる”だけでなく<br/><i>納得</i>も必要</h2>
+      <div class="lead">
+        強みはAIをコード生成ではなく「組織的なリファクタ実行基盤」として扱った点。限界は、改善指標がLOC中心で、開発サイクル短縮など因果の追加データが不足し得る点です。
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="label">強み</div>
+          <div class="text">割当形式・境界・コミット単位が明確で、巨大変更を統合可能に</div>
+        </div>
+        <div class="card">
+          <div class="label">限界</div>
+          <div class="text">前提依存（テスト網羅度等）／開発速度指標の直接測定なし</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-tag">REFERENCES</div>
+      <div class="slide-num">12 / 15</div>
+      <div class="eyebrow">次に読む観点</div>
+      <h2 class="title"><i>Key</i> takeaways</h2>
+      <div class="lead">
+        この事例からの要点は、検証と互換担保を“型”にし、並列実行で巨大変更を成立させ、学習をスキルとして残すことです。
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="label">Practical（実務）</div>
+          <div class="text">worktree分割×36グループ割当×コミット単位検証</div>
+        </div>
+        <div class="card">
+          <div class="label">Quality（品質）</div>
+          <div class="text">JSONスキーマ／CLI出力（バイト一致）／公開名削除検知</div>
+        </div>
+        <div class="card">
+          <div class="label">Strategic（戦略）</div>
+          <div class="text">失敗再現手順をMarkdown化し、次回作業を加速</div>
+        </div>
+      </div>
+
+      <div class="rule"></div>
+      <div class="small">
+        追加であると強い情報：テストカバレッジ推移、リファクタ後の新規PRサイクルタイムなどの直接指標。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.truefoundry.com/blog/claude-managed-agents-vs-hermes-agent" target="_blank" rel="noreferrer noopener">Claude Managed Agents vs Hermes Agent: Which Autonomous ...</a></h2>
+<p class="reference-note">Its standout feature is a built-in self-improvement loop: rather than starting fresh each session, Hermes Agent remember…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://fastino.ai/blog/hermes-agent-the-complete-guide-to-the-self-improving-ai-agent-(2026)" target="_blank" rel="noreferrer noopener">Hermes Agent: The Complete Guide to the Self-Improving ...</a></h2>
+<p class="reference-note">The agent space split into two camps in 2026. On one side are coding harnesses that live in your terminal, do excellent …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=GMuJMiwLGDQ" target="_blank" rel="noreferrer noopener">Why Everyone Is Talking About Hermes Agent | Pax8</a></h2>
+<p class="reference-note">search for cost management. Um See if I turned it on on this thing. Yep. And I think I looked at it actually. Cancel. Is…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://mranand.substack.com/p/inside-hermes-agent-how-a-self-improving" target="_blank" rel="noreferrer noopener">Inside Hermes Agent: How a Self-Improving AI Agent Actually Works</a></h2>
+<p class="reference-note"># Daily AI Insights
+
+# Inside Hermes Agent: How a Self-Improving AI Agent Actually Works
+
+### April&#39;26 - Issue #74
+
+Mr. …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.stackademic.com/forget-chatbots-hermes-agent-is-an-ai-that-actually-learns-from-you-d8d517be7b88" target="_blank" rel="noreferrer noopener">Forget Chatbots — Hermes Agent Is an AI That Actually ...</a></h2>
+<p class="reference-note">## Final Thoughts: Why This Matters
+
+The AI agent space in 2026 is noisy. Everyone has a framework, everyone has a wrapp…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
