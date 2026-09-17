@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>qo-agent: LLM支援でPostgresのクエリ計画を最適化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 56px;
+      display: block;
+      overflow: visible;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid transparent;
+      border-image: none;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px auto;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+
+    .slide-inner{
+      height: 100%;
+      width: 100%;
+      padding: 56px 72px;
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      outline: 1px solid rgba(240, 232, 216, 0.10);
+      outline-offset: -1px;
+      position: relative;
+    }
+
+    .topline{
+      position:absolute;
+      left: 56px;
+      right: 72px;
+      top: 46px;
+      height: 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .slide-tag{
+      position:absolute;
+      left: 56px;
+      top: 24px;
+      padding-right: 18px;
+      border-top: 3px solid var(--rust);
+      line-height: 1;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      font-style: italic;
+      font-size: 16px;
+      color: var(--rust);
+      text-transform: uppercase;
+      white-space: nowrap;
+      padding-top: 10px;
+    }
+    .slide-num{
+      position:absolute;
+      right: 72px;
+      top: 24px;
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 54px;
+      margin-bottom: 10px;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      font-size: 72px;
+      font-weight: 500;
+      margin: 0 0 12px 0;
+      line-height: 1.0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      max-width: 900px;
+      letter-spacing: 0.01em;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+      font-size: 54px;
+      margin-left: 10px;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 18px;
+    }
+
+    .grid2, .grid3{
+      margin-top: 18px;
+      display: grid;
+      gap: 14px 18px;
+      align-items: start;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      background: rgba(240,232,216,0.03);
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 6px;
+    }
+    .card h4{
+      margin: 0 0 8px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .card .txt{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .note{
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.6;
+      max-width: 760px;
+      margin-top: 14px;
+    }
+
+    .mono{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-2);
+      font-size: 16px;
+      letter-spacing: 0.01em;
+    }
+
+    .enum{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    @media (max-width: 860px){
+      .slide-inner{ padding: 40px 38px; }
+      .slide-tag{ left: 38px; }
+      .slide-num{ right: 38px; }
+      .topline{ left: 38px; right: 38px; top: 36px; }
+      .title{ font-size: 52px; }
+      .title .jp{ font-size: 40px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      * { scroll-behavior: auto !important; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+        <div class="eyebrow">Postgres planを学習で前へ</div>
+        <div class="title">qo-agent <span class="jp">クエリ最適化支援</span></div>
+        <div class="lead">
+          4B規模のオープンウェイトLLMが、Postgresの実行計画を「pg_hint_planのヒント」として生成し、計測報酬で学習する仕組みです（agentic RL / SFT）。
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+        <div class="eyebrow">計画は“選択問題”</div>
+        <div class="title">最速は保証しない</div>
+        <div class="lead">
+          SQLは発行順に実行されず、DBMS（Postgres）が統計推定にもとづく実行計画（query plan）を選んでから実行します。
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h4>難しさ</h4>
+            <div class="txt">結合順序・結合方式の探索空間が巨大</div>
+          </div>
+          <div class="card">
+            <h4>ズレ</h4>
+            <div class="txt">推定誤差 + 計測ノイズで「常に最速」になりにくい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 14</div>
+        <div class="eyebrow">言語モデル＝“計画の提案者”</div>
+        <div class="title">ヒントで誘導</div>
+        <div class="lead">
+          LLMはpg_hint_plan形式の“作戦（hint）”を出し、Postgresに特定の実行計画へ寄せます。
+        </div>
+        <div class="grid3">
+          <div class="card">
+            <h4>LLM出力</h4>
+            <div class="txt">JOIN順序 / JOIN方式の指示（ヒント）</div>
+          </div>
+          <div class="card">
+            <h4>DB側</h4>
+            <div class="txt">ヒントを反映して実行計画生成</div>
+          </div>
+          <div class="card">
+            <h4>学習側</h4>
+            <div class="txt">実測レイテンシで勝ち負けを決める</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 14</div>
+        <div class="eyebrow">SFT→計測RL</div>
+        <div class="title">qo-agent</div>
+        <div class="lead">
+          ハーネス理解をSFTで固め、その後に計測ベースの強化学習で「より速いヒント」を探索・改善します。
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h4>段階1：SFT</h4>
+            <div class="txt">オフポリシー蒸留（Astraの軌跡を教師）で失敗率を下げる</div>
+          </div>
+          <div class="card">
+            <h4>段階2：RL</h4>
+            <div class="txt">無効プラン排除 + 実測時間最小化で学習（agentic）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: enumeration -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 14</div>
+        <div class="eyebrow">探索は候補を回す</div>
+        <div class="title">Best-of-15</div>
+        <div class="lead">
+          各クエリで最大15候補を探索し、その中から最良の計画を選ぶ評価が行われました。
+        </div>
+        <div class="grid3">
+          <div class="card">
+            <h4>対象</h4>
+            <div class="txt">JOB（IMDb由来）— 多数JOINのJoin Order Benchmark</div>
+          </div>
+          <div class="card">
+            <h4>制約</h4>
+            <div class="txt">pg_hint_planの“妥当性”を検証して候補を採否</div>
+          </div>
+          <div class="card">
+            <h4>選択</h4>
+            <div class="txt">実測で最速候補を採用（evaluation内）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: evidence -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 14</div>
+        <div class="eyebrow">速度改善の要点</div>
+        <div class="title">1.81x</div>
+        <div class="lead">
+          Best-of-15のジオメトリック平均で1.81倍の速度向上が報告されています。
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h4>加速指標</h4>
+            <div class="txt">Geo. mean：1.81x（Best-of-15）</div>
+          </div>
+          <div class="card">
+            <h4>総量指標</h4>
+            <div class="txt">JOB全体レイテンシ合計：Postgresデフォルト比で44.7%減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: process -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 14</div>
+        <div class="eyebrow">ノイズ対策が学習を左右</div>
+        <div class="title">shared_buffers</div>
+        <div class="lead">
+          PostgresはOSページキャッシュやshared_buffersで実行時間が揺れ、報酬が誤って与えられることがあるため、計測の安定化が必須です。
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h4>問題</h4>
+            <div class="txt">shared_buffers=128MBで二峰性が観測され、誤勝ちが起きる</div>
+          </div>
+          <div class="card">
+            <h4>解決</h4>
+            <div class="txt">shared_buffers=2GBで、no-op error（デフォルト同等の誤勝ち）を大幅低減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: distinction -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 14</div>
+        <div class="eyebrow">相対報酬は罠</div>
+        <div class="title">アンカーで補正</div>
+        <div class="lead">
+          一般的なGRPOの“グループ平均との差”だけだと、デフォルト同等（または悪い）計画が相対的に良く見える誤学習が起き得ます。
+        </div>
+        <div class="card">
+          <h4>改良</h4>
+          <div class="txt">デフォルト実測時間をアンカー（anchored）にして、相対優位が本質的改善を表すよう修正</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: comparison -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 14</div>
+        <div class="eyebrow">SFTなしRLは高失敗</div>
+        <div class="title">学習の入口</div>
+        <div class="lead">
+          いきなりRLを始めると、qo-agentハーネス向けのPlanActionを出せず、無効・重複・接続ミスで候補評価が成立しない割合が高くなります。
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h4>失敗要因</h4>
+            <div class="txt">“計測可能な計画”へ収束しにくい</div>
+          </div>
+          <div class="card">
+            <h4>SFTの役割</h4>
+            <div class="txt">ハーネス理解 + 最低限の妥当性を先に獲得し、探索を成立領域へ寄せる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: evidence -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">11 / 14</div>
+        <div class="eyebrow">“誤報酬”を潰す指標</div>
+        <div class="title">no-op error</div>
+        <div class="lead">
+          計測揺らぎでデフォルトと同等の候補が勝ち扱いされる確率（no-op error）を追い、報酬の健全性を評価しています。
+        </div>
+        <div class="grid3">
+          <div class="card">
+            <h4>誤学習の根</h4>
+            <div class="txt">キャッシュ状態の揺れ → レイテンシのブレ</div>
+          </div>
+          <div class="card">
+            <h4>誤報酬</h4>
+            <div class="txt">“本当は同等/悪い”が勝利として学習される</div>
+          </div>
+          <div class="card">
+            <h4>対策</h4>
+            <div class="txt">shared_buffers調整で勝ち判定のランダム性を低減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11: closing -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">12 / 14</div>
+        <div class="eyebrow">成立する条件は限定的</div>
+        <div class="title">再現性の壁</div>
+        <div class="lead">
+          この結果はIMDb/JOB中心・Postgres特定設定（shared_buffers等）で検証されており、他DB/他データ/同時実行条件でも同程度に効くとは断定できません。
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h4>依存</h4>
+            <div class="txt">ベンチマーク特性 + 計測条件（キャッシュ・IO・並列度）</div>
+          </div>
+          <div class="card">
+            <h4>要確認</h4>
+            <div class="txt">探索回数（Best-of-15の推論コスト）と運用許容性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: References -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 14</div>
+        <div class="eyebrow">本資料の根拠（要約元）</div>
+        <div class="title">読解メモ</div>
+        <div class="lead">
+          本スライドは、提示された研究報告要約（Pre-knowledge / Summary / Points / FAQ / My opinion）だけを材料に再構成しています。
+        </div>
+        <div class="grid3">
+          <div class="card">
+            <h4>主要要素</h4>
+            <div class="txt">pg_hint_plan / pg（Postgres）/ qo-agent</div>
+          </div>
+          <div class="card">
+            <h4>対象ベンチ</h4>
+            <div class="txt">JOB（IMDb由来 Join Order Benchmark）</div>
+          </div>
+          <div class="card">
+            <h4>学習</h4>
+            <div class="txt">SFT（教師あり蒸留） + agentic RL（計測報酬）</div>
+          </div>
+        </div>
+        <div class="note">
+          参照語彙：<span class="mono">advantage</span>（相対的な改善指標）、<span class="mono">GRPO</span>、<span class="mono">anchored</span>（アンカー基準）。
+          日本語補助：計画＝<span class="mono">query plan</span>（実行の作戦）、ヒント＝<span class="mono">hint</span>（指示）。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
