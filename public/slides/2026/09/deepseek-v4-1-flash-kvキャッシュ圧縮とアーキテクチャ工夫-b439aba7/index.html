@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DeepSeek-V4.1 Flash：KVキャッシュ圧縮とアーキテクチャ工夫</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 60px;
+      display: block;
+      position: relative;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      margin: 18px 0;
+      background: var(--paper);
+      border: 20px solid transparent;
+      padding: 56px 72px;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-image: none;
+      border-radius: 0;
+      outline: 1px solid var(--rule);
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide .tag{
+      position:absolute;
+      top: 28px; left: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .slide .num{
+      position:absolute;
+      top: 26px; right: 30px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 8px 0 10px;
+      line-height: 1.1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 68px;
+      line-height: 1.0;
+      margin: 0 0 14px;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 22px 0 18px;
+      width: 100%;
+    }
+    .grid2{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 22px;
+      margin-top: 16px;
+      max-width: 900px;
+    }
+    .grid3{
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 16px;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      background: rgba(240,232,216,0.03);
+      min-height: 78px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.25;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .tight{
+      margin-top: 10px;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 300;
+      max-width: 760px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 44px 26px; border-width: 14px; }
+      .slide .tag{ top: 18px; left: 18px; }
+      .slide .num{ top: 16px; right: 18px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="tag">COVER</div>
+      <div class="num">01 / 12</div>
+      <div class="eyebrow">KV圧縮で長文を成立させる</div>
+      <div class="title">DeepSeek-V4.1 <em>Flash</em></div>
+      <p class="lead">長い文脈（最大約100万トークン）で動かすために、KVキャッシュのフットプリントを「構造的に削る」ことを軸にした設計です。</p>
+      <div class="rule"></div>
+      <p class="small">狙い：prefill / 保存 / 通信 を支配するボトルネックを、モデルアーキテクチャ（CED・CSA2・HSI）とキャッシュ設計（再利用モード・FP4・精度分割）で同時に圧縮します。</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="tag">PROBLEM</div>
+      <div class="num">02 / 12</div>
+      <div class="eyebrow">長文ほどスケールが崩れる</div>
+      <div class="title"><em>KV</em>が支配する</div>
+      <p class="lead">長文エージェントでは tool call が繰り返され、prefill（全入力の一括処理）とKV保存が頻発して、計算・容量・通信が限界に当たりやすくなります。</p>
+      <div class="grid3 tight" aria-label="Bottleneck triad">
+        <div class="cell">
+          <div class="k">prefill / 計算</div>
+          <div class="v">入力全体を再処理しやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">保存 / 容量</div>
+          <div class="v">過去トークンの Key/Value（KV）が巨大</div>
+        </div>
+        <div class="cell">
+          <div class="k">通信 / 転送</div>
+          <div class="v">GPU間・層間・オフロードで負担が増える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="tag">METAPHOR</div>
+      <div class="num">03 / 12</div>
+      <div class="eyebrow">捨てるのではなく、共有する</div>
+      <div class="title">“同じ記憶”を <em>何度も</em> 持たない</div>
+      <p class="lead">Flashは、層ごとに同じ種類のKVを作り直さないようにし、再利用（reuse）と再索引（reindex）をモードで切り替えて圧縮します。</p>
+      <div class="grid2 tight">
+        <div class="cell">
+          <div class="k">発想</div>
+          <div class="v">保存量だけでなく、インデクサ・Top-K選択も圧縮対象にする</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果（主張）</div>
+          <div class="v">KVキャッシュがトークンあたり約<strong>890B</strong>へ削減</div>
+        </div>
+      </div>
+      <p class="small tight">※ここでの890Bは設計値に近い指標として扱うのが安全、とFAQで注意されています。</p>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="CED">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="num">04 / 12</div>
+      <div class="eyebrow">CED：グローバルKV生成を抑える</div>
+      <div class="title">Encoder→Decoderを <em>射影</em></div>
+      <p class="lead">CED（Causal Encoder-Decoder）により、長文prefillで必要な層の計算量を減らし、Decoderが毎回グローバルKVを作らないようにします。</p>
+      <div class="grid2 tight">
+        <div class="cell">
+          <div class="k">分割</div>
+          <div class="v">下位20層=Encoder／上位20層=Decoder</div>
+        </div>
+        <div class="cell">
+          <div class="k">共有</div>
+          <div class="v">DecoderのグローバルKVを、Encoder最終表現から射影して得る</div>
+        </div>
+      </div>
+      <p class="small tight">Bounded Replay（有効範囲の近傍依存を近似として制御）により、計算削減と整合性のトレードオフを調整する方向性が示されています。</p>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="CSA2">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="num">05 / 12</div>
+      <div class="eyebrow">CSA2：KVと検索情報を同時に節約</div>
+      <div class="title">Full / Reindex / <em>Reuse</em></div>
+      <p class="lead">CSA2は、Main KVだけでなくIndexer K（疎注意の候補探索に必要）やTop-K indicesまで、層をまたいで再利用することで節約します。</p>
+      <div class="grid3 tight">
+        <div class="cell">
+          <div class="k">Full</div>
+          <div class="v">全てを更新し、自由度を確保</div>
+        </div>
+        <div class="cell">
+          <div class="k">Reindex</div>
+          <div class="v">必要部分を再索引し、到達範囲を補正</div>
+        </div>
+        <div class="cell">
+          <div class="k">Reuse</div>
+          <div class="v">Main KV・Top-K indicesを凍結し読み出し方だけ変える</div>
+        </div>
+      </div>
+      <p class="small tight">チャネル次元／シーケンス次元／層次元の圧縮方向を“掛け算的に”最適化し、KV保存量とインデクサ計算の両方を抑える狙いです。</p>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="HSI">
+      <div class="tag">ARCHITECTURE</div>
+      <div class="num">06 / 12</div>
+      <div class="eyebrow">HSI：深い層の探索コストを固定化へ</div>
+      <div class="title">階層的候補プール</div>
+      <p class="lead">HSI（Hierarchical Sparse Indexer）で、候補探索領域を階層化して深い層のインデクシング負荷を抑え、探索コストの文脈長依存を弱めます。</p>
+      <div class="grid2 tight">
+        <div class="cell">
+          <div class="k">浅い層</div>
+          <div class="v">粗い情報から候補プールを作る</div>
+        </div>
+        <div class="cell">
+          <div class="k">深い層</div>
+          <div class="v">候補プール上でTop-K選択を行う</div>
+        </div>
+      </div>
+      <p class="small tight">学習時と推論時で候補制限が一致しないと危険になり得るため、ポストトレーニング段階で反映する必要がある、という趣旨が述べられています。</p>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Precision and formats">
+      <div class="tag">EVIDENCE</div>
+      <div class="num">07 / 12</div>
+      <div class="eyebrow">FP4でMain KVを圧縮</div>
+      <div class="title">“どこを量子化するか”が鍵</div>
+      <p class="lead">単なる量子化ではなく、Main KVをFP4として格納しつつ、SWA（ある種の表現共有の仕組み）側は精度劣化に敏感なためFP8を残すなど、精度戦略を分けます。</p>
+      <div class="grid3 tight">
+        <div class="cell">
+          <div class="k">Main KV</div>
+          <div class="v">FP4 Main KV cache</div>
+        </div>
+        <div class="cell">
+          <div class="k">SWA KV</div>
+          <div class="v">FP8保持（敏感性に対応）</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">見かけの圧縮率ではなく品質を維持する</div>
+        </div>
+      </div>
+      <p class="small tight">RoPEやSWAの“敏感さ”に応じて、量子化タイミングや形式を運用する姿勢が示されています。</p>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Workflow">
+      <div class="tag">PROCESS</div>
+      <div class="num">08 / 12</div>
+      <div class="eyebrow">prefill→decodeの流れを圧縮</div>
+      <div class="title">何がいつ削れる？</div>
+      <p class="lead">Flashの工夫は、prefillの計算削減（CED）と、decode中の再利用・候補探索削減（CSA2/HSI）に分かれて効きます。</p>
+      <div class="grid2 tight">
+        <div class="cell">
+          <div class="k">prefill</div>
+          <div class="v">CED：上位層が毎回グローバルKVを作らない</div>
+        </div>
+        <div class="cell">
+          <div class="k">decode</div>
+          <div class="v">CSA2/HSI：Main KV・Indexer・Top-Kを“読み出し/探索”単位で削る</div>
+        </div>
+      </div>
+      <p class="small tight">さらにFP4 Main KVで保存容量そのものを縮め、通信やオフロード戦略にも効く前提です。</p>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="tag">DISTINCTION</div>
+      <div class="num">09 / 12</div>
+      <div class="eyebrow">“共有”の種類を分ける</div>
+      <div class="title">保存・計算・探索を分解</div>
+      <p class="lead">Flashは、圧縮の対象をKVの“容量”だけでなく、生成（計算）と検索（インデクサ/Top-K）まで分解して最適化します。</p>
+      <div class="grid3 tight">
+        <div class="cell">
+          <div class="k">生成（計算）</div>
+          <div class="v">CEDでグローバルKV生成コストを層方向に分解</div>
+        </div>
+        <div class="cell">
+          <div class="k">保存（容量）</div>
+          <div class="v">FP4 Main KV cacheでエントリ当たり容量を削減</div>
+        </div>
+        <div class="cell">
+          <div class="k">探索（検索）</div>
+          <div class="v">CSA2/HSIでIndexer K・Top-K選択の負荷を抑制</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="tag">COMPARISON</div>
+      <div class="num">10 / 12</div>
+      <div class="eyebrow">“Reuseは万能じゃない”</div>
+      <div class="title">Full と混ぜる <em>理由</em></div>
+      <p class="lead">ReuseでMain KVやTop-K indicesを凍結すると到達可能な表現範囲が制限され得るため、Full/Reindexを混ぜて不足を補う設計です。</p>
+      <div class="grid2 tight">
+        <div class="cell">
+          <div class="k">Reuseの強み</div>
+          <div class="v">何を読むか（アドレス）と辞書（内容）を固定し、読み出し方向（Query）だけ変える</div>
+        </div>
+        <div class="cell">
+          <div class="k">Reuseの限界</div>
+          <div class="v">固定化により表現の自由度が下がり得る → Full/Reindexで補完</div>
+        </div>
+      </div>
+      <p class="small tight">「何を読むか（アドレス）・内容（辞書）・方向（クエリ）」を分ける発想が要点です。</p>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Limitations and risks">
+      <div class="tag">EVIDENCE</div>
+      <div class="num">11 / 12</div>
+      <div class="eyebrow">理論と実装のズレに注意</div>
+      <div class="title">品質・整合・実効コスト</div>
+      <p class="lead">入力データ抜粋では学習手続きや損失の詳細が伏せられており、HSI/CEDの整合性がどれほど厳密か、また890B/tokenが実効メモリに直結するかは別途検証が必要です。</p>
+      <div class="grid2 tight">
+        <div class="cell">
+          <div class="k">整合性リスク</div>
+          <div class="v">Bounded Replay / HSIの候補制限が学習と推論で不一致だと性能劣化の恐れ</div>
+        </div>
+        <div class="cell">
+          <div class="k">実装依存</div>
+          <div class="v">ワークスペース・ページング・並列化・通信・オフロード等の周辺コストが未提示</div>
+        </div>
+      </div>
+      <p class="small tight">結論：方向性は有望だが、実測（品質と総メモリ/通信）で評価を固める必要があります。</p>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Closing and references">
+      <div class="tag">CLOSING</div>
+      <div class="num">12 / 12</div>
+      <div class="eyebrow">要点まとめ：一体最適化</div>
+      <div class="title">KV圧縮の <em>協調最適化</em></div>
+      <p class="lead">DeepSeek-V4.1 Flashは、CED・CSA2・HSI・FP4の設計を“別々”ではなく協調させ、長文エージェントを現実コストで動かす方向性を提示しています。</p>
+      <div class="grid2 tight">
+        <div class="cell">
+          <div class="k">中心メッセージ</div>
+          <div class="v">KV容量だけでなく、prefill・再利用・探索負荷まで削る</div>
+        </div>
+        <div class="cell">
+          <div class="k">次に確認したい点</div>
+          <div class="v">学習/推論整合の具体（損失・手続き）と、実効メモリ/通信の総コスト</div>
+        </div>
+      </div>
+      <p class="small tight">用語（日英）：KVキャッシュ（Key/Value Cache）、prefill（前処理/全入力処理）、decode（逐次生成）、Top-K（上位K候補）、疎注意（Sparse Attention：全体ではなく候補のみ注意）。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
