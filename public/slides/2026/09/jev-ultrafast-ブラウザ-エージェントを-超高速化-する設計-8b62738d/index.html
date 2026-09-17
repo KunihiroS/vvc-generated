@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jev Ultrafast — ブラウザ・エージェントを“超高速化”する設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px 0 42px;
+    }
+
+    .slide{
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 0px;
+      padding: 56px 72px;
+      position: relative;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: .18em;
+      font-size: 14px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      white-space: nowrap;
+      max-width: 70%;
+    }
+    .slide-tag:before{
+      content:"";
+      width: 34px;
+      height: 1px;
+      background: rgba(232,129,74,0.9);
+      box-shadow: 0 0 0 0 rgba(232,129,74,0.2);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: -2px;
+      margin-bottom: 8px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 12px;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 14px;
+      width: 100%;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 14px;
+      width: 100%;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      box-sizing: border-box;
+      background: rgba(0,0,0,0.05);
+    }
+    .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px 14px;
+      margin-top: 14px;
+      width: 100%;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+      margin: 10px 0 0;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink);
+      font-size: 18px;
+    }
+
+    .list-grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 12px;
+      width: 100%;
+    }
+    .li{
+      display:flex;
+      gap: 12px;
+      align-items:flex-start;
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.05);
+      padding: 12px 14px;
+    }
+    .bullet{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      margin-top: 1px;
+      width: 28px;
+      flex: 0 0 auto;
+    }
+    .li .text{
+      font-size: 19px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    /* Responsive scaling: keep 16:9 */
+    @media (max-width: 820px){
+      .slide{ padding: 28px 22px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .slide-tag{ font-size: 12px; }
+      .slide-num{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">TypeSafe思想×ultrafast</div>
+      <h1 class="title"><span class="em">Jev</span> Ultrafast</h1>
+      <p class="lead">
+        ブラウザ上の要素を観測し、LLMが「実行できる操作」と「対応するターゲット」を型制約つきで選ぶことで、意思決定を超高速化する設計です。
+      </p>
+      <div class="rule"></div>
+      <p class="small">
+        主要アイデア：<span class="mono">indexed action space</span>（要素テーブル）＋<span class="mono">1 request, 2 heads</span>（操作/ターゲット同時分岐）＋DOMベースのガード。
+      </p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">遅い原因</div>
+      <h1 class="title"><span class="em">ネットワーク</span>往復</h1>
+      <p class="lead">
+        ブラウザ・エージェントは、観測→推論→次操作までの往復がレイテンシになりやすく、特に「操作と対象の決定」を分けると遅くなります。
+      </p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">従来のつまずき</div>
+          <div class="v">操作を決める<br/>対象を決める</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">往復回数増加<br/>事故も増えがち</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">考え方</div>
+      <h1 class="title">選択肢を<span class="em">索引化</span></h1>
+      <p class="lead">
+        目の前のUIを“地図”に変換し、LLMは番号付きの地図から行動を選ぶことで、無効なクリックを避けながら高速に進めます（要素テーブル）。
+      </p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">観測</div>
+          <div class="v">DOM/ARIAから抽出</div>
+        </div>
+        <div class="cell">
+          <div class="k">索引</div>
+          <div class="v">要素テーブル（番号）</div>
+        </div>
+        <div class="cell">
+          <div class="k">意思決定</div>
+          <div class="v">操作＋ターゲットを同時選択</div>
+        </div>
+      </div>
+      <p class="small">日英：indexed action space（番号付き行動空間）/ 要素テーブル（element table）</p>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">コア設計</div>
+      <h1 class="title"><span class="em">1</span>リクエストで操作×対象</h1>
+      <p class="lead">
+        同じ観測状態を共有して、操作ヘッドとターゲットヘッドを同時に出力することで「2 decisions, one network round trip」を実現します。
+      </p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">出力（例）</div>
+          <div class="v">
+            操作：CLICK<br/>
+            対象：要素番号 #12（button）
+          </div>
+        </div>
+        <div class="cell">
+          <div class="k">効果</div>
+          <div class="v">往復回数を圧縮<br/>整合性が上がる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Architecture 2">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">要素テーブル</div>
+      <h1 class="title">動的<span class="em">indexed</span></h1>
+      <p class="lead">
+        観測のたびに、ボタン/コンボボックス/テキストボックス等を抽出して番号付き一覧（indexed action space）を作り、LLMはその範囲でのみ操作を提案できます。
+      </p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">許可される操作</div>
+          <div class="v">CLICK / TYPE_TEXT / SELECT<br/>SCROLL / WAIT / DONE など</div>
+        </div>
+        <div class="cell">
+          <div class="k">許可される対象</div>
+          <div class="v">要素番号＋要素型（button/textbox等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">利点</div>
+          <div class="v">無効ターゲットの事故を抑制</div>
+        </div>
+      </div>
+      <p class="small">日英：target space（対象空間）/ element type（要素型）</p>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">デモ実績</div>
+      <h1 class="title">Flights：<span class="em">約7.1秒</span></h1>
+      <p class="lead">
+        Google Flightsで「チューリッヒ→ロンドン（片道、2026/9/20、成人1名、エコノミー）」を自然言語ゴールから探索し、約7.1秒で到達したと記載されています。
+      </p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">測定の性格</div>
+          <div class="v">特定タスク反復×同条件</div>
+        </div>
+        <div class="cell">
+          <div class="k">主張される効果</div>
+          <div class="v">プロトコル呼び出し数を削減</div>
+        </div>
+      </div>
+      <p class="small">注意：これは汎用信頼性の統計ではなく、境界条件がある測定です。</p>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Evidence 2">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">速度の実装要因</div>
+      <h1 class="title">観測は<span class="em">DOM</span>中心</h1>
+      <p class="lead">
+        既定のループではスクリーンショットを基本的に使わず、DOMを原子的に読み取って意思決定します。選択したターゲットは文書状態・入力値・近傍文脈・クリック遮蔽も再検証します。
+      </p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">やらない</div>
+          <div class="v">スクリーンショット依存（既定）</div>
+        </div>
+        <div class="cell">
+          <div class="k">やる</div>
+          <div class="v">DOM原子的読み取り＋鮮度ガード</div>
+        </div>
+        <div class="cell">
+          <div class="k">再検証</div>
+          <div class="v">入力値/文脈/occlusion（遮蔽）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">事故低減</div>
+      <h1 class="title"><span class="em">TYPE_TEXT</span>だけ生成</h1>
+      <p class="lead">
+        テキスト生成は“小LLM”に限定され、TYPE_TEXTのときだけ書き込みテキストを生成します。生成物はパース可能な小JSONとして扱われ、型要件に合うものだけ実行されます。
+      </p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">条件</div>
+          <div class="v">TYPE_TEXTの場合に限る</div>
+        </div>
+        <div class="cell">
+          <div class="k">安全弁</div>
+          <div class="v">小JSON＋型制約で実行を選別</div>
+        </div>
+      </div>
+      <p class="small">日英：JSON schema（JSONスキーマ）/ typed execution（型付き実行）</p>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">何が“ultrafast”か</div>
+      <h1 class="title">高速化の<span class="em">3点</span></h1>
+      <p class="lead">
+        ultrafastは単なる強いLLMではなく、(i)操作/対象の同時決定、(ii)要素テーブルで探索を制限、(iii)DOM中心＋再検証で余計なやり直しを減らす設計の合成です。
+      </p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i. 往復圧縮</div>
+          <div class="v">1 requestで操作×ターゲット</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 探索制約</div>
+          <div class="v">要素テーブル（番号付き選択）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. ガード</div>
+          <div class="v">DOM原子的読み取り＋occlusion再検証</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Process">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">意思決定ループ</div>
+      <h1 class="title"><span class="em">観測</span>→索引→決定→再検証</h1>
+      <p class="lead">
+        エージェントは観測状態から要素テーブルを作り、操作とターゲットを同時に決め、実行前後で鮮度と整合性を確認しながら進みます。
+      </p>
+      <div class="rule"></div>
+      <div class="list-grid">
+        <div class="li"><div class="bullet"><span class="mono">i</span></div><div class="text">DOM/ARIAを原子的に読み取り、要素テーブル（番号付き）を生成</div></div>
+        <div class="li"><div class="bullet"><span class="mono">ii</span></div><div class="text">操作ヘッド＋ターゲットヘッドを同一観測状態から1回のリクエストで分岐</div></div>
+        <div class="li"><div class="bullet"><span class="mono">iii</span></div><div class="text">実行時に文書状態・入力値・近傍文脈・クリック遮蔽（occlusion）を再検証</div></div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Distinction Done">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">DONEの意味</div>
+      <h1 class="title"><span class="em">DONE</span>でも検証が必要</h1>
+      <p class="lead">
+        DONEは「達成したはず」という宣言であり、内部推定だけでは誤りがあり得ます。READMEではDONE後も独立したアウトカム検証が必要とされています。
+      </p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">リスク</div>
+          <div class="v">誤達成・UI変化・判定ミス</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">アウトカム検証（別途確認）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Limitations">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">境界条件</div>
+      <h1 class="title">未対応領域が<span class="em">明確</span></h1>
+      <p class="lead">
+        MVPの限界として Shadow DOM、iframe、canvas、アップロード、ポップアップタブ、ネストスクロール、任意キーボードウィジェット、完全なアクセシブルネーム仕様などが未対応（またはMVP外）とされています。
+      </p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">UI形態</div>
+          <div class="v">Shadow DOM / iframe / canvas</div>
+        </div>
+        <div class="cell">
+          <div class="k">操作系</div>
+          <div class="v">アップロード / 任意キーボード<br/>ポップアップタブ / ネストスクロール</div>
+        </div>
+      </div>
+      <p class="small">日英：limitation（制約）/ unsupported（未対応）</p>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="Takeaway">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">要点まとめ</div>
+      <h1 class="title">“自由入力”より<span class="em">構造</span></h1>
+      <p class="lead">
+        このリポジトリは、LLMに画面操作を丸投げするのではなく、観測された要素テーブルで操作を型制約し、ネットワーク往復と誤操作を削る実装思想が核です。
+      </p>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">操作空間×ターゲット空間を動的索引化</div>
+        </div>
+        <div class="cell">
+          <div class="k">速さ</div>
+          <div class="v">1リクエストで同時決定（2 decisions / 1 RTT）</div>
+        </div>
+        <div class="cell">
+          <div class="k">前提</div>
+          <div class="v">測定は同条件反復であり一般化は追加検証が必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="References">
+      <div class="topline">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">参照（README文脈要約）</div>
+      <h1 class="title">出典</h1>
+      <p class="lead">
+        本デッキは、GitHubリポジトリ<strong> jev-ultrafast</strong>のREADME本文および掲載情報に基づく要約です（ユーザ提示の本文要約を含む）。
+      </p>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">テーマ</div>
+          <div class="v">要素テーブル（indexed action space）/ 1 requestで操作×ターゲット</div>
+        </div>
+        <div class="cell">
+          <div class="k">主要データ</div>
+          <div class="v">Flightsデモ：チューリッヒ→ロンドン、約7.1秒（7秒台）</div>
+        </div>
+      </div>
+      <p class="small">注意：具体URLの提示は本文に含まれていないため、ここでは「README文脈要約」として記載しています。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.skyvern.com/blog/web-bench-a-new-way-to-compare-ai-browser-agents" target="_blank" rel="noreferrer noopener">Web Bench: Compare AI Browser Agents (Updated June 2026)</a></h2>
+<p class="reference-note">On the other hand, agent performance for read heavy tasks (e.g. extracting information out of websites) was better than …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://humanbrowser.cloud/blog/benchmark-llms-browser-agents-2026" target="_blank" rel="noreferrer noopener">Browser Agent Benchmarks 2026: How Many Runs, Which Metrics, and What Breaks Them</a></h2>
+<p class="reference-note">| Model / Agent stack | Success rate (overall) | Median duration (s) | Notes |
+ ---  --- |
+| ModelA + FrameworkX | 82% |…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://michaellivs.com/blog/state-of-browser-use-2026" target="_blank" rel="noreferrer noopener">State of Browser Use, May 2026 - /dev/michael</a></h2>
+<p class="reference-note">That’s the bet. Code-mode framing, CDP under the hood, scan-then-script flow, no MCP layer in between.
+
+## The honest ve…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.firecrawl.dev/blog/best-browser-agents" target="_blank" rel="noreferrer noopener">11 Best AI Browser Agents in 2026 - Firecrawl</a></h2>
+<p class="reference-note">CLI-first design - Every browser action is a single CLI command. Chain them together in any language or framework
+ Acces…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://browser-use.com/posts/speed-matters" target="_blank" rel="noreferrer noopener">How Browser Use Achieves the Fastest Agent Execution</a></h2>
+<p class="reference-note">You can safely connect your credit card and purchase things with hosted browser agents.### How we Made Scalable Long-Hor…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
