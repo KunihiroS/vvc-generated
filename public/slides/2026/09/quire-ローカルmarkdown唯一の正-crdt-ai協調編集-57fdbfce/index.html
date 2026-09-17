@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quire: ローカルMarkdown唯一の正×CRDT×AI協調編集</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Noto Serif", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      border-radius: 0;
+      position: relative;
+      overflow: hidden;
+      border: 20px solid transparent;
+      border-image: linear-gradient(to right, rgba(240,232,216,0.0), rgba(240,232,216,0.0)) 1;
+      outline: 1px solid var(--rule);
+      outline-offset: -1px;
+    }
+
+    /* Inset border */
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-topbar{
+      position:absolute;
+      left: 56px;
+      right: 72px;
+      top: 34px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      white-space: nowrap;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 24px;
+      white-space: nowrap;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 18px;
+      padding-top: 22px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0;
+    }
+
+    .title{
+      margin: 0;
+      font-size: 72px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      line-height: 1.0;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .jp-title {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 64px;
+    }
+    .title .jp { font-family: "Noto Serif JP", serif; }
+
+    .lead{
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      margin: 0;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 2px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 4px;
+    }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card {
+      border: 1px solid var(--rule);
+      background: rgba(20, 17, 13, 0.25);
+      padding: 14px 16px;
+      min-height: 78px;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .label {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .value{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .note{
+      color: var(--ink-3);
+      font-size: 20px;
+      line-height: 1.45;
+      margin-top: 2px;
+      max-width: 860px;
+    }
+
+    .bilingual {
+      display:flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .jp-inline { color: var(--ink-2); font-weight: 500; }
+    .en-inline { color: var(--ink-2); font-weight: 400; }
+
+    /* Responsive: keep 16:9 */
+    @media (max-width: 820px){
+      .slide { padding: 44px 28px; }
+      .slide::before{ inset: 14px; }
+      .slide-topbar { left: 28px; right: 28px; top: 26px; }
+      .lead{ font-size: 18px; }
+      .title{ font-size: 56px; }
+      .eyebrow{ font-size: 20px; }
+      .card{ padding: 12px 12px; }
+      .value{ font-size: 18px; }
+    }
+
+    .ref-list {
+      margin-top: 10px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      background: rgba(20,17,13,0.20);
+      padding: 12px 14px;
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.35;
+    }
+    a { color: var(--ink-2); text-decoration: underline; text-decoration-color: rgba(216,204,187,0.6); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">Local-first×CRDT×AI協調</p>
+        <h1 class="title"><em>唯一の正</em>をローカルに</h1>
+        <p class="lead">QuireはローカルのMarkdownをソース・オブ・トゥルースにし、人とAIが同じCRDTセッションで“責任境界つき”に編集できるようにする設計です。</p>
+        <div class="rule"></div>
+        <div class="note">狙い：編集の整合性（CRDT）／適用の分離（Suggest）／誰が何をしたか（アトリビューション）／運用リスクの明示（Security）</div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Problem slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“上書き不安”が残る</p>
+        <h2 class="title"><span class="jp">AI生成→</span><em>上書き</em></h2>
+        <p class="lead">従来の「AIが内容を生成してファイルを上書き」方式だと、衝突・差分の追跡・責任境界が曖昧になりやすいです。</p>
+        <div class="grid grid-3">
+          <div class="card">
+            <div class="label">問題</div>
+            <div class="value">衝突が破壊的</div>
+          </div>
+          <div class="card">
+            <div class="label">問題</div>
+            <div class="value">追跡が難しい</div>
+          </div>
+          <div class="card">
+            <div class="label">問題</div>
+            <div class="value">適用が混ざる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Core idea slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">正本は1つ</p>
+        <h2 class="title"><em>ローカルMarkdown</em>が正本</h2>
+        <p class="lead">Quireではインポート/エクスポートではなく、ローカルフォルダ内の.mdを“唯一の正（source of truth）”として扱い、編集結果も同じファイルへ落とし込みます。</p>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="label">唯一の正</div>
+            <div class="value">ローカルの .md（正本）</div>
+          </div>
+          <div class="card">
+            <div class="label">連携の強み</div>
+            <div class="value">git / vim 等と自然に共存</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">CRDTセッション共有</p>
+        <h2 class="title"><em>人</em>と<em>AI</em>を同居</h2>
+        <p class="lead">AIエージェントを“生成器”ではなく、CRDTセッションのピアとして参加させます。カーソル可視化と著者付与で、編集範囲の責任を持たせます。</p>
+        <div class="grid grid-3">
+          <div class="card">
+            <div class="label">機構</div>
+            <div class="value">CRDT（競合吸収）</div>
+          </div>
+          <div class="card">
+            <div class="label">可視化</div>
+            <div class="value">カーソル・範囲</div>
+          </div>
+          <div class="card">
+            <div class="label">責任</div>
+            <div class="value">著者（アトリビューション）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Suggest slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">提案と適用を分離</p>
+        <h2 class="title"><em>Suggest</em>で安全に前進</h2>
+        <p class="lead">Suggestモードでは提案は表示されますが、受理されるまでディスクへ反映しません。つまり「提案」と「適用」を分けて制御します。</p>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="label">Suggest（提案）</div>
+            <div class="value">見える・議論できる</div>
+          </div>
+          <div class="card">
+            <div class="label">受理（適用）</div>
+            <div class="value">ディスクへ反映</div>
+          </div>
+        </div>
+        <div class="note"><span class="mono">Suggest</span> / <span class="jp-inline">提案</span>（English用語はそのまま）</div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Attribution rollback slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">レビュー可能性</p>
+        <h2 class="title"><em>誰が</em>書いたかを保持</h2>
+        <p class="lead">著者単位のリバート（特定エージェント寄与のみ取り消し）や、コメントのアンカー維持によって、共同編集を“レビュー可能”に寄せます。</p>
+        <div class="grid grid-3">
+          <div class="card">
+            <div class="label">機能 i</div>
+            <div class="value"><em>著者別</em>リバート</div>
+          </div>
+          <div class="card">
+            <div class="label">機能 ii</div>
+            <div class="value">コメントの紐付け</div>
+          </div>
+          <div class="card">
+            <div class="label">機能 iii</div>
+            <div class="value">アンカー維持の工夫</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence CRDT slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">衝突しない体験</p>
+        <h2 class="title">“読み直さない”を狙う</h2>
+        <p class="lead">CRDTにより、複数参加者（ブラウザやエージェント）が同一ドキュメントを同時編集しても、破壊的上書きとして扱わず統合できることが狙いです。</p>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="label">同時編集</div>
+            <div class="value">競合の発生を前提に設計</div>
+          </div>
+          <div class="card">
+            <div class="label">統合</div>
+            <div class="value">読み直さない体験へ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Security network assumptions slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">安全は運用で決まる</p>
+        <h2 class="title">認証なし・<em>ローカル</em>前提</h2>
+        <p class="lead">Quireはデフォルトで認証なし、ローカルバインド（例：127.0.0.1）です。外部公開（例：<span class="mono">--host 0.0.0.0</span>）は“到達できる人が読み書き可能”というリスクが明示されています。</p>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="label">前提</div>
+            <div class="value">認証なし</div>
+          </div>
+          <div class="card">
+            <div class="label">公開時の現実</div>
+            <div class="value">到達者＝読み書き可能</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Threat model slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">脅威モデルを読む</p>
+        <h2 class="title">Security.mdを必読</h2>
+        <p class="lead">Security.mdで脅威モデルと前提が整理されています。運用はネットワーク隔離（LAN限定、ファイアウォール、リバースプロキシ等）が必要で、READMEだけで安全保証はできません。</p>
+        <div class="grid grid-3">
+          <div class="card">
+            <div class="label">必須</div>
+            <div class="value">脅威モデル確認</div>
+          </div>
+          <div class="card">
+            <div class="label">対策</div>
+            <div class="value">隔離・到達制御</div>
+          </div>
+          <div class="card">
+            <div class="label">注意</div>
+            <div class="value">安全は“運用依存”</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="MCP integration slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">MCPで同じCRDTへ</p>
+        <h2 class="title">MCPエージェント連携</h2>
+        <p class="lead">MCP（Model Context Protocol）を介して、Claude Code等のAIクライアントが同一CRDTセッションに参加します。Quire自体はローカルで動作し、アカウントやテレメトリ不要として切り分けられています。</p>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="label">Quire側</div>
+            <div class="value">ローカル動作 / アカウント不要</div>
+          </div>
+          <div class="card">
+            <div class="label">AIクライアント側</div>
+            <div class="value">認証・課金は別途</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Risks and capabilities slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">強みと前提</p>
+        <h2 class="title"><em>正しく使う</em>と強い</h2>
+        <p class="lead">Quireは、アトリビューション・Suggest・著者別リバートによって「編集の責任境界」をUI/データモデルに落とし込みます。一方で実運用の失敗モードや外部参照の副作用は、別途確認が必要です。</p>
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="label">強み</div>
+            <div class="value">責任（アトリビューション）×可逆（リバート）</div>
+          </div>
+          <div class="card">
+            <div class="label">注意</div>
+            <div class="value">運用・機能条件の確認が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Closing slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">導入のチェック</p>
+        <h2 class="title">Quireの要点：<em>統制</em></h2>
+        <p class="lead">Quireは「ローカルMarkdown＝正本」「CRDTで統合」「Suggestで段階適用」「著者で追跡」を軸にします。公開設定をするならSecurity.mdとネットワーク隔離を先に確認してください。</p>
+        <div class="grid grid-3">
+          <div class="card">
+            <div class="label">i</div>
+            <div class="value">正本：ローカル .md</div>
+          </div>
+          <div class="card">
+            <div class="label">ii</div>
+            <div class="value">統合：CRDT</div>
+          </div>
+          <div class="card">
+            <div class="label">iii</div>
+            <div class="value">段階：Suggest→受理</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="References slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">14 / 17</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">参照元（抜粋）</p>
+        <h2 class="title">References</h2>
+        <p class="lead">本デッキは、ユーザー提供のQuire README/要約・FAQ・所見（抜粋）に基づいて圧縮しています。</p>
+        <div class="ref-list">
+          <div class="ref-item">GitHub: quire（Quire）README（ローカルfirst / CRDT / Suggest / MCP / セキュリティ前提の記載）</div>
+          <div class="ref-item">GitHub: Security.md（脅威モデル・公開時の注意・運用推奨）</div>
+          <div class="ref-item">FAQ（Suggestの適用条件、クラウドアップロード有無、認証・公開リスクの切り分け）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=RqXMh4C_HkI" target="_blank" rel="noreferrer noopener">Yjs: A CRDT framework for shared editing Enable shared editing in every application</a></h2>
+<p class="reference-note">Yjs is a data synchronization framework that is specifically designed for creating shared editing applications like Goog…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2503.17826v1" target="_blank" rel="noreferrer noopener">CRDT-Based Game State Synchronization in Peer-to-Peer VR</a></h2>
+<p class="reference-note">CRDTs are widely used in distributed systems, including Riak, Redis CRDBs, Azure Cosmos, and collaborative tools like Yj…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/companies/quire-consulting/__5sG4EBSWoCAgEIQZxAiSghlA9TjmhxUtz27f3_VEWRM" target="_blank" rel="noreferrer noopener">Quire Consulting - 2026 Company Profile, Funding &amp; Competitors - Tracxn</a></h2>
+<p class="reference-note">| 7th | Logo for Booz Allen Hamilton  Booz Allen Hamilton 1914, Mclean  (United States), Public | Provider of analytics,…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/companies/quire/__dIADSxxQUtRgY1vAD66ao1UhS_grHyIhIvr9toO0ojc" target="_blank" rel="noreferrer noopener">Quire - 2026 Company Profile, Team, Funding &amp; Competitors - Tracxn</a></h2>
+<p class="reference-note">Title: Quire - 2026 Company Profile, Team, Funding &amp; Competitors - Tracxn
+# Quire - Company Profile. ## Quire - About th…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://rocketreach.co/quire-profile_b5e805cff42e86fb" target="_blank" rel="noreferrer noopener">[Quire Information](/quire-profile_b5e805cff42e86fb &quot;Quire Information&quot;)</a></h2>
+<p class="reference-note"># Quire Information. Quire is the leader in Technical Report Management (TRM) for project driven companies in the Archit…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
