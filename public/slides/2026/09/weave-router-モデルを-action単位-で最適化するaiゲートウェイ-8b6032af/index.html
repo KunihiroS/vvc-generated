@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Weave Router：モデルを“action単位”で最適化するAIゲートウェイ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: block;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 16px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 12px;
+      inset: auto;
+    }
+
+    /* fixed inset border feel */
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 22px;
+      left: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.12em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 18px;
+      height: 1px;
+      background: var(--rust);
+      display:inline-block;
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 14px 0;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      margin: 0 0 18px 0;
+      font-style: italic;
+      color: var(--ink);
+      line-height: 1.0;
+      max-width: 860px;
+    }
+    .title .accent{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.45;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink-2);
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 22px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(20,17,13,0.25);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      white-space: nowrap;
+    }
+
+    .value{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink);
+      word-break: break-word;
+    }
+
+    .section-rule{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin: 22px 0;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .nowrap{ white-space: nowrap; }
+
+    .refs{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-tag">router / ゲートウェイ</div>
+      <div class="slide-num">02 / 14</div>
+      <p class="eyebrow">actionで最適モデル</p>
+      <h1 class="title">Weave <span class="accent">Router</span></h1>
+      <p class="lead">Weave Router は、エージェントやコーディングツールが送る各リクエストを「最適なLLMへ自動ルーティング」するドロップイン・プロキシです。会話全体ではなく <span class="nowrap">“action（目的）単位”</span> で判断します。</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">problem / 困りごと</div>
+      <div class="slide-num">03 / 14</div>
+      <p class="eyebrow">固定モデルの限界</p>
+      <h1 class="title">モデル固定は <span class="accent">損</span></h1>
+      <p class="lead">アプリが特定のモデル名を固定で呼ぶと、品質・コスト・体験が用途ごとに最適化されません。タスクが変わっても同じモデルを使い続け、無駄な支払いが起きやすくなります。</p>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">core idea / 核</div>
+      <div class="slide-num">04 / 14</div>
+      <p class="eyebrow">actionで切替</p>
+      <h1 class="title">“ターン”ではなく <span class="accent">action</span></h1>
+      <p class="lead">ルーターは、会話の進行（ターン）ではなくリクエスト側が示す目的（action）を基準にモデルを選びます。これにより切替のタイミングをタスク単位にできます。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">例 i</div>
+          <div class="value">コード生成（高精度が必要）→ 上位モデル</div>
+        </div>
+        <div class="card">
+          <div class="label">例 ii</div>
+          <div class="value">要約（十分な品質で良い）→ 低コストモデル</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">compat / 対応</div>
+      <div class="slide-num">05 / 14</div>
+      <p class="eyebrow">互換APIで吸収</p>
+      <h1 class="title">複数APIを <span class="accent">吸収</span></h1>
+      <p class="lead">Anthropic / OpenAI / Gemini などの要求を、互換APIの形で受け取りつつ内部で最適モデルに振り分けます。アプリ側の“作り替えコスト”を下げる設計思想です。</p>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">入力形</div>
+          <div class="value">Anthropic Messages</div>
+        </div>
+        <div class="card">
+          <div class="label">入力形</div>
+          <div class="value">OpenAI Chat Completions</div>
+        </div>
+        <div class="card">
+          <div class="label">入力形</div>
+          <div class="value">Gemini ネイティブ / 生成</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">deployment / 構成</div>
+      <div class="slide-num">06 / 14</div>
+      <p class="eyebrow">2つの提供形</p>
+      <h1 class="title">Hosted と <span class="accent">Self-host</span></h1>
+      <p class="lead">提供形態は主に 2 つです。 (1) npx を使うホスト型（Weave hosted router） (2) Postgres と router を自前構築する自己ホストです。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">Hosted</div>
+          <div class="value">npx クイックスタートで導入</div>
+        </div>
+        <div class="card">
+          <div class="label">Self-host</div>
+          <div class="value">Postgres + router を運用、鍵はBYOK前提</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">security / セキュリティ</div>
+      <div class="slide-num">07 / 14</div>
+      <p class="eyebrow">BYOK・分離</p>
+      <h1 class="title">鍵は手元で <span class="accent">BYOK</span></h1>
+      <p class="lead">自己ホストでは、プロバイダキーを手元で暗号化して保持する BYOK を前提とします。さらにルーターキーとプロバイダキーを混ぜない点が強調されています。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">sk-or-...</div>
+          <div class="value">上流LLMプロバイダ鍵（.env.local / 暗号化保持）</div>
+        </div>
+        <div class="card">
+          <div class="label">rk_...</div>
+          <div class="value">クライアント→ルーター認証鍵（Bearer）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">observability / 観測</div>
+      <div class="slide-num">08 / 14</div>
+      <p class="eyebrow">OTelと分析API</p>
+      <h1 class="title">運用まで <span class="accent">前提</span></h1>
+      <p class="lead">ルーティングはブラックボックスになりがちですが、OTel（OTLP）トレースや分析系エンドポイントにより追跡・監査・最適化が可能です。ログ（NDJSON）取得や価格表のエクスポートも含まれます。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">推論の追跡</div>
+          <div class="value">OTel / OTLP トレース</div>
+        </div>
+        <div class="card">
+          <div class="label">分析</div>
+          <div class="value">/v1/analytics/*、価格・判断データ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">cost / コスト</div>
+      <div class="slide-num">09 / 14</div>
+      <p class="eyebrow">ストリーミング罠</p>
+      <h1 class="title">費用は <span class="accent">ヘッダに出ない</span></h1>
+      <p class="lead">ストリーミング応答では、HTTPヘッダに最終コストを載せられないため注意が必要です。最終の message_delta usage イベント内の <span class="mono">weave_cost</span> を読むべき、とされています。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">NG</div>
+          <div class="value">「非ストリーミングだとヘッダ」前提で実装</div>
+        </div>
+        <div class="card">
+          <div class="label">OK</div>
+          <div class="value">最終 delta usage の <span class="mono">weave_cost</span> を取得</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">endpoints / API</div>
+      <div class="slide-num">10 / 14</div>
+      <p class="eyebrow">推論せず判断のみ</p>
+      <h1 class="title">/v1/route で <span class="accent">意思決定</span></h1>
+      <p class="lead">ルーティング判断だけを返すエンドポイントとして <span class="mono">POST /v1/route</span> が用意されています。プロキシせずに“どのモデルにするか”の意思決定を確認できます。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">目的</div>
+          <div class="value">推論（生成）をせずルーティング判断だけ</div>
+        </div>
+        <div class="card">
+          <div class="label">相性</div>
+          <div class="value">検証・テスト・監査で役立つ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">management / 運用管理</div>
+      <div class="slide-num">11 / 14</div>
+      <p class="eyebrow">ダッシュボード分離</p>
+      <h1 class="title">管理は optional <span class="accent">でも推論は動く</span></h1>
+      <p class="lead">ダッシュボードの管理パスワードが未設定の場合でも推論は動き得る一方、ダッシュボード管理は無効になる読み取りです。運用では「可観測性/管理」と「推論可否」を分けて考えるのが安全です。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">管理無効</div>
+          <div class="value">ダッシュボード操作・管理ができない</div>
+        </div>
+        <div class="card">
+          <div class="label">推論</div>
+          <div class="value">停止とは限らない（設定に依存）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">risk / リスク</div>
+      <div class="slide-num">12 / 14</div>
+      <p class="eyebrow">再現条件は検証</p>
+      <h1 class="title">“40〜70%削減”は <span class="accent">条件付き</span></h1>
+      <p class="lead">README記載ではコスト削減（40〜70%）が示唆されますが、どのモデル群・どの利用パターンで達成されるかは別途検証が必要です。action・ツール呼び出し・ストリーミング差分は実データで確認しましょう。</p>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">検証 i</div>
+          <div class="value">代表プロンプトで品質差</div>
+        </div>
+        <div class="card">
+          <div class="label">検証 ii</div>
+          <div class="value">コスト実測（weave_cost）</div>
+        </div>
+        <div class="card">
+          <div class="label">検証 iii</div>
+          <div class="value">ツール/ビジョン/互換差</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">closing / まとめ</div>
+      <div class="slide-num">13 / 14</div>
+      <p class="eyebrow">まずは理解→検証</p>
+      <h1 class="title">次にやること</h1>
+      <p class="lead">導入前に「action設計」「鍵分離（BYOK）」「OTel/分析での検証」「ストリーミングの費用取得」を確認すると、期待値ズレを減らせます。</p>
+      <div class="section-rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">設計確認</div>
+          <div class="value">action単位ルーティングが要件に合うか</div>
+        </div>
+        <div class="card">
+          <div class="label">実装確認</div>
+          <div class="value">ストリーミング時は <span class="mono">weave_cost</span> を取れるか</div>
+        </div>
+      </div>
+      <div class="refs">
+        <div class="ref">
+          <div class="label">References / 参照</div>
+          <div class="small">本スライドはユーザー提示の README相当の要約情報（router 概要、API互換、BYOK、/v1/route、OTel、weave_cost、運用観点）に基づく再構成です。原典（Weave router README / ドキュメント）も併せて確認してください。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
