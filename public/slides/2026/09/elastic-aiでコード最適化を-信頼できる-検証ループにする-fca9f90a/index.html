@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Elastic: AIでコード最適化を“信頼できる”検証ループにする</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      border-left: 20px solid var(--rule);
+      border-right: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 12px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 10px;
+      background: transparent;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 20px;
+      left: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-size: 14px;
+    }
+    .slide-num{
+      position:absolute;
+      top: 20px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 16px;
+      letter-spacing: 0.06em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+      line-height: 1.2;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 72px;
+      margin: 0 0 12px 0;
+      color: var(--ink);
+      line-height: 1.0;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+      line-height: 1.55;
+      margin-top: 6px;
+    }
+
+    .rule{
+      margin-top: 18px;
+      height: 1px;
+      background: var(--rule-strong);
+      width: min(860px, 90%);
+    }
+
+    .grid{
+      margin-top: 18px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(20,17,13,0.10);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--rust-deep);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      font-weight: 400;
+    }
+
+    .grid3{
+      margin-top: 18px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      background: rgba(240,232,216,0.05);
+      border: 1px solid var(--rule);
+      padding: 2px 8px;
+      border-radius: 10px;
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    .footerhint{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 26px;
+      color: var(--ink-4);
+      font-size: 14px;
+      line-height: 1.4;
+      display:flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+    }
+    .jp-small{
+      color: var(--ink-4);
+      font-weight: 400;
+      font-size: 14px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ left: 16px; }
+      .slide-num{ right: 16px; }
+      .footerhint{ left: 22px; right: 22px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="eyebrow">検証ループが要る</div>
+      <h1 class="title">信頼</h1>
+      <div class="lead">
+        AIエージェントに性能最適化を任せるなら、「速い」を“誤って採用しない”測定・判定の仕組みが中心になる。<br/>
+        （性能最適化 / Performance Optimization）
+      </div>
+      <div class="footerhint">
+        <div>対象：コード変更とベンチマーク結果のズレを抑える</div>
+        <div class="jp-small">Bilingual: 検証＝Validation（検証）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="eyebrow">ベンチの“誤勝ち”</div>
+      <h1 class="title">ノイズ</h1>
+      <div class="lead">
+        ベンチマークは環境ノイズ（温度・負荷変動・<span class="mono">JIT</span>状態・熱スロットリング等）に左右される。<br/>
+        その結果、AIに回して“たまたま速い”変更を改善として採用しやすい。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">問題</div>
+          <div class="v">速いように見えるが、本当に価値があるか不明</div>
+        </div>
+        <div class="cell">
+          <div class="k">ズレの原因</div>
+          <div class="v">マクロ条件≠マイクロ条件、本番ワークロード≠ベンチ</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>キーワード：JIT / Profiling / Micro-benchmark / 統計的有意性</div>
+        <div class="jp-small">Bilingual: 誤採用＝False Acceptance（誤受理）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="eyebrow">探して、試し、守る</div>
+      <h1 class="title">三段階</h1>
+      <div class="lead">
+        探索（探す）→搾取（試す）→検証（守る）で工程を分け、安価な反復と確実な採否を両立する。<br/>
+        （探索 / Explore、搾取 / Exploit、検証 / Validate）
+      </div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i 探索</div>
+          <div class="v">マクロ計測で“hot”箇所を広く分類（facet分解など）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii 搾取</div>
+          <div class="v">ホット経路を現実に近づけたマイクロベンチで改修を反復</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii 検証</div>
+          <div class="v">本番ワークロードでエンドツーエンド検証→人間が承認</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>主張：まず広く、次に短く、最後に守る</div>
+        <div class="jp-small">Bilingual: 承認＝Approval（承認）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="eyebrow">判断をツール化</div>
+      <h1 class="title">CLI</h1>
+      <div class="lead">
+        エージェントへ生データを渡し切らず、「解釈付きディスアセンブリ」「環境チェック」など経験的判断をツール設計に落とす。<br/>
+        これで推論の一貫性が上がり、同じ手作業を繰り返す負担も減る。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">AIが“毎回違う”理由で誤る確率を下げる</div>
+        </div>
+        <div class="cell">
+          <div class="k">重要</div>
+          <div class="v">誤りうるツールは自己検査（常に検証）を構成する</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>鍵語：facet分解 / macro profile / cost分類</div>
+        <div class="jp-small">Bilingual: 自己検査＝Self-check（自己検査）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="eyebrow">確率を制御する</div>
+      <h1 class="title">統計</h1>
+      <div class="lead">
+        採否判定を「採否ルール」としてコード化し、候補とベースラインを同じ条件・同時刻に比較する。<br/>
+        さらにノイズ床（最低限どれくらいの差が意味を持つか）を機械的に較正する。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">ルール化</div>
+          <div class="v">閾値・検定・比較条件を固定し、運用の揺れを消す</div>
+        </div>
+        <div class="cell">
+          <div class="k">較正</div>
+          <div class="v">ベンチごと・環境ごとにノイズ床を測定して固定しない</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>キーワード：fork（統計単位）/ 独立サンプル / 同時比較</div>
+        <div class="jp-small">Bilingual: ノイズ床＝Noise floor（ノイズ床）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="eyebrow">一方向ゲート</div>
+      <h1 class="title">誤棄</h168>
+      <div class="lead">
+        ノイズが大きい領域では対称的な“改善/悪化同等”の扱いは危険になる。<br/>
+        そこで「改善は取り逃がさない」ために、悪化が十分に疑わしい時だけ旗を立てる一方向デフォルトオープンを採る。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">真の改善を誤って棄却しにくくする</div>
+        </div>
+        <div class="cell">
+          <div class="k">前提</div>
+          <div class="v">強い事前仮説（例：マイクロで良ければ本番でも良い）があるほど有効</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>キーワード：探索的領域 vs 確信領域 / 事前仮説</div>
+        <div class="jp-small">Bilingual: ゲート＝Gate（ゲート）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="eyebrow">勝ちを“守る”</div>
+      <h1 class="title">エンドツーエンド</h1>
+      <div class="lead">
+        最後は本番ワークロードでエンドツーエンド検証し、PRを人間がレビューして承認する。<br/>
+        これにより「ベンチで勝ったが本番で崩れる」事故を潰す。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">確認対象</div>
+          <div class="v">hot経路だけでなく、入力分布・操作条件・トレードオフまで含む</div>
+        </div>
+        <div class="cell">
+          <div class="k">安全境界</div>
+          <div class="v">人間承認で信頼境界（採否の最終責任）をバイパスしない</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>キーワード：PRレビュー / 承認 / ブラスト半径</div>
+        <div class="jp-small">Bilingual: ブラスト半径＝Blast radius（影響範囲）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="eyebrow">探索と搾取の権限分離</div>
+      <h1 class="title">隔離</h1>
+      <div class="lead">
+        探索段階ではコミットできないなど、権限分離で誤りの影響範囲（ブラスト半径）を抑える。<br/>
+        失敗を“安く試し、最後にだけ危険を引き受ける”設計になる。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">探索</div>
+          <div class="v">広く候補を見つけるが、変更を危険な場所へ反映しない</div>
+        </div>
+        <div class="cell">
+          <div class="k">搾取</div>
+          <div class="v">許可された範囲で一つずつ試し、検証段階で確信を得る</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>狙い：早い誤りが本番に波及する経路を断つ</div>
+        <div class="jp-small">Bilingual: 権限分離＝Permission separation（権限分離）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="eyebrow">二重の条件：速度＋安全</div>
+      <h1 class="title">ガード</h1>
+      <div class="lead">
+        ガードは「遅くしてはいけない領域」を別条件で管理し、速度改善だけの判断で見落とす失敗を減らす。<br/>
+        （ガード＝Guard、割当て＝Allocation / 配分）
+      </div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">i advisory</div>
+          <div class="v">警告側：改善とトレードオフになり得る項目</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii blocking</div>
+          <div class="v">阻止側：一定条件で悪化したら採用しない</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii 例</div>
+          <div class="v">平均が良くても、ガベージ増などで特定入力が壊れる</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>キーワード：退行検知 / advisory vs blocking / 配分・アロケーション増</div>
+        <div class="jp-small">Bilingual: 退行＝Regression（退行）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="eyebrow">単純最適化 vs ハーネス</div>
+      <h1 class="title">差</h1>
+      <div class="lead">
+        単にAIにベンチマークを回して最適化させるだけでは、ノイズに“たまたま勝つ”変更を誤採用しやすい。<br/>
+        一方このハーネスは、較正・統計判定・同時比較・ガードで誤りの入り口を狭める。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">単純案</div>
+          <div class="v">速い→採用（前提条件のズレを吸収しない）</div>
+        </div>
+        <div class="cell">
+          <div class="k">本稿案</div>
+          <div class="v">速い“ように見える”→ルール判定→ガード検査→本番検証→承認</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>要点：オラクル（検証手段）が存在する領域ほどAIは有利</div>
+        <div class="jp-small">Bilingual: オラクル＝Oracle（検証手段）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="eyebrow">結論：信頼境界を設計する</div>
+      <h1 class="title">原則</h1>
+      <div class="lead">
+        最重要は“AIに提案させること”ではなく、「信頼できるオラクルを維持し続ける計測・安全設計・判断の非バイパス化」だ。<br/>
+        （原則＝Principle）
+      </div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">構造</div>
+          <div class="v">探索→搾取→検証で工程を分離</div>
+        </div>
+        <div class="cell">
+          <div class="k">判定</div>
+          <div class="v">統計的採否ルール＋ノイズ床の較正</div>
+        </div>
+        <div class="cell">
+          <div class="k">安全</div>
+          <div class="v">ガード、権限分離、人間承認</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>読みどころ：自動化の“速度”より、誤りの封じ込め</div>
+        <div class="jp-small">Bilingual: 非バイパス＝Non-bypass（迂回防止）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="eyebrow">再現の難所と妥当性</div>
+      <h1 class="title">限界</h1>
+      <div class="lead">
+        本稿はElasticsearchに最適化された説明が多く、別ドメインで同じ効果が得られるとは限らない。<br/>
+        ただし「階層化・較正・ガード・権限分離を構造で組み込む」という原則は応用しやすい。
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">移植の壁</div>
+          <div class="v">ベンチ設計・統計信号・コスト許容はドメイン依存</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用の本丸</div>
+          <div class="v">信頼できるオラクルを継続運用（更新・監視・ポストモーテム）する</div>
+        </div>
+      </div>
+      <div class="footerhint">
+        <div>この種の仕組みは“作る”より“守り続ける”が難しい</div>
+        <div class="jp-small">Bilingual: 運用＝Operations（運用）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
