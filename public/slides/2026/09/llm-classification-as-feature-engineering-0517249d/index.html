@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>LLM classification as feature engineering</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP","Times New Roman",serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px 0;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      overflow: hidden;
+      padding: 56px 72px;
+      display:flex;
+      flex-direction:column;
+      position:relative;
+      inset: 0;
+      --padTop: 56px;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .topline{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap: 16px;
+      margin-bottom: 10px;
+      position:relative;
+      z-index:2;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-size: 16px;
+      text-transform: uppercase;
+      border-top: 2px solid rgba(232,129,74,0.65);
+      padding-top: 10px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+      white-space: nowrap;
+      margin-top: -4px;
+    }
+
+    .eyebrow{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      margin-top: 8px;
+      position:relative;
+      z-index:2;
+    }
+    .title{
+      font-size: 70px;
+      line-height: 1.0;
+      font-family: "Cormorant Garamond","Noto Serif JP",serif;
+      font-weight: 600;
+      margin: 8px 0 10px 0;
+      position:relative;
+      z-index:2;
+      letter-spacing: -0.01em;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.35;
+      max-width: 760px;
+      margin-top: 6px;
+      position:relative;
+      z-index:2;
+    }
+
+    .content{
+      margin-top: 22px;
+      position:relative;
+      z-index:2;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      flex:1;
+    }
+
+    .grid-2, .grid-3{
+      width:100%;
+      display:grid;
+      gap: 14px;
+      align-items:start;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(20,17,13,0.15);
+      padding: 14px 14px;
+      border-radius: 2px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .text{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .rule{
+      height:1px;
+      background: var(--rule);
+      width:100%;
+      margin: 4px 0 0 0;
+      position:relative;
+      z-index:2;
+    }
+
+    .bilingual{
+      display:inline;
+    }
+    .jp{
+      font-weight: 400;
+      font-size: 0.92em;
+      color: var(--ink-2);
+      margin-left: 6px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 28px 22px; }
+      .slide:before{ inset: 12px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">LLMを“分類器”から“特徴抽出器”へ</div>
+      <div class="title"><i>Feature</i> EngineeringとしてのLLM分類</div>
+      <div class="lead">
+        LLMをそのままラベル出力器にせず、出力を特徴量に変えてロジスティック回帰などで較正・閾値制御する。
+        <span class="bilingual">（LLM分類＝特徴設計）<span class="jp">（特徴量工学）</span></span>
+      </div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">目的</div>
+            <div class="text">較正と閾値を“運用可能”にする</div>
+          </div>
+          <div class="card">
+            <div class="label">結論</div>
+            <div class="text">LLM出力を特徴量化して学習器へ統合</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">なぜLLM-as-classifierが辛い</div>
+      <div class="title">較正と閾値</div>
+      <div class="lead">
+        「プロンプトで陽性/陰性を返させる」運用では、確率の振る舞いが統計的に保証されず、
+        precision/recall を閾値で原理的に制御しづらい。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">主な難点 i</div>
+            <div class="small">確信度（確率に近い情報）が較正されない可能性</div>
+            <div class="small mono" style="margin-top:6px;">→ calibration が弱い</div>
+          </div>
+          <div class="card">
+            <div class="label">主な難点 ii</div>
+            <div class="small">プロンプト追加情報が“本当に使われたか”不明</div>
+            <div class="small mono" style="margin-top:6px;">→ 指示遵守の保証が薄い</div>
+          </div>
+          <div class="card">
+            <div class="label">主な難点 iii</div>
+            <div class="small">LLMの内在分布（陽性率のズレ）により偏りが起き得る</div>
+          </div>
+          <div class="card">
+            <div class="label">主な難点 iv</div>
+            <div class="small">内部挙動が不透明で、監査・デバッグが難しい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">LLMは判定より“信号”</div>
+      <div class="title">出力を特徴へ</div>
+      <div class="lead">
+        LLM(x)の“硬いラベル”や“確率に近い情報”を <span class="mono">L\!L\!M(x)</span> として扱い、
+        ロジスティック回帰で学習・較正する＝特徴量工学として回す。
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <div class="card">
+            <div class="label">Step i</div>
+            <div class="text">LLMから <span class="mono">L\!L\!M(x)</span> を抽出</div>
+            <div class="small">例：硬いラベル、確率寄りのスコア</div>
+          </div>
+          <div class="card">
+            <div class="label">Step ii</div>
+            <div class="text">特徴量として結合</div>
+            <div class="small">決定的特徴量も追加可能</div>
+          </div>
+          <div class="card">
+            <div class="label">Step iii</div>
+            <div class="text">ロジスティック回帰で較正</div>
+            <div class="small">Brier score/F1/閾値を最適化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">統合モデルの形</div>
+      <div class="title">LLM + LR</div>
+      <div class="lead">
+        LLMは“特徴抽出器”。最終の意思決定はロジスティック回帰が担い、学習データに合わせて確率を較正する。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">入力</div>
+            <div class="text">テキスト x</div>
+            <div class="small">例：皮肉（irony）判定文</div>
+          </div>
+          <div class="card">
+            <div class="label">特徴量</div>
+            <div class="text">
+              <span class="mono">z(x) = [L\!L\!M(x), ルール特徴, 中間特徴]</span>
+            </div>
+            <div class="small">段階的に足していく設計</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">学習器</div>
+          <div class="text">
+            ロジスティック回帰（較正・閾値調整）
+            <span class="jp">（ロジス回帰）</span>
+          </div>
+          <div class="small">評価：F1、Brier score（確率品質）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">結果：確率が良くなる</div>
+      <div class="title">Brier改善</div>
+      <div class="lead">
+        皮肉検出タスクで、まず1ショットLLMの硬いラベルはF1≈0.747。
+        その後、ロジスティック回帰で較正を入れるとBrier scoreが0.175に低下し、F1も同等〜改善する。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">LLM（硬いラベル）</div>
+            <div class="text">F1 ≈ 0.747</div>
+            <div class="small">較正は保証されにくい</div>
+          </div>
+          <div class="card">
+            <div class="label">LLM特徴 + LR（較正）</div>
+            <div class="text">Brier ≈ 0.175</div>
+            <div class="small">F1 ≈ 0.779（同等〜改善）</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">読み替え</div>
+          <div class="small">
+            LLM単体の弱点（確率の品質）を、標準的MLの枠組みで吸収できることを示唆。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">段階的に上積み</div>
+      <div class="title">特徴の重ね合わせ</div>
+      <div class="lead">
+        LLM抽出特徴に加え、URL有無や絵文字数などの決定的特徴量を併用すると、BrierやF1が段階的に改善する。
+        「万能LLM」ではなく役割分担が効く。
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <div class="card">
+            <div class="label">LLM抽出 i</div>
+            <div class="text">ユーモア性 / 逆説 / 比喩</div>
+            <div class="small">反語、コントラスト、言葉遊びなど</div>
+          </div>
+          <div class="card">
+            <div class="label">決定的特徴 ii</div>
+            <div class="text">URL・絵文字・記号</div>
+            <div class="small">例：URL有無、感嘆符数</div>
+          </div>
+          <div class="card">
+            <div class="label">統合 iii</div>
+            <div class="text">学習器が重み付け</div>
+            <div class="small">どの特徴が効くかも推定可能</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">訓練なしでも“強い”</div>
+      <div class="title">競技水準</div>
+      <div class="lead">
+        SemEval 2018 Task 3（皮肉検出）の既報と比べ、訓練なしLLMの硬いラベル、またはLLM+LRが上位に近い/並ぶ水準を示す。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">示唆</div>
+            <div class="small">適切な“特徴統合”で、LLMを競技の強手に寄せられる可能性</div>
+          </div>
+          <div class="card">
+            <div class="label">注意</div>
+            <div class="small">前処理・評価条件が完全一致でない可能性があり、過信は禁物</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">違いは“較正と統計”</div>
+      <div class="title">同じ出力でも意味が違う</div>
+      <div class="lead">
+        LLMが返す値をそのまま判定に使うのではなく、特徴量として扱って統計モデルで較正する。
+        これが precision/recall を扱いやすくする鍵になる。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">LLM-as-classifier</div>
+            <div class="text">閾値を“理詰め”で設計しにくい</div>
+            <div class="small">較正が不安定だと運用が揺れる</div>
+          </div>
+          <div class="card">
+            <div class="label">LLM as feature</div>
+            <div class="text">較正・閾値最適化が可能</div>
+            <div class="small">Brier/F1等で検証し改善サイクルを作れる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">解釈性：内部ではなく寄与</div>
+      <div class="title">係数から説明</div>
+      <div class="lead">
+        LLM単体では不透明でも、統合後モデルの係数から「どの特徴が意思決定に寄与したか」を推定できる。
+        ただし因果ではなく統計的寄与。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">改善点</div>
+            <div class="text">監査・デバッグがしやすい</div>
+            <div class="small">重要特徴の仮説→再設計→再評価</div>
+          </div>
+          <div class="card">
+            <div class="label">限界</div>
+            <div class="text">因果の断定はできない</div>
+            <div class="small">係数は相関・寄与の範囲</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">運用フロー（要点）</div>
+      <div class="title">特徴を作って検証</div>
+      <div class="lead">
+        特徴量を作ったら、2次目的（予測品質）で評価し、必要なら再プロンプトや特徴抽出の改善まで回す。
+        「特徴エンジニアリング＋検証」が前提。
+      </div>
+      <div class="content">
+        <div class="grid-3">
+          <div class="card">
+            <div class="label"><i>i</i> 生成</div>
+            <div class="text">LLM出力を特徴量 <span class="mono">L\!L\!M(x)</span> にする</div>
+          </div>
+          <div class="card">
+            <div class="label"><i>ii</i> 統合</div>
+            <div class="text">決定的特徴量を追加して結合</div>
+          </div>
+          <div class="card">
+            <div class="label"><i>iii</i> 検証</div>
+            <div class="text">Brier/F1＋較正・閾値を再設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">それでも残る不確実性</div>
+      <div class="title">前提とリスク</div>
+      <div class="lead">
+        提案は「LLM特徴の品質が十分」という前提を暗黙に置く。
+        さらに比較実験は実装差や分布シフトの影響を完全に排除できない。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">前提</div>
+            <div class="small">LLMが“それらしく”出しても、誤り・バイアスが誤差構造として残る</div>
+          </div>
+          <div class="card">
+            <div class="label">未検証が起きやすい点</div>
+            <div class="small">訓練データ量の感度、分布シフト下の較正維持、再現性（温度/プロンプト微差）</div>
+          </div>
+          <div class="card">
+            <div class="label">運用リスク</div>
+            <div class="small">監視（ドリフト検知、再学習基準）なしだと劣化が見逃される</div>
+          </div>
+          <div class="card">
+            <div class="label">解釈の注意</div>
+            <div class="small">係数で“効いている特徴”は分かっても、因果は分からない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">較正と指標（最小理解）</div>
+      <div class="title">calibration</div>
+      <div class="lead">
+        較正（calibration）とは、「予測確率が当たる割合」と整合している状態。
+        これが崩れると、閾値調整で precision/recall が不安定になりやすい。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label"><i>i</i> 定義</div>
+            <div class="small">例：「0.8なら実際に約80%が陽性」になっている</div>
+          </div>
+          <div class="card">
+            <div class="label"><i>ii</i> 重要性</div>
+            <div class="small">較正が弱いと、閾値を上げ下げした時の効果が読みにくい</div>
+          </div>
+          <div class="card">
+            <div class="label"><i>iii</i> 評価</div>
+            <div class="small">Brier score（確率品質）、F1（分類品質）</div>
+          </div>
+          <div class="card">
+            <div class="label"><i>iv</i> 役割</div>
+            <div class="small">LRで較正し、precision/recallのトレードオフを設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">14 / 16</div>
+      </div>
+      <div class="eyebrow">最終メッセージ</div>
+      <div class="title">LLMを統合する</div>
+      <div class="lead">
+        結論：LLMの“硬い判定”の弱点を、特徴量としての統合（学習器＋較正＋閾値制御）で緩和できる。
+        LLMは分類そのものではなく、特徴抽出器として使うのが実務向き。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">得られるもの</div>
+            <div class="text">較正・閾値・解釈（係数）</div>
+            <div class="small">運用設計と監査に相性が良い</div>
+          </div>
+          <div class="card">
+            <div class="label">進め方</div>
+            <div class="text">自タスクで特徴品質と分布変化を検証</div>
+            <div class="small">汎用の法則として鵜呑みにしない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">15 / 16</div>
+      </div>
+      <div class="eyebrow">参照（本稿で言及）</div>
+      <div class="title">SemEval 2018</div>
+      <div class="lead">
+        例として用いられている皮肉判定データセットは SemEval 2018 Task 3（Irony / Humor 等のタスク文脈）です。
+      </div>
+      <div class="content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="label">データセット</div>
+            <div class="text">SemEval 2018 Task 3</div>
+            <div class="small">皮肉（irony）判定の比較実験</div>
+          </div>
+          <div class="card">
+            <div class="label">使う評価</div>
+            <div class="text">Brier score / F1</div>
+            <div class="small">較正と分類の品質を分けて観測</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">キーワード</div>
+          <div class="small">
+            LLM-as-classifier、LLM as feature engineering（特徴量工学）、calibration（較正）、threshold tuning（閾値調整）、logistic regression（ロジスティック回帰）
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
