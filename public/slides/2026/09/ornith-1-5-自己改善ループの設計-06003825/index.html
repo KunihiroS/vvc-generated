@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ornith-1.5：自己改善ループの設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;0,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px 0 64px;
+    }
+    .slide{
+      position: relative;
+      background: var(--paper);
+      border: 20px solid transparent;
+      outline: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute; top: 28px; left: 32px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: .18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 34px; height: 2px;
+      background: var(--rust);
+      opacity:.9;
+      border-radius: 2px;
+    }
+    .slide-num{
+      position:absolute; top: 22px; right: 30px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 10px;
+    }
+    .title{
+      margin-top: 8px;
+      font-size: 68px;
+      line-height: 1.02;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin-top: 22px;
+      margin-bottom: 18px;
+      width: 100%;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 18px;
+      margin-top: 14px;
+      max-width: 980px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(28,24,19,0.35);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--rust);
+    }
+    .card .v{
+      margin-top: 10px;
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+    .refs{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+    .tight{
+      line-height: 1.35;
+    }
+    @media (max-width: 980px){
+      .slide{ padding: 46px 52px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 19px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">Ornith-1.5</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">自己改善ループ</div>
+      <div class="title">自己改善</div>
+      <div class="lead">Ornith-1.5は、モデルが「学習課題を自分で作り、手順を設計し、実行結果で強化学習する」閉じたループを、自己スキャフォルディングから拡張した研究です。<span lang="ja" style="color: var(--ink-3); font-size: 20px;">（Self-improvement / 自己改善）</span></div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">固定評価の限界</div>
+      <div class="title">抜け道学習</div>
+      <div class="lead">自己生成学習では、難しく見えるだけの課題や、評価器（ハーネス）の癖を突く「報酬ハック」を拾いやすくなります。だからこそ、報酬は“正しさ”と“学習可能性”に結びつく必要があります。</div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Loop</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">3段階同時最適化</div>
+      <div class="title">閉ループ</div>
+      <div class="lead">Ornith-1.5の自己改善ループは、<span style="font-style: italic;">質問→スキャフォールド→ロールアウト</span>の3段階を同一ループ内で改善し、3段階すべてに報酬が伝播します。</div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="card">
+          <div class="k">i</div>
+          <div class="v tight"><span style="font-style: italic; color: var(--ink);">Question</span><br>次に解くタスク案（質問/課題）生成</div>
+        </div>
+        <div class="card">
+          <div class="k">ii</div>
+          <div class="v tight"><span style="font-style: italic; color: var(--ink);">Scaffold</span><br>分解方針・ツール・オーケストレーション設計</div>
+        </div>
+        <div class="card">
+          <div class="k">iii</div>
+          <div class="v tight"><span style="font-style: italic; color: var(--ink);">Rollout</span><br>実行による解決過程（ロールアウト）取得</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">作って・解いて</div>
+      <div class="title">自走カリキュラム</div>
+      <div class="lead">モデルが「課題（タスク）」だけでなく「解き方の型（スキャフォールド）」まで作るので、上達先が“解答”から“学習素材づくり”へ広がります。 <span lang="ja" style="color: var(--ink-3); font-size: 20px;">（Curriculum / カリキュラム）</span></div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">Reward</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">報酬の形</div>
+      <div class="title">Validity×難度×新規性</div>
+      <div class="lead">タスク報酬は「妥当性（validity）×難度（frontier difficulty）×新規性（novelty）」の積で定義されます。報酬は“信頼できないタスク”を学習させないためにゲーティングされます。</div>
+      <div class="rule"></div>
+      <div class="card">
+        <div class="k">Reward =</div>
+        <div class="v">
+          validity × frontier difficulty × novelty<br>
+          <span class="mono">（validity=0 → 報酬0）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Difficulty</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">難しすぎない</div>
+      <div class="title">p* ≈ 0.2</div>
+      <div class="lead">難度は、複数ロールアウトの成功率<span class="mono">p</span>を見て、目標<span class="mono">p* = 0.2</span>付近になるように報酬で誘導します。簡単すぎず、学習不能になりすぎない領域へ集中させる狙いです。</div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Compare</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">自己スキャフォルディング→拡張</div>
+      <div class="title">“タスクも学ぶ”</div>
+      <div class="lead">Ornith-1.0が主にスキャフォールド最適化寄りだったのに対し、Ornith-1.5ではタスク生成・改良と、強化学習による改善までをループに組み込みます。つまり自己改善の範囲が広がっています。</div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">Ornith-1.0</div>
+          <div class="v tight">手順（スキャフォールド）の最適化が中心</div>
+        </div>
+        <div class="card">
+          <div class="k">Ornith-1.5</div>
+          <div class="v tight">タスク生成＋スキャフォールド＋ロールアウトを同時に改善</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Models</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">9B/35B/397B</div>
+      <div class="title">規模横断</div>
+      <div class="lead">Ornith-1.5は複数サイズ（9B / 35B / 397B MoE）で推論・コーディング・エージェント系ベンチマークを提示し、規模が小さくても性能が一貫して強いことを強調しています。</div>
+      <div class="rule"></div>
+      <div class="grid3">
+        <div class="card">
+          <div class="k">397B</div>
+          <div class="v tight">最上位MoE：推論/コーディング/エージェントで高到達点</div>
+        </div>
+        <div class="card">
+          <div class="k">35B</div>
+          <div class="v tight">同規模競合を上回る主張</div>
+        </div>
+        <div class="card">
+          <div class="k">9B</div>
+          <div class="v tight">量子化版も含み、モバイル展開の現実味を訴求</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Results</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">Dense超えを示唆</div>
+      <div class="title">31B相当以上</div>
+      <div class="lead">35B MoEでは、アクティブパラメータがトークン当たり<span class="mono">3B</span>のみ有効にもかかわらず、エージェント的コーディング領域で<span class="mono">31B級Dense</span>を大きく上回る点が示されています。</div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">Caveat</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">評価条件の影響</div>
+      <div class="title">再現性は別確認</div>
+      <div class="lead">ベンチマークは比較の枠組みですが、温度・top_p、コンテキスト長、タイムアウト、ハッキング対策（Git履歴削除等）の注釈がありつつも、実利用性能をそのまま保証するわけではありません。</div>
+      <div class="rule"></div>
+      <div class="card">
+        <div class="k">Notes</div>
+        <div class="v tight">評価設計（ハーネス/条件）は結果に影響しうるため、実世界の制約差で順位が変わる可能性</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">Opinion</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">強みと限界</div>
+      <div class="title">妥当性ゲーティング</div>
+      <div class="lead">強みは、閉ループでタスク生成・手順設計・実行を構造化し、さらに妥当性ゲートで報酬の“壊れ”を抑える点です。一方で、評価器への依存度が高い可能性があり、未知環境でのロバスト性は追加検証が必要です。</div>
+      <div class="rule"></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">Strength</div>
+          <div class="v tight">自己改善ループ＋validity×難度×新規性で学習を制御</div>
+        </div>
+        <div class="card">
+          <div class="k">Limitation</div>
+          <div class="v tight">評価ハーネスの癖に適応するリスク／一般化の判断材料が不足</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">結論</div>
+      <div class="title">自己改善の核</div>
+      <div class="lead">Ornith-1.5は「課題→手順→実行」の三段階を同時最適化し、validityゲーティングで報酬ハック耐性を高めようとする点が中心です。次の焦点は、報酬整合性（reward fidelity）とハック耐性が実環境でも維持されるかの検証です。</div>
+      <div class="rule"></div>
+      <div class="grid3 refs">
+        <div class="card">
+          <div class="k">Key</div>
+          <div class="v tight">閉ループ三段階＋報酬伝播</div>
+        </div>
+        <div class="card">
+          <div class="k">Guard</div>
+          <div class="v tight">validity=0で報酬0（ゲーティング）</div>
+        </div>
+        <div class="card">
+          <div class="k">Next</div>
+          <div class="v tight">一般化・ロバスト性の追加実験</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="http://ornith.ai/ornith_1_5.html" target="_blank" rel="noreferrer noopener">Ornith-1.5: From Self-Scaffolding to Self-Improvement | Ornith Blog</a></h2>
+<p class="reference-note">Ornith-1.5-35B significantly outperforms its similar-sized peer Qwen 3.6-35B across all coding and agentic benchmarks, a…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ornith.ai/ornith_1_5.html" target="_blank" rel="noreferrer noopener">Ornith-1.5: From Self-Scaffolding to Self-Improvement | Ornith Blog</a></h2>
+<p class="reference-note">Ornith-1.5-35B significantly outperforms its similar-sized peer Qwen 3.6-35B across all coding and agentic benchmarks, a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://theresanaiforthat.com/model/ornith-1-5" target="_blank" rel="noreferrer noopener">Ornith 1.5 | AI Model | There&#39;s An AI For That</a></h2>
+<p class="reference-note">Ornith 1.5 is the latest release from the Ornith model family, extending the self-scaffolding technique introduced in Or…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/ornith-1-0-self-scaffolding-agentic-coding-llm-2026" target="_blank" rel="noreferrer noopener">Ornith-1.0: Self-Scaffolding Open Models for Agentic Coding | explainx.ai Blog | explainx.ai</a></h2>
+<p class="reference-note">Update — August 20, 2026: Ornith shipped a successor — Ornith-1.5 extends this self-scaffolding idea into a full self-im…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://sakutto.ai/en/articles/ornith-1-5" target="_blank" rel="noreferrer noopener">Ornith-1.5: MIT 397B That Matches Claude Opus 4.8 | sakutto</a></h2>
+<p class="reference-note">&gt; &quot;Today, we are introducing Ornith-1.5, a major step toward building foundation models through end-to-end self-improvem…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
