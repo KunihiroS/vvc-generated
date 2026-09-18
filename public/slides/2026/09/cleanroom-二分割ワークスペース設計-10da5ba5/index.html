@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cleanroom：二分割ワークスペース設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 2px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border: 1px solid var(--rule-strong);
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: flex-start;
+      inset: 0;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      pointer-events:none;
+    }
+
+    .topline{
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+      z-index: 2;
+      position: relative;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: 0.22em;
+      font-size: 16px;
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 20px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.05;
+      z-index: 2;
+      position: relative;
+      margin-top: 6px;
+    }
+
+    .title{
+      font-size: 74px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink);
+      margin: 8px 0 10px 0;
+      z-index: 2;
+      position: relative;
+      max-width: 100%;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 64px;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      max-width: 760px;
+      z-index: 2;
+      position: relative;
+    }
+
+    .rule-row{
+      width: 100%;
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 14px;
+      z-index: 2;
+      position: relative;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      z-index: 2;
+      position: relative;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      border-radius: 2px;
+      padding: 16px 18px;
+      min-height: 86px;
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-4);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .card .v{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .jp-small{
+      font-size: 18px;
+      color: var(--ink-3);
+      margin-top: 8px;
+      line-height: 1.45;
+    }
+
+    .footer-note{
+      position: absolute;
+      left: 72px;
+      bottom: 44px;
+      right: 72px;
+      z-index: 1;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 820px){
+      .slide{ padding: 40px 28px; }
+      .footer-note{ left: 28px; right: 28px; }
+      .title{ font-size: 54px; }
+      .eyebrow{ font-size: 20px; }
+      .lead{ font-size: 18px; }
+      .card .v{ font-size: 17px; }
+      .card{ padding: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="eyebrow">判断を残す二分割</div>
+      <div class="title jp">Cleanroom</div>
+      <div class="lead">
+        Cleanroomは、AIに実装を手伝わせつつも、目的・設計判断・検証方法・失敗の記録を人間側に残すためのローカル作業台です。
+      </div>
+      <div class="footer-note">Agent（会話）／Owner（記録）／一時対話の保存範囲が、理解の骨格を作ります。</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="eyebrow">ブラックボックス化</div>
+      <div class="title">Why</div>
+      <div class="lead">
+        AIの提案で作ると、「できたが、なぜそうしたかが追えない」「自分が理解したつもりになる」が起きやすいです。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">誤認</div>
+          <div class="v">AIが実装した ≠ 人が理解した</div>
+        </div>
+        <div class="card">
+          <div class="k">損失</div>
+          <div class="v">根拠・検証・失敗の履歴が消える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="eyebrow">二面性で設計</div>
+      <div class="title">Agent × Owner</div>
+      <div class="lead">
+        Cleanroomは「Agent（会話）」と「Owner（記録）」を分け、AIの応答は会話として見せても、学習としては人間が残す形にします。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">Agent</div>
+          <div class="v">
+            会話・依頼（Chat）
+            <div class="jp-small">（会話はUI表示）</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">Owner</div>
+          <div class="v">
+            判断・経験の保持
+            <div class="jp-small">（辞書／日記／スキルノートへ積む）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="eyebrow">学習の“認定”</div>
+      <div class="title">認定と実行</div>
+      <div class="lead">
+        生成された手順は草案であり、実行したからといって自動で「理解・学習の承認」には直結しません。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">草案</div>
+          <div class="v">AIの提案（draft）</div>
+        </div>
+        <div class="card">
+          <div class="k">承認</div>
+          <div class="v">ユーザーの選択（accept）</div>
+        </div>
+        <div class="card">
+          <div class="k">積み上げ</div>
+          <div class="v">スキルとして記録（record）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="eyebrow">残すべき要素</div>
+      <div class="title jp">人間側</div>
+      <div class="lead">
+        理解に不可欠な「目的」「設計判断」「検証方法」「失敗と技術理解」をOwnerへ残し続けることが中核です。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">目的</div>
+          <div class="v">何のために作るか（Intent）</div>
+        </div>
+        <div class="card">
+          <div class="k">判断</div>
+          <div class="v">なぜその設計にするか（Design choice）</div>
+        </div>
+        <div class="card">
+          <div class="k">検証</div>
+          <div class="v">どう確かめるか（Verification）</div>
+        </div>
+        <div class="card">
+          <div class="k">失敗</div>
+          <div class="v">何がダメで何を学んだか（Failure→Learn）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="eyebrow">保存範囲の境界</div>
+      <div class="title">//（一時）</div>
+      <div class="lead">
+        //（ツールなしの一時対話）は、Cleanroomの作業・日記・学習記憶に保存されないと明記されています。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">通常フロー</div>
+          <div class="v">会話の考え方は記録される可能性（※条件次第）</div>
+        </div>
+        <div class="card">
+          <div class="k">//（一時）</div>
+          <div class="v">保存しない（Ephemeral）<div class="jp-small">（作業・日記・スキル/学習に残らない）</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="eyebrow">添付も“範囲指定”</div>
+      <div class="title">PDF/画像</div>
+      <div class="lead">
+        添付は全ページが常に送られるわけではなく、本文抽出や送信範囲は設定（例：<span class="mono">--text</span>、<span class="mono">--pages</span>）で制御します。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">抽出</div>
+          <div class="v"><span class="mono">--text</span>：本文を抽出</div>
+        </div>
+        <div class="card">
+          <div class="k">範囲</div>
+          <div class="v"><span class="mono">--pages</span>：例 <span class="mono">1-3</span> など指定</div>
+        </div>
+      </div>
+      <div class="jp-small">意図した範囲だけ扱う運用が前提（視覚対応モデル要件も絡む）。</div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="eyebrow">継続性のUI</div>
+      <div class="title jp">二分割ワークスペース</div>
+      <div class="lead">
+        二分割UI・キュー・見積もり・候補編集の扱いが、実行待ちでフローを壊さない方向に設計されていると読み取れます。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">並行依頼</div>
+          <div class="v">作業を待たずに依頼</div>
+        </div>
+        <div class="card">
+          <div class="k">応答タイミング</div>
+          <div class="v">ツール呼び出し完了後に回答</div>
+        </div>
+        <div class="card">
+          <div class="k">時間幅</div>
+          <div class="v">古い見積もりを確実な時刻として扱う</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="eyebrow">CLIとWebの役割</div>
+      <div class="title">一致しない前提</div>
+      <div class="lead">
+        CLIが主プロダクトで、Webはプレビューや既存IDEの補完として位置づけられ、二分割の考え方は共通化されているようです。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">CLI（本筋）</div>
+          <div class="v">主プロダクトとしての中心</div>
+        </div>
+        <div class="card">
+          <div class="k">Web（補完）</div>
+          <div class="v">プレビュー／既存IDEの補助</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="eyebrow">録画＝ベンチではない</div>
+      <div class="title">“証拠”の定義</div>
+      <div class="lead">
+        「録画されたチュートリアル」はベンチマークではなく、モデルのライブ評価やテスト合格の証拠ではないと明記されています。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">誤解</div>
+          <div class="v">Liveベンチマーク（性能比較）の証拠だと読む</div>
+        </div>
+        <div class="card">
+          <div class="k">実態</div>
+          <div class="v">split CLIの操作記録（操作例）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVALUATION</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="eyebrow">導入の見どころ</div>
+      <div class="title jp">実務×倫理</div>
+      <div class="lead">
+        良さは、効率化だけでなく「後から再解釈できる経験の器」になる点です。一方で、外部モデルや接続設定の誤りはリスクになり得ます。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">実務性</div>
+          <div class="v">待ち時間・誤解・記録漏れを抑える運用ルール</div>
+        </div>
+        <div class="card">
+          <div class="k">倫理・責任</div>
+          <div class="v">「AIがやった＝理解した」を防ぐ認定分離</div>
+        </div>
+        <div class="card">
+          <div class="k">セキュリティ</div>
+          <div class="v">境界（保存範囲／送信範囲）を設定ミスしない</div>
+        </div>
+        <div class="card">
+          <div class="k">法務</div>
+          <div class="v">NOTICEやライセンスの注意はあるが全て網羅は不明</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="eyebrow">持ち帰り</div>
+      <div class="title">Keep the trail</div>
+      <div class="lead">
+        Cleanroomの価値は、Agent（会話）から得た“生成”ではなく、Owner（記録）が残す“判断と経験”を積み上げていくことにあります。
+      </div>
+      <div class="rule-row"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">区別</div>
+          <div class="v">生成（draft）≠ 学習（recognition）</div>
+        </div>
+        <div class="card">
+          <div class="k">境界</div>
+          <div class="v"><span class="mono">//</span>は一時（Ephemeral）</div>
+        </div>
+        <div class="card">
+          <div class="k">運用</div>
+          <div class="v">添付は範囲指定で送る</div>
+        </div>
+      </div>
+      <div class="footer-note">不明点はコード／「Live evaluation and limitations」「Security関連」等の追参照で確定させるのが安全です。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
