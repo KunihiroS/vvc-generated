@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Laya: 非自己回帰で“校正された意思決定”を高速化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      border-radius: 14px;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-left: 20px solid var(--rule);
+      border-right: 20px solid var(--rule);
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events: none;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", serif;
+      letter-spacing: .12em;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      padding-top: 4px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 14px;
+      height: 2px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,.15);
+      border-radius: 2px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      position: relative;
+      z-index: 2;
+    }
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      font-size: 74px;
+      line-height: 1.02;
+      color: var(--rust);
+      position: relative;
+      z-index: 2;
+      letter-spacing: .01em;
+    }
+    .lead{
+      margin-top: 14px;
+      font-family: "Noto Serif JP", serif;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+    }
+    .content{
+      margin-top: 22px;
+      position: relative;
+      z-index: 2;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+      min-height: 56px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .cell .v{
+      margin-top: 8px;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .mini{
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .rule-strip{
+      margin-top: 20px;
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      position: relative;
+      z-index: 2;
+    }
+    .nowrap{ white-space: nowrap; }
+    @media (max-width: 900px){
+      .slide{ padding: 44px 46px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">01 / 17</div>
+      </div>
+      <div class="eyebrow">生成ではなく、判断を最適化</div>
+      <div class="title">Laya</div>
+      <div class="lead">Layaは、生成AI（自己回帰LLM）を使わずに、分類・ルーティング・検知の“判断”だけを<strong>高速</strong>かつ<strong>確率校正</strong>付きで行う非自己回帰モデル設計の主張です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Idea（核）</div>
+            <div class="v">choice / score / noul に閉じた出力（テキスト生成なし）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Value（価値）</div>
+            <div class="v">ECE等で“使える自信”を狙い、レイテンシと堅牢性を両立</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="eyebrow">遅い・高い・自信が不確か</div>
+      <div class="title">LLM運用の痛点</div>
+      <div class="lead">質問→トークン生成のLLMは、レイテンシとコストが増えがちです。また “confidence=0.95” が統計的に校正されている保証が弱く、意思決定の分岐に不向きになり得ます。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell"><div class="k">Latency</div><div class="v">逐次生成で待ちが出る</div></div>
+          <div class="cell"><div class="k">Cost</div><div class="v">生成トークン分だけ課金</div></div>
+          <div class="cell"><div class="k">Calibration</div><div class="v">当たり率と確率がズレ得る</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="topbar">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="eyebrow">System 1×確率</div>
+      <div class="title">直感を数値化</div>
+      <div class="lead">ここでの “System 1” は、人の素早い直感判断をイメージし、短時間で確率（校正された確信度）として返す考え方です。非自己回帰（non-autoregressive）で、決められたスキーマへ前向き推論します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">System 1（直感）</div>
+            <div class="v">速い判断 / 数値の確率で出す</div>
+          </div>
+          <div class="cell">
+            <div class="k">Non-AR（生成しない）</div>
+            <div class="v">choice / score / noul 等の決定プリミティブのみ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topbar">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="eyebrow">出力を“判断用”に固定</div>
+      <div class="title">決定プリミティブ</div>
+      <div class="lead">Layaの出力設計は、テキスト生成ではなくスキーマ対応に閉じています。これにより形式エラー（JSON崩れ）や幻覚のような自由生成特有の失敗を構造的に減らす狙いです。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">choice</div>
+            <div class="v">選択肢（多クラス）を選ぶ</div>
+          </div>
+          <div class="cell">
+            <div class="k">score</div>
+            <div class="v">序数ラベル（Ordinal）を推定</div>
+          </div>
+          <div class="cell">
+            <div class="k">noul</div>
+            <div class="v">真偽確率（True/False probability）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="eyebrow">ECEで“校正”を測る</div>
+      <div class="title">校正が主役</div>
+      <div class="lead">LayaはRLCD（Reinforcement Learning for Calibrated Decisions）で、確率校正を主要価値に置きます。LLMの“それっぽい自信”ではなく、予測確率と当たり率の整合（例：ECE改善）を狙います。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">LLMの問題</div>
+            <div class="v">confidenceがあっても校正されるとは限らない</div>
+          </div>
+          <div class="cell">
+            <div class="k">Layaの狙い</div>
+            <div class="v">閾値や分岐に使える確率に寄せる（ECE中心）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Process">
+      <div class="topbar">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="eyebrow">文字体系でルーティング</div>
+      <div class="title">入力→適切モデル</div>
+      <div class="lead">多言語では、英語BPEのような前提が非ラテン文字へ不利に働き、誤った高confidenceが起き得ます。Layaは入力のスクリプト（文字体系）を見てルーティングし、その失敗を抑える方針です。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell"><div class="k">Step i</div><div class="v">入力のスクリプト判定（文字体系）</div></div>
+          <div class="cell"><div class="k">Step ii</div><div class="v">対応するモデルへルーティング</div></div>
+          <div class="cell"><div class="k">Step iii</div><div class="v">校正された確率で判断</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="topbar">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="eyebrow">Jev比較（例示）</div>
+      <div class="title">精度×校正×速度</div>
+      <div class="lead">TypeSafe AIの “Jev” との比較として、typed-decisionsの精度、ECE、レイテンシ（単発で約32.8ms vs 236–276ms等）が挙げられています。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Accuracy</div>
+            <div class="v">typed-decisions: 0.766（Laya）vs 0.727（Jev）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Calibration</div>
+            <div class="v">ECE: 0.081（Laya）vs 0.246（Jev）</div>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:14px;">
+          <div class="cell">
+            <div class="k">Latency</div>
+            <div class="v">単発: 約32.8ms（Laya）vs 236–276ms（Jev）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Deployment</div>
+            <div class="v">オープンウェイト / セルフホスト前提で低コスト運用を主張</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="eyebrow">“置き換え”ではない</div>
+      <div class="title">判断エンジン</div>
+      <div class="lead">この位置づけは “生成AIの代替” というより、生成が不要な場面（ガードレール、分類、ルーティング、トリアージ）で意思決定を速く・正しく・確率的に扱うためのエンジンです。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell"><div class="k">Gen不要</div><div class="v">分類 / 検知 / 真偽判定</div></div>
+          <div class="cell"><div class="k">形式安定</div><div class="v">スキーマ出力で堅牢</div></div>
+          <div class="cell"><div class="k">意思決定</div><div class="v">校正された確率で分岐</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Enumeration">
+      <div class="topbar">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="eyebrow">設計の要点3つ</div>
+      <div class="title">三本柱</div>
+      <div class="lead">Layaの特徴は大きく3つに整理できます。出力設計、RLCDによる校正、そして多言語ルーティングが中核です。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell"><div class="k">i</div><div class="v">choice / score / noul（生成なし・数値中心）</div></div>
+          <div class="cell"><div class="k">ii</div><div class="v">RLCD（Reinforcement Learning for Calibrated Decisions）でECE志向</div></div>
+          <div class="cell"><div class="k">iii</div><div class="v">100+言語想定 + スクリプト自動ルーティング</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="eyebrow">選択肢数が性能を左右</div>
+      <div class="title">限界を明示</div>
+      <div class="lead">限界も明確に挙げられています。選択肢が20超のように多い場合、精度が落ちる可能性があります。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Failure mode</div>
+            <div class="v">choice数の増加 → 識別が難しくなり性能低下</div>
+          </div>
+          <div class="cell">
+            <div class="k">示唆</div>
+            <div class="v">階層化（粗→細）や候補数制限が有効になり得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="eyebrow">ゼロショット弱め</div>
+      <div class="title">万能ではない</div>
+      <div class="lead">基盤モデルのままではゼロショット性能が低いとされています。到達する精度（例：0.766）は学習（fine-tuning）やベンチマーク向けの調整に依存する、と読み取れます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Zero-shot</div>
+            <div class="v">typed-decisions: 約0.35程度（到達値として記載）</div>
+          </div>
+          <div class="cell">
+            <div class="k">到達精度</div>
+            <div class="v">0.766は学習（ベンチ学習/調整）後の例として提示</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Process">
+      <div class="topbar">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="eyebrow">校正は運用で効く</div>
+      <div class="title">温度校正が必要</div>
+      <div class="lead">校正には温度スケーリングのような追加処理が必要になる可能性が明記されています。速さだけでなく、確率の性質を運用で整える前提です。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell"><div class="k">先に評価</div><div class="v">ECE（校正誤差）で確認</div></div>
+          <div class="cell"><div class="k">次に調整</div><div class="v">温度スケーリング等を検討</div></div>
+          <div class="cell"><div class="k">最後に分岐</div><div class="v">閾値・ルーティングへ反映</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="topbar">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="eyebrow">“自信だけで守れない”</div>
+      <div class="title">ルーティングの必然</div>
+      <div class="lead">confidence gatingだけでは、英語モデルが非ラテン文字で高自信になり精度が崩れるケースを防げない、と結論づけています。推論前に入力特性（文字体系）でモデルを選ぶのが安全という主張です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">不足</div>
+            <div class="v">自信（confidence）だけの弾きでは誤り検出が難しい</div>
+          </div>
+          <div class="cell">
+            <div class="k">対策</div>
+            <div class="v">文字体系にもとづくルーティングで失敗を事前抑制</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="Closing">
+      <div class="topbar">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">14 / 17</div>
+      </div>
+      <div class="eyebrow">導入は検証が鍵</div>
+      <div class="title">結論</div>
+      <div class="lead">Layaは“生成AIの置き換え”ではなく、“判断タスクの最適化”として強い可能性があります。導入判断では、(1) 自社データのECE、(2) ルーティング誤り時の挙動、(3) choice設計、(4) 実測再現性を慎重に検証するのが要点です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">検証 i</div>
+            <div class="v">校正（ECE）を自社データで確認（校正 = 使える確率）</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証 ii</div>
+            <div class="v">ルーティング・選択肢設計・コスト/速度を実測して判断</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://huggingface.co/convaiinnovations/laya" target="_blank" rel="noreferrer noopener">convaiinnovations/laya</a></h2>
+<p class="reference-note">Multi-turn dialogues use Temporal Difference learning with Monte Carlo targets (TD(lambda = 1.0)) over prefix slices, pr…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.classmethod.jp/en/articles/jev-for-llm-model-routing" target="_blank" rel="noreferrer noopener">I tried replacing model routing with TypeSafe (Jev) to see how ...</a></h2>
+<p class="reference-note">accuracy benchmark either. [...] As hypothesized, an architecture like Jev&#39;s that &quot;does not generate reasoning tokens&quot; a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://anthonymaio.substack.com/p/jev-the-language-model-that-wont" target="_blank" rel="noreferrer noopener">Jev: The Language Model That Won&#39;t Talk - Anthony Maio</a></h2>
+<p class="reference-note">I know it’s a little convoluted to follow, but I’m working from secondary sources and trying to apply my domain knowledg…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/companies/laya-ai/__UR5FDxqZIyVqUdMAAKhuT2coT7KNbIwF-54vqp2Pz84" target="_blank" rel="noreferrer noopener">Laya Ai - 2026 Company Profile, Team, Funding, Competitors &amp; Financials - Tracxn</a></h2>
+<p class="reference-note">| Rank | Company Details | Short Description | Total Funding | Investors | Tracxn Score |
+ ---  ---  --- |
+| 1st | Logo …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/companies/laya-healthcare/__Nvn88xjkhUWUgH7c1qrxpJPHR5fd1Fm-rx1LUj1RHmY" target="_blank" rel="noreferrer noopener">Laya Healthcare - 2026 Company Profile &amp; Competitors - Tracxn</a></h2>
+<p class="reference-note">| Rank | Company Details | Short Description | Total Funding | Investors | Tracxn Score |
+ ---  ---  --- |
+| 1st | Logo …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
