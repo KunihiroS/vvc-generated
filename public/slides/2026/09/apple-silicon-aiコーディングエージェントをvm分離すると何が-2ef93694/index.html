@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Apple Silicon：AIコーディングエージェントをVM分離すると何が起きるか</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 0 40px;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      border: 1px solid var(--rule-strong);
+      opacity: 0.6;
+    }
+
+    .topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.12em;
+      font-weight: 600;
+      color: var(--rust);
+      font-size: 20px;
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag:before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 52%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 28px;
+      background: var(--rust);
+      border-radius: 4px;
+      opacity: 0.95;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 26px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      padding-top: 2px;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 6px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title {
+      margin: 0 0 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      font-weight: 500;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title .jp {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+    }
+    .title em {
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hr {
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 14px;
+      position: relative;
+      z-index: 1;
+      margin-top: 16px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+      min-height: 64px;
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .cell .v {
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .bullets{
+      margin-top: 10px;
+      display: grid;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .mini {
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .note {
+      position: absolute;
+      right: 14px;
+      bottom: 12px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 12px;
+      color: var(--ink-4);
+      letter-spacing: 0.02em;
+      z-index: 1;
+      text-align: right;
+      max-width: 320px;
+    }
+
+    @media (max-width: 720px){
+      .slide { padding: 40px 22px; }
+      .title { font-size: 46px; }
+      .title .jp { font-size: 46px; }
+      .lead { font-size: 18px; }
+      .slide-tag { font-size: 16px; }
+      .slide-num { font-size: 20px; }
+      .grid2 { grid-template-columns: 1fr; }
+      .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- 01 -->
+    <section class="slide" aria-label="Slide 1">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="eyebrow">VM分離の“実コスト”</div>
+      <h1 class="title"><span class="jp">Apple Silicon</span> <em>VM</em>と推論分離</h1>
+      <p class="lead">AIコーディングエージェントをVMで安全に実行しても、モデル推論をVMに閉じ込めない限り「速度と安全」を両立できる、という結論をベンチ観点で整理します。</p>
+      <div class="note">対象：Apple Mシリーズ／エージェント↔ホスト推論（vsock）</div>
+    </section>
+
+    <!-- 02 -->
+    <section class="slide" aria-label="Slide 2">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="eyebrow">危険はどこ？</div>
+      <h1 class="title"><em>実行</em>が本丸</h1>
+      <p class="lead">危険性の中心は、LLMの出力をもとに「コードを実行する」ことです。ファイル読解の過程で悪意ある指示（プロンプトインジェクション）が混入すると、強権限でコマンドが走る可能性があります。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">危険条件</div>
+          <div class="v">LLM出力 → コード実行</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策の方向</div>
+          <div class="v">VMで権限境界を作る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section class="slide" aria-label="Slide 3">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="eyebrow">分ければ速い</div>
+      <h1 class="title">“重い推論”を外へ</h1>
+      <p class="lead">Apple SiliconではVM内の推論が遅くなりがちです（ホストGPU共有＝Metalの制約が壁）。そこで「危険な実行＝VM」「重い推論＝ホスト」を分離します。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">VM</div>
+          <div class="v">エージェント（危険）<br><span class="mono">agent</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">Host</div>
+          <div class="v">推論サーバ（重い）<br><span class="mono">MLX / Ollama</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">接続</div>
+          <div class="v">vsock通信（遷移コスト）<br><span class="mono">vsock</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section class="slide" aria-label="Slide 4">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="eyebrow">vsockで橋渡し</div>
+      <h1 class="title">二層アーキテクチャ</h1>
+      <p class="lead">VM内のエージェントはvsockで推論要求をホストへ転送し、ホスト側でMLXまたはOllamaがモデル（7B,4bit）を推論します。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">VM側</div>
+          <div class="v">ファイル読解→計画→実行<br>（分離により被害限定）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ホスト側</div>
+          <div class="v">推論エンジン：<br>MLX または Ollama（7B/4bit）</div>
+        </div>
+      </div>
+      <div class="hr"></div>
+      <p class="mini">ポイント：VM境界のコストだけでなく、推論エンジンとI/O経路の相互作用も含めて評価します。</p>
+    </section>
+
+    <!-- 05 -->
+    <section class="slide" aria-label="Slide 5">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="eyebrow">単発はほぼ無視</div>
+      <h1 class="title"><em>測れない</em>範囲</h1>
+      <p class="lead">単発リクエストでは、vsock経由の追加コストはほぼ測定不能です（MLXでは「ほぼゼロ」に近い）。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">MLX</div>
+          <div class="v">単発：差は測定不能（近ゼロ）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Ollama</div>
+          <div class="v">単発：傾向として大差なし（負荷次第で変化）</div>
+        </div>
+      </div>
+      <div class="note">読み取り：VM分離は“いつでも遅い”ではない</div>
+    </section>
+
+    <!-- 06 -->
+    <section class="slide" aria-label="Slide 6">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="eyebrow">負荷で差が出る</div>
+      <h1 class="title">数％の“税”</h1>
+      <p class="lead">負荷が増えると傾向が分かれ、MLXではVMがわずかに不利になり、合計ウォールタイムで1〜数％遅れる方向が見られます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">条件</div>
+          <div class="v">並列・エージェント反復<br>（負荷増）</div>
+        </div>
+        <div class="cell">
+          <div class="k">観測（MLX）</div>
+          <div class="v">VM経由が1〜数％遅れ<br>（ウォールタイム）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section class="slide" aria-label="Slide 7">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="eyebrow">逆転もある</div>
+      <h1 class="title">Ollamaは高速化</h1>
+      <p class="lead">Ollamaでは逆に、8並列クライアントやエージェント反復ループで、VM経由の方が15〜28%高速という結果が出ています。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">観測（Ollama）</div>
+          <div class="v">VM経由が15〜28%高速<br><span class="mono">15–28%</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">対象ワークロード</div>
+          <div class="v">8並列＋反復（エージェントループ）</div>
+        </div>
+      </div>
+      <div class="hr"></div>
+      <p class="mini">結論：VM境界そのものより、推論エンジンのI/Oモデルやスケジューリングが支配し得ます。</p>
+    </section>
+
+    <!-- 08 -->
+    <section class="slide" aria-label="Slide 8">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="eyebrow">理由は未確定</div>
+      <h1 class="title">“仮説”で説明</h1>
+      <p class="lead">著者は、推論サーバやクライアント側のCPU競合、I/O経路、macOSのセキュリティ/プロセス生成オーバーヘッド等がVMで別条件になり得ると述べます。ただし機序は未確定です。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">競合</div>
+          <div class="v">物理コアの争奪（CPU）</div>
+        </div>
+        <div class="cell">
+          <div class="k">経路</div>
+          <div class="v">I/Oの違い（vsock含む）</div>
+        </div>
+        <div class="cell">
+          <div class="k">OS影響</div>
+          <div class="v">macOSのセキュリティ介入<br>プロセス生成</div>
+        </div>
+      </div>
+      <div class="note">断定せず：データ整合はあるが“確証”ではない</div>
+    </section>
+
+    <!-- 09 -->
+    <section class="slide" aria-label="Slide 9">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="eyebrow">測定の落とし穴</div>
+      <h1 class="title">二峰性を修正</h1>
+      <p class="lead">Ollama側で初回測定では、VM/サーバ停止・再起動が不十分で、エージェントループが極端に遅い二峰性（bimodal）になった可能性があります。以降は各測定の前に適切に停止・再実行しています。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">問題</div>
+          <div class="v">再起動不十分→二峰性<br><span class="mono">bimodal</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">対処</div>
+          <div class="v">測定前にクリーン停止/再実行</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Slide 10">
+      <div class="topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="eyebrow">“誤読”を防ぐ</div>
+      <h1 class="title">両方報告</h1>
+      <p class="lead">VMのコストは一方向ではなく、ワークロードと推論エンジンで逆転し得ます。そのため片方の結果だけを見せると「VM＝無料」や「VM＝常に遅い」という誤解が生まれる、と著者は主張します。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">誤解1</div>
+          <div class="v">VM＝コストゼロ</div>
+        </div>
+        <div class="cell">
+          <div class="k">誤解2</div>
+          <div class="v">VM＝常に遅い</div>
+        </div>
+        <div class="cell">
+          <div class="k">本質</div>
+          <div class="v">推論エンジン×負荷で変わる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Slide 11">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="eyebrow">意思決定の注意点</div>
+      <h1 class="title"><em>再ベンチ</em>必須</h1>
+      <p class="lead">OllamaでVM経由が速い結果は魅力的ですが、原因は未解明で、クライアント実装・バックグラウンド・サーバ設定・OS差・測定粒度で簡単に変わり得ます。意思決定前に自環境で再ベンチする姿勢が必要です。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">変動要因</div>
+          <div class="v">叩き方（Python等）、背景プロセス、設定、OS</div>
+        </div>
+        <div class="cell">
+          <div class="k">測定粒度</div>
+          <div class="v">ウォールタイムだけでなく内訳も確認</div>
+        </div>
+      </div>
+      <div class="note">“仮説が正しい前提”で固定しない</div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Slide 12">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="eyebrow">最終結論</div>
+      <h1 class="title"><em>安全</em>と<em>速度</em>は両立</h1>
+      <p class="lead">Apple Siliconでは、エージェントをVMに閉じ込めつつ、モデル推論はホストで行う分離設計が現実的です。コストは単発でほぼ無視でき、負荷ではMLXが不利になり得る一方、Ollamaでは逆転（15〜28%高速）も起きます。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">安全（方向性）</div>
+          <div class="v">エージェント＝VM（権限分離）</div>
+        </div>
+        <div class="cell">
+          <div class="k">速度（単発）</div>
+          <div class="v">vsock差はほぼ測定不能</div>
+        </div>
+        <div class="cell">
+          <div class="k">速度（負荷）</div>
+          <div class="v">MLX：1〜数％遅れ／Ollama：15〜28%高速</div>
+        </div>
+      </div>
+      <div class="note">日本語用語補助：VM（仮想マシン）、推論（inference）、逆転（reversal）</div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
