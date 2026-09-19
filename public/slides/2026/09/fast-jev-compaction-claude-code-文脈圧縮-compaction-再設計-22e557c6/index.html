@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fast-jev-compaction｜Claude Code 文脈圧縮（compaction）再設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      border-radius: 2px;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .frame {
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events: none;
+    }
+
+    .slide-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-left: 3px solid var(--rule);
+      padding-left: 12px;
+      line-height: 1;
+      position: relative;
+    }
+
+    .slide-tag:before {
+      content: "";
+      position: absolute;
+      left: -1px;
+      top: -6px;
+      width: 2px;
+      height: 26px;
+      background: rgba(232, 129, 74, 0.35);
+      border-radius: 2px;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 16px;
+      letter-spacing: 0.01em;
+    }
+
+    .title {
+      margin-top: 6px;
+      font-size: 64px;
+      line-height: 1.03;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--ink);
+    }
+
+    .title .accent {
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .jp-title {
+      margin-top: -8px;
+      font-size: 42px;
+      line-height: 1.05;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    .lead {
+      margin-top: 14px;
+      font-size: 22px;
+      line-height: 1.35;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .content {
+      margin-top: 22px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-top: 4px;
+    }
+
+    .rule {
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 8px;
+    }
+
+    .grid {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .grid3 {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .cell {
+      border: 1px solid var(--rule);
+      background: rgba(28, 24, 19, 0.15);
+      border-radius: 6px;
+      padding: 14px 14px 12px;
+      min-height: 88px;
+    }
+
+    .cell h4 {
+      margin: 0 0 8px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--ink-3);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .cell p {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink);
+    }
+
+    .small {
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .listGrid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      margin: 4px 0;
+    }
+
+    .refs {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .refItem {
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 12px 14px;
+      background: rgba(28, 24, 19, 0.15);
+    }
+    .refItem .label {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .refItem .text {
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    @media (max-width: 900px) {
+      .slide { padding: 44px 42px; }
+      .title { font-size: 48px; }
+      .lead { font-size: 19px; }
+      .grid3 { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .listGrid { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-head">
+        <div class="slide-tag">Overview</div>
+        <div class="slide-num">02 / 11</div>
+      </div>
+      <div class="eyebrow">要約しない圧縮</div>
+      <div class="title">fast-jev-<span class="accent">compaction</span></div>
+      <div class="lead">Claude Codeの“コンテキスト圧縮”を、従来の要約ではなく<strong>意思決定（Jev）</strong>で最小限の情報喪失に寄せる設計です。<span style="font-family:'Noto Serif JP',serif;">(情報損失を抑えるための compaction)</span></div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <h4>Target 対象</h4>
+            <p><span class="mono">tool_use</span> / <span class="mono">tool_result</span> のみ（ユーザ/アシスタント文章は原文維持）</p>
+          </div>
+          <div class="cell">
+            <h4>Core 発想</h4>
+            <p>「残すべきか」と「結果本文を残すべきか」を分けて評価し、不要だけ削除/短縮</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-head">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 11</div>
+      </div>
+      <div class="eyebrow">要約の落とし穴</div>
+      <div class="title">“後で効く情報”が消える</div>
+      <div class="lead">通常のコンテキスト圧縮では、古い発話を要約するため<strong>ファイルパス</strong>、<strong>エラー文言の正確さ</strong>、<strong>制約</strong>、<strong>コマンド</strong>などが薄まる/消えるリスクがあります。</div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <h4>典型的に失われる</h4>
+            <p>エラーの正確な行・文言／パス／制約／再現に必要なコマンド</p>
+          </div>
+          <div class="cell">
+            <h4>Why 困る</h4>
+            <p>テスト失敗の根因確認や、次のツール実行で<strong>参照すべき具体が欠落</strong>する</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-head">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 11</div>
+      </div>
+      <div class="eyebrow">要約ではなく判定</div>
+      <div class="title">“必要な事実だけ”</div>
+      <div class="lead">文章をまとめるのではなく、ツール呼び出しと結果を<strong>その時点で作られた事実</strong>として扱い、残す/消すを分岐させます。 (fact retention / 事実保持)</div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>Step i</h4>
+            <p><span class="mono">tool_use</span> 自体を残すかを評価</p>
+          </div>
+          <div class="cell">
+            <h4>Step ii</h4>
+            <p><span class="mono">tool_result</span> 本文をそのまま残すかを評価</p>
+          </div>
+          <div class="cell">
+            <h4>Step iii</h4>
+            <p>不要だけを削除/短縮し、トークン上限に収める</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-head">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 11</div>
+      </div>
+      <div class="eyebrow">二段階の意思決定</div>
+      <div class="title">Jevで二つの問い</div>
+      <div class="lead">各非固定（pinnedでない）ツールに対し、Jevが<strong>(a) 呼び出しは残すか</strong>、<strong>(b) 結果本文はそのまま残すか</strong>を別々に判断します。</div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <h4>(a) Keep tool_use</h4>
+            <p>「そのツールが実行された」という事実（呼び出しの存在）を維持</p>
+          </div>
+          <div class="cell">
+            <h4>(b) Keep tool_result</h4>
+            <p>「結果の中身を原文のまま残す必要」を判断し、不要なら短縮/削除</p>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="small">
+          さらに、<span class="mono">pinned</span>（例：preserveRecentMessages の新しめ範囲）は<strong>決して触らない（保持）</strong>扱いで、直近文脈の損失を抑えます。 <span style="color:var(--ink-4);">(固定/保持: pinned)</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-head">
+        <div class="slide-tag">Mechanics</div>
+        <div class="slide-num">06 / 11</div>
+      </div>
+      <div class="eyebrow">段階的 fit + 失敗時フォールバック</div>
+      <div class="title">上限へ収める工夫</div>
+      <div class="lead">最大トークン上限（<span class="mono">maxStateTokens</span> / <span class="mono">maxRequestTokens</span>）に収めるため、fitを段階的に行い、入らなければ <span class="mono">compaction throw</span> してフォールバックへ委譲します。</div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <h4>Fitの手段</h4>
+            <p>tool inputの制限、長文の頭末 abridgement、古い非固定メッセージの折りたたみ、古い tool call の1行化</p>
+          </div>
+          <div class="cell">
+            <h4>Keepの確率</h4>
+            <p><span class="mono">keepThreshold</span> で“残す確率”を扱い、しきい値を下回れば削除され得る（安全性の証明ではない）</p>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="small">
+          限界は「Jevの確率判断＝再実行できるから安全」ではなく、最終的に<strong>失敗時はClaude Code標準要約へフォールバック</strong>する設計で運用リスクを管理します。 (fallback / フォールバック)
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-head">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">07 / 11</div>
+      </div>
+      <div class="eyebrow">採用の判断軸</div>
+      <div class="title">結論：損失を制御する</div>
+      <div class="lead">fast-jev-compactionは「要約」から「意思決定（スコアリング）」へ圧縮の中心を移し、ツール関連で“後で効く情報”の喪失を抑える狙いです。<span style="font-family:'Noto Serif JP',serif;">同時に、誤判定・推定誤差・設定依存はゼロにできません。</span></div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <h4>Strength 強み</h4>
+            <p>テキスト要約を避け、<span class="mono">tool_use/tool_result</span>を粒度別に保持・削除。鍵情報（パス/エラー/制約）を残しやすい</p>
+          </div>
+          <div class="cell">
+            <h4>Limitation 限界</h4>
+            <p><span class="mono">keepThreshold</span>の確率判断／トークン推定（文字数ベース）誤差／throw時フォールバックの挙動が依存点</p>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="small">
+          導入は、<strong>短いセッションだけでなく</strong>「ツール結果が後で根因確認に効く」ケースで、<span class="mono">preserveRecentMessages</span>や<span class="mono">keepThreshold</span>の妥当性を検証するのが現実的です。 (verification / 検証)
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="slide-head">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">08 / 11</div>
+      </div>
+      <div class="eyebrow">参照元（要約元）</div>
+      <div class="title">README</div>
+      <div class="lead">このデッキは、ユーザ提示の「fast-jev-compaction」README要約（抜粋）を素材に圧縮して作成しました。</div>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="refs">
+          <div class="refItem">
+            <div class="label">Project</div>
+            <div class="text">fast-jev-compaction（Claude Codeプラグイン／コンテキスト compaction の再設計）</div>
+          </div>
+          <div class="refItem">
+            <div class="label">Key Concepts</div>
+            <div class="text">tool_use / tool_result／Jev／pinned／keepThreshold／maxStateTokens・maxRequestTokens／compaction throw／fallback</div>
+          </div>
+          <div class="refItem">
+            <div class="label">FAQ（提示文内）</div>
+            <div class="text">要約しない方針、対象の限定、pinnedの扱い、keepThresholdの意味、トークン推定の前提</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">09 / 11</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/valgard/claude-code-must-haves-january-2026-kem" target="_blank" rel="noreferrer noopener">Claude Code Must-Haves - January 2026 - DEV Community</a></h2>
+<p class="reference-note">First version of a skill or hook is good. After 2-3 iterations, it&#39;s typically much better. Don&#39;t expect perfection on d…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.claudedirectory.org/plugins/topic/api" target="_blank" rel="noreferrer noopener">Best Claude Code Plugins for Api (August 2026) | Claude Directory</a></h2>
+<p class="reference-note">apisecurityApi Gateway Configuration
+
+Configures API gateways for routing, authentication, rate limiting, and request tr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">10 / 11</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://code.claude.com/docs/en/hooks" target="_blank" rel="noreferrer noopener">Hooks reference - Claude Code Docs</a></h2>
+<p class="reference-note">Before you script `claude -p` over a repository you didn’t write, review its `.claude/` settings files, start with `--ba…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.mindstudio.ai/blog/claude-code-hooks-18-lifecycle-events-most-users-never-touched-how-to-use-them" target="_blank" rel="noreferrer noopener">Claude Code Hooks: 18 Lifecycle Events Most Users Have ...</a></h2>
+<p class="reference-note">The prompt is simple: “Please create a post-compaction hook that injects the following context after every compaction: […</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">11 / 11</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://42crunch.com/42crunch-and-claude-code-unlock-agentic-devsecops-for-the-enterprise" target="_blank" rel="noreferrer noopener">42Crunch and Claude Code Unlock Agentic DevSecOps for the Enterprise</a></h2>
+<p class="reference-note">San Francisco, CA — May 26, 2026 — 42Crunch, a leading API and AI security platform, today announced a new integration w…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
