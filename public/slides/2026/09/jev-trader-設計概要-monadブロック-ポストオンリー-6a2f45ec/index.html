@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>jev-trader 設計概要（Monadブロック×ポストオンリー）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      margin: 20px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 0px;
+      /* fixed landscape card */
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      position:absolute;
+      top: 26px; left: 26px; right: 26px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.12em;
+      font-size: 16px;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-top: 0px;
+      padding-left: 14px;
+      position: relative;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top:50%;
+      transform: translateY(-50%);
+      width: 6px; height: 22px;
+      background: rgba(232,129,74,0.75);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.20);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+    .content{
+      position: relative;
+      z-index: 1;
+      display:flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .eyebrow{
+      margin-top: 4px;
+      font-size: 22px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      line-height: 1.1;
+    }
+    .title{
+      margin-top: 10px;
+      font-size: 72px;
+      line-height: 1.0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .hr{
+      margin-top: 22px;
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      opacity: 0.9;
+    }
+    .grid{
+      margin-top: 18px;
+      display:grid;
+      gap: 14px;
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 0px;
+      background: rgba(0,0,0,0.06);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      font-size: 14px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 8px;
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink);
+    }
+    .jp{
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+    .bilingual{
+      display:flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+    .bullets{
+      margin-top: 14px;
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+    }
+    .tagline{
+      margin-top: auto;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
+    @media (max-width: 740px){
+      .slide{ padding: 36px 22px; }
+      .title{ font-size: 50px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .bullets{ grid-template-columns: 1fr; }
+      .topbar{ top: 16px; left: 16px; right: 16px; }
+      .slide::before{ inset: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Monad × Jev × Post-only</div>
+        <div class="title"><span class="em">jev-trader</span> 設計概要</div>
+        <div class="lead">MonadブロックごとにJevモデルが買い/売りを判定し、ポストオンリー指値でスプレッド獲得を狙う取引ボットの全体像。</div>
+        <div class="hr"></div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="cell">
+            <div class="k">核心</div>
+            <div class="v">毎ブロック1回の意思決定（買/売）</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">相手がヒットしたときだけ約定（maker志向）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">勝ち筋は予測だけでない</div>
+        <div class="title">「執行が成否を決める」</div>
+        <div class="lead">DEXでは、売買判断よりも“注文の出し方”と“遅延”が収益性を左右しやすい。jev-traderは、スプレッドを取りに行く執行設計を主役に置く。</div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="cell">
+            <div class="k">難しさ</div>
+            <div class="v">約定（fill）は相手の行動次第</div>
+          </div>
+          <div class="cell">
+            <div class="k">対策</div>
+            <div class="v">post-only + 1ブロックごとの差し替え</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ブロック境界で完結</div>
+        <div class="title">毎ブロック1回、同じ側へ</div>
+        <div class="lead">Kuruの MON-USDCオーダーブックを監視し、1Monadブロックにつき1回だけTypeSafeなJevモデルで買い/売りを評価。結果の“同じ側”へポストオンリー指値を更新する。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">入力</div>
+            <div class="v bilingual">
+              <span>MON-USDC order book（オーダーブック）</span>
+              <span class="jp">オーダーの厚み・最良気配など</span>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">出力</div>
+            <div class="v bilingual">
+              <span>Buy/Sell decision（売買判定）</span>
+              <span class="jp">その側へpost-only指値を再配置</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">熱い場所に“置く”</div>
+        <div class="title"><span class="em">タッチ内側</span> 1ティック</div>
+        <div class="lead">指値は現在のタッチ（最良気配付近）から1ティック分だけ内側に置く。さらに前回注文をキャンセルし続け、最新の気配関係を維持する。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">配置</div>
+            <div class="v">best（最良気配）から + / - 1 tick</div>
+          </div>
+          <div class="cell">
+            <div class="k">更新</div>
+            <div class="v">毎ブロック：同じ側を差し替え（cancel→replace）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">約定は相手が起こす</div>
+        <div class="title">Fillは“あなた”ではない</div>
+        <div class="lead">fillはボットの注文が執行されて発生するのではなく、他者（相手テイカー）が指値にヒットしたときに発生するTradeログから取得する。txHashは相手側になりやすい。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">post-onlyの狙い</div>
+            <div class="v">テイカー化（即約定）を避ける</div>
+          </div>
+          <div class="cell">
+            <div class="k">収益ドライバー</div>
+            <div class="v">スプレッド×約定頻度（相手依存）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">300ms級のための削り方</div>
+        <div class="title">ホットパスは2RPC</div>
+        <div class="lead">ホットループ（判断→注文送信）では、オーダーブック取得の `eth_call` と注文送信の `eth_sendRawTransaction` に絞る。`eth_estimateGas` を避け、受理までの遅延を圧縮する。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">Hot path</div>
+            <div class="v mono">eth_call → eth_sendRawTransaction</div>
+          </div>
+          <div class="cell">
+            <div class="k">避ける</div>
+            <div class="v">eth_estimateGas（レイテンシ増の要因）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ブロック遅延が壊す</div>
+        <div class="title">receiptは後段、revertedも前提</div>
+        <div class="lead">注文送信はfire-and-forgetで、receiptは後段で受け取る。ブックが先に動いて約定条件が崩れるとrevertedになり得るため、sent/placed/reverted/simの状態管理が重要。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">非同期</div>
+            <div class="v">receipt遅延（後で確定）</div>
+          </div>
+          <div class="cell">
+            <div class="k">リスク</div>
+            <div class="v">ブック競合・キャンセル競合 → reverted / lost</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">遅延に負けない選択</div>
+        <div class="title"><span class="em">Decision</span>が間に合わない</div>
+        <div class="lead">モデルがブロックの期限に間に合わない場合はholdを出す（late: true）。誤ったタイミングでの注文投稿を避け、不整合と機会損失を抑える。</div>
+        <div class="bullets">
+          <div class="cell">
+            <div class="k">i. 判断</div>
+            <div class="v">Jev評価が期限内か判定</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. 出力</div>
+            <div class="v">間に合う→ポストオンリー投稿</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. 例外</div>
+            <div class="v">間に合わない→hold（投稿しない）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">可観測性をSSEで</div>
+        <div class="title">ブロック×注文×会計を追う</div>
+        <div class="lead">SSEでブロック単位の状態、注文状態（sent/placed/reverted/sim）、約定イベント（fill）、P&amp;Lをストリーミング。ダッシュボードから“遅延・競合・ログ取得”の切り分けをしやすくする。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">Stream</div>
+            <div class="v">SSE（Server-Sent Events）</div>
+          </div>
+          <div class="cell">
+            <div class="k">追跡対象</div>
+            <div class="v">decision / order state / fill / P&amp;L</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">simは“現実寄り”</div>
+        <div class="title">dry run：実ブック×実判断</div>
+        <div class="lead">PRIVATE_KEY未設定の場合、実約定はしないがオーダーブックや判断は実データに近い形で試す。現実性は高い一方、実ガス消費・実約定競合は完全再現できない。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">実行（dry）</div>
+            <div class="v">実ブック + 実判断（疑似約定）</div>
+          </div>
+          <div class="cell">
+            <div class="k">限界</div>
+            <div class="v">ガス消費・競合の差が残る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">評価観点：執行を含める</div>
+        <div class="title">real vs sim を検証</div>
+        <div class="lead">モデル精度だけでなく、約定頻度・スプレッド分布・reverted/lost比率・遅延要因・ガスコスト込みのネット期待値を体系的に検証する必要がある。モデル×執行×流動性の相互作用が支配的になりやすい。</div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="cell">
+            <div class="k">Must check</div>
+            <div class="v">real vs simの乖離、約定率、最大ドローダウン</div>
+          </div>
+          <div class="cell">
+            <div class="k">Must check</div>
+            <div class="v">reverted/失注の原因（遅延・競合・キャンセル）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">まとめ：勝ち筋は設計</div>
+        <div class="title"><span class="em">post-only</span> × 速度 × 状態管理</div>
+        <div class="lead">jev-traderは「毎ブロック1回のJev判定」と「タッチ内側へのpost-only差し替え」を軸に、ホットパス2RPCでレイテンシを抑え、SSEで状態・fill・P&amp;Lを可観測化する。</div>
+        <div class="bullets">
+          <div class="cell">
+            <div class="k">戦略</div>
+            <div class="v">相手テイカーが来たときにスプレッドを獲得</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用</div>
+            <div class="v">late→hold、reverted前提の状態管理</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証</div>
+            <div class="v">ガス込みネットP&amp;Lでreal vs sim差を確認</div>
+          </div>
+        </div>
+        <div class="tagline">References slide: 本デッキは提示されたREADME抜粋内容のみを圧縮要約しています。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
