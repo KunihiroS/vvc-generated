@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paper2Agent: 論文を実行可能なAIエージェントへ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 56px 72px;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      border-radius: 2px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 18px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .tag {
+      position: absolute;
+      left: 28px;
+      top: 26px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .tag::before{
+      content:"";
+      width: 22px;
+      height: 0;
+      border-top: 2px solid var(--rust);
+      opacity: 0.95;
+    }
+    .slide-num {
+      position: absolute;
+      right: 28px;
+      top: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+    }
+
+    .eyebrow {
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+    }
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(54px, 6vw, 84px);
+      font-weight: 500;
+      line-height: 1;
+      margin-top: 2px;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead {
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: 6px;
+    }
+    .divider {
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      margin-top: 2px;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 14px 18px;
+      width: 100%;
+      margin-top: 8px;
+      align-content: start;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+      min-height: 72px;
+    }
+    .cell .k {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .cell .v {
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    .small {
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 860px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 880px){
+      .slide { padding: 44px 34px; }
+      .tag { left: 18px; top: 18px; }
+      .slide-num { right: 18px; top: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="tag">Paper2Agent</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="eyebrow">論文を動かす、再現へ</div>
+      <div class="title"><em>Paper2Agent</em></div>
+      <div class="lead">研究論文を、受け身の文章から「対話し、実行し、検証できるAIエージェント」に変える枠組みです。</div>
+      <div class="divider"></div>
+      <div class="small">Nature（2026）で提案：論文を <span class="mono">MCP</span>（Model Context Protocol）サーバとして表現し、LLMが安全にツールを呼び出せるようにします。</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="tag">Problem</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="eyebrow">読んでも使えない</div>
+      <div class="title"><em>適用</em>の壁</div>
+      <div class="lead">従来の論文は方法や結果を読むには有用でも、自分のデータへ移植するにはコード実装・依存関係・入出力理解が必要です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">特に計算機手法</div>
+          <div class="v">設定/環境構築の障壁が大きく、知見の普及と再利用が止まりやすい。</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">同じ“やり方”を再作成する負担が残り、検証も形式的になりがち。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="tag">Metaphor</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="eyebrow">論文は“仮想担当者”</div>
+      <div class="title"><em>virtual</em>対応著者</div>
+      <div class="lead">Paper2Agentは論文を「対応著者（virtual corresponding author）のように振る舞うエージェント」に変換し、手順を実行可能な形で渡します。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">会話</div>
+          <div class="v">自然言語で「このデータで適用して」と依頼。</div>
+        </div>
+        <div class="cell">
+          <div class="k">実行</div>
+          <div class="v">論文由来のツールとワークフローを呼び出す。</div>
+        </div>
+        <div class="cell">
+          <div class="k">検証</div>
+          <div class="v">参照コードに対する同等性をテストで確かめる。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="tag">Architecture</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="eyebrow">MCPで統一する</div>
+      <div class="title"><em>tools</em> / resources / prompts</div>
+      <div class="lead">核は、論文と関連コードを解析して <span class="mono">MCP</span>サーバを構築することです。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">MCP tools</div>
+          <div class="v">方法を実行する関数（解析ステップ）として公開。</div>
+        </div>
+        <div class="cell">
+          <div class="k">resources</div>
+          <div class="v">論文本文/補足/データ/メタ情報などの参照資産。</div>
+        </div>
+        <div class="cell">
+          <div class="k">prompts</div>
+          <div class="v">手順を誘導するプロンプトで、LLMの実行計画を作る。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="How it works">
+      <div class="tag">Process</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="eyebrow">“依頼→実行”へ</div>
+      <div class="title">手順を</div>
+      <div class="lead">LLMベースのチャットエージェントから、自然言語の要求に応じてツールが組み合わされます。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k"><em>i</em> 資産化</div>
+          <div class="v">論文＋コードを解析し、<span class="mono">MCP tools/resources/prompts</span>へ変換。</div>
+        </div>
+        <div class="cell">
+          <div class="k"><em>ii</em> 呼び出し</div>
+          <div class="v">ユーザの依頼が、ツール呼び出しとワークフローに翻訳される。</div>
+        </div>
+        <div class="cell">
+          <div class="k"><em>iii</em> 検証</div>
+          <div class="v">参照コード同等の出力を目標に、自動テストで確認する。</div>
+        </div>
+        <div class="cell">
+          <div class="k"><em>iv</em> 出力</div>
+          <div class="v">解析結果や図の再生成まで辿り着く（可能な場合）。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="tag">Evidence</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="eyebrow">複数領域で実証</div>
+      <div class="title">AlphaGenome</div>
+      <div class="lead">ゲノム、単一細胞、空間トランスクリプトミクスなど複数領域のケーススタディで再現性と有用性を示します。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">AlphaGenome</div>
+          <div class="v">変異の影響予測：GWAS領域の原因候補を再評価。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Scanpy</div>
+          <div class="v">単一細胞解析：標準的ワークフローをツール化。</div>
+        </div>
+        <div class="cell">
+          <div class="k">TISSUE</div>
+          <div class="v">空間トランスクリプトミクス：図と手順を再生成。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="tag">Distinction</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="eyebrow">“要約”ではない</div>
+      <div class="title"><em>RAG</em>超え</div>
+      <div class="lead">Paper2Agentの特徴は、単なる要約や検索拡張ではなく、解析手順を実行できる形で提供し、検証まで行う点です。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">従来（文章中心）</div>
+          <div class="v">読む→コード化→環境構築→入出力調整→再現確認（ユーザ側負担）。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Paper2Agent</div>
+          <div class="v">MCPサーバ化で「実行可能な道具」として渡し、LLMがツール連携で実行する。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Reliability">
+      <div class="tag">Distinction</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="eyebrow">検証で誤りを抑える</div>
+      <div class="title">コード幻覚</div>
+      <div class="lead">LLMが作るコードは誤り得るため、Paper2Agentは参照コード/チュートリアルに基づくテストで同等性を確認します。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">運用の狙い</div>
+          <div class="v">少なくとも「参照コードに対する実行忠実性」を高める。</div>
+        </div>
+        <div class="cell">
+          <div class="k">仕組み</div>
+          <div class="v">ツール抽出後、テスト生成・実行で結果が一致しないツールを除外。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Scale evaluation">
+      <div class="tag">Evidence</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="eyebrow">万能ではないが段階的</div>
+      <div class="title">120本規模</div>
+      <div class="lead">計算生物100本、データ統合・発見26本、非生物計算10本の計120本で評価し、実行可能/不可能でも価値を出す道筋を示します。</div>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">完全化</div>
+          <div class="v">実行可能な場合：74/100でエージェント化。</div>
+        </div>
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">実行不可能でも、本文・補足など資源レイヤで問い合わせ精度を確保。</div>
+        </div>
+        <div class="cell">
+          <div class="k">限界</div>
+          <div class="v">コード欠落/データ欠落/環境構築失敗/一般化できないスクリプトが失敗要因。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Limitations and safety">
+      <div class="tag">Distinction</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="eyebrow">実行≠科学的妥当性</div>
+      <div class="title">責任は人間へ</div>
+      <div class="lead">出力の評価は「実行の忠実性」や「ツール呼び出しの妥当性」を強く扱う一方、科学的妥当性（解釈そのもの）は人間が最終責任を負うべきです。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">自動で強い</div>
+          <div class="v">参照コード同等の再現性、失敗ツールの除外、手順の追跡可能性。</div>
+        </div>
+        <div class="cell">
+          <div class="k">自動で弱い</div>
+          <div class="v">仮説生成や機構解釈の“正しさ”の保証。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Opinion">
+      <div class="tag">Closing</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="eyebrow">導入視点（筆者の見方）</div>
+      <div class="title">価値と注意点</div>
+      <div class="lead">論文を「読む」から「動かして検証する」に置き換え、可能な限り再現性担保（テスト）へ寄せる点が大きいです。一方で“実行できた＝正しい”の誤解リスクは残ります。</div>
+
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Practical</div>
+          <div class="v">自然言語で実行：研究者の環境設定負担を下げる（利便性）。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Reliability</div>
+          <div class="v">テストと除外で安定化：デモから基盤へ寄せる。</div>
+        </div>
+        <div class="cell">
+          <div class="k">Limitation</div>
+          <div class="v">評価軸は“忠実な実行”中心：科学的妥当性は別途強化が必要。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="References">
+      <div class="tag">References</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="eyebrow">参照</div>
+      <div class="title"><em>Paper2Agent</em></div>
+      <div class="lead">この要約は、提示された本文（Nature, 2026の説明）に基づいて再構成しています。</div>
+
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">中心概念</div>
+          <div class="v">MCP（Model Context Protocol）/ tools / resources / prompts</div>
+        </div>
+        <div class="cell">
+          <div class="k">評価・領域</div>
+          <div class="v">AlphaGenome, Scanpy, TISSUE / 120本規模 / 失敗要因（欠落・環境・非一般化）</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="small">用語（JP/EN）：再現性（reproducibility）、実行可能性（executability）、資源レイヤ（resource layer）、ツール呼び出し（tool calling）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
