@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>LLMのデータ重みが効く度合い：p*と非単調スケーリング</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: block;
+      align-items: stretch;
+    }
+    .slide{
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--rule);
+      box-sizing: border-box;
+      padding: 56px 72px;
+      margin: 0 auto 18px;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .frame{
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      position:absolute; left:72px; right:72px; top:34px;
+      display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: .18em;
+      font-size: 18px;
+      text-transform: uppercase;
+      color: var(--rust);
+      position: relative;
+      padding-left: 14px;
+      line-height:1;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute; left:0; top:50%;
+      width: 10px; height: 2px;
+      background: var(--rust);
+      transform: translateY(-50%);
+      opacity:.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+    .content{
+      position: relative;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+      padding-top: 38px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 10px;
+    }
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 70px;
+      letter-spacing: .01em;
+      line-height: 1.02;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 70px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.45;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 8px;
+      width: 100%;
+      max-width: 900px;
+    }
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+    .kicker{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "Noto Serif JP", serif;
+      font-size: 14px;
+      letter-spacing: .06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .val{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+    .val em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .equation{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      font-size: 18px;
+      color: var(--ink-2);
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 12px 14px;
+      border-radius: 10px;
+      max-width: 720px;
+      line-height: 1.45;
+      margin-top: 6px;
+    }
+    .mono{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .hr{
+      height: 1px;
+      background: var(--rule);
+      margin: 10px 0 0;
+      width: 100%;
+      max-width: 920px;
+    }
+    ul{ margin: 0; padding-left: 18px; }
+    li{ margin: 8px 0; color: var(--ink-2); font-size: 20px; line-height: 1.35;}
+    @media (max-width: 860px){
+      .slide{ padding: 44px 28px; }
+      .topbar{ left:28px; right:28px; top:28px; }
+      .title{ font-size: 54px; }
+      .title .jp{ font-size: 54px; }
+      .lead{ font-size: 19px; }
+      .slide-tag{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover" aria-label="Slide 1">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">スケーリングの“例外”を測る</div>
+        <h1 class="title"><em>p*</em>で読む<br/><span class="jp">LLM学習の重み反映</span></h1>
+        <p class="lead">データの重み付け（sequence weighting）が、学習後の損失低下にどれだけ効くかを、モデル規模ごとに定量化します。<span class="mono" lang="en">p*</span> はその“効き方”を一つの指数にまとめた指標です。</p>
+      </div>
+    </section>
+
+    <section class="slide problem" aria-label="Slide 2">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">外挿が危ない</div>
+        <h2 class="title"><em>Scaling</em>の異常</h2>
+        <p class="lead">LLM学習は高コストなので、小規模で得た振る舞いを大規模へ外挿する発想（scaling law）が使われます。しかし外挿が外れる“異常（aberrant）”が起きると、最適化が誤ります。</p>
+        <div class="equation" role="note">
+          ここでの焦点：<span class="mono">sequence weighting</span>（データ重み付け）が、学習成果にどう反映されるかを“規模依存”で調べる。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="Slide 3">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Core idea</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">重み→成果を指数化</div>
+        <h2 class="title">有効重み指数 <em>p*</em></h2>
+        <p class="lead"><span class="mono">w_i</span> を各学習シーケンスに与え、学習後に同じデータ上で損失がどれだけ下がったかを測定します。その関係を <span class="mono" lang="en">p*</span> として推定します。</p>
+        <div class="grid" aria-label="p*の意味">
+          <div class="cell">
+            <div class="kicker">p*=1（強く効く）</div>
+            <div class="val">損失低下が <em>重みに比例</em>（線形に近い）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">p*=0（効きにくい）</div>
+            <div class="val">重みを変えても損失低下が <em>ほぼ同じ</em></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration" aria-label="Slide 4">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">How measured</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">手順はシンプル</div>
+        <h2 class="title">観測フロー</h2>
+        <p class="lead">“重み付けを入れて→学習後に損失低下を見る”を繰り返し、モデル規模とエポック数にわたる <span class="mono" lang="en">p*</span> の形を追います。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="kicker">i（入力）</div>
+            <div class="val">各シーケンスに重み <span class="mono">w_i</span>（sequence weighting）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">ii（学習）</div>
+            <div class="val">モデルを訓練（規模：パラメータ数で段階比較）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">iii（測定）</div>
+            <div class="val">同一訓練データで損失の低下量を計算</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">iv（推定）</div>
+            <div class="val">損失低下を <span class="mono">w_i^{p*}</span> に近づけ <span class="mono" lang="en">p*</span> を推定</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="Slide 5">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Key result</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">単調じゃない</div>
+        <h2 class="title">p*は“上げて下がる”</h2>
+        <p class="lead"><span class="mono" lang="en">p*</span> はモデル規模に対して単調に増減しません。小規模で低め→中規模で高め→大規模で再び低め、という非単調（aberrant scaling）が観測されます。</p>
+        <div class="equation" role="note">
+          形の要約：<span class="mono">small ↑ mid ↑ large</span> ではなく、<span class="mono">mid</span> でピークを持つ“山型”。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor" aria-label="Slide 6">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Interpretation</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">学ぶ“種類”が変わる</div>
+        <h2 class="title">学習内容の段階</h2>
+        <p class="lead">著者らは、モデルが容量や学習効率に応じて取り込む“パターンの種類”が段階的に変わり、その結果として重みの効き方が変わると仮説します。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="kicker">小規模</div>
+            <div class="val">一般化できる“共通パターン”中心</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">中規模</div>
+            <div class="val">重みに比例しやすい“データ固有パターン”が強く学習</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">大規模</div>
+            <div class="val">重み依存が弱まり、“広く存在するパターン”に寄る</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">bilingual</div>
+            <div class="val">パターン（pattern）/ 学習（learning）を段階的に切替（切替える可能性）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="Slide 7">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Training dynamics</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">時間でも動く</div>
+        <h2 class="title">エポックでピーク移動</h2>
+        <p class="lead">訓練エポック数を増やすと、 <span class="mono" lang="en">p*</span> のピーク位置がより小さいモデル側へ移る傾向が示されます。つまり“規模”だけでなく“学習時間”が段階構造を動かし得ます。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="kicker">観測</div>
+            <div class="val">ピーク（最大の <span class="mono">p*</span> ）が左へ移動</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">示唆</div>
+            <div class="val">外挿は「規模」だけでなくスケジュールにも依存</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="Slide 8">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Why weighting</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">mixではなくweighting</div>
+        <h2 class="title">切り分け設計</h2>
+        <p class="lead">データ混合（mix）を変えると、品質差や重複度など別要因も同時に動きます。本稿はシーケンス単位で重みを再割当し、“重みそのもの”の効果をより純粋に観測します。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="kicker">mix（混ぜる）</div>
+            <div class="val">意図外の差が混入しやすい</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">weighting（重み付け）</div>
+            <div class="val">同一シーケンスを“重みだけ”変えて比較</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-label="Slide 9">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">Practical takeaway</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">外挿より“条件確認”</div>
+        <h2 class="title">単純外挿は危険</h2>
+        <p class="lead">小規模で見えた振る舞いが大規模で再現されないことを、データ重みという設定で明確に示します。したがって、外挿カーブが当てはまる“理由”を評価設計で確かめる必要があります。</p>
+        <div class="grid">
+          <div class="cell">
+            <div class="kicker">研究的含意</div>
+            <div class="val">異常スケーリングの検出と評価設計が必要</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">運用的含意</div>
+            <div class="val">規模外挿だけでハイパーパラメータ決定しない</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">注意</div>
+            <div class="val">内部ベンチマーク中心なので、他タスクでの普遍性は要確認</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">結論</div>
+            <div class="val">まず自分のデータで <span class="mono">p*</span> 類似の形を検証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-label="Slide 10">
+      <div class="frame"></div>
+      <div class="topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">References（要約元）</div>
+        <h2 class="title">本稿の参照範囲</h2>
+        <p class="lead">以下は、ユーザー提供テキストに含まれる内容の範囲内での概念整理です（論文の書誌情報は未提示）。必要なら、元論文タイトル・著者・URL/DOIを渡してください。</p>
+        <div class="equation" role="note">
+          本デッキで扱った固有概念：<span class="mono">sequence weighting / p*</span>（有効シーケンス重み指数）/ <span class="mono">aberrant scaling</span> / scaling law / mix vs weighting / 損失低下の測定。
+        </div>
+        <div class="hr"></div>
+        <p class="small" style="margin-top:10px;">
+          追加で作れるもの：<span class="mono">p*</span> 推定手順の数式的整理、非単調が起きる理論的要因（最適化・容量・勾配・正則化）を図解風に再構成。
+        </p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.janestreet.com/a-study-of-sequence-weighting-at-scale" target="_blank" rel="noreferrer noopener">Jane Street Blog - A study of sequence weighting at scale</a></h2>
+<p class="reference-note">We find a number of aberrant scaling behaviors (reasoning about data mixing across scales is complicated!) and some stri…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://mbrenndoerfer.com/writing/power-laws-deep-learning-neural-network-scaling" target="_blank" rel="noreferrer noopener">Power Laws in Deep Learning: Understanding Neural Scaling - Interactive</a></h2>
+<p class="reference-note">These numbers quantify the large impact of the scaling exponent. With a modest exponent of 0.03, scaling by 100 yields o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.glennklockwood.com/garden/scaling-laws" target="_blank" rel="noreferrer noopener">Scaling laws</a></h2>
+<p class="reference-note">``` [...] ``` [...] a 70B parameter model trained on 1.4T tokens (Chinchilla)
+ a 380B parameter model trained on 300B to…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.emergentmind.com/topics/not-just-scaling-laws" target="_blank" rel="noreferrer noopener">Not-Just-Scaling: Beyond Power Laws</a></h2>
+<p class="reference-note">Not-Just-Scaling Laws are an evolving framework that challenges simple power-law scaling by incorporating context, desig…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cameronrwolfe.substack.com/p/llm-scaling-laws" target="_blank" rel="noreferrer noopener">Scaling Laws for LLMs: From GPT-3 to o3</a></h2>
+<p class="reference-note">By training LLMs with many different combinations of model and data size, we can discover a power law that predicts an L…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
