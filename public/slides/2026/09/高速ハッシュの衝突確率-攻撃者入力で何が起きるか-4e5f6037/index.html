@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>高速ハッシュの衝突確率：攻撃者入力で何が起きるか</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      position: relative;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px inset rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute;
+      left:72px;
+      right:72px;
+      top:40px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 44px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      opacity: 0.95;
+      white-space: nowrap;
+    }
+
+    .content{
+      position: relative;
+      top: 18px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 10px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      letter-spacing: 0.01em;
+      margin: 0;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 56px;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+    }
+
+    .rule{
+      height:1px;
+      width:100%;
+      background: var(--rule);
+      margin-top: 8px;
+      margin-bottom: 2px;
+    }
+
+    .grid2, .grid3{
+      margin-top: 6px;
+      display: grid;
+      gap: 14px 14px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+      min-height: 80px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .callout{
+      border-left: 6px solid var(--rust);
+      padding: 10px 14px;
+      background: rgba(232,129,74,0.06);
+      border-radius: 8px;
+      max-width: 900px;
+      margin-top: 8px;
+    }
+    .callout .h{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 20px;
+      margin-bottom: 6px;
+    }
+    .callout p{
+      margin:0;
+      font-size: 20px;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+      max-width: 980px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: rgba(240,232,216,0.02);
+    }
+    .ref .t{
+      font-size: 20px;
+      line-height: 1.35;
+      margin:0 0 6px;
+    }
+    .ref .s{
+      margin:0;
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 36px 20px; }
+      .topline{ left:20px; right:20px; top:18px; }
+      .title{ font-size: 48px; }
+      .title .jp{ font-size: 40px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .cell .v{ font-size: 18px; }
+      .content{ top: 10px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 01 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">衝突確率を“攻撃者目線”で再点検</div>
+        <h1 class="title"><span class="em">高速ハッシュ</span>の<br><span class="jp">衝突確率</span></h1>
+        <p class="lead">統計テストを通った高速ハッシュでも、攻撃者が入力を意図的に選べると衝突が極端に起きる可能性がある—という体系的調査を要約します。</p>
+      </div>
+    </section>
+
+    <!-- Slide 02 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“速い”だけでは足りない</div>
+        <h1 class="title"><span class="em">衝突</span>が鍵</h1>
+        <p class="lead">高速ハッシュは分布がそれっぽく均一に見えても、衝突は「敵が選ぶ入力」に条件付くと大きく悪化し得ます。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">統計テスト</div>
+            <div class="v">見た目の分布良好（例：ビット偏りが小さい）</div>
+          </div>
+          <div class="cell">
+            <div class="k">攻撃者入力</div>
+            <div class="v">“最悪側”の入力組が露出し、衝突が増幅</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 03 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">KEY IDEA</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">モデル差が本質</div>
+        <h1 class="title"><span class="em">seed</span>前提</h1>
+        <p class="lead">重要なのは「キー（seed/秘密鍵）を知らない攻撃者でも成立する衝突がどれだけあるか」と、それがどこまで理論的に保証されるかです。</p>
+        <div class="callout">
+          <div class="h">一致させるべきもの</div>
+          <p>衝突上界は、キー分布・長さエンコード・算術実装の前提が正しく適用された範囲で意味を持ちます。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 04 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">対象：多数の高速ハッシュ</div>
+        <h1 class="title"><span class="em">観測</span>と再現</h1>
+        <p class="lead">xxHash, komihash, gxhash, MurmurHash3, HighwayHash, SpookyHash, CityHash系などで「衝突（または衝突しやすい構造）」を入力ペアと条件付きで提示します。</p>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">手法</div>
+            <div class="v">SMhasher系の実験設計</div>
+          </div>
+          <div class="cell">
+            <div class="k">保証</div>
+            <div class="v">測定ベース＋機械検証（Lean等）</div>
+          </div>
+          <div class="cell">
+            <div class="k">分類</div>
+            <div class="v">証明済み／未解決／サンプル推定を区別</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 05 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PATTERNS</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">弱点は“関係式”で出る</div>
+        <h1 class="title"><span class="em">折りたたみ</span>等の型</h1>
+        <p class="lead">衝突は偶然ではなく、折りたたみ積・補数の扱い・ゼロの吸収・レーン（並列計算）の公開オフセット等の演算関係で繰り返し現れると示されます。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">例：fold積</div>
+            <div class="v">complement（補数）を“忘れる”ような関係</div>
+          </div>
+          <div class="cell">
+            <div class="k">例：seed差分</div>
+            <div class="v">差分に寄与せず、圧縮中でキャンセル</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 06 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">RISK</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">統計合格≠低衝突</div>
+        <h1 class="title"><span class="em">平均</span>では見落とす</h1>
+        <p class="lead">分布の良さを示すテストは価値がある一方、「常に衝突が低確率」という保証には直結しません。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">何が起きる</div>
+            <div class="v">攻撃者が入力を選ぶと“条件付き最悪”が顕在化</div>
+          </div>
+          <div class="cell">
+            <div class="k">読み替え</div>
+            <div class="v">見るべきは「平均像」より「入力選択下の上界」</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 07 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">UNIVERSAL</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">証明可能は理想の一部</div>
+        <h1 class="title"><span class="em">上界</span>が欲しい</h1>
+        <p class="lead">universal hashing のように「任意の長さで、2入力衝突は高々これだけ」といった上界が望ましく、ChainHashのような構成は理論保証に到達します。</p>
+        <div class="callout">
+          <div class="h">ポイント</div>
+          <p>“証明を捨てれば速い”の単純トレードオフではなく、証明可能性を保ちつつ高速化できる余地がある、という立場です。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 08 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">SCOPE</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">危険/安全は“前提”で変わる</div>
+        <h1 class="title"><span class="em">保証の</span>スコープ</h1>
+        <p class="lead">同じハッシュでも、seedモデル（公開定数/独立/サイズ固定など）や長さの扱いが違えば衝突確率の結論は変わります。</p>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">seedモデル</div>
+            <div class="v">独立か／公開か／サイズ固定か</div>
+          </div>
+          <div class="cell">
+            <div class="k">入力長</div>
+            <div class="v">長さエンコードがキャンセル要因になり得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">評価区分</div>
+            <div class="v">証明済み／測定／未解決を混ぜない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 09 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">STRONG FACTS</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“全seedで衝突”級もありうる</div>
+        <h1 class="title"><span class="em">Every-seed</span>の示唆</h1>
+        <p class="lead">gxhashやCityHashのように、構造によりseedに関わらず衝突が成立する事例が出る（場合によってはスコア0ビット相当）と述べられます。</p>
+        <div class="callout">
+          <div class="h">意味</div>
+          <p>「seedを隠しているから大丈夫」という期待が崩れるタイプの脆弱性が存在します。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">MY TAKE</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">良い点：透明な“格付け”</div>
+        <h1 class="title"><span class="em">証明</span>の線引き</h1>
+        <p class="lead">証明済み（または機械検証）と、測定・サンプル推定を分けて提示するため、「確実性の度合い」を評価しやすい点が強みです。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">読みやすさ</div>
+            <div class="v">エビデンスの格付けが意思決定に直結</div>
+          </div>
+          <div class="cell">
+            <div class="k">実務注意</div>
+            <div class="v">モデルと実装（C/C++・SIMD・経路差）を一致させる必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">ACTION</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">次に何をするか</div>
+        <h1 class="title"><span class="em">選定</span>は用途で</h1>
+        <p class="lead">DoS耐性やハッシュ表の集中（同一バケットへの偏り）を気にするなら、統計テストより「攻撃者が選べる入力」での評価が必要です。</p>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">推奨方向</div>
+            <div class="v">証明可能な衝突上界を持つ高速ハッシュの研究・採用</div>
+          </div>
+          <div class="cell">
+            <div class="k">過信回避</div>
+            <div class="v">“SHA/AESに切替”だけでなく、前提モデル適合も確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">参照：本要約が依拠する論点</div>
+        <h1 class="title"><span class="em">References</span> / 参考</h1>
+        <p class="lead">以下は、本文の要約に登場した概念・キーワードに対応する参照先カテゴリです（原文・実験ページで各ハッシュと結果の対応関係を確認してください）。</p>
+        <div class="refs">
+          <div class="ref">
+            <p class="t">SMhasher / ハッシュ性能・品質テスト設計（衝突評価を含む）</p>
+            <p class="s">衝突しやすさの探索方針や測定基盤の参照。</p>
+          </div>
+          <div class="ref">
+            <p class="t">Universal hashing（universal hashingの考え方：上界・モデル）</p>
+            <p class="s">「任意入力で2入力衝突は高々〜」の保証設計の参照。</p>
+          </div>
+          <div class="ref">
+            <p class="t">ChainHash（理論上界と機械検証の例として言及）</p>
+            <p class="s">証明可能性を持つ高速ハッシュの参照。</p>
+          </div>
+          <div class="ref">
+            <p class="t">Lean（機械検証に言及）</p>
+            <p class="s">定理・上界の形式化の参照。</p>
+          </div>
+          <div class="ref">
+            <p class="t">xxHash / komihash / gxhash / MurmurHash3 / HighwayHash / SpookyHash / CityHash</p>
+            <p class="s">衝突の“型”やseed前提に関する結果が整理される参照。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
