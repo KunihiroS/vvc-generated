@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebVM（ブラウザLinux）概要：仕組み・利用・展開</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: block;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      margin: 20px 0;
+      overflow: hidden;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 40px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 12px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.22em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-left: 3px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1;
+      margin-top: 6px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height:1;
+      margin-top: 0px;
+      white-space: nowrap;
+    }
+
+    .content{
+      position: relative;
+      padding-top: 64px;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0;
+      line-height: 1.1;
+    }
+    .title{
+      margin: 0;
+      font-size: 66px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      line-height: 1.0;
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Noto Serif JP", serif;
+    }
+    .title em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.01em;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.45;
+      margin-top: 0;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 4px;
+    }
+
+    .grid{
+      margin-top: 6px;
+      width: min(860px, 100%);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .grid-row{
+      display:grid;
+      gap: 0;
+      border-top: 1px solid var(--rule);
+    }
+    .grid-row:first-child{ border-top: none; }
+    .grid-2{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid-3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cell{
+      padding: 16px 18px;
+      background: rgba(0,0,0,0.02);
+      border-right: 1px solid var(--rule);
+    }
+    .grid-2 .cell:nth-child(2n){ border-right: none; }
+    .grid-3 .cell:nth-child(3n){ border-right: none; }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .list-grid{
+      width: min(980px, 100%);
+      margin-top: 4px;
+    }
+    .note{
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1.45;
+      max-width: 900px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1: cover -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-top">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">ブラウザでLinuxを動かす</p>
+        <h1 class="title">WebVM <em>概要</em></h1>
+        <p class="lead">
+          Webブラウザ上でLinux仮想マシンを動かす「WebVM（webvm）」の仕組み、ネットワーク（Tailscale）、ディスクイメージ(.ext2)、デプロイ、Claude連携、ライセンス上の要点を一気に整理します。
+        </p>
+        <div class="rule"></div>
+        <div class="grid grid-2" role="table" aria-label="このデッキでわかること">
+          <div class="grid-row">
+            <div class="cell">
+              <div class="k">Message</div>
+              <div class="v">起動・接続・拡張が「手順」で見える</div>
+            </div>
+            <div class="cell">
+              <div class="k">Scope</div>
+              <div class="v">仕組み〜運用まで、判断に必要な注意も提示</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2: problem -->
+    <section class="slide" aria-label="Problem">
+      <div class="slide-top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">なぜ今、WebVM？</p>
+        <h2 class="title"><em>導入</em>の壁</h2>
+        <p class="lead">
+          「クラウドVMを立てるほどではないが、Linux環境をすぐ試したい」場面が多い一方、ローカル環境準備は手間になりがちです（=検証・学習の速度が落ちる）。
+        </p>
+        <div class="grid list-grid grid-3" role="table" aria-label="典型的な困りごと">
+          <div class="grid-row grid-3">
+            <div class="cell">
+              <div class="k">Start</div>
+              <div class="v">サーバー常駐・構築が重い</div>
+            </div>
+            <div class="cell">
+              <div class="k">Reuse</div>
+              <div class="v">環境再現が面倒</div>
+            </div>
+            <div class="cell">
+              <div class="k">Connect</div>
+              <div class="v">ネットワーク接続の設計が難しい</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          WebVMは「体験を速く」しつつ、Tailscaleやカスタムディスクで「運用可能」に寄せる方針です（体験価値×実装手順）。
+        </p>
+      </div>
+    </section>
+
+    <!-- 3: metaphor -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="slide-top">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">考え方</p>
+        <h2 class="title">“クラウド”を <em>ブラウザへ</em></h2>
+        <p class="lead">
+          WebVMは「サーバー上のVM常駐」を前提にせず、主要な実行をブラウザ内（WebAssembly）に寄せます。結果として、開始障壁を下げる設計になります（server-less virtual environment running fully client-side）。
+        </p>
+        <div class="grid grid-2" role="table" aria-label="実行場所のイメージ">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">通常</div>
+              <div class="v">クラウドVM：常時稼働サーバーが必要</div>
+            </div>
+            <div class="cell">
+              <div class="k">WebVM</div>
+              <div class="v">ブラウザ：WebAssemblyでx86 Linuxを動かす</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          ただしネットワーク到達やClaude利用など、外部サービスは別途必要になります（“実行場所”と“通信先”を分けて考える）。
+        </p>
+      </div>
+    </section>
+
+    <!-- 4: architecture -->
+    <section class="slide" aria-label="Architecture">
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">中核コンポーネント</p>
+        <h2 class="title">CheerpX × <em>WebAssembly</em></h2>
+        <p class="lead">
+          WebVMはCheerpXの仮想化エンジンとWebAssemblyを活用し、x86 Linux環境をブラウザ内で動かすことを目的としています（GitHubの “webvm” リポジトリ）。
+        </p>
+        <div class="grid list-grid grid-3" role="table" aria-label="構成要素">
+          <div class="grid-row grid-3">
+            <div class="cell">
+              <div class="k">仮想化</div>
+              <div class="v">CheerpX（x86→WebAssembly/JIT）</div>
+            </div>
+            <div class="cell">
+              <div class="k">実行基盤</div>
+              <div class="v">WebAssembly（ブラウザで高速実行）</div>
+            </div>
+            <div class="cell">
+              <div class="k">OS</div>
+              <div class="v">Debianの未改変ディストリビューションをABI互換として実行</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          ここが“成立根拠”で、WebVMは「技術の土台」と「体験の作り込み」を両方用意しています。
+        </p>
+      </div>
+    </section>
+
+    <!-- 5: process / network -->
+    <section class="slide" aria-label="Network">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">ネットワーク設計</p>
+        <h2 class="title">Tailscale連携 <em>が軸</em></h2>
+        <p class="lead">
+          WebVMは主にTailscaleと統合し、プライベートネットワーク内の機器へアクセス可能にする運用が示されています。通信範囲はTailscaleの設定で決まります。
+        </p>
+        <div class="grid grid-2" role="table" aria-label="接続パターン">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">基本</div>
+              <div class="v">Tailscale経由でプライベート空間へ到達</div>
+            </div>
+            <div class="cell">
+              <div class="k">拡張</div>
+              <div class="v">Exit Node広告でパブリック側へも通信</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          ping等の一部低レベル操作は制約があるため、疎通確認はcurlやwgetを使うべきです。
+        </p>
+      </div>
+    </section>
+
+    <!-- 6: comparison -->
+    <section class="slide" aria-label="Comparison">
+      <div class="slide-top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">出口ノード</p>
+        <h2 class="title">範囲を <em>選ぶ</em></h2>
+        <p class="lead">
+          「インターネットに出る/出ない」はWebVM側だけで決まらず、TailscaleのExit Node（出口ノード）を別デバイスで広告するかがポイントです。
+        </p>
+        <div class="grid list-grid grid-2" role="table" aria-label="比較">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">Exit Nodeなし</div>
+              <div class="v">原則：Tailscaleのプライベート経路中心</div>
+            </div>
+            <div class="cell">
+              <div class="k">Exit Nodeあり</div>
+              <div class="v">WebVM→出口ノード経由でパブリック通信も可能</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          “どこまで到達できるか”を最初に設計すると、後工程（検証・疎通・用途）が楽になります。
+        </p>
+      </div>
+    </section>
+
+    <!-- 7: evidence -->
+    <section class="slide" aria-label="Evidence">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">疎通確認のコツ</p>
+        <h2 class="title"><em>ping</em>は注意</h2>
+        <p class="lead">
+          入力データでは「一部の低レベルネットワーク操作（特にICMPのping）は現在利用できない」とされています。代替としてcurlやwgetで疎通確認するのが案内されています。
+        </p>
+        <div class="grid grid-2" role="table" aria-label="代替手段">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">NG期待値</div>
+              <div class="v">ICMP ping（利用不可の可能性が高い）</div>
+            </div>
+            <div class="cell">
+              <div class="k">推奨</div>
+              <div class="v">curl / wget（HTTPベースの到達確認）</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          同じ「疎通」でも、使うプロトコル（ICMP vs HTTP）で体験が変わります。
+        </p>
+      </div>
+    </section>
+
+    <!-- 8: architecture / disks -->
+    <section class="slide" aria-label="Disks">
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">環境拡張</p>
+        <h2 class="title">.ext2 <em>ディスク</em></h2>
+        <p class="lead">
+          WebVMはVMイメージ（例：.ext2）をディスク領域として扱い、カスタムイメージで環境を拡張できます。ローカル実行でも参照先を指定する構成です。
+        </p>
+        <div class="grid list-grid grid-3" role="table" aria-label="ディスク運用">
+          <div class="grid-row grid-3">
+            <div class="cell">
+              <div class="k">置き場</div>
+              <div class="v">custom-disk-images/ に配置</div>
+            </div>
+            <div class="cell">
+              <div class="k">参照設定</div>
+              <div class="v">config_public_terminal.js</div>
+            </div>
+            <div class="cell">
+              <div class="k">成果</div>
+              <div class="v">OS/パッケージ構成を再現して起動</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          さらにGitHub ActionsでDockerfileからカスタム .ext2 をビルドし公開する流れも用意されています。
+        </p>
+      </div>
+    </section>
+
+    <!-- 9: process / deploy -->
+    <section class="slide" aria-label="Deploy">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">公開の道筋</p>
+        <h2 class="title">GitHub Pages <em>デプロイ</em></h2>
+        <p class="lead">
+          GitHub Pagesへデプロイする手順として、Fork→Pages設定→Actions実行が用意されています。これにより配布形態を作れます。
+        </p>
+        <div class="grid list-grid grid-3" role="table" aria-label="Pages手順">
+          <div class="grid-row grid-3">
+            <div class="cell">
+              <div class="k">i</div>
+              <div class="v">Fork</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii</div>
+              <div class="v">GitHub Pages設定</div>
+            </div>
+            <div class="cell">
+              <div class="k">iii</div>
+              <div class="v">GitHub Actions実行</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          ローカルとPagesの双方で「ディスク参照」と「起動設定」の考え方を揃えるのがポイントです。
+        </p>
+      </div>
+    </section>
+
+    <!-- 10: distinction / limits -->
+    <section class="slide" aria-label="Limits">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">現実の制約</p>
+        <h2 class="title">画像サイズ <em>壁</em></h2>
+        <p class="lead">
+          GitHub Pagesには画像サイズ制約があり、debian_large が大きすぎるため不可、という現実的な制約が読み取れます。運用設計には“サイズ”も含める必要があります。
+        </p>
+        <div class="grid grid-2" role="table" aria-label="制約">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">制約</div>
+              <div class="v">Pagesの画像サイズ制限</div>
+            </div>
+            <div class="cell">
+              <div class="k">影響</div>
+              <div class="v">debian_large は非対応</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          「何でも大きいイメージを載せれば良い」ではなく、配布先仕様に合わせて作るのが安全です。
+        </p>
+      </div>
+    </section>
+
+    <!-- 11: process / Claude -->
+    <section class="slide" aria-label="Claude連携">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">AI連携</p>
+        <h2 class="title">Claude APIキー <em>入力</em></h2>
+        <p class="lead">
+          Claude AI連携ではAnthropicのAPIキーをブラウザに入力して利用する方式が示されています。キーはサーバーへ送信されず、ローカルに保存される旨が説明されています。
+        </p>
+        <div class="grid grid-2" role="table" aria-label="キーの扱い">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">流れ</div>
+              <div class="v">ブラウザ入力 → WebVMが参照</div>
+            </div>
+            <div class="cell">
+              <div class="k">保存</div>
+              <div class="v">ローカル保存（サーバー送信しない）</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          ただし共有PCやブラウザ同期など、運用前提でリスクは変わります（“安全”は環境依存）。
+        </p>
+      </div>
+    </section>
+
+    <!-- 12: distinction / security -->
+    <section class="slide" aria-label="Security">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">脅威と注意</p>
+        <h2 class="title">サンドボックス <em>と運用</em></h2>
+        <p class="lead">
+          入力データにはサンドボックス実行やキー非共有の説明がありますが、詳細な脅威モデル（どこまで隔離されるか）は十分に掘り下げられていません。安心して使うには、制限事項を前提に運用設計が必要です。
+        </p>
+        <div class="grid list-grid grid-3" role="table" aria-label="論点">
+          <div class="grid-row grid-3">
+            <div class="cell">
+              <div class="k">i</div>
+              <div class="v">安全性はブラウザ権限/同一オリジン等に左右</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii</div>
+              <div class="v">キーはローカルでも共有PCではリスクが残る</div>
+            </div>
+            <div class="cell">
+              <div class="k">iii</div>
+              <div class="v">通信はTailscale設定に依存</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          仕様の「できる/できない」を、実際の運用条件で再確認する姿勢が重要です。
+        </p>
+      </div>
+    </section>
+
+    <!-- 13: distinction / legal -->
+    <section class="slide" aria-label="Licensing">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">法務の落とし穴</p>
+        <h2 class="title">Apache 2.0 <em>＋追加条件</em></h2>
+        <p class="lead">
+          リポジトリはApache 2.0として配布されていますが、CheerpXビルドの再配布・ホスティング目的利用には商用ライセンスが必要、という注意が明記されています。単純にリポジトリのライセンスだけでは判断できません。
+        </p>
+        <div class="grid grid-2" role="table" aria-label="ライセンス要点">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">公開コード</div>
+              <div class="v">Apache 2.0</div>
+            </div>
+            <div class="cell">
+              <div class="k">注意点</div>
+              <div class="v">CheerpXビルドの再配布/ホスティングは商用ライセンス要</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          組織利用や製品組み込みを考えるなら、追加条項の確認が必須です。
+        </p>
+      </div>
+    </section>
+
+    <!-- 14: closing + references -->
+    <section class="slide" aria-label="Closing">
+      <div class="slide-top">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">結論</p>
+        <h2 class="title"><em>価値</em>と確認点</h2>
+        <p class="lead">
+          WebVMは「ブラウザでLinuxを素早く試す」体験と、「Tailscale・ディスクイメージ・Pages/ローカル」の実装手順を両立しています。採用判断では性能・互換性・セキュリティ詳細・ライセンス追加条件を追加で確認すると精度が上がります。
+        </p>
+        <div class="grid list-grid grid-3" role="table" aria-label="要点まとめ">
+          <div class="grid-row grid-3">
+            <div class="cell">
+              <div class="k">価値</div>
+              <div class="v">検証/学習の速度を上げる</div>
+            </div>
+            <div class="cell">
+              <div class="k">確認</div>
+              <div class="v">ping不可→curl/wgetで疎通確認</div>
+            </div>
+            <div class="cell">
+              <div class="k">必須</div>
+              <div class="v">CheerpX再ホスティング要件を法務確認</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid list-grid grid-2" role="table" aria-label="References（読み物）">
+          <div class="grid-row grid-2">
+            <div class="cell">
+              <div class="k">References</div>
+              <div class="v">
+                webvm（GitHubリポジトリ）<br/>
+                CheerpX（仮想化/ビルドの前提）<br/>
+                Tailscale（Exit Node/ネットワーク連携）
+              </div>
+            </div>
+            <div class="cell">
+              <div class="k">Numbers</div>
+              <div class="v">
+                追加の見立て：CheerpXはネイティブ比で「5〜10倍遅くなることがある」、最適化領域では「2〜3倍程度まで落ちる場合もある」
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="note">
+          （訳語）サーバーレス/サンドボックス：<span class="mono">server-less</span>（サーバー常駐が前提ではない）、<span class="mono">sandbox</span>（隔離実行）— どちらも“定義と実装の範囲”を運用前提で確認してください。
+        </p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openapps.pro/apps/webvm" target="_blank" rel="noreferrer noopener">WebVM: Run Linux in Browser with WebAssembly &amp; Tailscale</a></h2>
+<p class="reference-note">x86-to-WebAssembly JIT execution - CheerpX compiles x86-64 instructions to WebAssembly at runtime, enabling unmodified D…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://labs.leaningtech.com/blog/cx-10" target="_blank" rel="noreferrer noopener">CheerpX 1.0: High performance x86 virtualization in the browser via WebAssembly</a></h2>
+<p class="reference-note">## Benchmarks
+
+Not only does CheerpX achieve unprecedented flexibility in running binary applications as part of Web app…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/isaccanedo/webvm" target="_blank" rel="noreferrer noopener">GitHub - isaccanedo/webvm: 💻🖥 Virtual Machine for the Web · GitHub</a></h2>
+<p class="reference-note">WebVM is powered by the CheerpX virtualization engine, and enables safe, sandboxed client-side execution of x86 binaries…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/leaningtech/cheerpx-using-webassembly-to-run-any-programming-language-in-the-browser-3306e1b68f06" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">Curiously, the Debian build is not as optimized as it should be. It ships a very thin nodejs executable whose only purpo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://themenonlab.blog/blog/webvm-linux-browser-cheerpx-wasm" target="_blank" rel="noreferrer noopener">WebVM: Full Linux in Your Browser via WebAssembly</a></h2>
+<p class="reference-note">WebVM isn’t a toy demo. It’s a proof point: if you can JIT-compile x86 to WASM with acceptable performance, the browser …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
