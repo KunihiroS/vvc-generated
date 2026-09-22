@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>DiffusionGemma structured reads (Jev-like) — bounded choices + logprobs</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 44px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 26px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 12px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 14px;
+      border-left: 3px solid rgba(232, 129, 74, 0.9);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 44px;
+      line-height: 1.1;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 1.02;
+      margin-top: 6px;
+      margin-bottom: 10px;
+      color: var(--ink);
+    }
+
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 600;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .divider{
+      height:1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 18px 0 14px;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px;
+      margin-top: 10px;
+      width: min(860px, 100%);
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.02);
+      padding: 14px 16px;
+      border-radius: 10px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      display:flex;
+      align-items: baseline;
+      gap: 10px;
+      justify-content: flex-start;
+    }
+    .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      color: var(--ink-2);
+      font-size: 14px;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .cell p{
+      margin:0;
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .tight{
+      font-size: 20px;
+      line-height: 1.45;
+      font-weight: 300;
+      max-width: 860px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    .footnote{
+      margin-top:auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.35;
+      max-width: 980px;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 46px 28px; }
+      .topline{ left: 28px; right: 28px; top: 18px; }
+      .eyebrow{ margin-top: 34px; font-size: 20px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid2, .grid3{ gap: 10px; }
+      .cell p{ font-size: 17px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Bounded choices + 確信度</div>
+        <div class="title">Structured <em>reads</em></div>
+        <div class="lead">
+          vLLM の <span class="mono">DiffusionGemma</span> を使い、固定選択肢（はい/いいえ、カテゴリ、スケール等）から“確率付き”に選ぶ仕組みを、
+          PRとして整理します。さらに、entropy / logprobs で不確実性まで返す方向性を示します（Jev-like 思想）。
+        </div>
+        <div class="footnote">用語メモ：structured reads（構造化された読み取り）／bounded choices（事前固定の選択肢）</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">自由文だと困る</div>
+        <div class="title">なぜ <em>選択</em> が必要か</div>
+        <div class="lead">
+          通常のLLMは自由記述になりがちで、クライアントが確信度（確率）を使って意思決定するのが難しくなります。
+          そこで「固定選択肢から選ぶ」形式にし、さらに logprobs / entropy を返して判断を制御します（確率付き判定器）。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">従来</div>
+            <p>自由文出力 → 構造化の解釈が不安定（確率も扱いにくい）</p>
+          </div>
+          <div class="cell">
+            <div class="label">このPR</div>
+            <p>bounded choices（事前固定）→ 1つ（または複数）を選び、確信度も返す</p>
+          </div>
+        </div>
+        <div class="footnote">bilingual：確信度（confidence）／不確実性（uncertainty）</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">canvas＝座標</div>
+        <div class="title">判定器を <em>配置</em> する</div>
+        <div class="lead">
+          DiffusionGemmaの内部にある <span class="mono">canvas</span>（復元対象の枠）上の“位置”を、リクエスト側で <span class="mono">seed</span> して固定します。
+          すると、選択肢が同じスロットに対応し、指定位置の logprobs を解釈しやすくなります（構造の安定化）。
+        </div>
+        <div class="divider"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">canvas</div>
+            <p>枠（復元対象の位置）を固定</p>
+          </div>
+          <div class="cell">
+            <div class="label">seed</div>
+            <p>選択肢の“座標”を同期</p>
+          </div>
+          <div class="cell">
+            <div class="label">logprobs</div>
+            <p>座標に対応する確率を採取</p>
+          </div>
+        </div>
+        <div class="footnote">Jev-like（Jev表現互換というより思想）：選択肢＋確信度で制御する</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">単一トークン縛り</div>
+        <div class="title">選択肢は <em>1トークン</em></div>
+        <div class="lead">
+          構造化の成立条件は「選択肢が canvas 上の同一スロットに対応する」ことです。
+          そのためラベルを“単一トークン”として扱う制約を置き、位置ズレによる不整合を抑えます（クライアント側の設計が重要）。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">狙い</div>
+            <p>canvas位置 ↔ ラベル の対応を固定</p>
+          </div>
+          <div class="cell">
+            <div class="label">副作用</div>
+            <p>多トークンラベルはクライアント側で単一トークンへ写像が必要</p>
+          </div>
+        </div>
+        <div class="footnote">schema design（スキーマ設計）が性能を支配する、という実証がある</div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">read-only＝収束で採取</div>
+        <div class="title">diffusion_read_only</div>
+        <div class="lead">
+          通常は <span class="mono">commit</span> が進むと状態が更新されますが、<span class="mono">diffusion_read_only</span> では read-only として、
+          <span class="mono">収束（converging）ステップ</span>で canvas の出力を読み取り、温度1に近い確率情報（logprobs）を採取します。
+        </div>
+        <div class="divider"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">ignore_eos</div>
+            <p>終端による停止を抑制</p>
+          </div>
+          <div class="cell">
+            <div class="label">max_tokens</div>
+            <p>ステップの上限を制御</p>
+          </div>
+          <div class="cell">
+            <div class="label">commit forward</div>
+            <p>スキップして“読み取り”に徹する</p>
+          </div>
+        </div>
+        <div class="footnote">結果：entropyベースで確信度評価 → 運用ループへ接続可能</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">確率で意思決定</div>
+        <div class="title">再読（re-reads）運用</div>
+        <div class="lead">
+          最初の read で entropy が閾値を超えたら追加サンプリング（re-reads）して agreement を確認できます。
+          例では「H1 entropyの比較→必要なら再読」という運用が示されています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">判断</div>
+            <p>entropy（不確実性）が低い → そのまま確定</p>
+          </div>
+          <div class="cell">
+            <div class="label">救済</div>
+            <p>entropy が高い → 追加 read で一致性（agreement）を取る</p>
+          </div>
+        </div>
+        <div class="footnote">これは単なる整形ではなく、“確率付き判定器”としての価値</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">top-kではない</div>
+        <div class="title">logprob_token_ids</div>
+        <div class="lead">
+          <span class="mono">top-k</span> ではなく、指定した <span class="mono">token ids</span> について“正確な logprobs”を返すために <span class="mono">logprob_token_ids</span> が用意されます。
+          これにより、ラベル集合に対する確率分布（少なくとも指定ラベル群）をより正しく推定し、entropyなどの判断に使えます。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">top-k</div>
+            <p>候補を切り詰めがち（ラベル集合全体の確率を直接は扱いにくい）</p>
+          </div>
+          <div class="cell">
+            <div class="label">token ids指定</div>
+            <p>ラベルに対応する確率を直接採取 → 不確実性評価が安定</p>
+          </div>
+        </div>
+        <div class="footnote">bilingual：確率分布（probability distribution）／不確実性（uncertainty）</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">性能は“schema”次第</div>
+        <div class="title">速いが、設計が支配</div>
+        <div class="lead">
+          性能は有望で、例では 1GPU（DGX Spark）で read-only single read を中心に、concurrency増加で req/s が伸びたと報告されています。
+          ただし英語では高精度でも、言語やスキーマ分解の仕方によって誤りが増え、結果として schema design が品質を支配します。
+        </div>
+        <div class="divider"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">計測</div>
+            <p>req/s 向上（concurrencyで伸長）</p>
+          </div>
+          <div class="cell">
+            <div class="label">傾向</div>
+            <p>英語は高精度</p>
+          </div>
+          <div class="cell">
+            <div class="label">支配要因</div>
+            <p>schema 分解が誤りに直結</p>
+          </div>
+        </div>
+        <div class="footnote">例：複雑な分解（atomic nouls 等）はFPR悪化の例が示された</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">レース条件（stash競合）</div>
+        <div class="title">並列で壊れる点</div>
+        <div class="lead">
+          レビューでは、2並列 request で一方が converge し他方が commit する際に <span class="mono">stash</span> が破壊され、HTTP 500 になる問題が挙げられました。
+          今回のPRではこの競合を前提に修正し、ただし並列並行性テストが不足している点が指摘されています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">症状</div>
+            <p>stash衝突 → HTTP 500</p>
+          </div>
+          <div class="cell">
+            <div class="label">対応</div>
+            <p>競合を前提に修正、回帰テストはこれから</p>
+          </div>
+        </div>
+        <div class="footnote">“方向性は正しいが、カバレッジが弱い”という温度感</div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">vision tower にも波及</div>
+        <div class="title">マルチモーダル対応</div>
+        <div class="lead">
+          canvas を固定した structured reads は、ビジョン入力（vision tower）でも動く例が記載されています。
+          さらに別環境での end-to-end 検証やバックポート報告もあり、研究デモからサービング方向へ近づけています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">効く範囲</div>
+            <p>structured reads（canvas固定）が vision tower に波及</p>
+          </div>
+          <div class="cell">
+            <div class="label">信頼性材料</div>
+            <p>end-to-end 検証・バックポート報告</p>
+          </div>
+        </div>
+        <div class="footnote">“実サーバ統合に近い形での動作”が強み</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">実装上の未整備</div>
+        <div class="title">運用リスクの論点</div>
+        <div class="lead">
+          レビューでは API設計の未整備（例：<span class="mono">extra_args</span> の位置づけ、OpenAPIスキーマ非対応）や、並列ケースの回帰テスト不足が懸念されています。
+          また、例示サーバのスレッド数無制限、read-onlyにステップ上限が絡む不整合、max_tokensとcanvas幅の矛盾などが列挙されています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">API</div>
+            <p>extra_args / OpenAPI未整備</p>
+          </div>
+          <div class="cell">
+            <div class="label">テスト</div>
+            <p>並列回帰の不足</p>
+          </div>
+          <div class="cell">
+            <div class="label">運用</div>
+            <p>スレッド上限なし、max_tokens×canvas幅の矛盾</p>
+          </div>
+        </div>
+        <div class="footnote">検証関数の副作用・clampの無通知など“透明性”の課題も言及</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">今回PRが埋める方向</div>
+        <div class="title">不足をまとめて補完</div>
+        <div class="lead">
+          先行PRが必要だった不足点として、(a) canvasに固定トークンを事前投入する手段、(b) commitを進めず収束時点のargmax canvasを読み取る手段、
+          (c) 実行ステップ数を制限する手段、(d) 並列生成で logprob stash が衝突しないバグ修正、などを今回のPR内の仕組みでまとめて埋めようとしています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">canvas投入</div>
+            <p>a. 固定トークンを事前投入</p>
+          </div>
+          <div class="cell">
+            <div class="label">収束読み取り</div>
+            <p>b. commitせず収束 argmax を読み取る</p>
+          </div>
+          <div class="cell">
+            <div class="label">ステップ制限</div>
+            <p>c. 実行ステップ数を制限</p>
+          </div>
+          <div class="cell">
+            <div class="label">stash競合対策</div>
+            <p>d. 並列時の stash 衝突を修正</p>
+          </div>
+        </div>
+        <div class="footnote">“有効な原理と土台”を提示する位置づけ</div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">14 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">まとめ：強みと条件</div>
+        <div class="title">原理は強い、条件付き</div>
+        <div class="lead">
+          強みは、DiffusionGemmaの canvas を seed し、read-only の収束ステップで logprobs を採取して、entropyに基づく“calibratedな意思決定”へ落とし込める点です。
+          一方で本番投入には、API正規化、回帰テスト増強、安全策（矛盾の検証や上限管理、透明性）など追加整備が必要です。
+        </div>
+        <div class="divider"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">強み</div>
+            <p>確率付きの判定器（選択＋不確実性）／re-reads運用まで見通し</p>
+          </div>
+          <div class="cell">
+            <div class="label">必要な追加</div>
+            <p>API設計の正規化、並列回帰、運用上限・整合性チェック、透明な検証</p>
+          </div>
+        </div>
+        <div class="footnote">結論：方向性は非常に有望だが、プロダクション品質には未完が残る</div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">15 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">この資料の参照点</div>
+        <div class="title">References</div>
+        <div class="lead">
+          本デッキは、ユーザー提供の概要文から抽出した論点（canvas／diffusion_read_only／logprobs採取／bounded choices／並列stash競合／schema設計／運用懸念）を再構成しています。
+          原文に含まれる固有名詞は以下の通り：vLLM、DiffusionGemma、canvas、prefill/denoise/converge/commit、diffusion_read_only、logprob_token_ids、entropy/H1、re-reads、DGX Spark、vision tower、OpenAPI、extra_args、HTTP 500、stash。
+        </div>
+        <div class="divider"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">主要概念</div>
+            <p>canvas（枠）／read-only（読み取り専用）</p>
+          </div>
+          <div class="cell">
+            <div class="label">確率情報</div>
+            <p>logprobs / entropy（不確実性）</p>
+          </div>
+          <div class="cell">
+            <div class="label">論点</div>
+            <p>schema design、並列競合、API整備、上限管理</p>
+          </div>
+        </div>
+        <div class="footnote">※外部リンクや追加文献は、今回の入力に含まれていないため記載しません。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <p class="reference-empty">No references found</p>
+</section>
+</div>
+</body>
+</html>
