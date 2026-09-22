@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CI高速化：PR待ち時間とコストを同時に削る</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.55;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 48px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border-radius: 14px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      border: 1px solid var(--rule);
+    }
+    .card{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 56px 72px;
+      background: var(--paper);
+      position: relative;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      border-radius: 14px;
+    }
+    .slide-top{
+      position:absolute;
+      left:72px;
+      right:72px;
+      top:28px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--rust);
+      border-radius: 2px;
+      transform: rotate(45deg);
+      opacity: 0.95;
+    }
+    .slide-tag-rule{
+      width: 28px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.85;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      white-space: nowrap;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.01em;
+    }
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .jp-title{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.05;
+      margin-top: -8px;
+    }
+    .lead{
+      margin-top: 6px;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .divider{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin-top: 4px;
+      opacity: 0.65;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.03);
+      min-height: 58px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--rust);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 6px;
+      color: var(--ink-2);
+      font-size: 19px;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+    }
+
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+      max-width: 860px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.03);
+    }
+    .ref .t{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-2);
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    .ref .d{
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-size: 17px;
+    }
+
+    .closing-center{
+      flex: 1;
+      display:flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 16px;
+      padding: 0 40px;
+    }
+    .closing-center .title{
+      margin:0;
+    }
+    .closing-center .lead{
+      max-width: 900px;
+      text-align: center;
+    }
+    @media (max-width: 860px){
+      .card{ padding: 46px 38px; border-width: 16px; }
+      .slide-top{ left:38px; right:38px; }
+      .title{ font-size: 56px; }
+      .jp-title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 20px; }
+      .slide-num{ font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>CI Performance</div>
+          <div class="slide-num">02 / 17</div>
+        </div>
+
+        <div class="eyebrow">PR待ちを、同時に短縮</div>
+        <h1 class="title"><span class="em">CI</span>再設計</h1>
+        <div class="lead">
+          AIによるコーディング高速化でCIがボトルネック化したため、PR待ち時間とランナー稼働コストを両方削る“全体最適”を実施しました。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid2" style="margin-top: 4px;">
+          <div class="cell">
+            <div class="k">Headline</div>
+            <div class="v">待ち時間 ↓／費用 ↓</div>
+          </div>
+          <div class="cell">
+            <div class="k">Scope</div>
+            <div class="v">Gate・Setup・Tests・Costs</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Problem</div>
+          <div class="slide-num">03 / 17</div>
+        </div>
+
+        <div class="eyebrow">速くなるほど詰まる</div>
+        <h1 class="title">CIが<em class="em">ボトルネック</em></h1>
+        <div class="lead">
+          PRが増えると、CIが“通過待ち”になる時間が増えます。加えてCIランナーの実行時間も伸び、インフラコストが膨らみます（待ち＝体感遅延、実行＝課金）。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Wait</div>
+            <div class="v">PRのCI待ち増加</div>
+          </div>
+          <div class="cell">
+            <div class="k">Cost</div>
+            <div class="v">runner稼働時間増</div>
+          </div>
+          <div class="cell">
+            <div class="k">Trigger</div>
+            <div class="v">AI生成でPR増加</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Core Idea</div>
+          <div class="slide-num">04 / 17</div>
+        </div>
+
+        <div class="eyebrow">“検証”を分解して直す</div>
+        <h1 class="title">ボトルネックを<em class="em">分解</em></h1>
+        <div class="lead">
+          単発の高速化ではなく、(1)インフラ/ツール、(2)クリティカルパス、(3)反復セットアップ、(4)テスト実行を別々に最適化して連鎖させます。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">① Infrastructure</div>
+            <div class="v">ランナー・CPU・キャッシュ</div>
+          </div>
+          <div class="cell">
+            <div class="k">② Critical path</div>
+            <div class="v">変更検知・checkout短縮</div>
+          </div>
+          <div class="cell">
+            <div class="k">③ Setup fixed cost</div>
+            <div class="v">毎ジョブの反復を削る</div>
+          </div>
+          <div class="cell">
+            <div class="k">④ Test efficiency</div>
+            <div class="v">Vitest sharding／隔離最適化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Results</div>
+          <div class="slide-num">05 / 17</div>
+        </div>
+
+        <div class="eyebrow">数字で見る改善</div>
+        <h1 class="title">PR待ち <em class="em">6分→5分</em></h1>
+        <div class="lead">
+          PRのCI待ち時間は「6分超」から「5分強」へ短縮。あわせて、ランナー時間（1テストあたりのマシン時間）も大幅に削減されたと報告されています。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Latency</div>
+            <div class="v">6分超 → 5分強</div>
+          </div>
+          <div class="cell">
+            <div class="k">Cost</div>
+            <div class="v">runner-minutes大幅減</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px; color: var(--ink-3);">
+          ※本文の主張は「改善が全体へ連鎖」する設計にある点が肝です。
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Infrastructure</div>
+          <div class="slide-num">06 / 17</div>
+        </div>
+
+        <div class="eyebrow">土台を速くする</div>
+        <h1 class="title"><em class="em">移行</em>×コンパイラ刷新</h1>
+        <div class="lead">
+          GitHub Actionsから第三者ランナーへ移行し、CPU・ストレージ・キャッシュ基盤を改善。結果としてジョブ全体が平均34%高速化し、<span class="mono">tsc</span>チェックは一部で52%短縮とされています。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Move</div>
+            <div class="v">Actions → 3rd-party runner</div>
+          </div>
+          <div class="cell">
+            <div class="k">Gain</div>
+            <div class="v">平均 +34% faster</div>
+          </div>
+          <div class="cell">
+            <div class="k">tsc</div>
+            <div class="v">一部 -52%（短縮）</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px;">
+          さらにTypeScriptコンパイラを<span class="mono">tsgo</span>へ切替し、週次中央値で<span class="mono">tsc</span>を73%削減（型検査ボトルネックを外す）。
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Evidence</div>
+          <div class="slide-num">07 / 17</div>
+        </div>
+
+        <div class="eyebrow">型依存リントを撤去</div>
+        <h1 class="title">リントを<em class="em">AST</em>へ</h1>
+        <div class="lead">
+          既存のカスタムルールは型グラフ構築を伴い、メモリ集約でCIジョブを圧迫。ASTベースの静的検出へ改め、TypeScriptをESLintから排除しました。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Replace</div>
+            <div class="v">型グラフ → AST検出</div>
+          </div>
+          <div class="cell">
+            <div class="k">Result</div>
+            <div class="v">APIリント -68%／全体 -55%</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px; color: var(--ink-3);">
+          実行時間だけでなく、資源逼迫による遅延（待ち）も減らし、CIコストに直結。
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Critical path</div>
+          <div class="slide-num">08 / 17</div>
+        </div>
+
+        <div class="eyebrow">待ちを直撃で削る</div>
+        <h1 class="title">checkout / 検知を<em class="em">最適化</em></h1>
+        <div class="lead">
+          変更検知やパス判定などのゲートが遅れると、後続のテストシャーディング全体が待ちます。そこでフルcheckoutを減らし、fetch深度を制限、必要ないジョブではcheckout自体を削除しました。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Gate</div>
+            <div class="v">差分検知・パス判定</div>
+          </div>
+          <div class="cell">
+            <div class="k">Cut</div>
+            <div class="v">不要checkoutを削除</div>
+          </div>
+          <div class="cell">
+            <div class="k">Network</div>
+            <div class="v">ハング対策（リトライ付き）</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px;">
+          変化検知：中央値 <span class="mono">26秒→8秒</span>、p90 <span class="mono">31秒→12秒</span>。
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Process</div>
+          <div class="slide-num">09 / 17</div>
+        </div>
+
+        <div class="eyebrow">“シャード万能”は誤解</div>
+        <h1 class="title">Vitestは<em class="em">限界</em>あり</h1>
+        <div class="lead">
+          Vitestはファイル単位で仕事を割り当てるため、大きすぎるテストファイルがあると最遅シャードが支配します。そこで大型ファイルを分割し、シャード数も調整しました。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Cause</div>
+            <div class="v">偏り（大きいテストファイル）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Action</div>
+            <div class="v">分割 + シャード数を 8 へ</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px; color: var(--ink-3);">
+          初期ベンチで約19%高速・19%安く、最遅シャードも短縮。
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Architecture</div>
+          <div class="slide-num">10 / 17</div>
+        </div>
+
+        <div class="eyebrow">隔離コストを削る</div>
+        <h1 class="title">isolate: false で<em class="em">固定費</em>削減</h1>
+        <div class="lead">
+          通常のVitest隔離（ファイルごとの再構築）がコストになっていたため、適切なファイルだけ<span class="mono">isolate: false</span>のオプトインプロジェクトを導入。最大の改善として月次で約17%節約を得たとされています。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Default</div>
+            <div class="v">各ファイルで再構築</div>
+          </div>
+          <div class="cell">
+            <div class="k">Opt-in</div>
+            <div class="v">共有状態が成立する範囲だけ</div>
+          </div>
+          <div class="cell">
+            <div class="k">Impact</div>
+            <div class="v">月次 約17% 節約</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px;">
+          fake timers等、うまく分離できないケースは隔離プロジェクト側に残した。
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Distinction</div>
+          <div class="slide-num">11 / 17</div>
+        </div>
+
+        <div class="eyebrow">“速さ”の種類を分ける</div>
+        <h1 class="title">平均短縮より<em class="em">待ち短縮</em></h1>
+        <div class="lead">
+          改善は「テストが早くなる」だけでなく、ゲート（変更検知/checkout）やセットアップ固定費を削ってクリティカルパス上の“待ち”を縮める設計です。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">CPU/Tool</div>
+            <div class="v">ランナー移行、<span class="mono">tsgo</span>、リント刷新</div>
+          </div>
+          <div class="cell">
+            <div class="k">Gate/Setup</div>
+            <div class="v">checkout削減、fetch深度制限、反復セットアップ削減</div>
+          </div>
+          <div class="cell">
+            <div class="k">Test</div>
+            <div class="v">shardingの偏り解消、隔離オプトイン</div>
+          </div>
+          <div class="cell">
+            <div class="k">Principle</div>
+            <div class="v">セットアップ軽量化がシャーディング増加を可能に</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>Risks</div>
+          <div class="slide-num">12 / 17</div>
+        </div>
+
+        <div class="eyebrow">速さと品質の両立</div>
+        <h1 class="title">最適化には<em class="em">検証</em>が必要</h1>
+        <div class="lead">
+          特に<span class="mono">isolate: false</span>は性能面で効く一方、独立性が崩れると将来のバグ検出率低下や再現性のない失敗につながる可能性があります。運用では、フレーク率や検出漏れなどの品質指標を併走監視するのが重要です。
+        </div>
+        <div class="divider"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Risk</div>
+            <div class="v">テスト独立性の崩れ</div>
+          </div>
+          <div class="cell">
+            <div class="k">Mitigation</div>
+            <div class="v">オプトイン範囲限定、例外保持、teardown追加</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px; color: var(--ink-3);">
+          外部ランナー依存やネットワーク条件変更で効果が揺れるため、性能/品質の継続監視と再評価が不可欠。
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 References -->
+    <section class="slide">
+      <div class="card">
+        <div class="slide-top">
+          <div class="slide-tag"><span class="slide-tag-rule"></span>References</div>
+          <div class="slide-num">13 / 17</div>
+        </div>
+
+        <div class="eyebrow">参考の当たりどころ</div>
+        <h1 class="title">Sources &amp; 関連</h1>
+        <div class="lead">
+          本スライドは、ユーザー提示の本文要約に基づいています。追加調査のための一般的な観点（変更に応じた実行削減など）に近い参照先を挙げます。
+        </div>
+        <div class="divider"></div>
+
+        <div class="refs">
+          <div class="ref">
+            <div class="t">CI / Sharding / Vitest（一般）</div>
+            <div class="d">Vitestのshardingはファイル単位での割当になりがちで、偏り（大きいテストファイル）が最遅シャードを支配する、という理解の裏取りに。</div>
+          </div>
+          <div class="ref">
+            <div class="t">GitHub Actions checkout &amp; fetch最適化（一般）</div>
+            <div class="d">checkoutやfetchの深度・不要実行の削除がクリティカルパス短縮に効く、という観点の一般知識。</div>
+          </div>
+          <div class="ref">
+            <div class="t">差分実行・最小変更領域の検証（一般）</div>
+            <div class="d">CloudBees Smart Testsのような「変更に応じて実行を絞る」アプローチは、差分検知の徹底と整合しやすい。</div>
+          </div>
+          <div class="ref">
+            <div class="t">Test isolation（一般）</div>
+            <div class="d"><span class="mono">isolate: false</span>の安全性はケース依存。フレーク率・検出漏れなどの品質指標を併走監視する、という考え方の裏取りに。</div>
+          </div>
+        </div>
+
+        <div class="small" style="margin-top: 10px; color: var(--ink-3);">
+          ※提示本文中に特定のURLがないため、ここではテーマ別の当たりどころとして記載しています。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://finance.yahoo.com/sectors/technology/articles/cloudbees-smart-tests-brings-control-160000255.html" target="_blank" rel="noreferrer noopener">CloudBees Smart Tests Brings Control to the Surge of AI-Generated Code Flooding CI Pipelines</a></h2>
+<p class="reference-note">30% faster test execution: Reduced from 54 minutes (69 test cases) to 4 minutes for 18 parallelized tests, with further …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://markets.businessinsider.com/news/stocks/cloudbees-smart-tests-brings-control-to-the-surge-of-ai-generated-code-flooding-ci-pipelines-1035991373" target="_blank" rel="noreferrer noopener">CloudBees Smart Tests Brings Control to the Surge of AI-Generated Code Flooding CI Pipelines | Markets Insider</a></h2>
+<p class="reference-note">30% faster test execution: Reduced from 54 minutes (69 test cases) to 4 minutes for 18 parallelized tests, with further …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.askantech.com/cicd-pipeline-optimization-reduce-build-times" target="_blank" rel="noreferrer noopener">CI/CD Pipeline Optimization: Cut Build Times from 45 Minutes to 8 Minutes</a></h2>
+<p class="reference-note">Test suite sharding splits your test files across multiple parallel runners, each executing a subset of the full suite. …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.harness.io/blog/reduce-ci-costs-without-slowing-down-development" target="_blank" rel="noreferrer noopener">Reduce CI Costs Faster with Proven Strategies | Harness</a></h2>
+<p class="reference-note">### Months 2 to 3: Test Optimization
+
+ Implement selective test execution
+ Parallelize test suites
+ Identify and isolate…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.cloudbees.com/blog/ai-is-writing-more-code-your-ci-pipeline-cant-keep-up" target="_blank" rel="noreferrer noopener">AI Is Writing More Code. Your CI Pipeline Can&#39;t Keep Up</a></h2>
+<p class="reference-note">The path forward is not to run fewer tests blindly. It’s to run the right tests based on what actually changed and what …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
