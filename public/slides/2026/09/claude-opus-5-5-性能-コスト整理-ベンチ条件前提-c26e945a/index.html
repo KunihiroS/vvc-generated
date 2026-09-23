@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude Opus 5.5：性能×コスト整理（ベンチ条件前提）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-head{
+      position: relative;
+      height: 56px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 12px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 18px;
+      margin-top: 4px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top:0;
+      width: 3px;
+      height: 18px;
+      background: var(--rust);
+      opacity: 0.9;
+      border-radius: 2px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      color: var(--rust);
+      font-size: 22px;
+      font-style: italic;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .content{
+      margin-top: 10px;
+      position: relative;
+      height: calc(100% - 56px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+      margin-top: 4px;
+    }
+
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 0.98;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      font-weight: 300;
+      line-height: 1.35;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .grid{
+      margin-top: 18px;
+      display: grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(240, 232, 216, 0.03);
+      min-height: 68px;
+    }
+
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .value{
+      font-size: 20px;
+      font-weight: 400;
+      line-height: 1.25;
+      color: var(--ink);
+    }
+
+    .note{
+      margin-top: 16px;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.35;
+      max-width: 760px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.95em;
+      color: var(--ink-2);
+    }
+
+    .ref{
+      margin-top: 14px;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.4;
+    }
+    .refs-list{
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+    .ref-item{
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-head">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">まず結論</div>
+        <div class="title"><em>強い</em>が高い</div>
+        <div class="lead">Claude Opus 5.5はIntelligenceで上位だが、同等クラスではコストがやや高め—という構図がデータ全体から見える。</div>
+        <div class="note">前提：ここでのスコアとコストは「ベンチ条件・設定」に依存し、実運用では変動し得る。</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-head">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">誤解の予防</div>
+        <div class="title"><em>ベンチ</em>のクセ</div>
+        <div class="lead">ベンチスコアは相対評価であり、モデル設定（例：Max Effort）やタスク条件で順位感が変わる。</div>
+        <div class="grid grid-3" role="list">
+          <div class="cell" role="listitem">
+            <div class="label">Score</div>
+            <div class="value">ベンチ前提 / 相対</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">Cost</div>
+            <div class="value">入出力＋キャッシュ影響</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">Speed</div>
+            <div class="value">不明箇所あり（確認必須）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-head">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Intelligence</div>
+        <div class="title">Index <em>58</em></div>
+        <div class="lead">Artificial Analysis Intelligence Indexで58を獲得し、中央値25を大きく上回る。</div>
+        <div class="note">比較212モデル中でも「Intelligence指標が最大級（4/4）」の位置づけ。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="cost">
+      <div class="slide-head">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">価格</div>
+        <div class="title">入力/出力 <em>高め</em></div>
+        <div class="lead">入力 $4.00 / 1M tokens、出力 $20.00 / 1M tokens とされ、入力は中央値$2.00、出力は$10.00より高い。</div>
+        <div class="grid grid-2" role="list">
+          <div class="cell" role="listitem">
+            <div class="label">Input（入力）</div>
+            <div class="value"><span class="mono">$4.00</span> / 1M tokens</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">Output（出力）</div>
+            <div class="value"><span class="mono">$20.00</span> / 1M tokens</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-head">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">総コスト感</div>
+        <div class="title">taskあたり <em>8,708</em></div>
+        <div class="lead">Intelligence Indexタスクの総評価コストとして $8,708.20 が提示され、「強いが高くつく」構図を補強する。</div>
+        <div class="note">さらに、Intelligence Indexタスクのコスト側も高い側に寄っている示唆がある。</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-head">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">強みの要素</div>
+        <div class="title">長文 × 画像</div>
+        <div class="lead">1M tokensの大コンテキスト窓に加え、入力モダリティがテキスト＋画像対応（出力はテキスト）。</div>
+        <div class="grid grid-3" role="list">
+          <div class="cell" role="listitem">
+            <div class="label">Context（文脈）</div>
+            <div class="value">1M tokens</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">Input（入力）</div>
+            <div class="value">Text + Image</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">Output（出力）</div>
+            <div class="value">Text</div>
+          </div>
+        </div>
+        <div class="note">日本語の目安として「~1500 A4 pages」が提示されている。</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-head">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">実務寄りベンチ</div>
+        <div class="title">エージェント級</div>
+        <div class="lead">AA-Briefcase v1.1、GDPval-AA v2.1、AutomationBench-AA、Terminal-Bench 4.0などで上位群に配置される（少なくとも上位に寄る）。</div>
+        <div class="grid grid-2" role="list">
+          <div class="cell" role="listitem">
+            <div class="label">Bench</div>
+            <div class="value">AA-Briefcase v1.1</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">Bench</div>
+            <div class="value">Terminal-Bench 4.0</div>
+          </div>
+        </div>
+        <div class="note">テキスト生成だけでなく、知的作業支援（エージェント的タスク）に強みを持つ可能性。</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-head">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">速度の裏取り</div>
+        <div class="title">Speedは <em>Unknown</em></div>
+        <div class="lead">Output tokens per secondが“Unknown”で、速度面の優位性をこの抜粋だけでは断定できない。</div>
+        <div class="grid grid-2" role="list">
+          <div class="cell">
+            <div class="label">Latency</div>
+            <div class="value">このデータでは未確定</div>
+          </div>
+          <div class="cell">
+            <div class="label">Use（運用）</div>
+            <div class="value">SLA要件は別検証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-head">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">比較の軸</div>
+        <div class="title">性能高 / <em>コスト高</em></div>
+        <div class="lead">提示データではIntelligence面が強い一方、入力・出力とも中央値より高く、総合すると“強いが高い”になる。</div>
+        <div class="grid grid-2" role="list">
+          <div class="cell">
+            <div class="label">Intelligence（知能）</div>
+            <div class="value">上位（58 / 中央値25）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Cost（費用）</div>
+            <div class="value">中央値より上（入/出）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-head">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">採用判断</div>
+        <div class="title">PoCで <em>総費用</em>確認</div>
+        <div class="lead">成功率だけでなく、1回あたりの入力/出力トークンと、Max Effortの使い方を含めた実費をPoCで測るべき。</div>
+        <div class="grid grid-3" role="list">
+          <div class="cell" role="listitem">
+            <div class="label">i</div>
+            <div class="value">タスク別プロンプト固定</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">ii</div>
+            <div class="value">出力長（長文/要約）を計測</div>
+          </div>
+          <div class="cell" role="listitem">
+            <div class="label">iii</div>
+            <div class="value">条件（effort/キャッシュ）で再実験</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-head">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">使い方の形</div>
+        <div class="title">二層運用が <em>合理</em></div>
+        <div class="lead">難問だけOpus 5.5に寄せ、量産は軽量モデルに分ける二層運用が費用対効果の筋が良い。</div>
+        <div class="grid grid-2" role="list">
+          <div class="cell">
+            <div class="label">Heavy（重い）</div>
+            <div class="value">推論・検討・長文要約</div>
+          </div>
+          <div class="cell">
+            <div class="label">Light（軽い）</div>
+            <div class="value">定型生成・短いQ&amp;A</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-head">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">懐疑点</div>
+        <div class="title">条件依存が <em>鍵</em></div>
+        <div class="lead">スコアはMax Effortなどの設定依存であり、速度指標の欠落もあって“最適解”の断定は危険。</div>
+        <div class="note">欠けている情報：速度、平均出力長、ユースケース別の成功率（現場適性）。</div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-head">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">まとめ</div>
+        <div class="title"><em>高精度</em>用途向き</div>
+        <div class="lead">結論：推論や実務タスクで強さを活かす場面には向く。ただし常時大量生成・低予算・高速要件では、比較検証が必須。</div>
+        <div class="grid grid-2" role="list">
+          <div class="cell">
+            <div class="label">向く</div>
+            <div class="value">難問対応 / 長文＋画像</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意</div>
+            <div class="value">コスト増 / SLA未確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 References -->
+    <section class="slide" aria-label="references">
+      <div class="slide-head">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">参照</div>
+        <div class="title">Sources</div>
+        <div class="lead">本スライドはユーザー提供情報に基づき、補足として「Artificial Analysis Intelligence Index」および「effort（思考量）で挙動が変わる」趣旨を前提化している。</div>
+        <div class="refs-list" aria-label="reference list">
+          <div class="ref-item">Artificial Analysis Intelligence Index（Claude Opus 5.5のスコア・中央値・コスト表示を含む参照文脈）</div>
+          <div class="ref-item">Artificial Analysis比較記事（トークン/レイテンシ/価格の差分が設定や条件で動き得る趣旨）</div>
+          <div class="ref-item">Claude公式ドキュメント（effort設定で品質・挙動の重みが増える趣旨）</div>
+          <div class="ref-item">ユーザー提示のFAQ（Released September 2026、Reasoning: Yes、1M context、価格、速度Unknownの記載）</div>
+        </div>
+        <div class="note">注：リンクは提示されていないため、ここではタイトル・参照趣旨のみ記載。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://artificialanalysis.ai/models/comparisons/claude-opus-4-8-vs-gpt-5-5-high" target="_blank" rel="noreferrer noopener">Claude Opus 4.8 (Adaptive Reasoning, Max Effort) vs GPT- ...</a></h2>
+<p class="reference-note">GPT-5.5 (high) is faster. GPT-5.5 (high) generates 92.4 tokens per second, compared with Claude Opus 4.8 (Adaptive Reaso…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.mindstudio.ai/blog/claude-opus-4-8-effort-levels-explained" target="_blank" rel="noreferrer noopener">Claude Opus 4.8 Effort Levels Explained: Low, Medium, High, Max ...</a></h2>
+<p class="reference-note">The latency bump at High is noticeable but usually acceptable. For workflows where quality directly affects outcomes — a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://platform.claude.com/docs/en/models/opus-5/whats-new-opus-5" target="_blank" rel="noreferrer noopener">What&#39;s new in Claude Opus 5 - Claude Platform Docs</a></h2>
+<p class="reference-note">Claude Opus 5 converts additional effort into better results more reliably than any earlier Opus model, so the effort le…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/news/claude-opus-5" target="_blank" rel="noreferrer noopener">Introducing Claude Opus 5</a></h2>
+<p class="reference-note">Based on our testing, we expect the classifiers to intervene around 85% less often than they do for Fable 5. In Claude.a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.digitalapplied.com/blog/claude-opus-4-6-vs-gpt-5-3-codex-comparison" target="_blank" rel="noreferrer noopener">Claude Opus 4.6 vs GPT-5.3 Codex: Complete Comparison</a></h2>
+<p class="reference-note">If your team decides to use both models, a routing configuration with fallback logic keeps things reliable. Here is a mi…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
