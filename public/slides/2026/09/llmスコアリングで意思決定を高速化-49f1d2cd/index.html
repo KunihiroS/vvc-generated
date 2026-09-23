@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLMスコアリングで意思決定を高速化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display: block;
+    }
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 14px;
+      margin: 18px 0;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      align-items: stretch;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 10px;
+    }
+    .slide-top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      line-height: 1;
+      padding-top: 6px;
+      white-space: nowrap;
+    }
+    .slide-num {
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      line-height: 1;
+      white-space: nowrap;
+      opacity: 0.95;
+    }
+    .eyebrow {
+      margin-top: 18px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      line-height: 1.25;
+      position: relative;
+      z-index: 2;
+    }
+    .title {
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-style: italic;
+      font-size: 72px;
+      line-height: 1.02;
+      color: var(--ink);
+      position: relative;
+      z-index: 2;
+    }
+    .title em {
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+    .lead {
+      margin-top: 16px;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.5;
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+    }
+    .content {
+      margin-top: 18px;
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+    }
+    .rule {
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 10px 0 0;
+      position: relative;
+      z-index: 2;
+    }
+    .grid2, .grid3 {
+      display: grid;
+      gap: 14px;
+      align-items: stretch;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+    .card {
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+      min-height: 0;
+    }
+    .label {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .big {
+      font-family: "Noto Serif JP", serif;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .small {
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .bilingual {
+      display: inline-block;
+      padding: 1px 8px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 999px;
+      color: var(--ink-2);
+      margin-top: 8px;
+      font-size: 15px;
+      line-height: 1.6;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: 0.02em;
+    }
+    .centerWrap {
+      height: 100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      text-align:left;
+      position: relative;
+      z-index: 2;
+    }
+    .closingTitle {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 80px;
+      line-height: 1;
+      margin-top: 8px;
+      color: var(--ink);
+    }
+    ul { margin: 0; padding: 0; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 14</div>
+      </div>
+      <div class="centerWrap">
+        <div class="eyebrow">候補が既知なら、選択へ</div>
+        <div class="title">LLMは <em>生成</em> より <em>スコアリング</em></div>
+        <div class="lead" style="max-width:820px;">
+          出力がラベル（候補）として決まるタスクでは、文章を作らせるより確率分布を返させる方が速く効率的になり得ます。<span class="bilingual">scoring（スコアリング）／候補判定</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 14</div>
+      </div>
+      <div class="eyebrow">生成は“毎回コスト”</div>
+      <div class="title">通常のLLM</div>
+      <div class="lead">
+        通常のLLMは、プロンプトの続きとしてトークン単位で文章（やJSON）を生成します。すると意思決定に必要ない計算や逐次出力が増えがちです。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">通常（chat/completions）</div>
+            <div class="big">文章・JSONを生成する</div>
+            <div class="small">後処理でラベル抽出</div>
+          </div>
+          <div class="card">
+            <div class="label">課題</div>
+            <div class="big">逐次生成ループ</div>
+            <div class="small">速度・制御・誤解釈が課題</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 14</div>
+      </div>
+      <div class="eyebrow">選ぶだけなら</div>
+      <div class="title">投票機</div>
+      <div class="lead">
+        候補が最初から決まっているなら、LLMを“作家”ではなく“投票機”として使えます。<span class="mono">max</span>ではなく“どれが最も適切か”の分布だけを返させます。
+      </div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">候補集合</div>
+            <div class="big">billing<br>technical support<br>account access</div>
+          </div>
+          <div class="card">
+            <div class="label">モデルの仕事</div>
+            <div class="big">各候補の相対スコア</div>
+            <div class="small">softmaxで分布化</div>
+          </div>
+          <div class="card">
+            <div class="label">アプリの仕事</div>
+            <div class="big">閾値・ルーティング</div>
+            <div class="small">OTHER/ESCALATEも設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 14</div>
+      </div>
+      <div class="eyebrow">“scoring”の芯</div>
+      <div class="title">fixed-answer scoring</div>
+      <div class="lead">
+        fixed-answer scoring（固定候補スコアリング）は、自由な文章生成をせず「候補トークン位置のログit」だけから確率分布を返します。見た目はJSONっぽくても内部は別物です。<span class="bilingual">fixed-answer（固定候補）</span>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">structured output（誤解ポイント）</div>
+            <div class="big">フィールド“生成”が続く</div>
+            <div class="small">トークン列として出力</div>
+          </div>
+          <div class="card">
+            <div class="label">fixed-answer scoring</div>
+            <div class="big">候補の相対確率だけ</div>
+            <div class="small">文章・JSON生成を減らす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 14</div>
+      </div>
+      <div class="eyebrow">速い理由は“生成を避ける”</div>
+      <div class="title">レイテンシ</div>
+      <div class="lead">
+        スコアリングでは候補間の評価だけを返すため、生成ループ（トークン逐次発生）を回避できる可能性があります。結果として応答が速くなる、という主張につながります。<span class="bilingual">latency（レイテンシ）</span>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">比較対象</div>
+            <div class="big mono">chat/completions</div>
+            <div class="small">トークンを生成し続ける</div>
+          </div>
+          <div class="card">
+            <div class="label">狙い</div>
+            <div class="big mono">/v1/score</div>
+            <div class="small">候補の確率分布を返す</div>
+          </div>
+        </div>
+        <div class="small">記事では生成とスコアリングのレイテンシを比較する実験の枠組みも提示されています。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 14</div>
+      </div>
+      <div class="eyebrow">“0.91”の意味</div>
+      <div class="title">相対確率</div>
+      <div class="lead">
+        確率0.91のような値は「全体で正しい確率」を直接意味しません。候補集合（A/B/C）内での相対比率を表す前提が重要です。<span class="bilingual">calibration（校正）</span>
+      </div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">誤解</div>
+            <div class="big">0.91＝当たり率0.91</div>
+          </div>
+          <div class="card">
+            <div class="label">実態</div>
+            <div class="big">候補内での相対配分</div>
+            <div class="small">softmaxの範囲が限定</div>
+          </div>
+          <div class="card">
+            <div class="label">必要</div>
+            <div class="big">校正と閾値</div>
+            <div class="small">ラベル付きデータで調整</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 14</div>
+      </div>
+      <div class="eyebrow">実装の要点</div>
+      <div class="title">SGLang /v1/score</div>
+      <div class="lead">
+        技術面では SGLang の <span class="mono">/v1/score</span> を用いて、QwenやDeepSeekなどのモデルで候補スコアリングする構成が示されています。<span class="bilingual">API（API呼び出し）</span>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">手順 i</div>
+            <div class="big">候補集合を作る</div>
+            <div class="small">例：billing / technical support / account access</div>
+          </div>
+          <div class="card">
+            <div class="label">手順 ii</div>
+            <div class="big">/tokenizeで単一トークン化</div>
+            <div class="small">ラベルが1トークンか検証</div>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">手順 iii</div>
+            <div class="big">候補トークン位置をスコア</div>
+            <div class="small">ログit→softmax分布</div>
+          </div>
+          <div class="card">
+            <div class="label">手順 iv</div>
+            <div class="big">ラベル復元＋閾値運用</div>
+            <div class="small">自動/人手介入の分岐</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">09 / 14</div>
+      </div>
+      <div class="eyebrow">壊れやすい点</div>
+      <div class="title">単一トークン</div>
+      <div class="lead">
+        ラベルをスコアリングに使うには、それが本当に「単一トークン」になることを検証する必要があります。トークナイザ差で “billing” が複数トークンに分割されると破綻します。<span class="bilingual">tokenize（トークナイズ）</span>
+      </div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">理由</div>
+            <div class="big">候補を同一出力位置へ対応</div>
+          </div>
+          <div class="card">
+            <div class="label">落とし穴</div>
+            <div class="big">空白・制御文字・分割</div>
+            <div class="small">“同じ見た目”でも別トークン</div>
+          </div>
+          <div class="card">
+            <div class="label">対策</div>
+            <div class="big mono">/tokenize</div>
+            <div class="small">1トークンであることを確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 14</div>
+      </div>
+      <div class="eyebrow">候補が不完全だと</div>
+      <div class="title">逃げ道</div>
+      <div class="lead">
+        候補集合に正解がないと、確率は必ず“誤った候補”の中で割り振られます。記事は <span class="mono">OTHER</span> や <span class="mono">ESCALATE</span> のような候補を含める対策を提案しています。<span class="bilingual">fallback（フォールバック）</span>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">問題</div>
+            <div class="big">候補外＝表現不能</div>
+            <div class="small">“当たってるのに当たらない”</div>
+          </div>
+          <div class="card">
+            <div class="label">対策</div>
+            <div class="big">OTHER / ESCALATE</div>
+            <div class="small">人手レビューへ逃がす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">11 / 14</div>
+      </div>
+      <div class="eyebrow">いつ効く？いつ危ない？</div>
+      <div class="title">適用条件</div>
+      <div class="lead">
+        この方式は「出力空間が事前に固定でき、ラベルと確率分布だけ欲しい」状況で強い一方、自由形式の説明が必要なら生成が必要です。万能ではありません。<span class="bilingual">decision engine（意思決定）</span>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">向く用途</div>
+            <div class="big">ルーティング／審査</div>
+            <div class="small">サポート分類、スクリーニング等</div>
+          </div>
+          <div class="card">
+            <div class="label">向かない用途</div>
+            <div class="big">未知出力の説明</div>
+            <div class="small">自由回答や根拠文が必須</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">12 / 14</div>
+      </div>
+      <div class="eyebrow">運用の落とし穴</div>
+      <div class="title">校正×閾値</div>
+      <div class="lead">
+        実運用では「精度保証は別途必要」です。候補内相対確率のため、calibration不足や閾値設計ミスは誤ルーティングを増やし得ます。<span class="bilingual">risk（リスク）</span>
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">主要リスク i</div>
+            <div class="big">確率の校正不足</div>
+            <div class="small">0.91が“当たり率”にならない</div>
+          </div>
+          <div class="card">
+            <div class="label">主要リスク ii</div>
+            <div class="big">閾値の誤設定</div>
+            <div class="small">自動化し過ぎ／介入し過ぎ</div>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">主要リスク iii</div>
+            <div class="big">ラベル分割（複数トークン）</div>
+            <div class="small">/tokenizeで未検証だと破綻</div>
+          </div>
+          <div class="card">
+            <div class="label">主要リスク iv</div>
+            <div class="big">候補網羅性</div>
+            <div class="small">OTHER/ESCALATEで救済を設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 14</div>
+      </div>
+      <div class="centerWrap">
+        <div class="eyebrow">結論</div>
+        <div class="closingTitle">“候補があるなら、選ばせる。”</div>
+        <div class="lead" style="max-width:860px;">
+          LLMを生成ではなくfixed-answer scoringとして使うと、ルーティング等で速度・制御性を得られる可能性があります。<br>
+          ただし単一トークン検証、calibration、閾値、候補の網羅性（OTHER/ESCALATE）を先に設計して、慎重に検証する必要があります。<span class="bilingual">verification（検証）</span>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <p class="reference-empty">Search failed</p>
+</section>
+</div>
+</body>
+</html>
