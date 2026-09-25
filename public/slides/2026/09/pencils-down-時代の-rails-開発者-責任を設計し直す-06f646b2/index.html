@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>pencils down 時代の Rails 開発者 — 責任を設計し直す</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+      padding:24px 0 48px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      box-sizing: border-box;
+      border: 20px solid rgba(0,0,0,0);
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+    }
+    .card{
+      position:absolute;
+      inset:0;
+      background: var(--paper);
+      box-sizing:border-box;
+      border: 1px solid var(--rule-strong);
+      padding:56px 72px;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+      overflow:hidden;
+      border-radius: 2px;
+    }
+    .frame-inset{
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .top-row{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 4px;
+      border-left: 4px solid rgba(232,129,74,0.9);
+      padding-left: 14px;
+      line-height: 1;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      letter-spacing: 0.03em;
+      white-space:nowrap;
+      padding-top: 2px;
+    }
+    .content{
+      position: relative;
+      z-index: 2;
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      gap:14px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(54px, 4.6vw, 84px);
+      line-height: 0.95;
+      margin-top: -6px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.35;
+      margin-top: 8px;
+    }
+    .rule{
+      height:1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 6px;
+    }
+    .grid{
+      display:grid;
+      gap: 12px 16px;
+      margin-top: 6px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 14px 14px 12px;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.25;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .note{
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.35;
+    }
+    .footer{
+      margin-top:auto;
+      padding-top: 6px;
+      border-top: 1px solid rgba(240,232,216,0.08);
+      color: var(--ink-3);
+      font-size: 16px;
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .nowrap{ white-space: nowrap; }
+    @media (max-width: 720px){
+      .card{ padding: 44px 22px; }
+      .frame-inset{ inset: 14px; }
+      .slide-tag{ font-size: 14px; }
+      .slide-num{ font-size: 18px; }
+      .lead{ font-size: 18px; }
+      .cell .v{ font-size: 16px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 01 -->
+    <section class="slide" aria-label="Cover">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">鉛筆を置く—設計思想</div>
+          <div class="title">pencils <span class="em">down</span> 期の Rails 開発者</div>
+          <div class="lead">AIエージェントはタイピングを肩代わりし得るが、重要なのは「どこまでを自動化し、どこからを人が責任を持つか」を説明可能にすることです。</div>
+          <div class="rule"></div>
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">EN</div>
+              <div class="v">Autonomy ≠ abdication</div>
+              <div class="note">自動化は責任放棄ではない</div>
+            </div>
+            <div class="cell">
+              <div class="k">JA</div>
+              <div class="v">責任を設計し直す</div>
+              <div class="note">品質・安全・整合性を担保する</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>（Rails World 文脈＋筆者の検討）</div>
+            <div class="nowrap">読みやすさ最優先</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 02 -->
+    <section class="slide" aria-label="Problem">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">“緑”の差分の罠</div>
+          <div class="title">整って見える</div>
+          <div class="lead">エージェントが作ったPRは個別にはもっともらしく見えても、寄せ集めるとアーキテクチャ全体が破綻することがあります。</div>
+          <div class="rule"></div>
+          <div class="grid three">
+            <div class="cell">
+              <div class="k">現象</div>
+              <div class="v">差分は正しそう</div>
+              <div class="note">でも全体整合性は別問題</div>
+            </div>
+            <div class="cell">
+              <div class="k">背景</div>
+              <div class="v">Swiss cheese</div>
+              <div class="note">穴の存在が統合で顕在化</div>
+            </div>
+            <div class="cell">
+              <div class="k">課題</div>
+              <div class="v">説明可能な監督</div>
+              <div class="note">“誰が何を保証するか”</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>Basecamp 5 などの示唆</div>
+            <div class="nowrap">単体≠システム</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 03 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">禁じない、でも隔離する</div>
+          <div class="title"><span class="em">自動化</span>の境界</div>
+          <div class="lead">DHHの“pencils down”は全面禁止ではなく、「エージェントが扱えない部分は人が直し、その後ワークフローを改善する」設計思想です。</div>
+          <div class="rule"></div>
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">i</div>
+              <div class="v">エージェントに任せる領域</div>
+              <div class="note">反復、草案化、限定されたタスク</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii</div>
+              <div class="v">人が責任を持つ領域</div>
+              <div class="note">制約化、品質保証、境界条件</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>pencils down（鉛筆を置く）</div>
+            <div class="nowrap">“例外”を前提にする</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 04 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">責任の再配分</div>
+          <div class="title">人の仕事</div>
+          <div class="lead">人間が担うのは「タイピング」ではなく、理解と意思決定、リスク管理—そして出荷後の責任です。</div>
+          <div class="rule"></div>
+          <div class="grid three">
+            <div class="cell">
+              <div class="k">要件</div>
+              <div class="v">あいまいさ→制約へ</div>
+              <div class="note">要件定義を“実行可能”にする</div>
+            </div>
+            <div class="cell">
+              <div class="k">保証</div>
+              <div class="v">テスト・境界・セキュリティ</div>
+              <div class="note">データ境界 / 認可 / 監査</div>
+            </div>
+            <div class="cell">
+              <div class="k">運用</div>
+              <div class="v">デプロイ・ロールバック</div>
+              <div class="note">安全に排出（旧状態の扱い）</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>緑の差分の裏側を掴む</div>
+            <div class="nowrap">顧客体験に責任</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 05 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">成功率＝本番信頼性ではない</div>
+          <div class="title">大数字の扱い</div>
+          <div class="lead">DHHの性能・経済性の数値は、特定条件での“予測（仮説）”に近く、本番の複雑さや例外系まで同等に含むとは限りません。</div>
+          <div class="rule"></div>
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">提示例</div>
+              <div class="v">成功率 約95%</div>
+              <div class="note">最大努力時の 35%〜53% など</div>
+            </div>
+            <div class="cell">
+              <div class="k">懸念</div>
+              <div class="v">キャリア/業務設計に直結させない</div>
+              <div class="note">平均値と長期副作用は別物</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>“測定”と“外挿”のズレ</div>
+            <div class="nowrap">断定しない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 06 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">“どこまで自動化？”</div>
+          <div class="title">自動化 vs 責任</div>
+          <div class="lead">自動化の範囲は、見た目の正しさではなく「境界条件」「権限」「運用リスク」で線引きします。</div>
+          <div class="rule"></div>
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">自動化しやすい</div>
+              <div class="v">草案・反復・差分の生成</div>
+              <div class="note">人のレビューを前提にする</div>
+            </div>
+            <div class="cell">
+              <div class="k">自動化しにくい</div>
+              <div class="v">一貫性・統合・安全の判断</div>
+              <div class="note">統合時に穴が出る</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>“レビュー”は補助ではなく設計要素</div>
+            <div class="nowrap">緑の先を見る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 07 -->
+    <section class="slide" aria-label="Process">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">頼み方が品質を決める</div>
+          <div class="title">エージェントに境界を</div>
+          <div class="lead">人がやるべきは、エージェントへ“境界のあるタスク”を渡し、テスト・データ・セキュリティ・デプロイをつなぐことです。</div>
+          <div class="rule"></div>
+          <div class="grid three">
+            <div class="cell">
+              <div class="k">i</div>
+              <div class="v">制約化（入力仕様）</div>
+              <div class="note">何を変え、何を変えないか</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii</div>
+              <div class="v">検証（テスト・境界）</div>
+              <div class="note">データ境界 / 例外 / 失敗時</div>
+            </div>
+            <div class="cell">
+              <div class="k">iii</div>
+              <div class="v">出荷（ロールバック含む）</div>
+              <div class="note">デプロイ手順と安全な戻し</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>理解可能性を確保</div>
+            <div class="nowrap">“何が返ってきたか”を追う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 08 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">置換は簡単、排出が本質</div>
+          <div class="title">差し替えの先</div>
+          <div class="lead">“差し替え自体”は楽でも、旧状態が残る問題や安全な排出が本質になります。</div>
+          <div class="rule"></div>
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">起点</div>
+              <div class="v">サイドキック→キュー置換</div>
+              <div class="note">例としての置換パターン</div>
+            </div>
+            <div class="cell">
+              <div class="k">本質</div>
+              <div class="v">旧状態の扱いを保証する</div>
+              <div class="note">整合性・安全・ロールバック</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>“緑”の後に待つ運用</div>
+            <div class="nowrap">人が責任を持つ領域</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 09 -->
+    <section class="slide" aria-label="Security / Distinction">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">CLIが操作しても</div>
+          <div class="title">権限設計が要</div>
+          <div class="lead">CLI経由でユーザのエージェントが動く未来でも、安全性は権限設計に依存します。</div>
+          <div class="rule"></div>
+          <div class="grid three">
+            <div class="cell">
+              <div class="k">鍵</div>
+              <div class="v">production API key</div>
+              <div class="note">与え方が危険になる</div>
+            </div>
+            <div class="cell">
+              <div class="k">要件</div>
+              <div class="v">許可（何をできるか）</div>
+              <div class="note">最小権限 / スコープ制限</div>
+            </div>
+            <div class="cell">
+              <div class="k">監査</div>
+              <div class="v">監査ログ（追跡可能性）</div>
+              <div class="note">事故時の説明可能性</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>責任の所在を“実装”する</div>
+            <div class="nowrap">Security / セキュリティ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">enumeration</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">“次に変えるべき”論点</div>
+          <div class="title">責任を可視化</div>
+          <div class="lead">導入判断で必要なのは、レビューSLAやロールバック、権限モデルなど「運用手順」を明文化し、基準を揃えることです。</div>
+          <div class="rule"></div>
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">i</div>
+              <div class="v">レビュー基準（何を合格にするか）</div>
+              <div class="note">テスト粒度・統合観点</div>
+            </div>
+            <div class="cell">
+              <div class="k">ii</div>
+              <div class="v">失敗時の設計（ロールバック）</div>
+              <div class="note">戻し手順と責任者</div>
+            </div>
+            <div class="cell">
+              <div class="k">iii</div>
+              <div class="v">権限モデル（誰が何をできるか）</div>
+              <div class="note">スコープ / 監査 / 制限</div>
+            </div>
+            <div class="cell">
+              <div class="k">iv</div>
+              <div class="v">評価指標（品質をどう測るか）</div>
+              <div class="note">緑の差分以外も見る</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>現場で“実装レベル”に落とす</div>
+            <div class="nowrap">Governance / ガバナンス</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Closing">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">未来の開発者像</div>
+          <div class="title">理解して出荷する</div>
+          <div class="lead">鉛筆を置くこと自体より、緑になった差分の裏にある「運用・安全・整合性の検証」を誰がどの基準で行うかを明文化することが要点です。</div>
+          <div class="rule"></div>
+          <div class="grid two">
+            <div class="cell">
+              <div class="k">Quality</div>
+              <div class="v">“緑”ではなく品質保証</div>
+              <div class="note">テストと統合で担保</div>
+            </div>
+            <div class="cell">
+              <div class="k">Accountability</div>
+              <div class="v">出荷後の責任は人へ</div>
+              <div class="note">顧客体験まで含める</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div>Autonomy（自律）を運用へ接続</div>
+            <div class="nowrap">責任を再配分</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="References">
+      <div class="card">
+        <div class="frame-inset"></div>
+        <div class="top-row">
+          <div class="slide-tag">references</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="content">
+          <div class="eyebrow">参照（本文の根拠）</div>
+          <div class="title">参照先</div>
+          <div class="lead">本稿は、提示された文脈（Rails World の pencils down、Basecamp 5 の学び、Dealroom News などの要約）を手がかりに整理しています。</div>
+          <div class="rule"></div>
+          <div class="grid three">
+            <div class="cell">
+              <div class="k">DHH</div>
+              <div class="v">Rails World：pencils down</div>
+              <div class="note">自動化の境界・例外前提</div>
+            </div>
+            <div class="cell">
+              <div class="k">Basecamp</div>
+              <div class="v">Basecamp 5：統合の学び</div>
+              <div class="note">差分単体の“説得力”の限界</div>
+            </div>
+            <div class="cell">
+              <div class="k">Dealroom</div>
+              <div class="v">pencils down の要約</div>
+              <div class="note">手書き全面禁止ではない趣旨</div>
+            </div>
+          </div>
+          <div class="footer">
+            <div class="small">（必要なら、この整理を運用フレームに落とす続編が望まれる）</div>
+            <div class="nowrap">—</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=vDjW_dRyKXY" target="_blank" rel="noreferrer noopener">Rails World 2026 Opening Keynote - DHH</a></h2>
+<p class="reference-note"># Rails World 2026 Opening Keynote - DHH
+## Channel: Ruby on Rails
+24.2K subscribers
+444 likes
+
+### Description
+7,150 vi…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dealroom.co/news/talk-vDjW_dRyKXY-pencils-down-dhh-declares-the-end-of-hand-written-code" target="_blank" rel="noreferrer noopener">Pencils down: DHH declares the end of hand-written code | Dealroom News</a></h2>
+<p class="reference-note">News › Pencils down: DHH declares the end of hand-written code
+
+Rails World 2026 opening keynote
+
+# Pencils down: DHH de…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://rubyonrails.org/world/2026/speakers/dhh" target="_blank" rel="noreferrer noopener">Rails World 2026 — Dhh</a></h2>
+<p class="reference-note">Join Ruby creator Yukihiro &quot;Matz&quot; Matsumoto and Rails creator David Heinemeier Hansson for a conversation on the future …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=49817680" target="_blank" rel="noreferrer noopener">Rails World 2026 Opening Keynote [video] | Hacker News</a></h2>
+<p class="reference-note">| |  |  |  |  ---  |  |  | an0malous 8 hours ago  | prev (javascript:void(0))   This keynote is from David Heinemeier Ha…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.finalroundai.com/blog/ai-can-not-replace-junior-programmers" target="_blank" rel="noreferrer noopener">Can AI Replace Junior Programmers? DHH Says Not Yet</a></h2>
+<p class="reference-note">That cognitive dependency is a risk DHH takes seriously. He compared it to the debate over whether calculators should re…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
