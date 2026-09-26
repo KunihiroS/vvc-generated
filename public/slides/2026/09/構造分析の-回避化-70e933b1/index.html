@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>構造分析の“回避化”</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Noto Serif", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      border-left: 20px solid var(--rule);
+      border-right: 20px solid var(--rule);
+    }
+
+    @media (max-width: 720px) {
+      .deck { width: min(1120px, calc(100vw - 24px)); }
+      .slide { padding: 36px 26px; }
+    }
+
+    .topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 16px;
+      text-transform: uppercase;
+      border-top: 2px solid var(--rule-strong);
+      padding-top: 10px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 4px 0 8px;
+      letter-spacing: 0.01em;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      font-weight: 500;
+      margin: 0 0 12px;
+      line-height: 0.98;
+      letter-spacing: 0.01em;
+    }
+    .title .jp { font-family: "Noto Serif JP", serif; font-weight: 500; font-size: 64px; }
+    .title .rust { color: var(--rust-deep); font-style: italic; }
+
+    .lead {
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin-top: auto;
+    }
+
+    .content {
+      padding-top: 4px;
+      border-top: 1px solid var(--rule);
+      margin-top: 10px;
+      width: 100%;
+      max-width: 860px;
+    }
+
+    .grid2, .grid3 {
+      width: 100%;
+      display: grid;
+      gap: 14px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+      min-height: 86px;
+    }
+    .cell .k {
+      font-family: "Inter Tight", sans-serif;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .cell .v {
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 1.35;
+    }
+    .cell .v em { color: var(--rust); font-style: italic; }
+
+    .listgrid {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      background: rgba(0,0,0,0.05);
+      margin: 0 8px 8px 0;
+      white-space: nowrap;
+    }
+
+    .closing-center {
+      margin-top: auto;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .small {
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.5;
+    }
+
+    .refwrap {
+      width: 100%;
+      border-top: 1px solid var(--rule);
+      margin-top: 14px;
+      padding-top: 14px;
+    }
+    .refitem {
+      padding: 10px 12px;
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      background: rgba(0,0,0,0.05);
+      margin-top: 10px;
+    }
+    .refitem .rtitle {
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .refitem .rauthor {
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Discussion / Learning</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">分析は強い、でも罠もある</div>
+      <div class="title"><span class="rust">構造分析</span><span class="jp">の回避化</span></div>
+      <div class="lead">
+        文章に触れると、私たちは「分解して理解する」モードに入りがちです。  
+        その便利さが、より難しい行為（決める・コミットする・感情に触れる）を避ける手段にすり替わることがある、という問題提起です。
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">“有用”が“回避”になる</div>
+      <div class="title">何が起きる</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">分析（decomposition）</div>
+            <div class="v">要素に分け、オペレーターを特定し、欠けを探す。</div>
+          </div>
+          <div class="cell">
+            <div class="k">回避（avoidance）</div>
+            <div class="v">立場を取る・評価する・行動に結びつける“コスト”を先延ばしする。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        ポイントは善悪ではなく、分析が「理解」で終わらず「行為の代替」になっていないかです。  
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Thesis</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">“用途”が意味を変える</div>
+      <div class="title">分析は中立</div>
+      <div class="content">
+        <div class="listgrid">
+          <div class="cell">
+            <div class="k">理解のため</div>
+            <div class="v">次に考えるための基盤になる（理解→検討）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">代替のため</div>
+            <div class="v">決める・動くの代わりに分析が居座る（検討→停止）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">タイミング</div>
+            <div class="v">順序が早すぎると“停滞”になることがある。</div>
+          </div>
+          <div class="cell">
+            <div class="k">観察点</div>
+            <div class="v">分析している時の「恐れ（コスト回避）」「感じない」が鍵。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        つまり「分析する＝回避」ではなく、「分析が何の代替になっているか」を点検します。  
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">分解＝地図、でも目的地じゃない</div>
+      <div class="title">地図と目的地</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">地図（analysis）</div>
+            <div class="v">道筋を見つける／不足を補う。</div>
+          </div>
+          <div class="cell">
+            <div class="k">目的地（commit）</div>
+            <div class="v">立場を決める／評価する／行動に移す。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        分解が目的地への移動を置き換えると、地図を描くほど遠ざかります。  
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">回避は二ルート</div>
+      <div class="title">認識論的 × 情動的</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">認識論的（epistemic）</div>
+            <div class="v">「決めない／コミットしない」が中心。<br><span class="small">例：立場表明を先送りする</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">情動的（affective）</div>
+            <div class="v">「感じない／核心に触れない」が中心。<br><span class="small">例：本音・恐れ・痛みを避ける</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        同じ「分析に逃げる行為」でも、内側のメカニズムが違う可能性が高い、という整理です。  
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">回避を見抜く“順番”</div>
+      <div class="title">分析の前後</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">前（before）</div>
+            <div class="v">感情の核心を名指しできているか？（情動チェックポイント）</div>
+          </div>
+          <div class="cell">
+            <div class="k">間（during）</div>
+            <div class="v">“分解”が止まらずに、決める作業を代替していないか？</div>
+          </div>
+          <div class="cell">
+            <div class="k">後（after）</div>
+            <div class="v">結論・行動が出たか？出ないなら、分析が停止装置になっている可能性。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        「分析はコミットの後に効く」可能性がある、という経験的主張が出ています。  
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“枠組み承認”が関与を生む</div>
+      <div class="title">例外の手触り</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">認識論的謙虚さ</div>
+            <div class="v">相手が「枠組み」を認めると、分解より“枠組みの承認”が働いた。</div>
+          </div>
+          <div class="cell">
+            <div class="k">議論の方向転換</div>
+            <div class="v">相手が話の角度を変えると、“変化の追跡”ができて本当の関与が生まれた。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        重要なのは、分析そのものではなく「関与の形」が変わった点です。  
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Tool</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">熟考記録は万能じゃない</div>
+      <div class="title">Deliberation record</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">「行為」「なぜ重要か」「成功基準」を明確化し、コミットを促す。</div>
+          </div>
+          <div class="cell">
+            <div class="k">限界</div>
+            <div class="v">回避が“分析の瞬間”や“行為そのもの”に潜むと、ログが見逃す。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        記録は手がかりになるが、検知の盲点も最初から織り込む必要があります。  
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Synthesis</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">受け取る結論：分析を捨てない</div>
+      <div class="title">点検して使い分ける</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">点検軸（1）</div>
+            <div class="v">分析が「意思決定を困難にする硬直」か、「理解のための基盤」か。</div>
+          </div>
+          <div class="cell">
+            <div class="k">点検軸（2）</div>
+            <div class="v">回避が認識論的（決めない）か情動的（感じない）か。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        最適化は「分析量」ではなく、「次の一手を出しているか」です。  
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Proposal</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">次の実験：コミットして書く</div>
+      <div class="title">分解→記述</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Step i</div>
+            <div class="v">分析をしたら、すぐ“結論文”を書く（暫定でよい）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Step ii</div>
+            <div class="v">次に「行動（何をするか）」を1行だけ置く。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Step iii</div>
+            <div class="v">最後に感情チェック：怖さ／重さ／避けたいものは何か？</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        “分析して終わり”を減らすために、コミットして生成的に関与する方向へ寄せます。  
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">短いQ&Aで誤解を減らす</div>
+      <div class="title">よくある誤読</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Q 分解は悪？</div>
+            <div class="v">悪ではない。代替（行為の停止）になっているかが焦点。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q 回避とは？</div>
+            <div class="v">決めないこと（認識論的）や、感じないこと（情動的）になりうる。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q 熟考記録は効く？</div>
+            <div class="v">効くが万能ではない。分析“最中”の回避はログに残りにくい。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Q 常に後から分析？</div>
+            <div class="v">一般法則では不明。段階・目的・内的状態で点検する。</div>
+          </div>
+        </div>
+      </div>
+      <div class="lead">
+        二分法（分析＝良い／決める＝良い）をやめ、「用途」と「順番」を扱うのが鍵です。  
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">参照（Web/過去履歴）</div>
+      <div class="title">Sources</div>
+
+      <div class="refwrap">
+        <div class="refitem">
+          <div class="rtitle">AI Frontiers</div>
+          <div class="rauthor"><em>A Philosopher’s Guide to AI Welfare</em>（行動の証拠と由来のズレ／代替機能の論点として参照）</div>
+          <div class="small" style="margin-top:6px;">（※本デッキは提示要約に基づく概念的参照であり、直接引用ではありません。）</div>
+        </div>
+
+        <div class="refitem">
+          <div class="rtitle">AI Frontiers</div>
+          <div class="rauthor"><em>A Philosopher’s Guide to AI Welfare</em>（報酬信号なしでも接近・回避の傾向が形成されうる、という補強）</div>
+        </div>
+
+        <div class="refitem">
+          <div class="rtitle">過去履歴</div>
+          <div class="rauthor">「報酬ハッキング（Reward Hacking）」の文脈：良さそうに見える最適化が代替機能になる構図</div>
+        </div>
+
+        <div class="refitem">
+          <div class="rtitle">過去履歴</div>
+          <div class="rauthor">「LLM Attention Mechanism Visualization Tool」：内部寄与の見え方を別角度で検証する必要性</div>
+        </div>
+      </div>
+
+      <div class="lead">
+        本質は“手段が目的を置き換える”局面を見落とさない設計にあります。  
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ai-frontiers.org/articles/a-philosophers-guide-to-ai-welfare" target="_blank" rel="noreferrer noopener">A Philosopher’s Guide to AI Welfare | AI Frontiers</a></h2>
+<p class="reference-note">First, behavioral evidence faces the mismatch problem. Similar behaviors could have different origins. An AI system migh…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.iasongabriel.com/research" target="_blank" rel="noreferrer noopener">Dr Iason Gabriel - Research</a></h2>
+<p class="reference-note">Artificial Minds, Human Disagreement: The Political Challenge of AI Consciousness (2026) SSRN (
+
+Author(s): Adam Bales, …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://hajime.institute/research.html" target="_blank" rel="noreferrer noopener">Research · Hajime Institute</a></h2>
+<p class="reference-note">Ⅰ · Cognition‑aware AI
+
+ACL 2026
+
+### CMTD: Cognitive Modeling with Traits and Distortions for Multimodal Emotion Recogn…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://securityanddefence.pl/Artificial-intelligence-as-a-moral-agent-regulatory-implications-and-a-relational,213917,0,2.html" target="_blank" rel="noreferrer noopener">Artificial intelligence as a moral agent: regulatory implications and a relational–contextual extension of Moor’s classification</a></h2>
+<p class="reference-note">To address this gap, an RI3 matrix—complexity, autonomy, and predictability—is proposed as an operational bridge between…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://neurips.cc/virtual/2023/poster/70114" target="_blank" rel="noreferrer noopener">NeurIPS Poster Reflexion: language agents with verbal reinforcement learning</a></h2>
+<p class="reference-note">but instead through linguistic feedback. Concretely, Reflexion agents verbally reflect on task feedback signals, then ma…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
