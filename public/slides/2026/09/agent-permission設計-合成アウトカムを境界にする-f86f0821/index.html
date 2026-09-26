@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent permission設計：合成アウトカムを境界にする</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 20px;
+      overflow: hidden;
+      position: relative;
+    }
+    .inner{
+      height: 100%;
+      border: 20px solid var(--rule);
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .topline{
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 16px;
+      color: var(--rust);
+      position: relative;
+      padding-left: 16px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 55%;
+      width: 10px;
+      height: 2px;
+      background: var(--rust);
+      transform: translateY(-50%);
+      opacity: 0.95;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 4px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      margin-top: -8px;
+      line-height: 0.95;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      font-weight: 300;
+      max-width: 760px;
+      margin-top: 6px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin-top: 10px;
+      opacity: 0.9;
+    }
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+    }
+    .cell .kicker{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .text{
+      font-size: 20px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .jp{
+      font-weight: 400;
+      color: var(--ink-2);
+      font-size: 16px;
+      margin-top: 6px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 400;
+      color: var(--ink-2);
+      font-size: 16px;
+    }
+    .coverCenter{
+      display:flex;
+      flex-direction: column;
+      justify-content:center;
+      height: 100%;
+      gap: 18px;
+      padding: 8px 0;
+    }
+    .coverCenter .title{
+      font-size: 86px;
+    }
+    .centerOnly{
+      text-align: left;
+      margin-left: 0;
+    }
+    @media (max-width: 820px){
+      .inner{ padding: 44px 44px; border-width: 14px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .cell .text{ font-size: 16px; }
+      .slide-tag{ font-size: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 cover -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="coverCenter">
+          <div class="eyebrow">権限境界を“合成”で設計する</div>
+          <div class="title">Permission <em>Outcomes</em></div>
+          <div class="lead">AIエージェントの「ツール許可」だけでは、意図しない業務決定（取引の成立）が通ることがあります。</div>
+        </div>
+        <div class="rule"></div>
+        <div class="small">取引（transaction）単位で承認し、執行時に再検証して失効させる—という考え方を整理します。</div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 problem -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">予算は“境界”じゃない</div>
+        <div class="title">上限</div>
+        <div class="lead">予算上限は「量（いくらまで）」を抑えるだけで、「目的（何の意思決定として）」は制御しません。結果、上限内でも未承認の意思決定（調達切替など）が成立しえます。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">Budget（上限）</div>
+            <div class="text">支出の暴走を抑える</div>
+            <div class="jp">量の制約（amount cap）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Permission（境界）</div>
+            <div class="text">目的と取引の成立を制御する</div>
+            <div class="jp">意思決定の制約（outcome bound）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 metaphor -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">緑ボタンの罠</div>
+        <div class="title">合成</div>
+        <div class="lead">各操作が許可されていても、エージェントがそれらを組み合わせると「誰も承認していない結果」だけが成立します。これが合成による権限逸脱（<span class="mono">composed authority</span>）です。</div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="kicker">Step 1</div>
+            <div class="text">苦境を検知（調査）</div>
+            <div class="jp">Observations（観測）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Step 2</div>
+            <div class="text">代替ベンダーを提案</div>
+            <div class="jp">Planning（計画）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Step 3</div>
+            <div class="text">資金を移して切替</div>
+            <div class="jp">Execution（執行）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 architecture -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">境界を“取引”へ</div>
+        <div class="title">Transaction</div>
+        <div class="lead">境界（permission）は「ツール」ではなく、「成立するビジネス決定」に紐づけます。承認対象は、ベンダー変更＋資金移動のような“取引全体（全体の束）”です。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">Bad：操作境界</div>
+            <div class="text">ベンダー変更OK + 資金移動OK</div>
+            <div class="jp">→ 結果が未承認でも通る</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Good：取引境界</div>
+            <div class="text">「調達切替」というアウトカムに承認</div>
+            <div class="jp">→ 結果単位で安全性を担保</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 evidence -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">分割承認の破綻</div>
+        <div class="title">意図の断線</div>
+        <div class="lead">ベンダー変更の承認と、予算（資金移動）の承認を別々に出すと、エージェントはそれらを“つなげて”未承認の調達変更を成立させる可能性があります。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">承認A</div>
+            <div class="text">vendor変更：承認済</div>
+            <div class="jp">（同意した範囲が限定的）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">承認B</div>
+            <div class="text">fund移動：承認済（上限内）</div>
+            <div class="jp">（量の妥当性だけ見ている）</div>
+          </div>
+        </div>
+        <div class="small">→ 合成されたアウトカム（切替取引）が、元の承認意図から外れていても検出しきれない。</div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 distinction -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">整合性≠安全性</div>
+        <div class="title">Hash</div>
+        <div class="lead">署名やハッシュは「改変されていないか（整合性）」には効きますが、「承認対象が適切だったか（安全性）」は別問題です。さらに執行時再検証がないと、部分実行や状態競合で事故ります。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">Integrity（整合性）</div>
+            <div class="text">承認後に改変されていない</div>
+            <div class="jp">tamper-evidence（改ざん検知）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Safety（安全性）</div>
+            <div class="text">その“取引束”が正しかった</div>
+            <div class="jp">correctness-of-approval（承認妥当性）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 process -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">承認→執行→再検証</div>
+        <div class="title">失効</div>
+        <div class="lead">承認を固定情報（vendor・金額・資金源・期限・アウトカム等）に結び、変更があれば承認を失効させます。執行時にも再チェックし、合成されたアウトカムが変わったなら無効化します。</div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="kicker">i</div>
+            <div class="text">承認：取引束を特定</div>
+            <div class="jp">approval binds fields（結合）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">ii</div>
+            <div class="text">執行：実体化を観測</div>
+            <div class="jp">runtime evidence（証跡）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">iii</div>
+            <div class="text">再検証：同一性を確認</div>
+            <div class="jp">invalidate on drift（失効）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 architecture -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">承認キーの設計</div>
+        <div class="title">Fields</div>
+        <div class="lead">無効化の粒度は「どのフィールドが取引束の同一性を作るか」で決めます。例：vendor・金額・資金源・期限・アウトカム（意図）などが変われば承認を落とす。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">承認に含める</div>
+            <div class="text">vendor / amount / fund source</div>
+            <div class="jp">期限 / アウトカム / 依存関係</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">無効化の条件</div>
+            <div class="text">変更で“同一の意思決定束”が崩れる</div>
+            <div class="jp">single outcome identity（単一性）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 distinction -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">UIが“飾り印”になる</div>
+        <div class="title">Human</div>
+        <div class="lead">承認UIがまとめた情報しか人間に見せないと、合成された最終アウトカムが理解できず、承認が形式化します。失効条件（何が変われば無効か）も追随しないと危険です。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">見せる情報</div>
+            <div class="text">“合成されたアウトカム”単位</div>
+            <div class="jp">approval target clarity（対象の明確性）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">追随するもの</div>
+            <div class="text">失効条件（同一性の崩れ）</div>
+            <div class="jp">expiry ≠ drift。（期限≠変化）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 comparison -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">単純化の落とし穴</div>
+        <div class="title">Trade-off</div>
+        <div class="lead">取引全体にバインドすると安全性は上がりやすい一方で、承認面が大きくなり遅延や負荷が増えます。実装では失効粒度・再検証頻度・UI設計・補償（ロールバック）まで設計が必要です。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">安全側</div>
+            <div class="text">アウトカム単位で承認・無効化</div>
+            <div class="jp">risk↓ / clarity↑</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">コスト側</div>
+            <div class="text">遅延・承認負荷・運用例外</div>
+            <div class="jp">latency↑ / ops難化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 evidence -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Governance</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">境界は“責任設計”</div>
+        <div class="title">Agreement</div>
+        <div class="lead">「どこに境界を引くか」は組織的合意で決まります。技術設定だけでなく、誰が（承認者／ポリシーエンジン／独立実行者）定義と拒否を持つかが安全性を左右します。</div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="kicker">Risk</div>
+            <div class="text">操作が緑でも合成で事故</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Ops</div>
+            <div class="text">失効条件の誤りは止まる/抜ける</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Audit</div>
+            <div class="text">承認がボタン記録で終わると説明不能</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 closing + references-style content -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">結論：アウトカム境界</div>
+        <div class="title">要件</div>
+        <div class="lead">権限境界は「予算上限」や「単操作許可」ではなく、合成されたアウトカム（取引全体）に結びます。さらに執行時再検証と失効で、ズレた意思決定を無効化します。</div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="kicker">Must</div>
+            <div class="text">承認単位＝取引アウトカム（vendor/amount/fund/期限/意図）</div>
+            <div class="jp">binding + runtime recheck（結合＋再検証）</div>
+          </div>
+          <div class="cell">
+            <div class="kicker">Next</div>
+            <div class="text">無効化・補償（ロールバック）・監査（誰がどの粒度で）を一体設計</div>
+            <div class="jp">governance を明確に（責任の所在）</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:auto;">
+          <span class="mono">Keywords:</span> composed authority（合成による権限逸脱）, transaction-bound approval（取引束への承認）, invalidate on drift（ズレで失効）
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.sysaid.com/glossary/it-agent" target="_blank" rel="noreferrer noopener">What is an IT Agent? | SysAid | IT Agent | IT-Agent | Agent IT</a></h2>
+<p class="reference-note">An IT Agent is a member of the IT support team who handles service requests, incidents, and other IT-related tasks on be…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.serval.com/insights/ai-agents-for-it" target="_blank" rel="noreferrer noopener">AI agents for IT teams: What they are and how they work - Serval - AI Agents for IT</a></h2>
+<p class="reference-note">An AI agent is autonomous software that observes its environment and takes actions to achieve a specific goal. In the co…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.microsoft.com/source/features/ai/ai-agents-what-they-are-and-how-theyll-change-the-way-we-work" target="_blank" rel="noreferrer noopener">AI agents — what they are, and how they&#39;ll change the way ...</a></h2>
+<p class="reference-note">Agents can operate around the clock to review and approve customer returns or go over shipping invoices to help business…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=NWF5Jo0-ziY&amp;vl=en-US" target="_blank" rel="noreferrer noopener">Intro to Agents: What&#39;s new and what we&#39;ve learned</a></h2>
+<p class="reference-note">[5:17] In this example, the agent has a set of instructions, maybe some tools. It&#39;s connected to a model, and that&#39;s it.…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.itential.com/resource/guide/build-agents-vs-operate-agents" target="_blank" rel="noreferrer noopener">Build Agents vs. Operate Agents: Adopting AI in Infrastructure Ops | Itential</a></h2>
+<p class="reference-note">And the sandwich is native: deterministic, agentic, and hybrid execution run through one governed engine, so a workflow …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
