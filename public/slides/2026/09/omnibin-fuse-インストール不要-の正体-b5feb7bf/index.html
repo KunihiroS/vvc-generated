@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>omnibin（FUSE）— “インストール不要”の正体</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.35;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0px;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      position: relative;
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 14px;
+      z-index: 1;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      padding-left: 14px;
+      position: relative;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top:50%;
+      transform: translateY(-50%);
+      width: 2px; height: 16px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.18);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 8px;
+      z-index: 1;
+      position: relative;
+    }
+
+    .title{
+      font-size: 72px;
+      font-weight: 500;
+      line-height: 1.0;
+      margin-top: 6px;
+      margin-bottom: 16px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+      z-index: 1;
+      position: relative;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      z-index: 1;
+      position: relative;
+    }
+
+    .divider{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 16px;
+      z-index: 1;
+      position: relative;
+      opacity: 0.6;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+      z-index: 1;
+      position: relative;
+      margin-top: 14px;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+      min-height: 86px;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Noto Sans", sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.25;
+    }
+    .cell .v em{ color: var(--rust); font-style: italic; }
+
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .list-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+      margin-top: 14px;
+      z-index:1;
+      position:relative;
+    }
+
+    .item{
+      border: 1px solid var(--rule);
+      padding: 14px;
+      background: rgba(0,0,0,0.07);
+      min-height: 96px;
+    }
+
+    .item .hdr{
+      display:flex;
+      gap: 10px;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+
+    .roman{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      min-width: 26px;
+      font-size: 20px;
+    }
+    .item .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Noto Sans", sans-serif;
+      color: var(--ink-2);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .item .txt{
+      font-size: 20px;
+      color: var(--ink);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 19px;
+      color: var(--ink-2);
+      word-break: break-word;
+    }
+
+    .footer-note{
+      position:absolute;
+      left:72px;
+      right:72px;
+      bottom:20px;
+      color: var(--ink-4);
+      font-size: 14px;
+      z-index: 1;
+    }
+
+    /* Responsive scaling: keep 16:9 */
+    @media (max-width: 760px){
+      .deck{ width: calc(100vw - 28px); padding-top: 14px; }
+      .slide{ padding: 42px 30px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .list-grid{ grid-template-columns: 1fr; }
+      .footer-note{ left:30px; right:30px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1: cover -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">読み替える、パッケージ体験</div>
+      <div class="title">omnibin <em>（遅延参照）</em></div>
+      <div class="lead">Nixpkgsの“過去バージョンのバイナリ”を、インストールせずにFUSEで見せます。必要になった瞬間だけ、キャッシュからNARを取り出して展開します。</div>
+      <div class="footer-note">用語補助：遅延取得（lazy fetch）／FUSE（ファイルシステムをユーザ空間で実装）</div>
+    </section>
+
+    <!-- 2: problem -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">入れる前提が重い</div>
+      <div class="title">“選んで、入れて”</div>
+      <div class="lead">通常のパッケージ管理は、必要なものを事前に選び、ビルド/展開してから使います。結果として「入れる作業」と「保存（ディスク消費）」が先に発生します。</div>
+      <div class="divider"></div>
+      <div class="lead">omnibinはその順序を逆転させます。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">通常</div>
+          <div class="v">事前に選ぶ → 展開する → 使う</div>
+        </div>
+        <div class="cell">
+          <div class="k">omnibin</div>
+          <div class="v">見える → 必要時に展開 → 使う</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3: metaphor -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">“全部ある”は嘘じゃない</div>
+      <div class="title">夢の倉庫 <em>…ではなく</em></div>
+      <div class="lead">“全部あるように見える”の正体は、索引で場所を案内し、実体はアクセス時に遅延取得することです。問い合わせ（ls/which）にはすぐ答え、展開は必要時だけ行います。</div>
+      <div class="list-grid">
+        <div class="item">
+          <div class="hdr"><span class="roman">i</span><span class="label">索引</span></div>
+          <div class="txt">Hydraの`.ls`メタデータ（内容JSON）で事前把握</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">ii</span><span class="label">見せ方</span></div>
+          <div class="txt">FUSEがファイル操作を捕捉し、見える名前を提供</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iii</span><span class="label">本体</span></div>
+          <div class="txt">NAR（アーカイブ）をcache.nixos.orgから取得→unpack</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iv</span><span class="label">結果</span></div>
+          <div class="txt">初回だけコスト、2回目以降は高速</div>
+        </div>
+      </div>
+      <div class="footer-note">JP補助：NAR＝（Nixの）アーカイブ実体／unpack＝展開</div>
+    </section>
+
+    <!-- 4: architecture -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">“ls”は即応、“実体”は遅延</div>
+      <div class="title">構成要素</div>
+      <div class="lead">omnibinは、索引・名前解決・遅延取得・FUSE展開の4点セットで成立します。</div>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">索引</div>
+          <div class="v">Hydra `.ls`</div>
+        </div>
+        <div class="cell">
+          <div class="k">名前解決</div>
+          <div class="v">nixpkgs-multiverse</div>
+        </div>
+        <div class="cell">
+          <div class="k">取得</div>
+          <div class="v">cache.nixos.org（NAR）</div>
+        </div>
+        <div class="cell">
+          <div class="k">実体生成</div>
+          <div class="v">FUSEでunpack</div>
+        </div>
+        <div class="cell">
+          <div class="k">応答</div>
+          <div class="v">ls/whichに即応</div>
+        </div>
+        <div class="cell">
+          <div class="k">UX</div>
+          <div class="v">“必要な時だけ”</div>
+        </div>
+      </div>
+      <div class="footer-note">ポイント：パッケージ“配置”ではなく参照“解決”中心</div>
+    </section>
+
+    <!-- 5: process -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">アクセスの流れ</div>
+      <div class="title">遅延取得の動作</div>
+      <div class="lead">ファイルに触れるまでは“存在を見せるだけ”。アクセスが来た瞬間にだけ、NAR取得→展開へ進みます。</div>
+
+      <div class="list-grid">
+        <div class="item">
+          <div class="hdr"><span class="roman">i</span><span class="label">列挙</span></div>
+          <div class="txt">/omnibin/bin が“最新提供版だけ”を名前表示</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">ii</span><span class="label">解決</span></div>
+          <div class="txt">python3@3.6.2のような要求は内部で対応ストアへ紐付け</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iii</span><span class="label">取得</span></div>
+          <div class="txt">cacheからNARを取り出す（初回のみ遅延）</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iv</span><span class="label">展開</span></div>
+          <div class="txt">unpackして必要ファイルを/として提供、以降は再利用</div>
+        </div>
+      </div>
+      <div class="footer-note">FUSE＝“ユーザ空間でファイル操作を実装する”仕組み</div>
+    </section>
+
+    <!-- 6: evidence -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">例：昔のPythonも“触れる”</div>
+      <div class="title"><em>python3@3.6.2</em></div>
+      <div class="lead">`python3@3.6.2`のような特定バージョンでも、初回アクセス時に限って遅延取得・展開が発生します。二回目以降は即時利用できます。</div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">1回目（初回）</div>
+          <div class="v">2.7秒程度の初期コスト</div>
+        </div>
+        <div class="cell">
+          <div class="k">2回目（以後）</div>
+          <div class="v">高速（ウォーム済み）</div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="lead">これは“0コスト魔法”ではなく、コストの発生点を「インストール時→利用時」に移した設計です。</div>
+      <div class="footer-note">JP補助：ウォームアップ＝必要なストアパスが溜まって高速化</div>
+    </section>
+
+    <!-- 7: enumeration -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“全部ある”の内訳</div>
+      <div class="title">何が先に揃う？</div>
+      <div class="lead">omnibinが事前に用意するのは「実体そのもの」ではありません。先に揃うのは“参照できるための情報”です。</div>
+
+      <div class="list-grid">
+        <div class="item">
+          <div class="hdr"><span class="roman">i</span><span class="label">情報</span></div>
+          <div class="txt">`.ls`メタデータで、どのファイルがどこにあるかを索引化</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">ii</span><span class="label">対応</span></div>
+          <div class="txt">multiverseで“属性名↔バージョン”をストアパスへ解決</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iii</span><span class="label">名前</span></div>
+          <div class="txt">/omnibin/binは最新名だけを表示し、探索負荷を抑制</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iv</span><span class="label">実体</span></div>
+          <div class="txt">NAR取得→展開は、アクセスが来たときだけ実行</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8: distinction -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">Docker/OCIと何が違う？</div>
+      <div class="title">“詰める”ではなく <em>“取りに行く”</em></div>
+      <div class="lead">Docker/OCIは多くの場合、イメージに素材を詰める方向です。omnibinは必要になった部品だけを後から取りに行き、しかもNixpkgsの過去成果物まで参照対象に含めます。</div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Docker/OCI</div>
+          <div class="v">事前にイメージへ同梱（基本は“詰める”）</div>
+        </div>
+        <div class="cell">
+          <div class="k">omnibin</div>
+          <div class="v">参照時に遅延取得（基本は“取りに行く”）</div>
+        </div>
+      </div>
+      <div class="footer-note">本文は比較のニュアンス中心で、性能・安全性の厳密比較は不足</div>
+    </section>
+
+    <!-- 9: comparison -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">探索のボトルネック回避</div>
+      <div class="title">lsが巨大でも</div>
+      <div class="lead">Nixpkgsには約881,933本級のバイナリが存在し得ます。エージェントが毎回stat/探索すると破滅的に遅くなるため、/omnibin/binは“最新名だけ”を列挙します。</div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">問題</div>
+          <div class="v">巨大ツリーをそのまま列挙すると探索が重い</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">最新だけ表示／バージョン付きは内部解決へ</div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="lead">これにより自動化エージェントの“探索し過ぎ”を抑えます。</div>
+    </section>
+
+    <!-- 10: distinction -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">python3 と python3@3.6.2</div>
+      <div class="title"><em>意味</em>の違い</div>
+      <div class="lead">`python3`は「その時点の最新Python3」を指します。`python3@3.6.2`は「特定バージョン（2017年の系譜）」を指します。</div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">python3</div>
+          <div class="v">最新バージョン参照（latest）</div>
+        </div>
+        <div class="cell">
+          <div class="k">python3@3.6.2</div>
+          <div class="v">指定バージョン参照（pinned）</div>
+        </div>
+      </div>
+      <div class="footer-note">両方とも同じFUSE上で解決されるが、“指定の度合い”が違う</div>
+    </section>
+
+    <!-- 11: problem -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">万能ではない：初回遅延</div>
+      <div class="title">制約を理解する</div>
+      <div class="lead">omnibinの落とし穴は、初回アクセス時の遅延取得・展開コストが確実に存在することです。短命な環境や毎回まったく別のバイナリに触れるワークロードでは不利になり得ます。</div>
+
+      <div class="list-grid">
+        <div class="item">
+          <div class="hdr"><span class="roman">i</span><span class="label">初回コスト</span></div>
+          <div class="txt">触れた分だけNAR取得→unpack（遅延が発生）</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">ii</span><span class="label">ウォーム依存</span></div>
+          <div class="txt">長寿命マシンでは利用が進み負担が小さくなり得る</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iii</span><span class="label">説明不足</span></div>
+          <div class="txt">オフライン時の挙動・欠損時のエラー・監査/ログは追加確認が必要</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iv</span><span class="label">セキュリティ</span></div>
+          <div class="txt">ネットワークキャッシュとFUSEの運用前提（整合性検証など）が重要</div>
+        </div>
+      </div>
+      <div class="footer-note">判定の軸：利用頻度（ウォーム率）と要求パターン</div>
+    </section>
+
+    <!-- 12: closing + references -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">結論：インストールではなく参照</div>
+      <div class="title">参照体験を再設計</div>
+      <div class="lead">omnibinは「パッケージ管理を、選ぶ作業から参照する作業へ再定義」し、Nixの“バージョン共存”を過去まで拡張します。夢ではなく、Hydra索引＋nixpkgs-multiverse＋FUSE遅延展開の工学的組み合わせです。</div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">強い点</div>
+          <div class="v">過去バージョンまでシームレスに辿れる（検証/再現に強い）</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意点</div>
+          <div class="v">初回アクセスの遅延と、運用前提（ネット/整合性/監査）を詰める</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="lead">References（概略）</div>
+      <div class="list-grid">
+        <div class="item">
+          <div class="hdr"><span class="roman">i</span><span class="label">Hydra</span></div>
+          <div class="txt">`.ls`メタデータ（NAR内容のJSON索引）</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">ii</span><span class="label">Nix</span></div>
+          <div class="txt">ストアパス／NAR、バージョン共存の前提</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iii</span><span class="label">nixpkgs-multiverse</span></div>
+          <div class="txt">属性名×バージョンの解決</div>
+        </div>
+        <div class="item">
+          <div class="hdr"><span class="roman">iv</span><span class="label">FUSE</span></div>
+          <div class="txt">ユーザ空間でファイル操作を実装し、遅延アクセスを可能にする</div>
+        </div>
+      </div>
+      <div class="footer-note">JP補助：遅延展開（lazy unpack）／キャッシュ（cache.nixos.org）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.to/goamaral/fuse-filesystem-d4n" target="_blank" rel="noreferrer noopener">What is a FUSE filesystem? | Jan 2023 - DEV Community</a></h2>
+<p class="reference-note">To implement a new file system, a handler program should use the libfuse library. This handler program should implement …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://influentcoder.com/posts/fuse" target="_blank" rel="noreferrer noopener">FUSE: Building Filesystems in Userspace | InfluentCoder</a></h2>
+<p class="reference-note">If your FUSE filesystem requires startup logic - loading a schema, connecting to an API, reading a config - users might …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blogs.oracle.com/linux/an-overview-of-fuse-and-libfuse" target="_blank" rel="noreferrer noopener">An Overview of Fuse and Libfuse | linux</a></h2>
+<p class="reference-note">With libfuse, the userspace FUSE filesystem is required to implement functions in the fuse\_operations structure and pro…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.kernel.org/doc/html/next/filesystems/fuse.html" target="_blank" rel="noreferrer noopener">FUSE — The Linux Kernel  documentation</a></h2>
+<p class="reference-note">A userspace filesystem mounted by a non-privileged (non-root) user.
+The filesystem daemon is running with the privileges…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://fzakaria.com/2026/08/09/nixpkgs-multiverse-every-version-that-ever-existed" target="_blank" rel="noreferrer noopener">nixpkgs-multiverse: every version that ever existed | Farid Zakaria’s Blog</a></h2>
+<p class="reference-note">5.18 MB covering 1,393 revisions and 289,521 distinct (attribute, version) pairs.
+
+## §Performance
+
+The key design rule …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
