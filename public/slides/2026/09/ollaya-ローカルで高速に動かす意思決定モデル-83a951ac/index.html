@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ollaya：ローカルで高速に動かす意思決定モデル</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+
+    .topline{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 44px;
+      display:flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 16px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 54px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.95;
+      transform: translateY(1px);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink);
+      font-size: 18px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      opacity: 0.95;
+    }
+
+    .content{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+      padding-top: 56px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0;
+      line-height: 1.1;
+    }
+
+    .title{
+      margin: 0;
+      font-size: 74px;
+      line-height: 1.0;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .hr{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin: 10px 0 2px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 6px;
+      align-items: stretch;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      background: rgba(255,255,255,0.02);
+    }
+    .cell .label{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .text{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 6px;
+    }
+
+    .mini{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      line-height: 1.35;
+    }
+
+    .kvs{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .kv{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px;
+      background: rgba(255,255,255,0.02);
+    }
+    .kv .k{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      margin-bottom: 10px;
+    }
+    .kv .v{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      font-weight: 500;
+    }
+
+    .note{
+      margin-top: 10px;
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.45;
+      max-width: 900px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 40px 22px; }
+      .topline{ left: 22px; right: 22px; }
+      .content{ padding-top: 42px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid, .grid3, .kvs{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">意思決定を、ローカルで</p>
+        <h1 class="title">Ollaya <span class="em">/ オンデバイス</span></h1>
+        <p class="lead">
+          文章を読み、選択肢・はい/いいえ・スコアを確率つきで返す「意思決定モデル（decision model）」を、
+          TypeSafe互換のAPIで高速にローカル実行するためのオープンソース。
+          <span class="mini">（意思決定＝判断の自動化 / 判定）</span>
+        </p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">遅さが、判断を止める</p>
+        <h2 class="title">レイテンシと機密性</h2>
+        <p class="lead">
+          判断（yes/no・選択肢・スコア）を頻繁に行う場面では、LLMの逐次トークン生成は遅くなりがちです。
+          さらに外部APIに送る設計は、機密データの扱いに負担が残ります。
+        </p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">Why Speed</div>
+            <div class="text">問い合わせ対応・不正検知・リスク推定で“速い判定”が要る。</div>
+          </div>
+          <div class="cell">
+            <div class="label">Why Privacy</div>
+            <div class="text">チケット/メール/ユーザ文面などを「手元でスコアリング」したい。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“生成”ではなく“即答”</p>
+        <h2 class="title"><span class="em">単一</span>フォワードパス</h2>
+        <p class="lead">
+          トークンを1つずつ作る通常LLMではなく、候補の確率（またはロジット）を直接取り出して返す設計が中心です。
+          これが「単一フォワードパス＝早い答え」を支えます。
+        </p>
+        <div class="kvs">
+          <div class="kv">
+            <div class="k">LLM（逐次生成）</div>
+            <div class="v">トークン生成を繰り返し → 応答が伸びやすい</div>
+          </div>
+          <div class="kv">
+            <div class="k">Ollayaの意思決定</div>
+            <div class="v">1回の計算で確率/スコア → 低レイテンシ化しやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">TypeSafe互換で、移行を楽に</p>
+        <h2 class="title">API形状はそのまま</h2>
+        <p class="lead">
+          OllayaはTypeSafeのAPI互換を保ち、TypeSafeのPython SDK 0.7.1をローカルサーバへ向けて使える点が強調されています。
+          <span class="mini">（既存実装を“流用しやすい”＝導入障壁が下がる）</span>
+        </p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">Endpoint</div>
+            <div class="text">/v1/systemone</div>
+          </div>
+          <div class="cell">
+            <div class="label">Endpoint</div>
+            <div class="text">/v1/models</div>
+          </div>
+          <div class="cell">
+            <div class="label">SDK</div>
+            <div class="text">TypeSafe Python 0.7.1</div>
+          </div>
+        </div>
+        <p class="note">
+          互換性は高いとされますが、最終的にはリクエスト/レスポンス、エラーハンドリング、モデル差分で差が出得ます。
+        </p>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">速さの“例”</p>
+        <h2 class="title">winnow:e4b の約89ms</h2>
+        <p class="lead">
+          代表例として <span class="mini">winnow:e4b</span> が挙げられ、5つの質問に対する応答が約89ms（RTX 4090、エンドツーエンド）と示されています。
+        </p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">設定</div>
+            <div class="text">RTX 4090 / エンドツーエンド / 5質問</div>
+          </div>
+          <div class="cell">
+            <div class="label">結果</div>
+            <div class="text">約89ms（低レイテンシの根拠として提示）</div>
+          </div>
+        </div>
+        <p class="note">
+          ただし速度比較は条件差（ネットワーク込み/込みでない等）の影響を受け得るため、鵜呑みは注意です。
+        </p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">精度も“同程度”を狙う</p>
+        <h2 class="title">Hosted（Jev）近い水準</h2>
+        <p class="lead">
+          紹介文では精度面で、ホスト型サービスのJev（TypeSafeのHosted API）に近い水準であることが示唆されています。
+          速度で大幅に有利でも、精度が犠牲になり切らない設計を意図しています。
+        </p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">比較対象</div>
+            <div class="text">Jev（TypeSafe Hosted decision model）</div>
+          </div>
+          <div class="cell">
+            <div class="label">主張</div>
+            <div class="text">速度優位＋精度も“僅差”領域</div>
+          </div>
+        </div>
+        <p class="note">
+          ただしベンチマーク条件の完全一致は読み取りにくいので、自環境での再現が必要です。
+        </p>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">較正済み確率が運用に効く</p>
+        <h2 class="title"><span class="em">calibrated</span> probabilities</h2>
+        <p class="lead">
+          Ollayaはモデルに較正済みの確率を付属させ、ラベル付きデータで再較正（Modelfileでrefit）できるとされています。
+          確率を閾値判定やリスク管理へ直接つなぎやすいのが特徴です。
+        </p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">当初</div>
+            <div class="text">較正済み確率（calibration済）</div>
+          </div>
+          <div class="cell">
+            <div class="label">改善</div>
+            <div class="text">refit（再較正）</div>
+          </div>
+          <div class="cell">
+            <div class="label">用途</div>
+            <div class="text">閾値・自動/人手分岐</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">閾値設計の“型”</p>
+        <h2 class="title">確率 → 判断ルール</h2>
+        <p class="lead">
+          較正された確率があれば、「0.9以上なら自動処理、未満は人手確認」のように運用ルールへ落とせます。
+          逆に較正が弱いと、確率が過大/過小になり判定基準が崩れます。
+        </p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">例（自動化）</div>
+            <div class="text">P(Yes) ≥ 0.9 → 自動<br/>P(Yes) &lt; 0.9 → 人手</div>
+          </div>
+          <div class="cell">
+            <div class="label">例（リスク）</div>
+            <div class="text">スコア上位だけ通す / 想定外はガードへ</div>
+          </div>
+        </div>
+        <p class="note">
+          人手判断と組み合わせる設計にすると、確率の“当たり外れ”も管理しやすくなります。
+        </p>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">比較は条件で揺れる</p>
+        <h2 class="title">ベンチマーク注意</h2>
+        <p class="lead">
+          レイテンシ比較や精度比較は、ネットワーク込み/込みでない、環境差、ベンチ手法差などで結果が変わり得ます。
+          “優位”を採用する前に、自環境で同条件に近い評価が必要です。
+        </p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">速度が変わる要因</div>
+            <div class="text">ネットワーク、HTTPオーバーヘッド、GPU/CPU、バッチ有無</div>
+          </div>
+          <div class="cell">
+            <div class="label">精度が変わる要因</div>
+            <div class="text">質問形式、入力分布、失敗モード、較正の有無</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">安全・セキュリティは別問題</p>
+        <h2 class="title">ローカル＝完全安全ではない</h2>
+        <p class="lead">
+          外部に送らないのは機密性の利点ですが、安全性は別レイヤです。
+          ガードモデル（例：qwen3guard）や運用基準、評価計画（失敗モード分析）が必要になります。
+        </p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">Security</div>
+            <div class="text">ログ出力、権限管理、モデルファイル取り扱いも要注意</div>
+          </div>
+          <div class="cell">
+            <div class="label">Safety</div>
+            <div class="text">安全とみなす評価基準が必要</div>
+          </div>
+          <div class="cell">
+            <div class="label">Governance</div>
+            <div class="text">人手介入・閾値・監視を設計する</div>
+          </div>
+        </div>
+        <p class="note">
+          ローカル実行は「外部送信リスクを下げる」だけで、リスクがゼロになるわけではありません。
+        </p>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">良い点と落とし穴</p>
+        <h2 class="title">導入判断の要点</h2>
+        <p class="lead">
+          Ollayaの強みは「低レイテンシ」「TypeSafe互換」「較正済み確率」「外部APIなし」で、運用に直結します。
+          一方で、ベンチ条件差・較正の前提・安全基準の不足に注意が必要です。
+        </p>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">強み（Pros）</div>
+            <div class="text">ローカル/高速、移行しやすい、確率が使える（閾値運用）</div>
+          </div>
+          <div class="cell">
+            <div class="label">落とし穴（Cons）</div>
+            <div class="text">条件差で変動、自環境検証が必須、安全/評価計画が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">最後に：評価計画</p>
+        <h2 class="title"><span class="em">結論</span>は検証で決める</h2>
+        <p class="lead">
+          技術方向性は合理的ですが、実運用での精度・レイテンシ・安全性は「モデル選定」と「検証（データ分割/指標/閾値/失敗モード分析）」で決まります。
+          <span class="mini">（Ollayaの価値を出す鍵＝再較正と運用設計）</span>
+        </p>
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">Step i</div>
+            <div class="text">質問形式を固める（Noul/Choice/Score等）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Step ii</div>
+            <div class="text">自データで較正/再較正（refit）</div>
+          </div>
+          <div class="cell">
+            <div class="label">Step iii</div>
+            <div class="text">閾値とガード、人手介入まで設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://jevals.com/models/jev" target="_blank" rel="noreferrer noopener">Jev (TypeSafe AI) benchmark: accuracy, calibration, price · Jevals</a></h2>
+<p class="reference-note">Setupai-sdk experimental\_evaluate ai@7.0.106 · native probabilities via Vercel AI Gateway · reasoning — · temperature —…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.aimodelwaddle.com/jev-vs-structured-outputs" target="_blank" rel="noreferrer noopener">TypeSafe Jev vs. Structured Outputs &amp; JSON Mode: Architecture, Latency, and Task Fit — AI Model Waddle</a></h2>
+<p class="reference-note">In our September 2026 controlled benchmark across 385 Banking77 intent classifications (77 discrete intents), we evaluat…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ubos.tech/news/qwen-3-5-reasoning-model-with-gguf-and-4%E2%80%91bit-quantization-implementation-guide" target="_blank" rel="noreferrer noopener">Qwen 3.5 Reasoning Model with GGUF and 4‑Bit Quantization: Implementation Guide - UBOS</a></h2>
+<p class="reference-note">The GGUF (General‑Purpose GPU Unified Format) is a binary container designed for fast loading with `llama.cpp` and other…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://essamamdani.com/ai-models/hf-mradermacher-qwen3-8-flash-next-uncensored-gguf" target="_blank" rel="noreferrer noopener">Qwen3.8-Flash-Next-Uncensored-GGUF: Model Details, Context &amp; Pricing | Essa Mamdani</a></h2>
+<p class="reference-note">Top 10 GPU Clouds and Servers for AI in 2026: H100 to RTX 5090Compare the top 10 GPU cloud providers and bare-metal serv…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://lite.duckduckgo.com/lite?q=typesafe+jev+Hacker+News+latency+independent+benchmark" target="_blank" rel="noreferrer noopener">typesafe jev Hacker News latency independent benchmark at DuckDuckGo</a></h2>
+<p class="reference-note">|  |  |
+| 4. | Jev vs GPT and Claude: Independent Benchmark (2026) |
+|  | We ran TypeSafe Jev against four LLMs on 791 l…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
