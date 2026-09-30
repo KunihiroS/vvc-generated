@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>livenerf：AIモデルの“能力ドリフト”日次追跡</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.08);
+      border-radius: 16px;
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      border-radius: 12px;
+      pointer-events:none;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 22px;
+      left: 28px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-right: 6px;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 18px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.85;
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 18px;
+      right: 24px;
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+    }
+    .title{
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      margin: 0;
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+    }
+
+    .grid2, .grid3{
+      display: grid;
+      gap: 16px 18px;
+      align-items: start;
+      margin-top: 20px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--rust);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      word-break: break-word;
+    }
+
+    .small{
+      font-size: 18px;
+      font-weight: 300;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+
+    .list-like{
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .li{
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      column-gap: 10px;
+      align-items: start;
+    }
+    .dot{
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--rust);
+      margin-top: 7px;
+    }
+    .li .txt{
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 300;
+    }
+
+    .refs{
+      margin-top: 18px;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      display: grid;
+      gap: 14px;
+    }
+    .ref{
+      display: grid;
+      gap: 6px;
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+    .ref:first-child{ border-top: none; padding-top: 0; }
+    .ref .rtitle{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--rust);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .ref .rbody{
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 40px 26px; border-radius: 14px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">01 / 15</div>
+      <p class="eyebrow">日次で“静かな劣化”を監視</p>
+      <h1 class="title">livenerf <i>入門</i></h1>
+      <p class="lead">
+        Claude Opus 5.5 のようなフロンティアモデルについて、リリース後の能力ドリフトを
+        <span style="color: var(--rust); font-weight: 400;">ログ固定 × 事前登録 × 統計検出</span>で追います。
+      </p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">02 / 15</div>
+      <p class="eyebrow">“dumber today”問題</p>
+      <h2 class="title"><i>再現</i>が難しい</h2>
+      <p class="lead">
+        モデルは公開後に内部提供が変わり得ます（量子化、別モデルへのルーティング、推論工数の削減など）。
+        利用者側は日々の挙動変化を、day-0基準に対して検証しづらいのが課題です。
+      </p>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">03 / 15</div>
+      <p class="eyebrow">固定して測る仕組み</p>
+      <h2 class="title"><i>同じ条件</i>で比較</h2>
+      <p class="lead">
+        livenerf はプロンプト、評価器、Claude Code 実行環境（CLI）を固定し、ログを蓄積しながら統計的にドリフトを検出します。
+        さらに事前登録（pre-registration）で解釈の余地を減らします。
+      </p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">固定するもの</div>
+          <div class="v">プロンプト / 評価器 / CLI / ログ形式</div>
+        </div>
+        <div class="cell">
+          <div class="k">見るもの</div>
+          <div class="v">正誤（精度）＋ 出力トークン数（工数兆候）</div>
+        </div>
+        <div class="cell">
+          <div class="k">切り分け</div>
+          <div class="v">統制アーム：Opus 5（同じハーネスで評価）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 15</div>
+      <p class="eyebrow">ベースラインは“物差し”</p>
+      <h2 class="title">day-0 <i>基準</i></h2>
+      <p class="lead">
+        単発評価だと「たまたま難しい問題」などが混入します。
+        最初の10日をベースラインにして、その後を窓（10日ごと）で比較し、変化を“差”として捉えます。
+      </p>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">05 / 15</div>
+      <p class="eyebrow">30日・窓比較プラン</p>
+      <h2 class="title"><i>10日</i>窓で検出</h2>
+      <p class="lead">
+        Opus 5.5 登場（仮定）を起点に30日実行し、最初の10日を baseline、残りを10日ごとの窓で比較します。
+        複数窓で偶然のブレを抑える意図があります。
+      </p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">期間</div>
+          <div class="v">30 days（最初の10日＝day-0近傍）</div>
+        </div>
+        <div class="cell">
+          <div class="k">比較単位</div>
+          <div class="v">10日ごとの窓（例：day-10〜19, 20〜29…）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">06 / 15</div>
+      <p class="eyebrow">問題選定で“差が出る”</p>
+      <h2 class="title"><i>時々</i>当たる問題</h2>
+      <p class="lead">
+        いつも正しい/いつも誤りの問題は変化が見えにくいです。
+        livenerf は「時々当たり・時々外れる」情報量が高い問題群に絞り、性能低下が差として出やすくします。
+      </p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">狙い（検出力）</div>
+          <div class="v">変化の余地がある問題で power を稼ぐ</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">“変化が小さい”タイプは検出できない場合がある</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">Enumeration</div>
+      <div class="slide-num">07 / 15</div>
+      <p class="eyebrow">二次指標で工数も監視</p>
+      <h2 class="title"><i>精度</i>＋工数</h2>
+      <p class="lead">
+        精度（正誤の一致）に加え、出力トークン数も重要な二次指標です。
+        節約（推論工数低下）として現れる“別種の劣化”の早期兆候を拾う狙いがあります。
+      </p>
+      <div class="list-like">
+        <div class="li"><div class="dot"></div><div class="txt"><span style="color: var(--rust); font-style: italic;">i</span> 精度：正誤一致スコアで能力変化を測る（accuracy / correctness）</div></div>
+        <div class="li"><div class="dot"></div><div class="txt"><span style="color: var(--rust); font-style: italic;">ii</span> 工数兆候：出力トークン数で“節約”を検知（token count）</div></div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">08 / 15</div>
+      <p class="eyebrow">Opus 5 を統制群に</p>
+      <h2 class="title"><i>別物</i>か同物か</h2>
+      <p class="lead">
+        同じハーネスで Opus 5 を毎日評価し、両者が同時に動けば「モデル固有の劣化」ではなく提供経路変更を疑う設計です。
+        事前登録済みの決定ルールで後から解釈を都合よく変える余地を抑えます。
+      </p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">統制群（control）</div>
+          <div class="v">Opus 5（同条件で評価）</div>
+        </div>
+        <div class="cell">
+          <div class="k">解釈の分岐</div>
+          <div class="v">同時変化 → サービング/経路変更の疑い</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">09 / 15</div>
+      <p class="eyebrow">進捗の一例</p>
+      <h2 class="title">2026-09 <i>時点</i></h2>
+      <p class="lead">
+        文面では 2026-09-29 時点で 6/30 日のデータが集まり、ベースラインは 6/10、実行は欠損なし、CLI も固定とされています。
+        さらに positive control / A/A check（事前に想定した劣化検出の確認）も通過した記載があります。
+      </p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">データ</div>
+          <div class="v">6/30 日</div>
+        </div>
+        <div class="cell">
+          <div class="k">baseline</div>
+          <div class="v">6/10 日</div>
+        </div>
+        <div class="cell">
+          <div class="k">安定性</div>
+          <div class="v">欠損なし / CLI固定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">10 / 15</div>
+      <p class="eyebrow">検出できない“穴”もある</p>
+      <h2 class="title"><i>万能</i>ではない</h2>
+      <p class="lead">
+        例えば Opus 5 を Opus 5.5 に置換する検証の一部は、十分なサンプル規模では区別できない可能性があるとされています。
+        「同系列モデル差」をこの設計で検出できない場面もあり、結果の解釈には注意が必要です。
+      </p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">検出限界</div>
+          <div class="v">小さな差（MDE以下）や一部の置換は識別困難</div>
+        </div>
+        <div class="cell">
+          <div class="k">因果の注意</div>
+          <div class="v">Δは“提供経路変化”も混ざるため単純な断定は危険</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">11 / 15</div>
+      <p class="eyebrow">読み方の指針</p>
+      <h2 class="title">信号として <i>Δ</i></h2>
+      <p class="lead">
+        livenerf は「メカニズム特定」ではなく、提供後の能力に関する <span style="color: var(--rust); font-weight: 400;">統計的シグナル検出</span>に位置づけるのが適切です。
+        読者は事前登録ルールに基づく検出信号として Δ を解釈し、制御アームと検出限界も同時に読むべきです。
+      </p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">固定要素＋事前登録＋ログ蓄積＋統制群</div>
+        </div>
+        <div class="cell">
+          <div class="k">リスク</div>
+          <div class="v">外部要因混入を完全排除できない</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用価値</div>
+          <div class="v">“体感”を再現可能な形へ寄せる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">12 / 15</div>
+      <p class="eyebrow">参照（提示文ベース）</p>
+      <h2 class="title">参考 <i>情報</i></h2>
+      <p class="lead">
+        以下はユーザー提示文に含まれる前提・記述を元にした、読解のための参照項目です（原文のURLは提示されていません）。
+      </p>
+      <div class="refs">
+        <div class="ref">
+          <div class="rtitle">livenerf リポジトリ</div>
+          <div class="rbody">リポジトリ名：livenerf／「日次・ログ固定・事前登録統計で能力ドリフト検出」という設計の説明。</div>
+        </div>
+        <div class="ref">
+          <div class="rtitle">対象モデル</div>
+          <div class="rbody">Claude Opus 5.5（想定の開始日 2026-09-22 前提）と統制アームとして Opus 5。</div>
+        </div>
+        <div class="ref">
+          <div class="rtitle">測定指標</div>
+          <div class="rbody">正誤スコア（精度）＋出力トークン数（工数兆候）。</div>
+        </div>
+        <div class="ref">
+          <div class="rtitle">統計運用</div>
+          <div class="rbody">最初の10日を baseline とし、残りを10日窓で比較／解釈を pre-registration で固定。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ccleaks.com/news/claude-opus-5-5-sep-2026" target="_blank" rel="noreferrer noopener">Anthropic launches Claude Opus 5.5</a></h2>
+<p class="reference-note">When did Anthropic launch Claude Opus 5.5?
+:   On September 22, 2026, Anthropic introduced Claude Opus 5.5 as the first …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://aiwiki.ai/wiki/claude_opus_5_5" target="_blank" rel="noreferrer noopener">Claude Opus 5.5 | AI Wiki</a></h2>
+<p class="reference-note">Claude Opus 5.5 is a large language model developed by Anthropic and released on September 22, 2026. It is the first mod…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/jqueryscript/anthropic-claude-timeline" target="_blank" rel="noreferrer noopener">GitHub - jqueryscript/anthropic-claude-timeline: A public timeline of major Anthropic Claude model releases, product updates, and developer platform milestones. · GitHub</a></h2>
+<p class="reference-note">| September 18, 2026 | Anthropic partnered with Accenture on independent frontier-model evaluation, red-teaming, and saf…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://supergok.com/claude-opus-5-5" target="_blank" rel="noreferrer noopener">Claude Opus 5.5 Reportedly in Testing Ahead of Launch</a></h2>
+<p class="reference-note">&gt; Claude Opus 5.5 may be the next major Claude release.  
+&gt;   
+&gt; Claims: Anthropic is stealth-testing the model under th…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://margallanews.com/story/news-anthropic-claude-opus-55-2026-09-22" target="_blank" rel="noreferrer noopener">Anthropic launches Claude Opus 5.5, says… — Margalla News</a></h2>
+<p class="reference-note">Anthropic launched Claude Opus 5.5 on September 22. Reuters reported that the company says Opus 5.5 delivers performance…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
