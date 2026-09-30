@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Claude Opus 5.5：プロンプト設計・運用調整</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-inner{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-top: 6px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      position:absolute;
+      top: 22px;
+      left: 28px;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag:before{
+      content:"";
+      width: 26px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+    .slide-num{
+      position:absolute;
+      top: 20px;
+      right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      line-height: 1.1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 64px;
+      font-weight: 500;
+      line-height: 1.02;
+      margin-top: 4px;
+      max-width: 900px;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin-top: 4px;
+      margin-bottom: 2px;
+      opacity: 0.9;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 18px;
+      margin-top: 6px;
+      width: 100%;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 16px;
+      margin-top: 6px;
+      width: 100%;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px 12px;
+      background: rgba(0,0,0,0.05);
+    }
+    .card h4{
+      margin:0 0 8px 0;
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+    }
+    .card p{
+      margin:0;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink-2);
+      line-height: 1.4;
+    }
+    .nowrap { white-space: nowrap; }
+    @media (max-width: 900px){
+      .slide{ padding: 46px 44px; }
+      .slide-tag{ top: 18px; left: 20px; }
+      .slide-num{ top: 16px; right: 20px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 19px; }
+    }
+    @media (max-width: 560px){
+      .slide{ padding: 36px 26px; }
+      .title{ font-size: 42px; }
+      .lead{ font-size: 17px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">Claude Opus 5.5</div>
+      <div class="slide-num">01 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">移行で効くのは設定</div>
+        <div class="title">Effortと運用設計</div>
+        <div class="lead">
+          Claude Opus 5.5 は「同じプロンプトの再利用」でも成果が変わります。狙いは品質・待ち時間・コスト・安全性を同時に最適化することです。
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">02 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">同名でも同量じゃない</div>
+        <div class="title">移行の落とし穴</div>
+        <div class="lead">
+          Opus 5 と Opus 5.5 は挙動が揃わず、特に effort / thinking 周りでターン長・トークン・表示体験が変わります。結果として「期待した品質にならない」や「UIが想定と違う」が起きがちです。
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">03 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">effortはスロットル</div>
+        <div class="title">出力の速度と深さ</div>
+        <div class="lead">
+          effort は「思考量」だけでなく、待ち時間とコストも同時に動かすレバーです。Opus 5.5 は生成が速く、同じ入力でも少ないトークンで完了しやすい傾向があります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <h4>変える軸</h4>
+            <p>effort（思考量・推論の強さ）</p>
+          </div>
+          <div class="card">
+            <h4>影響</h4>
+            <p>品質 / 待ち時間 / コスト / 安全性</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">04 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">最初に直す</div>
+        <div class="title">thinking disabled</div>
+        <div class="lead">
+          Opus 5 で有効だった <span class="mono">thinking: {"type":"disabled"}</span> 前提の設計は、Opus 5.5 では見直しが必要です。少なくとも形式の修正・低 effort 開始・思考ブロック前提の削除を検討します。
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">Checklist</div>
+      <div class="slide-num">05 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">移行テスト順</div>
+        <div class="title">検証ポイント</div>
+        <div class="lead">
+          変更点が多いほど「どれが効いたか」が追いにくくなります。小さく段階導入し、手戻りを減らします。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <h4>i. effort</h4>
+            <p>Opus 5 の high/low をそのまま移さない</p>
+          </div>
+          <div class="card">
+            <h4>ii. max_tokens</h4>
+            <p>思考用トークンも含むため余裕を確保</p>
+          </div>
+          <div class="card">
+            <h4>iii. thinking</h4>
+            <p>disabled 前提の削除・レスポンス種別処理</p>
+          </div>
+          <div class="card">
+            <h4>iv. 評価</h4>
+            <p>自社 eval で段階比較（入力規模も固定）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">Agents</div>
+      <div class="slide-num">06 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">止まる理由は設計</div>
+        <div class="title">未監督エージェント</div>
+        <div class="lead">
+          長時間タスクで progress の一部が tool call でなく <span class="mono">end_turn</span>（テキスト）になると、「完了誤認」で停止することがあります。停止判定の設計で緩和します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="card">
+            <h4>ブロック化</h4>
+            <p>チェックリストで完了条件を定義</p>
+          </div>
+          <div class="card">
+            <h4>継続条件</h4>
+            <p>ブロッカー無しでも未完なら継続分岐</p>
+          </div>
+          <div class="card">
+            <h4>入力設計</h4>
+            <p>次に必要なユーザー入力を短く要求</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Safety</div>
+      <div class="slide-num">07 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">refusalは正常系</div>
+        <div class="title">stop_reason対応</div>
+        <div class="lead">
+          安全性拒否は <span class="mono">stop_reason: "refusal"</span> とカテゴリ情報（stop_details）を伴い、通常の応答として返り得ます。アプリは「停止＝失敗」扱いを避け、分類して扱います。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <h4>扱うべき情報</h4>
+            <p>stop_reason / stop_details（カテゴリ）</p>
+          </div>
+          <div class="card">
+            <h4>方針</h4>
+            <p>一律リトライ禁止。例外（fallback）も確認</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">UI</div>
+      <div class="slide-num">08 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">見せ方が品質になる</div>
+        <div class="title">progress-update表示</div>
+        <div class="lead">
+          Opus 5.5 は tool call 間に progress-update を出しますが、クライアント側の表示設定次第で見えない可能性があります。 <span class="mono">display: "updates"</span> を前提に設計します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="card">
+            <h4>設定</h4>
+            <p><span class="mono">display: "updates"</span></p>
+          </div>
+          <div class="card">
+            <h4>種別</h4>
+            <p>テキストブロックのみレンダリングしない</p>
+          </div>
+          <div class="card">
+            <h4>出力</h4>
+            <p>コード断片は専用ツールで確保</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">Thinking</div>
+      <div class="slide-num">09 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">指示で止めない</div>
+        <div class="title">体験の再設計</div>
+        <div class="lead">
+          effort がモデルの考える量を制御するため、従来の「考えるように指示する」文言だけでは効果が弱い場合があります。過去回答を再検討する挙動など、追加指示の要否を検討します。
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Multi-app</div>
+      <div class="slide-num">10 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">必要情報は外にある</div>
+        <div class="title">マルチアプリ探索</div>
+        <div class="lead">
+          要求に書かれていないが必要な情報が別アプリにあるケースに備え、「行動前に広く探索」する指示が有効です。成功率は上がる一方で、ツール呼び出し増によるコストも増えます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <h4>例</h4>
+            <p>メール / 文書 / スプレッドシート / CRM</p>
+          </div>
+          <div class="card">
+            <h4>注意</h4>
+            <p>データ信頼性とプロンプトインジェクション耐性</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">Runbook</div>
+      <div class="slide-num">11 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">運用の型</div>
+        <div class="title">停止・再試行・監査</div>
+        <div class="lead">
+          エージェントは「途中停止」「refusal」「表示差」を前提にハーネス設計します。停止時の理由カテゴリ管理と、ユーザー提示方針まで決めると事故が減ります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="card">
+            <h4>停止</h4>
+            <p>end_turn 誤認対策（未完条件）</p>
+          </div>
+          <div class="card">
+            <h4>安全</h4>
+            <p>refusal カテゴリで再試行可否を判定</p>
+          </div>
+          <div class="card">
+            <h4>可観測</h4>
+            <p>stop_details をログ化（監査・改善用）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">12 / 15</div>
+      <div class="slide-inner">
+        <div class="eyebrow">移行の結論</div>
+        <div class="title">調整は4点</div>
+        <div class="lead">
+          Opus 5.5 移行は「effort校正」「thinking disabled撤廃」「停止判定/進捗表示」「refusalの扱い」で決まります。自社 eval で段階確認し、UI/ツール/安全まで一体で設計してください。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <h4>i. 効果</h4>
+            <p>effort を移行“同量”で考えない</p>
+          </div>
+          <div class="card">
+            <h4>ii. 安全</h4>
+            <p>refusal を通常応答として設計</p>
+          </div>
+          <div class="card">
+            <h4>iii. 運用</h4>
+            <p>未監督停止は判定で緩和</p>
+          </div>
+          <div class="card">
+            <h4>iv. UX</h4>
+            <p>updates 表示をクライアントに合わせる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.beri.net/article/claude-opus-5-5-breaking-changes-forced-tool-use-thinking-effort-default-migration-cost" target="_blank" rel="noreferrer noopener">Claude Opus 5.5 Rejects the Forced Tool Calls Opus 5 Accepted | THE D*AI*LY BRIEF</a></h2>
+<p class="reference-note">Claude Opus 5.5model migrationreasoning effortstructured outputstool useAI FinOpsLangChaincost per task
+
+# Claude Opus 5…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@kankit570/claude-opus-5-5-the-model-id-swap-that-400s-your-production-agents-74ec64c52723" target="_blank" rel="noreferrer noopener">Claude Opus 5.5 : The model-ID swap that 400s your production agents | by Kumar Ankit | Sep, 2026 | Medium</a></h2>
+<p class="reference-note">## You can’t turn thinking off anymore. Effort is the dial.
+
+On Opus 5 you could still send `thinking: {&quot;type&quot;: &quot;disable…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/opus-5-5" target="_blank" rel="noreferrer noopener">Claude Opus 5.5 Migration Guide</a></h2>
+<p class="reference-note">## ​ Computer Use
+
+`computer_20251124`
+`tools`
+`{&quot;type&quot;: &quot;computer_toolset_20260801&quot;}`
+`name`
+
+## ​ Migration Checklist
+…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.requesty.ai/blog/claude-opus-5-5-explained" target="_blank" rel="noreferrer noopener">Claude Opus 5.5: Pricing, API Access and Changes | Requesty | Requesty</a></h2>
+<p class="reference-note">The pricing change is straightforward: standard input and output tokens cost 20% less than Opus 5, while cache reads cos…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.developersdigest.tech/blog/claude-sonnet-5-5-release-guide-2026" target="_blank" rel="noreferrer noopener">Claude Sonnet 5.5 Developer Guide: Pricing, Benchmarks, and the Five API Changes - Developers Digest</a></h2>
+<p class="reference-note">| Source | What it supports |
+ --- |
+| Anthropic, &quot;Introducing Claude Sonnet 5.5&quot; (September 28, 2026) | Release, vendor…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
