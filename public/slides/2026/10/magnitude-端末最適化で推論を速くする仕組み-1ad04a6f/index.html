@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Magnitude: 端末最適化で推論を速くする仕組み</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 44px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      width: 100%;
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      position: relative;
+      padding: 56px 72px;
+      border-radius: 0px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+    }
+
+    .card {
+      position: absolute;
+      inset: 0;
+      border: 1.5px solid var(--rule);
+      background: var(--paper);
+      padding: 56px 72px;
+    }
+
+    .pad {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      font-family: "Inter Tight", system-ui, -apple-system, sans-serif;
+      color: var(--ink-2);
+      letter-spacing: 0.12em;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      white-space: nowrap;
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 18px;
+      right: 24px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 18px;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      margin-top: 44px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+
+    .title {
+      margin-top: 10px;
+      font-size: 64px;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink);
+      font-style: italic;
+      letter-spacing: 0.01em;
+      max-width: 920px;
+      line-height: 1.02;
+    }
+
+    .lead {
+      margin-top: 14px;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .rule {
+      margin-top: 22px;
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      opacity: 0.7;
+    }
+
+    .content {
+      margin-top: 22px;
+      height: calc(100% - 180px);
+      overflow: hidden;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 14px 18px;
+      width: 100%;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+      min-height: 96px;
+    }
+    .cell .kicker {
+      font-family: "Inter Tight", system-ui, -apple-system, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .cell .kicker .roman {
+      color: var(--rust);
+      font-style: italic;
+      letter-spacing: 0.02em;
+      font-size: 14px;
+    }
+    .cell .text {
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+
+    .note {
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 12px;
+      max-width: 760px;
+    }
+
+    @media (max-width: 980px) {
+      .slide { padding: 48px 52px; }
+      .card { padding: 48px 52px; }
+      .title { font-size: 48px; }
+      .lead { font-size: 18px; }
+      .content { height: auto; }
+      .grid2 { grid-template-columns: 1fr; }
+      .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1. Cover -->
+    <section class="slide" aria-label="cover">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Magnitude / 概要</div>
+          <div class="slide-num">02 / 18</div>
+
+          <div class="eyebrow">端末最適化の推論</div>
+          <div class="title">Magnitude</div>
+
+          <div class="lead">
+            Magnitude は、LLM 推論エンジン自身がユーザー端末でコンパイル＆チューニングして、速さを引き出すことを目指すデスクトップ型のオープンソース実行基盤です。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid3">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>差別化点</span></div>
+                <div class="text">事前最適化より一段深い「オンデバイスで作り直す」</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>速度目標</span></div>
+                <div class="text">llama.cpp 比で最大2倍程度（例：Metal 92%高速 / CUDA 19%高速）</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">iii</span><span>体験</span></div>
+                <div class="text">既存エージェントとワンクリック連携、ローカル中心のプライバシー主張</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Problem -->
+    <section class="slide" aria-label="problem">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 18</div>
+
+          <div class="eyebrow">なぜ遅くなる？</div>
+          <div class="title">ハード差</div>
+
+          <div class="lead">
+            LLM 推論は行列演算（カーネル）の効率に強く依存し、GPU/OS/ドライバの違いで最適な実装が変わります。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>事前最適化の限界</span></div>
+                <div class="text">幅広い環境向けに用意したカーネルは「どれにも当たるが、最適とは限らない」</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>端末適応の必要</span></div>
+                <div class="text">同じモデルでも、チップ特性に合わせた生成・選択ができるほど伸びやすい</div>
+              </div>
+            </div>
+            <div class="note">結論：速さは「モデル名」だけでなく、「カーネルが端末にフィットしているか」で決まりやすい。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Metaphor -->
+    <section class="slide" aria-label="metaphor">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 18</div>
+
+          <div class="eyebrow">既製服 vs オーダー</div>
+          <div class="title">適合</div>
+
+          <div class="lead">
+            llama.cpp のような一般エンジンは「既製のカーネル」。Magnitude は「端末に合わせて、その場で裁断・縫製する」発想です。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>既製品</span></div>
+                <div class="text">多環境に対応するため、最適点がぼやける可能性</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>オーダーメイド</span></div>
+                <div class="text">端末上でコンパイル＆チューニングし、実チップに寄せる</div>
+              </div>
+            </div>
+            <div class="note">大枠の意味：コンパイル時間は“準備コスト”だが、実行側の効率が上がれば回収できる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Architecture -->
+    <section class="slide" aria-label="architecture">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 18</div>
+
+          <div class="eyebrow">何が起きる？</div>
+          <div class="title">オンデバイス最適化</div>
+
+          <div class="lead">
+            Magnitude の中心は、モデル実行の前にカーネルを端末上でコンパイルし、チューニングして“その端末向け”に整える点です。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid3">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>プロファイル</span></div>
+                <div class="text">端末の特性を把握（推定・評価のための準備）</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>コンパイル/チューニング</span></div>
+                <div class="text">端末でカーネルを作り、候補を調整して選ぶ</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">iii</span><span>実行</span></div>
+                <div class="text">最適化済み状態で LLM 推論（高速化の狙い）</div>
+              </div>
+            </div>
+            <div class="note">ポイント：性能の“原因”を、事前配布カーネルの平均化ではなく、端末適応に置いています。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Comparison -->
+    <section class="slide" aria-label="comparison">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">06 / 18</div>
+
+          <div class="eyebrow">llama.cppとの差</div>
+          <div class="title">カーネル戦略</div>
+
+          <div class="lead">
+            一般的な推論エンジンは「幅広い環境向けに用意されたカーネル」に依存しやすいのに対し、Magnitude は“端末上で作り直す”ことで適合を狙います。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>事前最適化</span></div>
+                <div class="text">配布済み実装を選択して実行（初期導入は楽）</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>オンデバイス最適化</span></div>
+                <div class="text">コンパイル＆チューニングで“実機仕様”に寄せる（実行効率を狙う）</div>
+              </div>
+            </div>
+            <div class="note">読解のコツ：初回コストと最終速度のトレードオフを、設計が握っています。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. Evidence -->
+    <section class="slide" aria-label="evidence">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">07 / 18</div>
+
+          <div class="eyebrow">主張される速さ</div>
+          <div class="title">最大2倍級</div>
+
+          <div class="lead">
+            Magnitude は、llama.cpp に対して最大2倍程度の高速化を掲げています（例：Metal で 92%高速、CUDA で 19%高速）。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>Metal（Mac）</span></div>
+                <div class="text">92% 高速という例が提示されている</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>CUDA（NVIDIA）</span></div>
+                <div class="text">19% 高速という例が提示されている</div>
+              </div>
+            </div>
+            <div class="note">ただし、モデル名・入力長・条件などの詳細が不足しているため、再現性は自環境での確認が前提になります。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. Evidence2 -->
+    <section class="slide" aria-label="evidence2">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">08 / 18</div>
+
+          <div class="eyebrow">ベンチ条件の例</div>
+          <div class="title">比較の文脈</div>
+
+          <div class="lead">
+            Web検索の範囲では、Qwen 3.6 35B（4bit）・64k context・no speculative decoding のような具体条件で decode を比較した記述があります。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid3">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>モデル例</span></div>
+                <div class="text">Qwen 3.6 35B（4bit）</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>コンテキスト</span></div>
+                <div class="text">64k context</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">iii</span><span>デコード</span></div>
+                <div class="text">no speculative decoding</div>
+              </div>
+            </div>
+            <div class="note">注意：同じ“モデル”でも設定差・同条件かどうかで結果は変わり得ます。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. Enumeration -->
+    <section class="slide" aria-label="enumeration">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Key Points</div>
+          <div class="slide-num">09 / 18</div>
+
+          <div class="eyebrow">性能だけじゃない</div>
+          <div class="title">運用設計</div>
+
+          <div class="lead">
+            Magnitude は速度以外にも、メモリや複数セッション運用（prefix cache 共有など）に関する設計を説明しています。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid3">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>メモリ節約</span></div>
+                <div class="text">エージェントごとの消費を抑える設計</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>解放</span></div>
+                <div class="text">エージェント停止時に解放</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">iii</span><span>並行</span></div>
+                <div class="text">複数セッションで prefix cache を共有し、遅延を抑える</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. Distinction -->
+    <section class="slide" aria-label="distinction">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">10 / 18</div>
+
+          <div class="eyebrow">導入のしやすさ</div>
+          <div class="title">エージェント連携</div>
+
+          <div class="lead">
+            Magnitude は Pi や OpenCode、Hermes、Codex など既存のエージェントと「ワンクリック連携」を掲げ、他は OpenAI 互換 API 経由で接続可能とされています。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>ワンクリック</span></div>
+                <div class="text">Pi / OpenCode / Hermes / Codex など</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>互換API</span></div>
+                <div class="text">OpenAI互換API 経由でその他のエージェント</div>
+              </div>
+            </div>
+            <div class="note">結論：性能だけでなく“導入コスト”を下げる設計が主張されています（実務上の重要点）。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. Architecture -->
+    <section class="slide" aria-label="architecture2">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">11 / 18</div>
+
+          <div class="eyebrow">対応範囲</div>
+          <div class="title">環境対応</div>
+
+          <div class="lead">
+            Magnitude は macOS / Linux / Windows、ハードは Apple Silicon / NVIDIA / AMD（さらに CPU のみでも動作）とされています。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid3">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>OS</span></div>
+                <div class="text">macOS / Linux / Windows</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>GPU</span></div>
+                <div class="text">Apple Silicon / NVIDIA / AMD</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">iii</span><span>CPU</span></div>
+                <div class="text">CPUのみでも動作（速度は環境依存）</div>
+              </div>
+            </div>
+            <div class="note">実用上は「端末に合わせた最適化」が効く領域なので、特に GPU 世代差で差が出やすい可能性があります。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11. Evidence -->
+    <section class="slide" aria-label="privacy">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Privacy</div>
+          <div class="slide-num">12 / 18</div>
+
+          <div class="eyebrow">端末内に留める</div>
+          <div class="title">オフライン主張</div>
+
+          <div class="lead">
+            公式説明では、プロンプト・ファイル・モデルが端末内に留まり、ダウンロード後はインターネット不要と明記されています。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>データの所在</span></div>
+                <div class="text">プロンプト・ファイル・モデルを端末内に保持（オンデバイス）</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>通信</span></div>
+                <div class="text">ダウンロード後はインターネット不要とされる</div>
+              </div>
+            </div>
+            <div class="note">ただし、クラッシュレポートや更新確認などの挙動は別途確認が必要です（完全保証には追加検証が望ましい）。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12. Process -->
+    <section class="slide" aria-label="process">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">13 / 18</div>
+
+          <div class="eyebrow">導入判断の手順</div>
+          <div class="title">検証しよう</div>
+
+          <div class="lead">
+            “最大2倍”のような数字は魅力的ですが、条件が揃わないとズレます。導入は自環境での測定と、通信挙動の確認が現実的です。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid3">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>性能測定</span></div>
+                <div class="text">自分のモデル/入出力長/設定で再現性確認</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>初回コスト</span></div>
+                <div class="text">コンパイル時間が運用に与える影響を確認</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">iii</span><span>プライバシー確認</span></div>
+                <div class="text">ログ/通信先/更新機構の有無を確認</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13. Closing -->
+    <section class="slide" aria-label="closingOpinion">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">Takeaway</div>
+          <div class="slide-num">14 / 18</div>
+
+          <div class="eyebrow">まとめ</div>
+          <div class="title">端末適応</div>
+
+          <div class="lead">
+            Magnitude は「端末最適化」「エージェント統合」「プライバシー重視」を性能と体験の両面で打ち出す設計です。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>何が強み？</span></div>
+                <div class="text">オンデバイスでカーネルをコンパイル＆チューニングし、実チップに寄せる</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>何に注意？</span></div>
+                <div class="text">最大2倍などは条件依存。通信挙動とベンチ条件を自分で確認するのが安全</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14. References -->
+    <section class="slide" aria-label="references">
+      <div class="card">
+        <div class="pad">
+          <div class="slide-tag">References</div>
+          <div class="slide-num">15 / 18</div>
+
+          <div class="eyebrow">参照元（要点）</div>
+          <div class="title">Sources</div>
+
+          <div class="lead">
+            この要約は、提示された入力（Magnitudeの説明・差別化点・FAQ・見解）と、追加のWeb検索・過去履歴の記述に基づき構成しています。
+          </div>
+          <div class="rule"></div>
+
+          <div class="content">
+            <div class="grid2">
+              <div class="cell">
+                <div class="kicker"><span class="roman">i</span><span>Magnitude公式文脈</span></div>
+                <div class="text">端末上でカーネルをコンパイル＆チューニング／オフライン主張／エージェント連携</div>
+              </div>
+              <div class="cell">
+                <div class="kicker"><span class="roman">ii</span><span>Web検索（補強）</span></div>
+                <div class="text">llama.cpp 比較の例、Qwen 3.6 35B（4bit）・64k context・no speculative decoding のような条件記述</div>
+              </div>
+            </div>
+            <div class="note">より正確な評価のために、公式ドキュメント・ベンチ手順・セキュリティ/プライバシー資料（通信/ログ）を直接確認してください。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=49911995" target="_blank" rel="noreferrer noopener">Launch HN: Magnitude (YC S25) – Self-optimizing inference engine for agents</a></h2>
+<p class="reference-note">We take inspiration from the best innovations in inference from academics (e.g. FlashAttention, FlashInfer, TurboQuant) …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://x.com/TheAhmadOsman/article/2057183854444843202?lang=en" target="_blank" rel="noreferrer noopener">Inference Engines for LLMs &amp; Local AI Hardware (2026 Edition) | Ahmad (@TheAhmadOsman) on X</a></h2>
+<p class="reference-note">Single RTX 3090 / 4090 / 5090: ExLlamaV2 for EXL2 local inference. llama.cpp for GGUF or portability. vLLM if serving mu…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/magnitudedev/magnitude" target="_blank" rel="noreferrer noopener">GitHub - magnitudedev/magnitude: Open source inference engine for the hardware you already own. Profiles your machine, recommends the best open models for it, and tunes them for your exact hardware. Works on Apple Silicon, NVIDIA, AMD, or nothing but a CPU. · GitHub</a></h2>
+<p class="reference-note">No. It runs in the background, loads models when your agent needs them, and unloads them when idle or memory gets tight.…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://magnitude.dev/" target="_blank" rel="noreferrer noopener">Run the best open models for your machine | Magnitude</a></h2>
+<p class="reference-note">## FAQ
+
+What is Magnitude?
+
+An open source inference engine optimized for consumer hardware. The desktop app profiles yo…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://rocm.blogs.amd.com/ecosystems-and-partners/llama-cpp-oct2025/README.html" target="_blank" rel="noreferrer noopener">Accelerating llama.cpp on AMD Instinct MI300X — ROCm Blogs</a></h2>
+<p class="reference-note">Running the commands below will generate the benchmark results with the inference using the default GEMM library `rocBLA…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
