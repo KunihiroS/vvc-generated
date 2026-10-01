@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>eval×hillclimbing：自分を騙さない運用</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display:flex;
+      flex-direction:column;
+      gap: 22px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow:hidden;
+      padding: 56px 72px;
+      border-radius: 2px;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      width:100%;
+      gap:16px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--ink-2);
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding-top: 2px;
+    }
+    .slide-tag .rule{
+      width: 18px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 28px;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+      white-space:nowrap;
+      padding-top: 2px;
+    }
+    .eyebrow{
+      margin-top: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.2;
+    }
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 64px;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      line-height: 1.0;
+    }
+    .jp-title{
+      margin-top: 6px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 54px;
+      letter-spacing: 0.01em;
+      line-height: 1.0;
+      color: var(--ink);
+    }
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+      line-height: 1.45;
+    }
+    .grid{
+      margin-top: 18px;
+      width:100%;
+      display:grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 2px;
+      background: rgba(240,232,216,0.03);
+      min-height: 72px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+      line-height: 1.35;
+    }
+    .grid2{
+      margin-top: 18px;
+      width:100%;
+      display:grid;
+      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 400;
+      line-height: 1.45;
+    }
+    .ref{
+      margin-top: 14px;
+      color: var(--ink-2);
+      font-size: 20px;
+      font-weight: 300;
+      line-height: 1.5;
+    }
+    .hint{
+      margin-top: auto;
+      padding-top: 18px;
+      border-top: 1px solid var(--rule-strong);
+      color: var(--ink-3);
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: 0.02em;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">evalは測定器</div>
+      <div class="title">自分を</div>
+      <div class="jp-title">騙さない改善</div>
+      <div class="lead">LLMアプリの性能向上は、評価（eval）と最適化（hillclimbing）の両方を“信頼できる形”で回すのが前提です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Key</div>
+          <div class="v">良いeval条件 + 過学習検知</div>
+        </div>
+        <div class="cell">
+          <div class="k">Tool</div>
+          <div class="v"><span class="mono">/claude-api build-eval</span> と <span class="mono">hillclimb</span></div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: eval（評価） / hillclimbing（段階的最適化）</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">測定が歪むと</div>
+      <div class="title">最適化が</div>
+      <div class="jp-title">嘘になる</div>
+      <div class="lead">評価が甘い・偏っている・誤判定すると、テストだけ良くなる過学習が起きます（本番で成果が出ない）。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Failure</div>
+          <div class="v">評価器（grader）/ハーネスの穴に学習（reward hack）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Symptom</div>
+          <div class="v">test改善が増えない／急に頭打ち／分散が大きい</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: grade / grader（採点器）・leak（評価漏洩）</div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">evalは“ものさし”</div>
+      <div class="title">正しい</div>
+      <div class="jp-title">ものさしがないと</div>
+      <div class="lead">hillclimbing（段階的に性能を押し上げる最適化）は、良いものさしがある前提でしか前に進みません。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">eval</div>
+          <div class="v">本番に近いタスク分布を測る</div>
+        </div>
+        <div class="cell">
+          <div class="k">headroom</div>
+          <div class="v">最高難度でも満点に近づかない“余白”</div>
+        </div>
+        <div class="cell">
+          <div class="k">variance</div>
+          <div class="v">実行間分散が小さい（偶然を成果にしない）</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: headroom（ヘッドルーム：改善余地）</div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">良いevalの4条件</div>
+      <div class="title">同時に</div>
+      <div class="jp-title">満たす</div>
+      <div class="lead">記事が挙げる共通要素は、(1)本番性、(2)能力増で伸びる余地、(3)ヘッドルーム、(4)低分散です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">1 本番性</div>
+          <div class="v">本番タスク分布（ログ・失敗・現場由来）を反映</div>
+        </div>
+        <div class="cell">
+          <div class="k">2 伸びる性質</div>
+          <div class="v">推論/モデル能力が増えると性能が上がる構造</div>
+        </div>
+        <div class="cell">
+          <div class="k">3 ヘッドルーム</div>
+          <div class="v">最高難度でも“100%”にならない余白</div>
+        </div>
+        <div class="cell">
+          <div class="k">4 低分散</div>
+          <div class="v">測定がぶれない（grader/環境の揺れを抑える）</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: distribution（分布） / reliability（信頼性）</div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> DISTINCTION</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">“谷”を狙うな</div>
+      <div class="title">アドバーサリアル</div>
+      <div class="jp-title">サンプリング</div>
+      <div class="lead">今日のモデルが失敗するから難しい、といった“谷”を中心に選ぶと、汎用的な難しさを見誤ります。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">避けたいこと</div>
+          <div class="v">失敗が多いモデル固有の癖だけを集める</div>
+        </div>
+        <div class="cell">
+          <div class="k">推奨</div>
+          <div class="v">専門家が“難しい”と説明できる／本番由来の失敗を根拠にする</div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">注意点</div>
+          <div class="v">ユーザートラフィックだけを盲信すると偏る → 検証が必要</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">評価の価値を“汎用難度”に近づける</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: adversarial sampling（谷を測る）</div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> PROCESS</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">build-evalの中核</div>
+      <div class="title">grader</div>
+      <div class="jp-title">まで検証する</div>
+      <div class="lead"><span class="mono">/claude-api build-eval</span> は、例の集め方・採点器提案・サンプル採点の人間確認・ベースラインで“誤りを潰す”流れを含みます。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">例の収集</div>
+          <div class="v">本番ログ → バグ報告 → 手作り → コード合成</div>
+        </div>
+        <div class="cell">
+          <div class="k">採点器</div>
+          <div class="v">機械的検証 / LLM-as-judge（as-judgeではない検証も併用）</div>
+        </div>
+        <div class="cell">
+          <div class="k">確認</div>
+          <div class="v">人がサンプル採点を読み、誤設定と分散原因を潰す</div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">ベースライン</div>
+          <div class="v">スコア + 信頼区間を提示し、ヘッドルーム不足を警告</div>
+        </div>
+        <div class="cell">
+          <div class="k">切り分け</div>
+          <div class="v">“モデルが悪い”か“評価器が誤る”かを分離できる状態へ</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: baseline（基準） / trust interval（信頼区間）</div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> ENUMERATION</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“騙されない”改善順</div>
+      <div class="title">測る→</div>
+      <div class="jp-title">直す→戻す</div>
+      <div class="lead">hillclimbは、評価セットの分割・改善の統計的判断・過学習検知（戻す判断）を運用に組み込みます。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k"><i>i</i> 目的確認</div>
+          <div class="v">性能向上 OR 性能維持しつつコスト削減</div>
+        </div>
+        <div class="cell">
+          <div class="k"><i>ii</i> 分割</div>
+          <div class="v">評価セットをランダムに train / test へ</div>
+        </div>
+        <div class="cell">
+          <div class="k"><i>iii</i> 判定</div>
+          <div class="v">trainだけ伸びてtestが伸びない → 過学習疑いでパッチを戻す</div>
+        </div>
+        <div class="cell">
+          <div class="k"><i>iv</i> 探索量</div>
+          <div class="v">改善幅がノイズより小さい → 反復/ケース追加を提案</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: overfitting（過学習）</div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> EVIDENCE</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">“学習対象”を特定</div>
+      <div class="title">モデル</div>
+      <div class="jp-title">か評価器か</div>
+      <div class="lead">評価スコアが変わっても、それがモデル改善ではなくgrader/ハーネスの穴による可能性があります。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">典型リスク</div>
+          <div class="v">評価では有効だが本番では稀な手段（例：特殊OCR）を追加して漏洩</div>
+        </div>
+        <div class="cell">
+          <div class="k">もう一つ</div>
+          <div class="v">失敗例文や正解に近い情報をプロンプトに混ぜてreward hack</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策の核</div>
+          <div class="v">ケース分割 + “答えへ構造的に届かない”設計（評価漏洩の遮断）</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: leak（評価漏洩） / reward hack（報酬ハック）</div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> COMPARISON</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">正しい比較と</div>
+      <div class="title">偽の改善</div>
+      <div class="jp-title">を分ける</div>
+      <div class="lead">意思決定は、偶然の揺れ（ノイズ）より小さくない改善だけを採用し、測定できない変更で浪費しないことが重要です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">良い改善</div>
+          <div class="v">train/testで一貫して伸びる・信頼区間内でも傾向が明確</div>
+        </div>
+        <div class="cell">
+          <div class="k">偽の改善</div>
+          <div class="v">test横ばい・grader設定の揺れ・分散の見誤り</div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">判断基準</div>
+          <div class="v">改善が統計的ノイズを上回る見込みがあるか</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用方針</div>
+          <div class="v">見込みが薄ければ反復数/ケース追加など“測定可能”な次手へ</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: statistical noise（統計ノイズ）</div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">LLM-as-judgeの扱い</div>
+      <div class="title">盲信</div>
+      <div class="jp-title">しない</div>
+      <div class="lead">LLM-as-judgeは可能性がある一方、無条件に信頼せず、サンプル採点の人間確認と揺れの検査を行います。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">確認1</div>
+          <div class="v">サンプル採点を人が読む（基準の誤設定を検出）</div>
+        </div>
+        <div class="cell">
+          <div class="k">確認2</div>
+          <div class="v">同一出力でgraderが二度も変えるか（採点の一貫性）</div>
+        </div>
+        <div class="cell">
+          <div class="k">限界</div>
+          <div class="v">判定基準（ルーブリック）が曖昧だと“それっぽく”誤る</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: rubric（ルーブリック）</div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> PROCESS</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">現場導入の注意</div>
+      <div class="title">チームで</div>
+      <div class="jp-title">合意する</div>
+      <div class="lead">自動化の範囲に依存するため、評価の設計意図と採点基準をチームで合意し、代表性の検証は別途継続する必要があります。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">必要な合意</div>
+          <div class="v">評価セット作成意図、成功基準、例の扱い（何を見せないか）</div>
+        </div>
+        <div class="cell">
+          <div class="k">追加検証</div>
+          <div class="v">本番ログ再サンプリング、ドメイン専門家レビュー</div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">導入観点</div>
+          <div class="v">特殊ドメイン/法的・安全上の例外は、人間介入が不可欠になりやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">“評価が当てになっている”前提を、運用で守る</div>
+        </div>
+      </div>
+      <div class="hint">Bilingual: representativeness（代表性）</div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag"><span class="rule"></span> CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">結論</div>
+      <div class="title">evalで</div>
+      <div class="jp-title">自分を騙さない</div>
+      <div class="lead">“評価（eval）は測定器、最適化は測定器に騙されない形で”——記事はこの姿勢を、<span class="mono">build-eval</span> と <span class="mono">hillclimb</span> のワークフローで具体化しています。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">すべきこと</div>
+          <div class="v">本番性・ヘッドルーム・低分散を満たすeval設計</div>
+        </div>
+        <div class="cell">
+          <div class="k">守ること</div>
+          <div class="v">過学習/評価漏洩/誤判定を“戻す仕組み”で抑制</div>
+        </div>
+        <div class="cell">
+          <div class="k">最終成果</div>
+          <div class="v">testだけでなく本番で効く改善へ寄せる</div>
+        </div>
+      </div>
+      <div class="ref">
+        <div class="small" style="margin-top:18px;">
+          References（要約元の観点）: eval設計の重要性／hillclimbingの報酬設計依存性／grader妥当性と安定性の確認／train/test分割による過学習検知
+        </div>
+      </div>
+      <div class="hint">Bilingual: optimization（最適化） / reliability（信頼性）</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://kenhuangus.substack.com/p/claude-eval-design-and-hillclimbing" target="_blank" rel="noreferrer noopener">Claude Eval Design and Hillclimbing: From Reliable Tests to Better Agents</a></h2>
+<p class="reference-note">4. Use the Claude commands with a bounded experiment. We examine the documented `/claude-api build-eval` and `/claude-ap…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.theneuron.ai/explainer-articles/anthropic-built-a-better-way-to-improve-ai-agents-without-fooling-yourself" target="_blank" rel="noreferrer noopener">Anthropic Built a Better Way to Improve AI Agents Without Fooling Yourself | The Neuron</a></h2>
+<p class="reference-note">Ship it?
+
+Maybe.
+
+Anthropic just published a much more disciplined way to answer that question. Its new claude-api eval …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/threat-intelligence-report-september-2026" target="_blank" rel="noreferrer noopener">Countering misuse of AI: September 2026 / Anthropic \ Anthropic</a></h2>
+<p class="reference-note">We’ve also built classifiers designed specifically to detect adversarial extraction. When we are confident that a set of…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://platform.claude.com/docs/en/test-and-evaluate/develop-tests" target="_blank" rel="noreferrer noopener">Define success criteria and build evaluations - Claude Platform Docs</a></h2>
+<p class="reference-note">| Criteria |
+
+| Bad | The model should classify sentiments well |
+| Good | On a held-out test set of 10,000 diverse Twit…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/engineering/eval-awareness-browsecomp" target="_blank" rel="noreferrer noopener">Eval awareness in Claude Opus 4.6’s BrowseComp performance \ Anthropic</a></h2>
+<p class="reference-note">any search results containing any variation of “BrowseComp.” We expect these dynamics to intensify, and we encourage the…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
