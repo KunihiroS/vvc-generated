@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>エージェント型AIのアイデンティティ管理｜認証・認可・委譲の安全なスケール課題</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      margin: 18px auto;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 4px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 3px;
+    }
+
+    .slide-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-style: italic;
+      border-top: 1px solid rgba(232,129,74,0.45);
+      padding-top: 8px;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-size: 18px;
+      color: var(--ink-2);
+      font-style: italic;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      opacity: 0.95;
+    }
+
+    .eyebrow {
+      margin-top: 4px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+
+    .title {
+      margin: 10px 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 1.0;
+      color: var(--ink);
+      font-style: italic;
+    }
+
+    .lead {
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      font-weight: 300;
+    }
+
+    .content {
+      margin-top: 18px;
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 22px 0 16px;
+      opacity: 0.7;
+    }
+
+    .grid2, .grid3 {
+      display: grid;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+
+    .label {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .cell b {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .cell p {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .small {
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.6;
+      margin: 0;
+      font-weight: 300;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+    }
+
+    .bigrule {
+      position:absolute;
+      left: -40px; right: -40px;
+      bottom: -70px;
+      height: 180px;
+      border-top: 1px solid rgba(240,232,216,0.10);
+      transform: rotate(-2deg);
+      pointer-events:none;
+    }
+
+    @media (max-width: 760px) {
+      .slide { padding: 36px 28px; }
+      .title { font-size: 48px; }
+      .lead { font-size: 18px; }
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+    }
+
+    .langjp {
+      font-style: normal;
+      font-weight: 500;
+      color: var(--rust);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 / 12 -->
+    <section class="slide" aria-label="cover slide 1 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">agentic identity</div>
+      <div class="title">委譲の安全化</div>
+      <p class="lead">
+        エージェント型AIが外部サービスへアクセス・実行する時に必要な、認証（Authentication）・認可（Authorization）・アイデンティティ管理（Identity Management）の考え方を整理します。
+      </p>
+      <div class="content">
+        <div class="rule"></div>
+        <p class="small">
+          Key terms: <span class="mono">on-behalf-of</span>（代理）／ <span class="mono">revocation</span>（失効）／ <span class="mono">de-provisioning</span>（削除）／ <span class="mono">PEP</span> & <span class="mono">PDP</span>（分離）
+        </p>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 2 / 12 -->
+    <section class="slide" aria-label="problem slide 2 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">OAuthの限界</div>
+      <div class="title">追跡できない</div>
+      <p class="lead">
+        従来のOAuth/OIDCは単一のtrust domainでは機能しやすい一方、エージェントは非同期・横断・再帰的委任・代理実行で許可連鎖と監査が破綻しやすいです。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">不足が出る点</div>
+            <p><b>誰が実行</b>したか／<b>何を許可</b>したか／<b>いつ</b>承認されたかを一貫して追跡できない。</p>
+          </div>
+          <div class="cell">
+            <div class="label">設計要件</div>
+            <p>機械判読可能に <b>actor</b>（行為者）と <b>delegate</b>（委譲）を分離し、監査ログの“ブラックホール”を避ける。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 3 / 12 -->
+    <section class="slide" aria-label="metaphor slide 3 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">証跡が鍵</div>
+      <div class="title">委譲は契約</div>
+      <p class="lead">
+        エージェント実行は“サインした人”の意思を超えがちです。だから委譲（delegation）は、<b>なりすまし</b>ではなく<b>on-behalf-of</b>として証跡付きで扱う必要があります（証跡＝監査可能性）。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">なりすまし（誤り）</div>
+            <p>ユーザーと区別できない振る舞いになり、責任の所在とログが曖昧になりやすい。</p>
+          </div>
+          <div class="cell">
+            <div class="label">委譲（正解）</div>
+            <p>トークン/ログ上で <b>ユーザー</b> と <b>エージェント</b> を分離し、「承認者」と「実行者」を追える。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 4 / 12 -->
+    <section class="slide" aria-label="architecture slide 4 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">PEP/PDP分離</div>
+      <div class="title">許可の分業</div>
+      <p class="lead">
+        認可判断を <span class="mono">PDP</span>（Policy Decision Point）と <span class="mono">PEP</span>（Policy Enforcement Point）に分け、監査ログの断絶を減らすことが推奨されます。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">PDP（判断）</div>
+            <p>ポリシーにもとづき「この委譲トークンは何を許すか」を決める。<br><span class="langjp">（意図）</span></p>
+          </div>
+          <div class="cell">
+            <div class="label">PEP（執行）</div>
+            <p>決定を受けて、実際のAPI/ツール呼び出しを制御する。<br><span class="langjp">（強制）</span></p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 5 / 12 -->
+    <section class="slide" aria-label="enumeration slide 5 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">必要要素</div>
+      <div class="title">3つの軸</div>
+      <p class="lead">
+        エージェントのアイデンティティ管理は、(i)真正性、(ii)委譲範囲、(iii)非同期でも壊れない監査/許可継続の3軸で考えると整理しやすいです。
+      </p>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="label"><span class="mono">i</span> Authenticity</div>
+            <p><b>エージェント自身</b>が誰かを保証する（本人確認だけでなく“真正性”）。</p>
+          </div>
+          <div class="cell">
+            <div class="label"><span class="mono">ii</span> Delegation</div>
+            <p><b>ユーザーが許した範囲</b>（スコープ/制約）を守らせる。</p>
+          </div>
+          <div class="cell">
+            <div class="label"><span class="mono">iii</span> Auditable Async</div>
+            <p>長時間・非同期でも <b>承認の根拠</b>と <b>実行の結果</b>を追跡可能にする。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 6 / 12 -->
+    <section class="slide" aria-label="evidence slide 6 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">現行は“条件付き”OK</div>
+      <div class="title">単一領域</div>
+      <p class="lead">
+        単一trust domainでのエージェント利用なら、OAuth 2.1（PKCE付き）、SSO/SCIM、MCPのようなツール連携プロトコルが有効とされています。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">適しやすい状況</div>
+            <p>同期的・単一ドメイン中心。クライアント/ユーザーの関係が明確で、監査要件も設計しやすい。</p>
+          </div>
+          <div class="cell">
+            <div class="label">ただし注意</div>
+            <p>非同期・横断・再帰委任・代理実行が増えるほど、許可連鎖と監査整合性が追いつきにくい。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 7 / 12 -->
+    <section class="slide" aria-label="distinction slide 7 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“許可が続く”</div>
+      <div class="title">継続性</div>
+      <p class="lead">
+        非同期実行では、初回承認のまま進むと追加で高リスク操作の承認が必要になります。そこでCIBAのような非同期・アウトオブバンド承認が重要です。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">CIBA（例）</div>
+            <p>非同期・アウトオブバンドで承認を扱い、長時間タスクでも人の承認を適切に差し込む。</p>
+          </div>
+          <div class="cell">
+            <div class="label">制約も必要</div>
+            <p>トークン期限/失効に加え、<b>実行回数上限</b>や予測可能な制約で“暴走半径”を抑える。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 8 / 12 -->
+    <section class="slide" aria-label="comparison slide 8 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">同意疲労</div>
+      <div class="title">人が潰れる</div>
+      <p class="lead">
+        エージェントが増えるほど都度同意が膨張し、ユーザーは形式的に承認してしまう危険があります（consent fatigue）。そこで政策ベース・意図ベース・リスクベースへ移行が必要です。
+      </p>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">Policy（政策）</div>
+            <p>予算・速度・データ階層などを事前定義して、実行上限で抑制する。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Intent（意図）</div>
+            <p>ユーザーの目的に整合する範囲だけを許し、目的外の拡張を抑える。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Risk（リスク）</div>
+            <p>必要な時だけバックチャネルで承認要求。常時確認を避ける。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 9 / 12 -->
+    <section class="slide" aria-label="process slide 9 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">委譲トークン設計</div>
+      <div class="title">actor分離</div>
+      <p class="lead">
+        監査可能性のギャップを埋める鍵は、委譲トークンに「ユーザー（delegator）」と「エージェント（delegatee/actor）」を別々に埋め込むことです。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">必要ログ要件</div>
+            <p><b>誰</b>が承認し、<b>どのエージェント</b>が実行し、<b>いつ</b>決定したかを機械判読で残す。</p>
+          </div>
+          <div class="cell">
+            <div class="label">トークンへの反映</div>
+            <p>承認者/実行者の区別を維持し、再帰的委任でも責任が霧散しない形にする。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 10 / 12 -->
+    <section class="slide" aria-label="distinction slide 10 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">プレゼン層回避</div>
+      <div class="title">Web操作</div>
+      <p class="lead">
+        ブラウザ/コンピュータ操作エージェントはHTTP APIの標準的認可を迂回し得ます。そこでWeb上の“正当なボット”識別が必要です。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">問題</div>
+            <p>HTTPリクエスト認可だけでは、画面操作やUI経由の行動の真正性を担保しづらい。</p>
+          </div>
+          <div class="cell">
+            <div class="label">方向性（例）</div>
+            <p>Web Bot Authのように、署名で検証可能な身元付与を行い、認証領域を拡張する。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 11 / 12 -->
+    <section class="slide" aria-label="evidence slide 11 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">削除まで考える</div>
+      <div class="title">de-provisioning</div>
+      <p class="lead">
+        revocation（失効）はセッションを止めても、アイデンティティ登録や関連する権限関係が残ると再利用のリスクが残り得ます。だからde-provisioningが必要です。
+      </p>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">revocation</div>
+            <p>現在のアクセスを止める（例：トークンやセッションの失効）。</p>
+          </div>
+          <div class="cell">
+            <div class="label">de-provisioning</div>
+            <p>アイデンティティ自体と付随権限を恒久的に除去し、侵害時の“最終手段”にする。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+    <!-- Slide 12 / 12 -->
+    <section class="slide" aria-label="closing slide 12 of 12">
+      <div class="slide-head">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">安全にスケール</div>
+      <div class="title">真の委譲</div>
+      <p class="lead">
+        結論は「なりすましではなく、真の委譲（on-behalf-of）を証跡付きで実装する」ことです。そして取消（revocation）・削除（de-provisioning）を含むライフサイクルを、相互運用可能な標準で実現することが広域自律エージェント時代の安全保障になります。
+      </p>
+      <div class="content">
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="label">移行の落とし穴</div>
+            <p>相互運用標準の成熟度や実装可能性、移行コストが未知だと“標準が整えば解決”と早合点しがち。</p>
+          </div>
+          <div class="cell">
+            <div class="label">読後の宿題</div>
+            <p>自組織の要件（規制/監査/実行時間/ユーザー数）に合わせ、段階導入と検証手順を別途用意する。</p>
+          </div>
+        </div>
+      </div>
+      <div class="bigrule"></div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://linguix.com/english/preposition/preposition-before-noun/view/of-agent-to-agent" target="_blank" rel="noreferrer noopener">&quot;of agent&quot; or &quot;to agent&quot;? - GrammarDesk.com</a></h2>
+<p class="reference-note">Prepositions used with &quot;agent&quot;. &quot;of agent&quot; or &quot;to agent&quot;? Word Frequency. In Top 1000 words. In 35% of cases agent of is…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=en_MSr9Q9KM" target="_blank" rel="noreferrer noopener">Preposition of Agent and Instrument | English Grammar</a></h2>
+<p class="reference-note">The Preposition of Agent and Instrument describes the doer of the action or used to perform an action.</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/61570550139571/videos/preposition-of-agent/1810510763261623" target="_blank" rel="noreferrer noopener">Preposition of agent | Informational english</a></h2>
+<p class="reference-note">This video is a short English grammar lesson focused on the &quot;Preposition of Agent.&quot; It presents a multiple-choice quiz, …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://udel.pressbooks.pub/language/chapter/agent" target="_blank" rel="noreferrer noopener">Agent – Talking About Language: The Structures and Functions of English</a></h2>
+<p class="reference-note">5, the Agent is once more not the people but the “problems.” Finally in Sentence 6, the Agent is the subject, “immigrant…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.quora.com/What-does-the-word-agent-mean-in-English-grammar" target="_blank" rel="noreferrer noopener">What does the word &#39;agent&#39; mean in English grammar?</a></h2>
+<p class="reference-note">What does the word &quot;agent&quot; mean in English grammar?</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
