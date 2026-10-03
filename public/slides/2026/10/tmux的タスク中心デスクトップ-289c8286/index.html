@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>tmux的タスク中心デスクトップ</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      letter-spacing: 0.01em;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: block;
+      padding: 24px 0 64px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      padding: 56px 72px;
+      margin: 18px 0;
+      overflow: hidden;
+    }
+    .frame{
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topline{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 22px;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 14px;
+    }
+    .title{
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 0.95;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 600;
+    }
+    .lead{
+      margin-top: 14px;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.35;
+    }
+    .divider{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 14px;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.4;
+    }
+    .note{
+      margin-top: 10px;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.35;
+    }
+    .refs{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">tmux的な体験へ</div>
+      <div class="title">未来の<span><em>ウィンドウ</em></span>管理</div>
+      <div class="lead">OSのウィンドウ操作を、アプリ中心ではなく「タスク（作業単位）」中心に再設計する。まるでtmuxのように、状態が保たれ切り替えられるデスクトップを目指す。</div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">根本のズレ</div>
+      <div class="title">モデル破綻</div>
+      <div class="lead">従来OSは「単一のレイアウト」「ウィンドウはアプリ単位」「ファイルをOSが一元管理」を暗黙に前提にしてきた。しかし現代はモニタ切替・ブラウザ中心・情報散在が当たり前になっている。</div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">現象</div>
+          <div class="v">環境変化（ドック/モニタ）が“例外”扱いになり、再配置が必要になる。</div>
+        </div>
+        <div class="cell">
+          <div class="k">帰結</div>
+          <div class="v">タスクの継続体験が壊れ、「切替コスト」が思った以上に増える。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">tmuxが示す</div>
+      <div class="title">OSは<span><em>セッション</em></span>だ</div>
+      <div class="lead">tmuxが提供するのは「状態が持続し、切り替え・分離・再接続ができる」体験。これをデスクトップOSのウィンドウ管理にも持ち込み、「作業単位＝タスク」に状態を紐づけたい。</div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">二層の再定義</div>
+      <div class="title">タスク＋<span><em>ビューポート</em></span></div>
+      <div class="lead">中核は二つの置き換えだ。(1) デスクトップを無限キャンバスとして扱い、各モニタは“ビューポート”になる。(2) ウィンドウやブラウザタブをアプリではなくタスクに所属させる。</div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">キャンバス（無限）</div>
+          <div class="v">物理モニタの違いは“切り替え”ではなく“表示範囲の移動”。（無限キャンバス/無限ストレッチ）</div>
+        </div>
+        <div class="cell">
+          <div class="k">所属（タスク）</div>
+          <div class="v">タブ＝作業の一部として扱う。切替・保存・共有をタスクの流れに合わせる。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: enumeration -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">OSレベル設計</div>
+      <div class="title">4つの柱</div>
+      <div class="lead">提案は「大胆だが安全に」を意識して、配置・実行・プライバシー・学習役割を分離する。</div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">i. 配置の世界</div>
+          <div class="v">デスクトップを無限キャンバス化し、モニタはビューポートとして表現する。</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 所属の世界</div>
+          <div class="v">ウィンドウ/タブを「ブラウザではなくタスク」に所属させる。</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. プライバシー</div>
+          <div class="v">“推測”ではなく、機械が観測できる事実（共有中など）で安全性判断。</div>
+        </div>
+        <div class="cell">
+          <div class="k">iv. LLMの役割</div>
+          <div class="v">ローカルLLMは実行者ではなく提案者（オーケストレータ）に限定する。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: comparison -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">何が変わる</div>
+      <div class="title">アプリ中心↔タスク中心</div>
+      <div class="lead">違いは「切替の単位」と「保存・共有の単位」。現行はアプリ/ウィンドウに引っ張られ、タスクのまとまりが崩れやすい。</div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">従来</div>
+          <div class="v">ウィンドウはアプリ単位。ブラウザのタブ体系は別の窓体系として並列化しやすい。</div>
+        </div>
+        <div class="cell">
+          <div class="k">提案</div>
+          <div class="v">タブをタスクへ所属。切替・再表示・共有が「作業の流れ」に沿う。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: evidence -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“昔からの課題”</div>
+      <div class="title">普及しなかった理由</div>
+      <div class="lead">ウィンドウ管理の難しさは以前から認識されていた。それでも標準化が進まなかったのは、「正しいアイデアがデフォルトにならなかった」などの構造的理由が大きい。</div>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">デフォルト化</div>
+          <div class="v">“正しい設計”が既定にならず、学習コストが壁になった。</div>
+        </div>
+        <div class="cell">
+          <div class="k">OS統合</div>
+          <div class="v">OSレベルの基盤として実現されず、相互運用が弱かった。</div>
+        </div>
+        <div class="cell">
+          <div class="k">オプトイン</div>
+          <div class="v">互換性問題や有効化手続きが重く、一般への浸透が遅れた。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: process -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">LLMは提案だけ</div>
+      <div class="title">配置を“実行”しない</div>
+      <div class="lead">事故を避けるため、LLMが直接ウィンドウマネージャを操作しない。情報取得→提案・プレビュー→決定論的コードで実行、という分離が中核になる。</div>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">i. 観測（限定）</div>
+          <div class="v">必要な事実だけを取得する。（MCP等で制約付きに）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii. 提案（オーケストレート）</div>
+          <div class="v">配置案を提示し、ユーザー体験を壊さない形でプレビューする。</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii. 実行（決定論的）</div>
+          <div class="v">ルールベースのコードが最終実行。破壊的操作の確率を下げる。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: distinction -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">“安全性”の扱い</div>
+      <div class="title">プライバシー＝観測可能性</div>
+      <div class="lead">提案は「推測」ではなく「機械が観測できる事実」から安全性を判断する。例として、接続された表示や共有の有無などを手掛かりにする。</div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">“注意してね”ではなく、システムが判断できる形に落とす。</div>
+        </div>
+        <div class="cell">
+          <div class="k">前提</div>
+          <div class="v">判断に必要な観測がどこまで必要かが鍵になる。（観測＝データ）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: evidence -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">未解決のリスク</div>
+      <div class="title">二大破綻点</div>
+      <div class="lead">この提案は批判も明確に列挙している。最も重いのは「プライバシーと観測の逆説」と「無限キャンバスの片付かなさ」だ。</div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">プライバシー矛盾</div>
+          <div class="v">安心のための観測が必要になると、結局行動テレメトリ（フォーカス/入力など）が増える可能性。</div>
+        </div>
+        <div class="cell">
+          <div class="k">状態肥大</div>
+          <div class="v">append-only（追記型）のような思想は美しいが、眠らせる/収集する運用設計が不可避。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11: closing -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">結論は実験</div>
+      <div class="title">まず<span><em>デモ</em></span>を</div>
+      <div class="lead">うまくいくかは未知でも、OS標準として大胆な実験を早めに出すべきだ。評価指標（タスク復帰時間、誤操作率、プライバシー事故率）と互換性検証が必須になる。</div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">必要な測定</div>
+          <div class="v">UX・安全性・学習コストを定量化し、成功/失敗を判断できる形にする。</div>
+        </div>
+        <div class="cell">
+          <div class="k">必要な統合</div>
+          <div class="v">ブラウザ以外のアプリで、タブ/状態がどう戻るか（互換性戦略）が鍵。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: References -->
+    <section class="slide">
+      <div class="frame"></div>
+      <div class="topline">
+        <div class="slide-tag">references</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">参考の輪郭</div>
+      <div class="title">関連アイデア</div>
+      <div class="lead">本文で言及された方向性の“例”と、周辺で参照される概念を列挙する。</div>
+      <div class="divider"></div>
+      <div class="refs">
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">研究・概念</div>
+            <div class="v">
+              複数ワークスペース（multiple workspaces）<br/>
+              タスク指向WM（WindowScape）<br/>
+              無限ストリップ/無限キャンバス発想
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">既存実装の近さ</div>
+            <div class="v">
+              タイル型WM（tiling WM）<br/>
+              macOS Stage Manager（部分的類似）<br/>
+              Windows Sets（部分的類似）<br/>
+              KDE Activities（部分的類似）
+            </div>
+          </div>
+        </div>
+        <div class="note">
+          ※本デッキは提示文の要約スライドであり、固有の文献詳細（著者名・年・リンク）は原稿内に不足しているため、ここでは“参照カテゴリ”として整理しています。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://nwm-omega.vercel.app/" target="_blank" rel="noreferrer noopener">NWM - A Scrollable Tiling Window Manager</a></h2>
+<p class="reference-note">```
+  // Define commands static const char termcmd[] = { &quot;st&quot;, NULL }; static const char browser[] = { &quot;firefox&quot;, NULL }…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://bandukwala.me/on-compositional-window-management" target="_blank" rel="noreferrer noopener">On Compositional Window Management | Alexander Bandukwala</a></h2>
+<p class="reference-note">#### #Tabbed Window
+
+A window with named tabs that change which inner window is being displayed
+
+#### #Split Windows/Til…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/karinushka/paneru" target="_blank" rel="noreferrer noopener">GitHub - karinushka/paneru: A sliding, tiling window manager for MacOS. · GitHub</a></h2>
+<p class="reference-note">Niri-like Behavior on MacOS: Inspired by the user experience of Niri, Paneru aims to bring a similar scrollable tiling w…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/Tiling_window_manager" target="_blank" rel="noreferrer noopener">Tiling window manager - Wikipedia</a></h2>
+<p class="reference-note">Developed since the 1970s, the Emacs text editor contains one of the earliest implementations of tiling. In addition, HT…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/pdf/2511.17516" target="_blank" rel="noreferrer noopener">A Dynamic Take on Window Management</a></h2>
+<p class="reference-note">visibility outside Linux environ-ments and their relatively steep learning curve. Deurzen  provided a comprehensive stud…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
