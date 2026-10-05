@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>セマンティック・コード検索RAG：チャンク化と1bit量子化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 0 auto 18px;
+      padding: 56px 72px;
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+      border: 20px solid rgba(255,255,255,0);
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .frame{
+      position: relative;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .toprow{
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: .14em;
+      color: var(--rust);
+      font-weight: 600;
+      text-transform: uppercase;
+      padding-left: 14px;
+      position: relative;
+      line-height: 1.1;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 0.18em;
+      width: 10px;
+      height: 10px;
+      border-top: 2px solid var(--rust);
+      border-right: 2px solid var(--rust);
+      transform: rotate(45deg);
+      opacity: .9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 10px;
+      line-height: 1.2;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      margin: 0 0 14px;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .content{
+      margin-top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      flex: 1;
+      justify-content: flex-start;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      margin: 8px 0 0;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+    }
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .card{
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      min-height: 86px;
+    }
+    .card h4{
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 600;
+    }
+    .card p{
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+    }
+
+    .quote{
+      border-left: 3px solid var(--rust);
+      padding-left: 14px;
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.5;
+      max-width: 820px;
+      font-weight: 300;
+    }
+
+    .listGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+    }
+    .item{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      border-radius: 10px;
+      padding: 12px 12px 10px;
+      min-height: 64px;
+    }
+    .item .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 700;
+      margin-bottom: 8px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .dot{
+      width: 8px;
+      height: 8px;
+      background: var(--rust);
+      border-radius: 50%;
+      display:inline-block;
+      box-shadow: 0 0 0 4px rgba(232,129,74,0.14);
+    }
+    .item .v{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .jp{
+      font-size: 16px;
+      color: var(--ink-3);
+      margin-top: 6px;
+      line-height: 1.35;
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+
+    @media (max-width: 720px){
+      .deck{ width: calc(100vw - 32px); padding-top: 16px; }
+      .slide{ padding: 44px 20px; border-width: 0; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover" aria-label="Cover">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">セマンティック検索</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">構造×圧縮×プライバシー</div>
+        <h1 class="title"><em>RAG</em>の設計要点</h1>
+        <p class="lead">JetBrains Air Contextの初期設計を軸に、コードを「意味」で切り出し、保存と計算を極限まで抑える道筋をまとめます。</p>
+        <div class="content">
+          <div class="rule"></div>
+          <div class="grid grid3">
+            <div class="card">
+              <h4>要点</h4>
+              <p>チャンク境界が検索品質を決める</p>
+              <div class="jp">chunking / 前処理</div>
+            </div>
+            <div class="card">
+              <h4>要点</h4>
+              <p>1bit量子化でコストを崩さない</p>
+              <div class="jp">embedding / 圧縮</div>
+            </div>
+            <div class="card">
+              <h4>要点</h4>
+              <p>外部へコードを送らない</p>
+              <div class="jp">privacy / セキュリティ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem" aria-label="Problem">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">問題設定</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">grepでは届かない</div>
+        <h1 class="title">semantic code search</h1>
+        <p class="lead">LLMが根拠を読むためには、質問に“意味が近い”コード断片を安定して取り出す必要があります。</p>
+        <div class="content">
+          <div class="listGrid">
+            <div class="item">
+              <div class="k"><span class="dot"></span>grep</div>
+              <div class="v">文字列一致に依存する</div>
+              <div class="jp">例：refreshが無いと見つからない</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>セマンティック</div>
+              <div class="v">文脈の近さをベクトルで扱う</div>
+              <div class="jp">概念：セッショントークン再設定処理</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>RAGの核心</div>
+              <div class="v">検索→根拠提示→生成</div>
+              <div class="jp">Retrieval-Augmented Generation</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>現実の制約</div>
+              <div class="v">精度だけでなく速度/コスト/安全性</div>
+              <div class="jp">大量リポジトリ前提</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="Core idea">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">設計思想</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">二つの勝負どころ</div>
+        <h1 class="title">chunking と embedding</h1>
+        <p class="lead">検索品質はチャンク境界で決まり、運用コストはベクトル表現（次元/量子化/距離計算）で決まります。</p>
+        <div class="content">
+          <div class="grid">
+            <div class="card">
+              <h4>前処理</h4>
+              <p>ASTに基づく最小の意味的まとまりを保持</p>
+              <div class="jp">固定長分割は境界が崩れる</div>
+            </div>
+            <div class="card">
+              <h4>ベクトル化</h4>
+              <p>全次元を維持しつつ 1bit量子化（符号のみ）</p>
+              <div class="jp">類似度→ハミング距離へ</div>
+            </div>
+          </div>
+          <div class="quote">この二段を押さえることで、精度・速度・コスト・プライバシーを同時に最適化する。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="Chunking evidence">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">チャンク化</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">境界が命</div>
+        <h1 class="title">固定長は事故る</h1>
+        <p class="lead">行数ベースの分割は、importと関数本体のような意味的に無関係な断片を混ぜ、検索で読むべき根拠がノイズ化します。</p>
+        <div class="content">
+          <div class="grid grid3">
+            <div class="card">
+              <h4>失敗例</h4>
+              <p>意味の連結が切れる</p>
+              <div class="jp">閉じ括弧の相手が分離</div>
+            </div>
+            <div class="card">
+              <h4>失敗例</h4>
+              <p>ドキュメントが宙に浮く</p>
+              <div class="jp">関連付けが崩壊</div>
+            </div>
+            <div class="card">
+              <h4>結果</h4>
+              <p>関連断片の“品質”が落ちる</p>
+              <div class="jp">LLMの根拠読みに悪影響</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="AST chunking">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">パース→チャンク</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">ASTで切る</div>
+        <h1 class="title">意味が切れない最小単位</h1>
+        <p class="lead">言語ごとの構造（AST）を使い、宣言・ドキュメント・注釈・終了構文などを“意味が断たれない”まとまりとして保持します。</p>
+        <div class="content">
+          <div class="grid">
+            <div class="card">
+              <h4>I</h4>
+              <p>構文解析（AST）</p>
+              <div class="jp">parse / 構造の認識</div>
+            </div>
+            <div class="card">
+              <h4>II</h4>
+              <p>境界候補の生成</p>
+              <div class="jp">宣言・doc・注釈を一体化</div>
+            </div>
+            <div class="card">
+              <h4>III</h4>
+              <p>“最小まとまり”としてチャンク化</p>
+              <div class="jp">意味的に自然な閉じ方</div>
+            </div>
+            <div class="card">
+              <h4>IV</h4>
+              <p>検索品質を評価可能に</p>
+              <div class="jp">後段（judge/エンドツーエンド）へ接続</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evaluation" aria-label="Judge">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">評価</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">LLM-as-a-judge</div>
+        <h1 class="title">境界の妥当性を測る</h1>
+        <p class="lead">“良さそう”を主観にせず、境界が不自然でないか（ドキュメントの宙ぶらりん等）をjudgeで判定します。</p>
+        <div class="content">
+          <div class="grid">
+            <div class="card">
+              <h4>判定対象</h4>
+              <p>チャンクが自然に閉じるか</p>
+              <div class="jp">括弧対応・注釈の整合</div>
+            </div>
+            <div class="card">
+              <h4>運用方針</h4>
+              <p>パイプライン変更時はエンドツーエンド評価</p>
+              <div class="jp">検索→回答まで再検証</div>
+            </div>
+          </div>
+          <div class="quote">チャンク改善を“再現可能”な検証サイクルに落とす。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="Embedding bottleneck">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">埋め込み</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">ボトルネックは保存</div>
+        <h1 class="title">次元 × 数百万</h1>
+        <p class="lead">大規模リポジトリでは“数百万ベクトル”が支配的になり、精度議論より先に1ベクトルあたりのバイト数がコストを決めます。</p>
+        <div class="content">
+          <div class="grid grid3">
+            <div class="card">
+              <h4>問題</h4>
+              <p>ストレージが膨らむ</p>
+              <div class="jp">ベクトル数＝断片数</div>
+            </div>
+            <div class="card">
+              <h4>問題</h4>
+              <p>比較計算が重い</p>
+              <div class="jp">類似度の総当たりに近い</div>
+            </div>
+            <div class="card">
+              <h4>狙い</h4>
+              <p>同じバイト予算で性能を最大化</p>
+              <div class="jp">次元削減と精度削減を設計</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration" aria-label="1bit quantization">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">1bit量子化</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">符号だけで戦う</div>
+        <h1 class="title">1bit / binarize</h1>
+        <p class="lead">全次元を保持したまま、極端に精度を落として1bit量子化（符号のみ）を選択し、距離計算をハミング距離へ置き換えます。</p>
+        <div class="content">
+          <div class="listGrid">
+            <div class="item">
+              <div class="k"><span class="dot"></span>埋め込み</div>
+              <div class="v">全次元保持</div>
+              <div class="jp">dimension preserved</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>圧縮</div>
+              <div class="v">1bit量子化（符号のみ）</div>
+              <div class="jp">binarization</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>距離</div>
+              <div class="v">ハミング距離</div>
+              <div class="jp">Hamming distance</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>期待</div>
+              <div class="v">CPU比較が軽くなる</div>
+              <div class="jp">速度・コストの両取り</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-label="Limitations">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">限界</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">閾値が難しい</div>
+        <h1 class="title">順位は保つが線引きは弱い</h1>
+        <p class="lead">相対順位（関連が非関連より上）はある程度保てる一方、スコア分布が狭まり“絶対的な閾値で関連性判断”が難しくなる可能性があります。</p>
+        <div class="content">
+          <div class="grid">
+            <div class="card">
+              <h4>強み</h4>
+              <p>順位付けは比較的維持</p>
+              <div class="jp">UIで目立ちにくい</div>
+            </div>
+            <div class="card">
+              <h4>注意</h4>
+              <p>エージェントの「沈黙」判断に限界</p>
+              <div class="jp">いつ回答を拒否すべきか</div>
+            </div>
+          </div>
+          <div class="quote">二値判断（関連/非関連）用途ほど副作用が出やすい。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="Asymmetry query/doc">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">形の非対称</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">クエリ≠ドキュメント</div>
+        <h1 class="title">入力整形が効く</h1>
+        <p class="lead">クエリは自然言語指示、ドキュメントはコード片＋パスという非対称性があるため、学習時の形に合わせて整える工夫が重要です。</p>
+        <div class="content">
+          <div class="grid">
+            <div class="card">
+              <h4>クエリ</h4>
+              <p>自然言語の指示（ユーザー）</p>
+              <div class="jp">短くても意図は複合</div>
+            </div>
+            <div class="card">
+              <h4>ドキュメント</h4>
+              <p>コード断片＋パス（検索対象）</p>
+              <div class="jp">構造と文脈が残る</div>
+            </div>
+          </div>
+          <div class="quote">インデックス速度（GPU制約）と応答速度（数秒待ち）を同時に満たすために、入力表現を揃える。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="Privacy">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">プライバシー</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">コードを守る</div>
+        <h1 class="title">保存しない・学習しない</h1>
+        <p class="lead">検索サーバはコード内容を保持せず、埋め込みリクエストは外部へ出さず、学習にも使わない方針が採られています。</p>
+        <div class="content">
+          <div class="listGrid">
+            <div class="item">
+              <div class="k"><span class="dot"></span>格納</div>
+              <div class="v">コード本体を保存しない</div>
+              <div class="jp">返却は座標（オフセット等）</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>送信</div>
+              <div class="v">埋め込みを外部APIへ送らない</div>
+              <div class="jp">自社GPUでオープンウェイト実行</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>学習</div>
+              <div class="v">検索データを学習に再利用しない</div>
+              <div class="jp">IP保護・情報漏えい対策</div>
+            </div>
+            <div class="item">
+              <div class="k"><span class="dot"></span>狙い</div>
+              <div class="v">企業導入の承認障壁を下げる</div>
+              <div class="jp">セキュリティ要件に適合</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-label="Closing and references style">
+      <div class="frame">
+        <div class="toprow">
+          <div class="slide-tag">まとめ</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">意思決定のチェック</div>
+        <h1 class="title">再現には4点検証</h1>
+        <p class="lead">この設計は筋が通っていますが、同等成果には対象言語・評価基準・量子化後の判断・自社ベンチが揃っているかの検証が必要です。</p>
+        <div class="content">
+          <div class="grid">
+            <div class="card">
+              <h4>検証 (1)</h4>
+              <p>対象言語の解析器品質</p>
+              <div class="jp">ASTが崩れると全てが崩れる</div>
+            </div>
+            <div class="card">
+              <h4>検証 (2)</h4>
+              <p>チャンク評価の基準</p>
+              <div class="jp">judgeの妥当性と再現性</div>
+            </div>
+            <div class="card">
+              <h4>検証 (3)</h4>
+              <p>量子化後の検索体験とエージェント判断</p>
+              <div class="jp">閾値/沈黙ロジックの設計</div>
+            </div>
+            <div class="card">
+              <h4>検証 (4)</h4>
+              <p>自社ベンチでの再現性</p>
+              <div class="jp">評価環境への依存を確認</div>
+            </div>
+          </div>
+          <div class="quote">chunkingが品質、1bitがコスト、保存しないが安全—この三点で全体像を設計する。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@meeran03/building-production-ready-rag-systems-best-practices-and-latest-tools-581cae9518e7" target="_blank" rel="noreferrer noopener">Building Production-Ready RAG Systems: Best Practices and Latest Tools</a></h2>
+<p class="reference-note">Latency Optimization: A production RAG pipeline introduces extra steps (retrieval, etc.), so keeping latency low is impo…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.techment.com/blogs/rag-optimization-techniques-production-ai" target="_blank" rel="noreferrer noopener">12 Proven RAG Optimization Techniques For Production AI</a></h2>
+<p class="reference-note">3. Query Ambiguity
+
+Enterprise queries frequently contain:
+
+ incomplete instructions
+
+ implicit context
+
+ domain-specifi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/from-zero-to-hero-proven-methods-to-optimize-rag-for-production/4450040" target="_blank" rel="noreferrer noopener">From Zero to Hero: Proven Methods to Optimize RAG for Production | Microsoft Community Hub</a></h2>
+<p class="reference-note">### Understanding the Challenges of RAG in Production
+
+RAG systems merge document retrieval with language generation by …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://acingai.com/articles/rag-2026-context-engines-graphrag" target="_blank" rel="noreferrer noopener">RAG in 2026: From Vector Search to Context Engines and GraphRAG | Acing AI</a></h2>
+<p class="reference-note">FlashRank emerged as a lightweight option for latency-sensitive deployments, offering re-ranking in under 50ms for typic…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.jetbrains.com/ai/2026/09/building-a-rag-pipeline-for-semantic-code-search-a-developer-diary-and-field-notes" target="_blank" rel="noreferrer noopener">Building a RAG Pipeline for Semantic Code Search: A Developer Diary and Field Notes - The JetBrains Blog</a></h2>
+<p class="reference-note">We opted to use an LLM-as-a-judge strategy to inspect the chunks as a part of the evaluation. The judge, using a chunk a…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
