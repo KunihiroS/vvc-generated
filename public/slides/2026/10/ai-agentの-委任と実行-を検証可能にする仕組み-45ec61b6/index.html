@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>AI Agentの「委任と実行」を検証可能にする仕組み</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display:flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 24px 0 56px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      position: relative;
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 20px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      position:absolute; top: 18px; left: 20px; right: 20px;
+      display:flex; justify-content: space-between; align-items: flex-start;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-size: 16px;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding-top: 4px;
+      border-top: 2px solid rgba(232,129,74,0.35);
+      padding-left: 10px;
+      max-width: 70%;
+      line-height: 1.1;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 22px;
+      padding-right: 4px;
+      pointer-events:none;
+      white-space: nowrap;
+    }
+    .content{
+      position:relative;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+      padding-top: 28px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 6px;
+      line-height: 1.1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.98;
+      margin: 0;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.5;
+      max-width: 760px;
+      margin-top: 2px;
+    }
+
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+
+    .grid{
+      width: 100%;
+      margin-top: 8px;
+      display:grid;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 10px;
+      background: rgba(240,232,216,0.02);
+      min-height: 86px;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+    }
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+    }
+    .cell .value{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+      font-weight: 400;
+    }
+
+    .small{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      font-weight: 300;
+      max-width: 820px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    .closing-center{
+      margin-top: auto;
+      display:flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    @media (max-width: 860px){
+      .slide{
+        padding: 46px 28px;
+      }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ font-size: 14px; }
+      .slide-num{ font-size: 18px; }
+      .cell .value{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">Cover / 表紙</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">委任は、証拠になるか</div>
+        <h1 class="title">AI Agentの <em>検証</em></h1>
+        <div class="lead">人の意図（委任）にもとづく実行が、第三者に「正しく委任されたもの」だと再確認できる仕組みはあるのか。</div>
+        <div class="rule"></div>
+        <div class="small">
+          争点はログの有無ではなく、<span class="mono">委任→実行→結果</span>が同じ証拠の鎖（証拠の参照関係）として結び付くこと。
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">Problem / 問題</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">事故の説明責任</div>
+        <h2 class="title">紛争は <em>経路</em>で決まる</h2>
+        <div class="lead">AI Agentがメール送信・投稿・決済・設定変更・データ削除などをしたとき、「誰が何を頼み、誰（どのシステム）が何をしたか」が争点になりやすい。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2">
+          <div class="cell">
+            <div class="label">よくある失敗</div>
+            <div class="value">ログは存在するが、委任と実行が同一鎖に結合されない</div>
+          </div>
+          <div class="cell">
+            <div class="label">求められる条件</div>
+            <div class="value">第三者が再計算して整合性を検証できる証拠関係</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="topbar">
+        <div class="slide-tag">Metaphor / 核となる比喩</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">鎖で見える意図</div>
+        <h2 class="title">結合（binding）<em>が鍵</em></h2>
+        <div class="lead">重要なのは「記録がある」より、「委任の証拠が、実行の瞬間にActionへ結び付く」こと。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3">
+          <div class="cell">
+            <div class="label">i 委任</div>
+            <div class="value">人が許可した内容（範囲・条件）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii 実行</div>
+            <div class="value">Agentが外部Actionへ移す瞬間</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii 結果</div>
+            <div class="value">Receipt/レスポンスとして返る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="PAR">
+      <div class="topbar">
+        <div class="slide-tag">Architecture / 構想</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">PARを作らない</div>
+        <h2 class="title">PAR（構想）の<br><em>行き先</em></h2>
+        <div class="lead">著者は「PAR（複数Agentで、人がどのAgentに何をどこまで任せたかをベンダー外側で保持し続ける仕組み）」を調べ、最終的に“作らない”と判断した。</div>
+        <div class="rule"></div>
+        <div class="small">
+          理由は、未決済領域で必要な<span class="mono">委任→実行→結果</span>の“共通の結合フォーマット”が一般化していないため。
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Payments evidence">
+      <div class="topbar">
+        <div class="slide-tag">Evidence / 決済の実例</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">AP2：証拠の鎖</div>
+        <h2 class="title">決済は <em>先行</em></h2>
+        <div class="lead">GoogleのAgent Payments Protocol（AP2）は、Mandate/Checkout/Receiptをハッシュ参照で結び、紛争時に整合性を再計算して検証できる設計を提示する。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2">
+          <div class="cell">
+            <div class="label">例：Mandate</div>
+            <div class="value">ユーザー承認（許可された内容）</div>
+          </div>
+          <div class="cell">
+            <div class="label">例：Receipt</div>
+            <div class="value">支払い内容の結果（検証の起点）</div>
+          </div>
+        </div>
+        <div class="small">
+          結果として、委任→実行（取引/Checkout）→結果が<span class="mono">同じ関係構造</span>に入る。
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="AP2 to FIDO">
+      <div class="topbar">
+        <div class="slide-tag">Evidence / 標準化</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">FIDOへ接続</div>
+        <h2 class="title">境界の標準へ</h2>
+        <div class="lead">AP2はFIDO Allianceの標準化作業にも接続され、委任境界（mandateの扱い）を扱う方向へ進む。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3">
+          <div class="cell">
+            <div class="label">AP2</div>
+            <div class="value">Mandate/Checkout/Receiptの結合</div>
+          </div>
+          <div class="cell">
+            <div class="label">検証</div>
+            <div class="value">ハッシュ参照で再計算・整合性確認</div>
+          </div>
+          <div class="cell">
+            <div class="label">FIDO</div>
+            <div class="value">Agentic Authentication/Payments側へ拡張</div>
+          </div>
+        </div>
+        <div class="small">（補足：2026/4/28にAP2がFIDO Allianceへ提供された、という整理が言及されている。）</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Non-payment gap">
+      <div class="topbar">
+        <div class="slide-tag">Distinction / 対比</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">未統合の“空白”</div>
+        <h2 class="title">非決済は <em>分断</em></h2>
+        <div class="lead">メール送信・SNS投稿・設定変更・データ削除では、DKIM、C2PA、OAuth/MCP認可、AuthZENなど要素技術はあるが、委任→実行→結果を共通の証拠セットとして第三者が検証できる標準が一般化していない。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2">
+          <div class="cell">
+            <div class="label">断片の例</div>
+            <div class="value">DKIM：送信元の署名 / C2PA：コンテンツ来歴</div>
+          </div>
+          <div class="cell">
+            <div class="label">不足の例</div>
+            <div class="value">委任境界が“実行の瞬間”にActionへbindingされる経路</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Completeness">
+      <div class="topbar">
+        <div class="slide-tag">Distinction / 論点</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">後からでは足りない</div>
+        <h2 class="title">Completenessの <em>壁</em></h2>
+        <div class="lead">「後でログを集めればよい」という戦略は、実行経路を観測していないと、Actionを事前委任へ暗号学的に結び付ける材料が不足するため限界がある。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2">
+          <div class="cell">
+            <div class="label">問題</div>
+            <div class="value">実行時にbinding情報が同じ鎖へ入らない</div>
+          </div>
+          <div class="cell">
+            <div class="label">帰結</div>
+            <div class="value">第三者が再計算して「正しい委任」を検証できない</div>
+          </div>
+        </div>
+        <div class="small">結論：保管（保存）ではなく、実行（瞬間）での結合が要件。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="FAQ keys">
+      <div class="topbar">
+        <div class="slide-tag">Process / 要点整理</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">FAQの要約</div>
+        <h2 class="title">何が <em>本質</em>か</h2>
+        <div class="lead">ログ“単体”ではなく、委任と実行と結果が同一の証拠構造に入るかが問いの中心。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3">
+          <div class="cell">
+            <div class="label">Q1</div>
+            <div class="value">ログの断片性：結合が無いと検証不能</div>
+          </div>
+          <div class="cell">
+            <div class="label">Q2</div>
+            <div class="value">AP2の鍵：Mandate/Checkout/Receiptの参照</div>
+          </div>
+          <div class="cell">
+            <div class="label">Q4</div>
+            <div class="value">収集では弱い：bindingの“観測”が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="My opinion">
+      <div class="topbar">
+        <div class="slide-tag">Evidence / 私見</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">評価と留保</div>
+        <h2 class="title">“未解決”でも <em>再設計の余地</em></h2>
+        <div class="lead">本稿の強みは「AI安全」ではなく、紛争時のverifiability（検証可能性）に絞った点。AP2例で“監査＝ログ保管”の誤解を正す。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2">
+          <div class="cell">
+            <div class="label">強み</div>
+            <div class="value">委任→実行→結果の“結合”を論理化</div>
+          </div>
+          <div class="cell">
+            <div class="label">留保</div>
+            <div class="value">網羅性・法解釈の翻訳可能性は追加検証が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Risk themes">
+      <div class="topbar">
+        <div class="slide-tag">Comparison / 展望</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">次の打ち手</div>
+        <h2 class="title">“作らない”の <em>代替</em></h2>
+        <div class="lead">PARが弱いなら、プロトコル側へbinding情報を発行できる設計を寄せたり、最低限の結合スキーマを部品として提供したりする戦略が残る。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3">
+          <div class="cell">
+            <div class="label">i Strategic</div>
+            <div class="value">標準化が進む場所で勝ち方を変える</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii Security</div>
+            <div class="value">改ざんだけでなく“因果・委任の断絶”を守る</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii Risk</div>
+            <div class="value">誤作動を運用で吸収せず、証拠設計で低減</div>
+          </div>
+        </div>
+        <div class="small">日本語補助：binding（結合）/ verifiability（検証可能性）/ completeness（完全性）</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="References">
+      <div class="topbar">
+        <div class="slide-tag">Closing / まとめ</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論</div>
+        <h2 class="title">座標は <em>保管→実行結合</em></h2>
+        <div class="lead">決済領域ではAP2が委任→実行→結果を参照関係で結ぶ“証拠の鎖”を設計している。一方で非決済では、統合された標準が未完成で、そこで著者はPARの実装を見送った。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2">
+          <div class="cell">
+            <div class="label">鍵</div>
+            <div class="value">実行の瞬間に委任をbindingし、第三者が再計算できる形にする</div>
+          </div>
+          <div class="cell">
+            <div class="label">示唆</div>
+            <div class="value">“ログ保管”競争より、共通の結合スキーマとプロトコル設計が本筋</div>
+          </div>
+        </div>
+        <div class="closing-center">
+          <div class="small" style="margin-top:10px;">
+            <span class="mono">References</span>（この要約内で言及された要素）
+            <span class="mono">AP2</span>, <span class="mono">Agent Payments Protocol</span>, <span class="mono">FIDO Alliance</span>, <span class="mono">Mandate</span>, <span class="mono">Checkout</span>, <span class="mono">Receipt</span>, <span class="mono">DKIM</span>, <span class="mono">C2PA</span>, <span class="mono">OAuth</span>, <span class="mono">MCP</span>, <span class="mono">AuthZEN</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aiwiki.ai/wiki/agent_payments_protocol" target="_blank" rel="noreferrer noopener">Agent Payments Protocol (AP2) | AI Wiki</a></h2>
+<p class="reference-note">On April 28, 2026, Google transferred ownership of AP2 to the FIDO Alliance, the same standards body that maintains FIDO…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.clinkbill.com/blog/what-is-ap2-agent-payments-protocol" target="_blank" rel="noreferrer noopener">AP2 Agent Payments Protocol: Mandates and FIDO | Clink</a></h2>
+<p class="reference-note">## What Is AP2? — A Working Definition
+
+The Agent Payments Protocol (AP2) is an open protocol that defines how AI agents…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://agentpaymentsprotocol.eu/" target="_blank" rel="noreferrer noopener">Agent Payments Protocol (AP2) – Agentic payments, trust, and the EU perspective</a></h2>
+<p class="reference-note">As of May 2026, AP2 has been donated to the FIDO Alliance for open, community-led governance. Two new FIDO working group…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://nhimg.org/agentic-commerce-identity-guide" target="_blank" rel="noreferrer noopener">Agentic Commerce Identity: AP2, FIDO and Agent Payments</a></h2>
+<p class="reference-note">| Initiative | Origin | Focus |
+ --- 
+| Agent Payments Protocol (AP2) | Announced by Google in September 2025; contribut…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://agenticplug.ai/current-state-of-agentic-commerce" target="_blank" rel="noreferrer noopener">State of Agentic Commerce | Protocol Tracker | agenticplug.ai</a></h2>
+<p class="reference-note">### Google Donates AP2 to FIDO Alliance
+
+Google transfers ownership of the Agent Payments Protocol to the FIDO Alliance …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
