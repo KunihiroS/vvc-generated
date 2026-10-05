@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plannotator：エージェントの質問を非同期に回答する</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      background: var(--cream);
+      color: var(--ink);
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      padding: 20px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide-inner{
+      height: 100%;
+      width: 100%;
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      position: relative;
+    }
+    .slide-tag{
+      position: absolute;
+      top: 22px;
+      left: 26px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.16em;
+      font-size: 12px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 28px;
+      height: 0;
+      border-top: 2px solid var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      position: absolute;
+      top: 18px;
+      right: 28px;
+      font-family: "Cormorant Garamond", "Times New Roman", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", "Times New Roman", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 0px;
+    }
+    .title{
+      margin-top: 10px;
+      margin-bottom: 18px;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 70px;
+      line-height: 1.02;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      font-style: italic;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.5;
+      font-weight: 300;
+    }
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin: 18px 0 0;
+    }
+    .grid{
+      margin-top: 16px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(255,255,255,0.02);
+      min-height: 54px;
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .v{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.35;
+      font-weight: 300;
+    }
+    .list-grid{
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+    }
+    .bullet{
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border: 1px solid var(--rule);
+      padding: 14px;
+      background: rgba(255,255,255,0.02);
+      min-height: 74px;
+    }
+    .bullet .h{
+      font-family: "Cormorant Garamond", "Times New Roman", serif;
+      font-style: italic;
+      color: var(--rust-deep);
+      font-size: 18px;
+      line-height: 1.1;
+    }
+    .bullet .t{
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    a { color: var(--rust); text-decoration: none; border-bottom: 1px solid rgba(232,129,74,0.35); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Plannotator</div>
+        <div class="slide-num">02 / 16</div>
+        <div class="eyebrow">Asynchronous cards</div>
+        <div class="title">質問を</div>
+        <div class="title"><span class="jp">後でまとめて返す</span></div>
+        <div class="rule"></div>
+        <p class="lead" style="margin-top:18px;">
+          Plannotatorは、エージェントが出した質問を「チャット即答」ではなく「質問カード」として後から回答できる仕組みです。
+        </p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+        <div class="eyebrow">Chat blocks</div>
+        <div class="title">即答の</div>
+        <div class="title"><span class="jp">待ち地獄</span></div>
+        <div class="rule"></div>
+        <p class="lead" style="margin-top:18px;">
+          チャット形式だと、質問が出るたびにAI/エージェントがブロックされやすく、人側も注意を分散され続けます。
+        </p>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="core idea slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Core</div>
+        <div class="slide-num">04 / 16</div>
+        <div class="eyebrow">Plan-first</div>
+        <div class="title">質問は</div>
+        <div class="title"><span class="jp">文書へ書く</span></div>
+        <div class="rule"></div>
+        <p class="lead" style="margin-top:18px;">
+          エージェントは plan やMarkdownに <span class="mono">:::question</span> などを書き込み、利用者はカードUIでまとめて回答します。
+        </p>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="flow slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Flow</div>
+        <div class="slide-num">05 / 16</div>
+        <div class="eyebrow">Collect → Send</div>
+        <div class="title">後で</div>
+        <div class="title"><span class="jp">回収して送る</span></div>
+        <div class="rule"></div>
+        <div class="grid" style="margin-top:18px;">
+          <div class="card">
+            <div class="k">1</div>
+            <div class="v">Agent：plan/Markdownに質問ブロックを書く</div>
+          </div>
+          <div class="card">
+            <div class="k">2</div>
+            <div class="v">Plannotator：質問カードを生成する</div>
+          </div>
+          <div class="card">
+            <div class="k">3</div>
+            <div class="v">User：選択・自由記述・メモ（必要なら画像確認）</div>
+          </div>
+          <div class="card">
+            <div class="k">4</div>
+            <div class="v">User：<span class="mono">Send answers</span>で一式を返す</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="question types slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Types</div>
+        <div class="slide-num">06 / 16</div>
+        <div class="eyebrow">3 forms</div>
+        <div class="title">質問ブロック</div>
+        <div class="title"><span class="jp">3種類</span></div>
+        <div class="rule"></div>
+        <div class="list-grid" style="margin-top:18px;">
+          <div class="bullet">
+            <div class="h"><span class="mono">:::question</span></div>
+            <div class="t">単一選択（Recommended/Other を含めやすい）</div>
+          </div>
+          <div class="bullet">
+            <div class="h"><span class="mono">:::question-multi</span></div>
+            <div class="t">複数選択（複数の妥当案を同時に採用）</div>
+          </div>
+          <div class="bullet" style="grid-column: 1 / span 2;">
+            <div class="h"><span class="mono">:::question-text</span></div>
+            <div class="t">自由記述（トレードオフ理由・具体案などを文章で返す）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="structure slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Syntax</div>
+        <div class="slide-num">07 / 16</div>
+        <div class="eyebrow">Structured markdown</div>
+        <div class="title">最初の行が</div>
+        <div class="title"><span class="jp">質問文</span></div>
+        <div class="rule"></div>
+        <p class="lead" style="margin-top:18px;">
+          <span class="mono">:::question</span> などのブロックでは、開始直後の最初の行が質問として扱われます。
+        </p>
+        <div class="grid" style="margin-top:14px;">
+          <div class="card">
+            <div class="k">選択肢</div>
+            <div class="v"> <span class="mono">- [ ] label</span> 形式</div>
+          </div>
+          <div class="card">
+            <div class="k">文脈</div>
+            <div class="v"> それ以降は背景・説明として解釈</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="async value slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Why async</div>
+        <div class="slide-num">08 / 16</div>
+        <div class="eyebrow">Less waiting</div>
+        <div class="title">待ち時間を</div>
+        <div class="title"><span class="jp">短くする</span></div>
+        <div class="rule"></div>
+        <p class="lead" style="margin-top:18px;">
+          非同期にまとめて回答できるため、エージェントがプロンプト待ちで止まる時間と、人の注意分散を減らせます。
+        </p>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="recommendation and memo slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Decision</div>
+        <div class="slide-num">09 / 16</div>
+        <div class="eyebrow">Recommendations</div>
+        <div class="title">推奨で</div>
+        <div class="title"><span class="jp">迷いを減らす</span></div>
+        <div class="rule"></div>
+        <div class="grid" style="margin-top:18px;">
+          <div class="card">
+            <div class="k">Recommended</div>
+            <div class="v">エージェント側の第一候補を既定として提示</div>
+          </div>
+          <div class="card">
+            <div class="k">Other</div>
+            <div class="v">推奨と違う判断でも自由回答で補える</div>
+          </div>
+          <div class="card">
+            <div class="k">メモ</div>
+            <div class="v">レビュー根拠を追記して説明責任を強化</div>
+          </div>
+          <div class="card">
+            <div class="k">画像</div>
+            <div class="v">質問内に画像（Markdown画像）を埋め込める</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="constraints slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Limits</div>
+        <div class="slide-num">10 / 16</div>
+        <div class="eyebrow">Not everywhere</div>
+        <div class="title">動く場所 /</div>
+        <div class="title"><span class="jp">動かない場所</span></div>
+        <div class="rule"></div>
+        <div class="list-grid" style="margin-top:18px;">
+          <div class="bullet">
+            <div class="h">機能する</div>
+            <div class="t">plan review、Markdownへのannotate、<span class="mono">/plannotator-last</span> 等</div>
+          </div>
+          <div class="bullet">
+            <div class="h">機能しない</div>
+            <div class="t">HTMLページ、特定のコードレビュー領域など</div>
+          </div>
+          <div class="bullet" style="grid-column: 1 / span 2;">
+            <div class="h">前提</div>
+            <div class="t">「非同期でフィードバックを返す」連携が前提の設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="resubmit and anchor slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Ops</div>
+        <div class="slide-num">11 / 16</div>
+        <div class="eyebrow">Resubmit rules</div>
+        <div class="title">再提出の</div>
+        <div class="title"><span class="jp">扱い</span></div>
+        <div class="rule"></div>
+        <div class="grid" style="margin-top:18px;">
+          <div class="card">
+            <div class="k">決定済み</div>
+            <div class="v"> <span class="mono">- [x]</span> は再提出で「決着済み」扱い</div>
+          </div>
+          <div class="card">
+            <div class="k">アンカー</div>
+            <div class="v">質問文が言い換えられると回答が紐づきにくくなることがある</div>
+          </div>
+          <div class="card">
+            <div class="k">運用</div>
+            <div class="v">質問ブロックの大枠を安定させるのが望ましい</div>
+          </div>
+          <div class="card">
+            <div class="k">選択肢</div>
+            <div class="v">必要なら自由記述でトレードオフ理由を補う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="takeaway slide">
+      <div class="slide-inner">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">12 / 16</div>
+        <div class="eyebrow">Human decisions</div>
+        <div class="title">人が選ぶ論点を</div>
+        <div class="title"><span class="jp">回収する</span></div>
+        <div class="rule"></div>
+        <p class="lead" style="margin-top:18px;">
+          構造化した質問カードで「人間の意思決定が必要な論点」を非同期に回収し、レビュー品質と効率の両立を狙います。
+        </p>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="references slide">
+      <div class="slide-inner">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+        <div class="eyebrow">From doc & history</div>
+        <div class="title">参照</div>
+        <div class="title"><span class="jp">（要点）</span></div>
+        <div class="rule"></div>
+        <div class="list-grid" style="margin-top:18px;">
+          <div class="bullet">
+            <div class="h">質問構文</div>
+            <div class="t"><span class="mono">:::question</span> / <span class="mono">:::question-multi</span> / <span class="mono">:::question-text</span></div>
+          </div>
+          <div class="bullet">
+            <div class="h">返却</div>
+            <div class="t"><span class="mono">Send answers</span> で Answers を構造化してエージェントへ返す</div>
+          </div>
+          <div class="bullet">
+            <div class="h">再提出</div>
+            <div class="t"><span class="mono">- [x]</span> による決定済み保持、質問文の安定性</div>
+          </div>
+          <div class="bullet">
+            <div class="h">適用範囲</div>
+            <div class="t">plan review / annotate / <span class="mono">/plannotator-last</span> が中心（HTML等は不可）</div>
+          </div>
+        </div>
+        <p class="lead" style="margin-top:14px; font-size:20px; color: var(--ink-2);">
+          ※詳細は Plannotator の該当ドキュメント（Privacy &amp; data flow / Security などの関連章も併読推奨）。
+        </p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pi.dev/packages/@blazed/plannotator-pi-extension" target="_blank" rel="noreferrer noopener">@blazed/plannotator-pi-extension · Packages · Pi</a></h2>
+<p class="reference-note">`plannotator:request`
+`plan-review`
+`{ status: &quot;handled&quot;, result: { status: &quot;pending&quot;, reviewId } }`
+`plannotator:review…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://docs.plannotator.ai/open-source" target="_blank" rel="noreferrer noopener">Plannotator OSS Documentation - Plannotator</a></h2>
+<p class="reference-note">## Install Plannotator
+
+Install the binary on macOS, Linux, WSL, or Windows, then connect your coding agent.
+
+## Annotat…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/backnotprop/plannotator" target="_blank" rel="noreferrer noopener">GitHub - backnotprop/plannotator: Annotate and review coding agent plans and code diffs visually, share with your team, send feedback to agents with one click. · GitHub</a></h2>
+<p class="reference-note">## Repository files navigation
+
+Plannotator
+
+Everything you need to annotate and stay in the loop with your agents  
+ Ma…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://skillsllm.com/skill/plannotator" target="_blank" rel="noreferrer noopener">plannotator - AI Agents on GitHub (9.1k★) | SkillsLLM</a></h2>
+<p class="reference-note">### Plan mode
+
+No command needed. Plan mode is wired in through each harness&#39;s hooks. Any time your agent creates a plan…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.producthunt.com/products/plannotator" target="_blank" rel="noreferrer noopener">Plannotator: Annotate, review, and share Claude Code plans. (Plugin/Hook) | Product Hunt</a></h2>
+<p class="reference-note">•
+
+AI Code Editors
+
+Plannotator has become the collaborative review surface for Agentic Engineering. Review plans/mardow…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
