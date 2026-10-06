@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dust: Pretraining Transformers Without Backpropagation（ゼロ次学習要約）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      /* inset border feel */
+      outline: 20px solid var(--rule);
+      outline-offset: -20px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      border-top: 1px solid rgba(240, 232, 216, 0.12);
+      border-bottom: 1px solid rgba(240, 232, 216, 0.12);
+      pointer-events:none;
+    }
+
+    .tag{
+      position:absolute;
+      top: 22px;
+      left: 22px;
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      font-size: 13px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .tag::before{
+      content:"";
+      width: 52px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      margin-top: 6px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .title{
+      margin-top: -2px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 70px;
+      line-height: 1.0;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .jp-title{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 54px;
+      line-height: 1.0;
+      font-style: normal;
+      margin-top: -8px;
+      color: var(--rust-deep);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      font-weight: 300;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .hr{
+      width: 100%;
+      height: 1px;
+      background: var(--rule);
+      margin-top: 4px;
+      margin-bottom: 4px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.10);
+      padding: 14px 16px;
+      border-radius: 6px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+
+    .muted{
+      color: var(--ink-3);
+      font-weight: 300;
+    }
+
+    .bilingual{
+      display:flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .bilingual .jp{
+      font-family: "Noto Serif JP", serif;
+      color: var(--ink-3);
+      font-weight: 400;
+      font-size: 16px;
+    }
+    .bilingual .en{
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .tiny{
+      font-size: 16px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .closing-right{
+      align-self: flex-end;
+      max-width: 760px;
+      text-align: left;
+    }
+
+    /* Ensure no accidental centering in general slides */
+    .centerText { text-align: center; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 01 -->
+    <section class="slide">
+      <div class="tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+
+      <div class="eyebrow">Forward onlyで“学ぶ”</div>
+      <div class="title">Dust</div>
+
+      <div class="jp-title">backprop不要の事前学習</div>
+      <div class="lead" style="margin-top: -8px;">
+        逆伝播なしで、トランスフォーマの事前学習を進められる可能性を探るゼロ次（zeroth-order）最適化の研究を、読みやすく要約します。<br/>
+        （ゼロ次＝勾配の微分ではなく、前向き評価の差から更新方向を推定）
+      </div>
+    </section>
+
+    <!-- Slide 02 -->
+    <section class="slide">
+      <div class="tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+
+      <div class="eyebrow">なぜ難しい？</div>
+      <div class="title">Backpropが鍵</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        通常は損失の勾配をbackpropで計算し、重みを更新します。<br/>
+        しかし「前向き計算だけ」で同等の学習信号を作るのは直感的に難しいです。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Backprop（逆伝播）</div>
+          <div class="v">損失 <span class="mono">L</span> を微分し、勾配 <span class="mono">∇L</span> を得る</div>
+        </div>
+        <div class="cell">
+          <div class="k">Zeroth-order（ゼロ次）</div>
+          <div class="v">摂動で出力や表現を揺らし、損失低下を“報酬”として更新方向を推定</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 03 -->
+    <section class="slide">
+      <div class="tag">metaphor</div>
+      <div class="slide-num">04 / 16</div>
+
+      <div class="eyebrow">探索の人口＝核</div>
+      <div class="title">Population</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        ゼロ次法は、摂動を多数回（population＝摂動回数／仮想個体）行い、その“統計”で勾配を推定します。<br/>
+        一般に、推定精度はpopulationに依存します。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">人口多い</div>
+          <div class="v">推定が安定しやすい（ノイズが相殺）</div>
+        </div>
+        <div class="cell">
+          <div class="k">人口少ない</div>
+          <div class="v">更新方向がブレる（分散が大きい）</div>
+        </div>
+        <div class="cell">
+          <div class="k">鍵</div>
+          <div class="v">“人口を増やさず同等評価”ができるか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 04 -->
+    <section class="slide">
+      <div class="tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+
+      <div class="eyebrow">ESの弱点を回避</div>
+      <div class="title">Activation</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        典型的なEvolution Strategies（ES）は重みを摂動し、候補ごとに前向き評価が増えます。<br/>
+        Dustは摂動先を「重み」ではなく「活性（activation）」に移し、トークンごとに独立に揺らします。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Weight ES</div>
+          <div class="v">候補1つ＝前向き1回 → populationがそのまま計算負荷に</div>
+        </div>
+        <div class="cell">
+          <div class="k">Dust（核心）</div>
+          <div class="v">
+            活性をトークン軸で独立摂動 → 1回のforwardで多数の仮想個体を同時評価
+            <div class="tiny" style="margin-top:8px;">仮想人口＝virtual population（日本語補足：仮想個体数）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 05 -->
+    <section class="slide">
+      <div class="tag">process</div>
+      <div class="slide-num">06 / 16</div>
+
+      <div class="eyebrow">報酬で“勾配”を推定</div>
+      <div class="title">Reward</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        各トークンでの損失低下量を報酬として使い、その報酬で摂動のノイズ平均を重み付けして更新方向を推定します。<br/>
+        つまり「報酬の統計」からbackpropに相当する方向を作ります。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">1</div>
+          <div class="v">活性にノイズ摂動（activation perturbation）</div>
+        </div>
+        <div class="cell">
+          <div class="k">2</div>
+          <div class="v">forwardしてトークン損失の変化（損失低下）を観測</div>
+        </div>
+        <div class="cell">
+          <div class="k">3</div>
+          <div class="v">報酬で重み付けしたノイズ平均 → 更新方向（推定勾配）</div>
+        </div>
+        <div class="cell">
+          <div class="k">4</div>
+          <div class="v">backpropは使わないが、整合性を検証（コサイン類似度）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 06 -->
+    <section class="slide">
+      <div class="tag">evidence</div>
+      <div class="slide-num">07 / 16</div>
+
+      <div class="eyebrow">attentionの信用設計</div>
+      <div class="title">Credit</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        attention内部では役割分担（クエリ・キー・バリュー等）があり、トークン損失を一様に返すだけでは信用割当が崩れます。<br/>
+        Dustは注意出力側の推定誤差に基づく変種で、Transformerに合わせて更新方向を改善します。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">単純案</div>
+          <div class="v">トークン損失をそのまま報酬に</div>
+        </div>
+        <div class="cell">
+          <div class="k">問題</div>
+          <div class="v">attention内部の役割に不整合が出る</div>
+        </div>
+        <div class="cell">
+          <div class="k">Dust</div>
+          <div class="v">推定誤差を使いcredit assignmentを調整</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 07 -->
+    <section class="slide">
+      <div class="tag">comparison</div>
+      <div class="slide-num">08 / 16</div>
+
+      <div class="eyebrow">性能ギャップは縮む</div>
+      <div class="title">Scale</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        Dustは常にbackpropを上回るわけではありませんが、population（摂動数）を十分増やす領域でギャップが縮まり、場合によっては上回る示唆が得られます。<br/>
+        「ゼロ次は大規模でスケールしない」という通説に反する結果も報告されます。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">観測A</div>
+          <div class="v">人口増 → 損失差が縮小（ある領域で逆転の兆し）</div>
+        </div>
+        <div class="cell">
+          <div class="k">観測B</div>
+          <div class="v">モデルが大きいほどpopulation効率が良い傾向（逆転の観測）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 08 -->
+    <section class="slide">
+      <div class="tag">evidence</div>
+      <div class="slide-num">09 / 16</div>
+
+      <div class="eyebrow">方向の一致</div>
+      <div class="title">Cosine</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        Dustが推定する更新方向が、backprop勾配とどれだけ似ているかをコサイン類似度で測っています。<br/>
+        populationが増えるほど整合性が上がり、さらにトークン数が増えても整合性が大きく崩れないと報告されています。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">検証1</div>
+          <div class="v">推定勾配 vs backprop勾配</div>
+        </div>
+        <div class="cell">
+          <div class="k">指標</div>
+          <div class="v">コサイン類似度（方向の一致度）</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">population・トークン増で整合性維持</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 09 -->
+    <section class="slide">
+      <div class="tag">distinction</div>
+      <div class="slide-num">10 / 16</div>
+
+      <div class="eyebrow">なぜ有利になり得る？</div>
+      <div class="title">Geometry</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        活性摂動による“仮想人口”は、ESが抱えるpopulationボトルネック（重み候補ごとに前向きが必要）を根本から和らげます。<br/>
+        加えて、探索の幾何（geometry）や過大パラメータ化が、ゼロ次推定にとって有利に働く可能性が示唆されています。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Efficiency</div>
+          <div class="v">1 forward内に多数候補を“詰める”</div>
+        </div>
+        <div class="cell">
+          <div class="k">Scaling</div>
+          <div class="v">大きいモデルほど人口効率が改善する観測</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="tag">distinction</div>
+      <div class="slide-num">11 / 16</div>
+
+      <div class="eyebrow">干渉と限界</div>
+      <div class="title">Interference</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        同一のforwardで多数の層・多数トークンを同時に摂動すると、ある摂動の損失変化が別の摂動の推定に混ざる干渉が起き得ます。<br/>
+        Dustは層種・ブロック分割やattention内部の別推定などで抑制を狙いますが、population増に伴い難しくなる可能性があります。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">起きること</div>
+          <div class="v">摂動同士で推定が歪む</div>
+        </div>
+        <div class="cell">
+          <div class="k">Dustの対策</div>
+          <div class="v">層種/ブロック/attention内を分けて推定</div>
+        </div>
+        <div class="cell">
+          <div class="k">残る不確実性</div>
+          <div class="v">常に計算優位が維持される保証はない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="tag">comparison</div>
+      <div class="slide-num">12 / 16</div>
+
+      <div class="eyebrow">著者の立ち位置</div>
+      <div class="title">NotReplacement</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        この論文は「backpropを置き換えるほど計算効率を極限まで高める」ことが主目的ではありません。<br/>
+        それでも、探索ベースcredit assignmentの成立可能性と、観測された有望な挙動は重要な土台になります。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">成果（強み）</div>
+          <div class="v">virtual population設計／attention向け信用設計／勾配整合性の測定</div>
+        </div>
+        <div class="cell">
+          <div class="k">課題（移行）</div>
+          <div class="v">実装最適化・ハイパーパラメータ探索コスト・他設定への頑健性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+
+      <div class="eyebrow">要点まとめ</div>
+      <div class="title">Takeaway</div>
+
+      <div class="lead" style="margin-top: -4px;">
+        Dustは、活性空間でトークンごとに独立摂動して仮想人口を作り、Transformer向けにcredit assignmentを工夫することで、forwardのみからbackpropに近い学習方向を推定する可能性を示しました。<br/>
+        ただし“置換の即戦力”ではなく、有望な基礎研究として、計算効率改善と頑健性検証が次の焦点です。
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid two closing-right">
+        <div class="cell">
+          <div class="k">結論</div>
+          <div class="v bilingual"><span class="en">Forward-only learning</span><span class="jp">（前向きだけで学ぶ）</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">次の鍵</div>
+          <div class="v">干渉抑制×計算効率×移植性（再現性）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/Demographics_of_the_United_States" target="_blank" rel="noreferrer noopener">Demographics of the United States - Wikipedia</a></h2>
+<p class="reference-note">With about 4% of the world&#39;s population, the United States is the third most populous country (after India and China), a…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.worldometers.info/world-population/us-population" target="_blank" rel="noreferrer noopener">United States Population (2026) - Worldometer</a></h2>
+<p class="reference-note">The current population of the United States of America is 349,236,475 as of Saturday, July 25, 2026, based on Worldomete…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.census.gov/topics/population/about.html" target="_blank" rel="noreferrer noopener">About Population</a></h2>
+<p class="reference-note">Population Estimates: The Census Bureau&#39;s Population Estimates Program produces estimates of the population for the Unit…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=fj2v_covEpo" target="_blank" rel="noreferrer noopener">Just the Facts About the US Population, Geography, and Demographics</a></h2>
+<p class="reference-note">[1:30] Across our 3.8 million square miles, we have  4 million miles of roads, 63 national parks,  
+[1:40] and 37% of al…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3530737" target="_blank" rel="noreferrer noopener">Who and What Is a “Population”? Historical Debates, Current Controversies, and Implications for Understanding “Population Health” and Rectifying Health Inequities</a></h2>
+<p class="reference-note">### Context
+
+The idea of “population” is core to the population sciences but is rarely defined except in statistical ter…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
