@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Strands Decider 2B：意思決定モデル入門</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      padding: 56px 72px;
+      gap: 18px;
+      /* 16:9 유지のため高さはaspect-ratioに委ねる */
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 8px;
+    }
+
+    .topbar{
+      position: relative;
+      z-index: 1;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: -6px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.22em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 12px;
+      position: relative;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top: 0.28em;
+      height: 1px; width: 6px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.25);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      position: relative;
+      z-index: 1;
+      margin-top: -10px;
+      font-size: 22px;
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      position: relative;
+      z-index: 1;
+      font-size: 70px;
+      line-height: 0.98;
+      margin-top: -2px;
+      margin-bottom: 2px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      position: relative;
+      z-index: 1;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 2px;
+    }
+
+    .rule-line{
+      position: relative;
+      z-index: 1;
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin-top: 6px;
+      margin-bottom: 4px;
+    }
+
+    .grid{
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 2px;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+      min-height: 76px;
+    }
+
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .cell .value{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .tiny{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    .bilingual{
+      display:flex;
+      gap:10px;
+      flex-wrap: wrap;
+      align-items: baseline;
+    }
+    .jp{
+      font-style: normal;
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+    .en{
+      font-style: italic;
+      color: var(--ink);
+      font-size: 18px;
+    }
+
+    .references{
+      margin-top: 2px;
+      font-size: 20px;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+    .ref-item{
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--rule);
+    }
+    .ref-item:last-child{ border-bottom: 0; }
+    a{ color: var(--ink); text-decoration: underline; text-decoration-color: var(--rust); text-underline-offset: 3px; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="topbar">
+        <div class="slide-tag">STRANDS DECIDER 2B</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">文章ではなく“決める”</div>
+      <div class="title">Decider 2B</div>
+      <div class="lead">
+        LLMのように文章を生成するのではなく、選択肢から最適解を選び、確信度スコア（confidence）まで返す意思決定モデルです。
+        目的はエージェントの分岐・ルーティングを速く・確実にすることです。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">役割</div>
+          <div class="value">選択 + 確信度</div>
+          <div class="tiny">選ぶ（select）/ スコア付け（score）に特化</div>
+        </div>
+        <div class="cell">
+          <div class="label">性格</div>
+          <div class="value">小型・高速</div>
+          <div class="tiny">約2Bでローカル実験しやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="topbar">
+        <div class="slide-tag">WHY IT MATTERS</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">エージェントの“遅延地獄”</div>
+      <div class="title">分岐が増える</div>
+      <div class="lead">
+        エージェント開発では「どのツールを呼ぶか」「止めるか/確認するか」など、決断の回数が多い場面が頻出します。
+        ここをLLMの自由生成で回すと、コスト・遅延・不確実性が増えやすくなります。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">典型タスク</div>
+          <div class="value">Tool選択 / ガード判定</div>
+          <div class="tiny">routing・guard・policy classification</div>
+        </div>
+        <div class="cell">
+          <div class="label">求める性質</div>
+          <div class="value">速い / 低コスト</div>
+          <div class="tiny">“決める処理”を小モデルで担当</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor">
+      <div class="topbar">
+        <div class="slide-tag">CORE IDEA</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">生成じゃなく審判</div>
+      <div class="title">選択と確信</div>
+      <div class="lead">
+        Decider 2Bは、入力に対して“文章を作る”代わりに、与えられた選択肢を評価し、最適な1つ（またはスコア）を返します。
+        確信度（confidence）を一緒に出すため、運用側が「どの判断に賭けるか」を制御できます。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label"><span style="font-style:italic;">i</span> step</div>
+          <div class="value">選択肢を固定</div>
+          <div class="tiny bilingual"><span class="en">Options</span><span class="jp">選べる枠を用意</span></div>
+        </div>
+        <div class="cell">
+          <div class="label"><span style="font-style:italic;">ii</span> step</div>
+          <div class="value">各候補をスコア化</div>
+          <div class="tiny bilingual"><span class="en">Scoring</span><span class="jp">候補ごとの評価</span></div>
+        </div>
+        <div class="cell">
+          <div class="label"><span style="font-style:italic;">iii</span> step</div>
+          <div class="value">確信度で制御</div>
+          <div class="tiny bilingual"><span class="en">Confidence</span><span class="jp">校正された信頼</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">LM headを外す</div>
+      <div class="title">Pointer head</div>
+      <div class="lead">
+        ベースは事前学習済みLLM（Qwen3.5-2B）ですが、言語生成ヘッドを外し、代わりにpointer headを追加して選択肢整合をスコア化します。
+        「選択肢位置の隠れ状態」と「&lt;answer&gt;位置の隠れ状態」の整合を点数化する仕組みです。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">ベース</div>
+          <div class="value">Qwen3.5-2B</div>
+          <div class="tiny">言語モデルを“土台”に流用</div>
+        </div>
+        <div class="cell">
+          <div class="label">目的</div>
+          <div class="value">選択肢スコア化</div>
+          <div class="tiny">pointer head / &lt;answer&gt;整合</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide enumeration">
+      <div class="topbar">
+        <div class="slide-tag">INPUT → OUTPUT</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">決めるための入出力</div>
+      <div class="title">必ず“選ぶ”</div>
+      <div class="lead">
+        意思決定モデルは「自由文生成」ではなく、「選択肢→最適候補→確信度」という定型出力を前提に設計されています。
+        これにより、エージェント側は確実に分岐できます。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">出力</div>
+          <div class="value">最適選択 + 確信度</div>
+          <div class="tiny">confidence（校正が重要）</div>
+        </div>
+        <div class="cell">
+          <div class="label">前提</div>
+          <div class="value">選択肢が固定</div>
+          <div class="tiny">候補集合（options）を渡す</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide evidence">
+      <div class="topbar">
+        <div class="slide-tag">ACCURACY</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">まず当てる</div>
+      <div class="title">Accuracy</div>
+      <div class="lead">
+        JevBench v1（231タスク）での精度として、167/231＝72.3%が報告されています。
+        難易度別ではeasyが100%でhardが50.5%とされ、難しい多段・長文系で弱点が出やすい傾向が示唆されます。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">JevBench v1</div>
+          <div class="value">167 / 231（72.3%）</div>
+          <div class="tiny">精度（accuracy）</div>
+        </div>
+        <div class="cell">
+          <div class="label">難易度</div>
+          <div class="value">easy 100% / hard 50.5%</div>
+          <div class="tiny">長め多段文書が苦手傾向</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide evidence">
+      <div class="topbar">
+        <div class="slide-tag">CALIBRATION</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">“自信”の品質</div>
+      <div class="title">Calibration</div>
+      <div class="lead">
+        校正（calibration）は「確信度が、その確率どおりに正しいか」を測る考え方で、Brier scoreなどで評価されます。
+        意思決定モデルでは誤った確信度が誤作動の原因になるため、精度と同じくらい重要です。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">用語</div>
+          <div class="value">校正（calibration）</div>
+          <div class="tiny bilingual"><span class="en">Confidence reliability</span><span class="jp">信頼性</span></div>
+        </div>
+        <div class="cell">
+          <div class="label">意味</div>
+          <div class="value">0.8なら80%級</div>
+          <div class="tiny">理想的には確率と一致</div>
+        </div>
+        <div class="cell">
+          <div class="label">指標例</div>
+          <div class="value">Brier score</div>
+          <div class="tiny">確信度の誤差を評価</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide evidence">
+      <div class="topbar">
+        <div class="slide-tag">LATENCY</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">速さは“設計要件”</div>
+      <div class="title">低レイテンシ</div>
+      <div class="lead">
+        RTX3090で中央値約115ms、M3 MacBookでも小タスクなら約153ms程度という数値が示されています。
+        “数百ms以下”水準は、エージェント運用の応答性に直結します。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">RTX 3090</div>
+          <div class="value">中央値 約115ms</div>
+          <div class="tiny">ローカルGPUで高速</div>
+        </div>
+        <div class="cell">
+          <div class="label">M3 MacBook</div>
+          <div class="value">約153ms（小タスク）</div>
+          <div class="tiny">CPU/GPU環境でも試しやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide architecture">
+      <div class="topbar">
+        <div class="slide-tag">STRANDS HARNESS</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">エージェント部品になる</div>
+      <div class="title">Harness連携</div>
+      <div class="lead">
+        Strands Harness SDKの文脈では、deciderはツール選択、evals、ガードレール、メモリ/コンテキスト管理、ポリシー分類などの部品として機能します。
+        LLMの前後に挟むことで、判断を安価に補助できます。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">ツール</div>
+          <div class="value">Tool routing</div>
+          <div class="tiny">呼ぶべき処理の選択</div>
+        </div>
+        <div class="cell">
+          <div class="label">評価</div>
+          <div class="value">evals</div>
+          <div class="tiny">モデルや手順の判定支援</div>
+        </div>
+        <div class="cell">
+          <div class="label">安全</div>
+          <div class="value">ガードレール</div>
+          <div class="tiny">止める/許可する判断</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide process">
+      <div class="topbar">
+        <div class="slide-tag">INTERVENTION</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">“事前審査”を挟む</div>
+      <div class="title">Intervention</div>
+      <div class="lead">
+        LLM呼び出しの前に意思決定モデルを挟み、ツール実行の妥当性を yes/no などで早期判定できます。
+        返すアクションは Proceed / Deny / Confirm / Guide のように設計し、完全停止ではなく誘導も可能です。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">例：before_tool_call</div>
+          <div class="value">根拠・タイミングを判定</div>
+          <div class="tiny">“早すぎないか”などもチェック</div>
+        </div>
+        <div class="cell">
+          <div class="label">制御</div>
+          <div class="value">Proceed / Deny / Confirm / Guide</div>
+          <div class="tiny">止めるだけでなく、フィードバックで補正</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide comparison">
+      <div class="topbar">
+        <div class="slide-tag">LLM vs DECIDER</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">できることが違う</div>
+      <div class="title">役割分担</div>
+      <div class="lead">
+        LLMは自由生成が得意ですが、意思決定モデルは選択肢の中から正しい答えを選び、確信度を返すことに最適化されています。
+        そのため、エージェントでは「LLMに難しい判断を任せ、deciderで分岐を安価に制御」が成立しやすいです。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">LLM（自由生成）</div>
+          <div class="value">文章を作る</div>
+          <div class="tiny">説明・要約・推論文が得意</div>
+        </div>
+        <div class="cell">
+          <div class="label">Decider（意思決定）</div>
+          <div class="value">選ぶ & スコア</div>
+          <div class="tiny">routing・guard・policy分類に強い</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide distinction">
+      <div class="topbar">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">判断のための3条件</div>
+      <div class="title">“使える”根拠</div>
+      <div class="lead">
+        Decider 2Bが価値を出しやすいのは、精度だけでなく校正を重視し、さらに小型ゆえに高速実験・低遅延運用が可能だからです。
+        介入（intervention）と組み合わせると、運用での分岐品質を上げやすくなります。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">Practical</div>
+          <div class="value">ローカルで回る</div>
+          <div class="tiny">試作サイクルが速い</div>
+        </div>
+        <div class="cell">
+          <div class="label">Scientific</div>
+          <div class="value">校正まで評価</div>
+          <div class="tiny">Brier score等</div>
+        </div>
+        <div class="cell">
+          <div class="label">Strategic</div>
+          <div class="value">介入でハイブリッド</div>
+          <div class="tiny">低コスト事前審査</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide comparison">
+      <div class="topbar">
+        <div class="slide-tag">RISK & LIMITS</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">“崩れる条件”が鍵</div>
+      <div class="title">注意点</div>
+      <div class="lead">
+        意思決定モデルは選択肢外の自由表現ができず、運用範囲を誤ると期待を満たせません。
+        また、校正が良くても「どの条件で誤るか」「介入閾値をどう最適化するか」を別途検証する必要があります。
+      </div>
+      <div class="rule-line"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">一般化</div>
+          <div class="value">別ベンチでの再現は要確認</div>
+          <div class="tiny">JevBench中心の可能性</div>
+        </div>
+        <div class="cell">
+          <div class="label">運用</div>
+          <div class="value">誤判定の影響を評価</div>
+          <div class="tiny">止めすぎ/通しすぎの設計</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide closing">
+      <div class="topbar">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">確認用リンク</div>
+      <div class="title">References</div>
+      <div class="lead">
+        ここでは、要約内で言及された代表的な情報源・数値の出所を挙げます（実利用時は必ず元リポジトリのライセンス確認を推奨）。
+      </div>
+      <div class="rule-line"></div>
+
+      <div class="references">
+        <div class="ref-item">
+          <div class="bilingual"><span class="en">Strands Agents / Techstrong.ai記事</span><span class="jp">JevBench精度（167/231）、難易度内訳、RTX3090中央値115ms等の引用元として言及</span></div>
+        </div>
+        <div class="ref-item">
+          <div class="bilingual"><span class="en">GitHub（Strands Decider関連）</span><span class="jp">オープンソース提供、重み・スクリプト公開（要：ライセンス確認）</span></div>
+        </div>
+        <div class="ref-item">
+          <div class="bilingual"><span class="en">Hugging Face（Decider 2B weights）</span><span class="jp">モデル重みへのアクセス（要：利用条件確認）</span></div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=HyvQVRAbQfI&amp;xstg=CAMSBhUDze3xHw%3D%3D" target="_blank" rel="noreferrer noopener">Can&#39;t believe a 2B Strands Decider Local Models Beats Jev</a></h2>
+<p class="reference-note">[5:55] the grounded score is only just over the line. The  example in the repo uses a threshold of 0.45. So  
+[6:01] tha…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://techstrong.ai/articles/aws-explores-decision-models-with-strands-decider-2b" target="_blank" rel="noreferrer noopener">AWS Explores Decision Models With Strands Decider 2B - Techstrong.ai</a></h2>
+<p class="reference-note">AWS’s Strands Labs released Strands Decider 2B, an open source model built to make bounded decisions inside AI agent wor…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://strandsagents.com/blog/introducing-strands-decider" target="_blank" rel="noreferrer noopener">Introducing Strands Decider 2B: a small, open source, decision model | Strands Agents</a></h2>
+<p class="reference-note">Strands decider is one of a new class of decision models or system one models, a type of model that has been gaining a l…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.techtimes.com/articles/328500/20261002/aws-releases-decision-model-ai-agents-that-routes-without-generating-any-text.htm" target="_blank" rel="noreferrer noopener">AWS Releases Decision Model for AI Agents That Routes Without Generating Any Text</a></h2>
+<p class="reference-note">JevBench v1 is a third-party public benchmark maintained by Benchmark Heaven with 231 tasks designed for the decision-mo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/Marktechpost/status/2105911096406405130" target="_blank" rel="noreferrer noopener">Marktechpost AI on X: &quot;AWS just released Strands Decider 2B, an open source &quot;decision model&quot; that never writes a single word. It reads a state plus typed questions and returns a choice, a yes/no probability, or a score, each with a calibrated confidence. The core trick: take Qwen3.5-2B-Base, cut o… / X</a></h2>
+<p class="reference-note">hits 0.723 on the JevBench public set (167 of 231) with an ECE of 0.052, and answers in a 115 ms median on an RTX 3090. …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
