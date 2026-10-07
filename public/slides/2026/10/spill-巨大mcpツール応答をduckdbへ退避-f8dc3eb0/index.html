@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Spill: 巨大MCPツール応答をDuckDBへ退避</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0; background: var(--cream); color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      pointer-events: none;
+    }
+    .content{
+      position: relative;
+      padding: 56px 72px;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 22px; left: 28px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-weight: 500;
+      display:flex;
+      align-items:center;
+      gap: 12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 30px; height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      position:absolute;
+      top: 22px; right: 30px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: -6px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      line-height: 0.95;
+      margin-top: -6px;
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 54px;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin-top: 8px;
+      line-height: 1.35;
+    }
+    .subgrid{
+      margin-top: auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240, 232, 216, 0.03);
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .text{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .pillrow{
+      display:flex; flex-wrap:wrap; gap: 10px;
+      margin-top: 10px;
+    }
+    .pill{
+      border: 1px solid var(--rule-strong);
+      color: var(--ink-2);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 14px;
+      background: rgba(240, 232, 216, 0.02);
+      font-family: "Inter Tight", sans-serif;
+      letter-spacing: 0.02em;
+    }
+    .smallmono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 14px;
+      color: var(--ink-2);
+    }
+    .listgrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 10px;
+      width: 100%;
+    }
+    .kv{
+      display:flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .k{
+      font-family:"Inter Tight", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .v{
+      font-family:"Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .note{
+      font-family:"Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.35;
+    }
+    .refs{
+      width:100%;
+      margin-top: 12px;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 12px;
+      font-family:"Noto Serif JP", serif;
+      color: var(--ink-2);
+    }
+    .refs .item{
+      padding: 8px 0;
+      border-bottom: 1px dashed rgba(240, 232, 216, 0.14);
+      display:flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .refs .item:last-child{ border-bottom: none; }
+    .refs .t{
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .refs .u{
+      font-size: 15px;
+      color: var(--ink-3);
+      line-height: 1.3;
+    }
+    @media (max-width: 720px){
+      .content{ padding: 40px 28px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid2, .grid3{ grid-template-columns: 1fr; }
+      .slide-tag{ left: 18px; top: 16px; }
+      .slide-num{ right: 18px; top: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="slide-tag">Spill</div>
+      <div class="slide-num">02 / 18</div>
+      <div class="content">
+        <div class="eyebrow">巨大応答、退避して節約</div>
+        <div class="title"><em>Spill</em> / スピル</div>
+        <div class="lead">MCPの“巨大なツール応答”をそのままプロンプトに載せず、ローカルDuckDBへ保存して必要部分だけSQLで取り出す仕組みです。</div>
+        <div class="subgrid">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">Input</div>
+              <div class="text">MCPツール結果（JSONなど）が巨大化</div>
+            </div>
+            <div class="card">
+              <div class="label">Action</div>
+              <div class="text">閾値超だけ自動保存（Spill）</div>
+            </div>
+            <div class="card">
+              <div class="label">Output</div>
+              <div class="text">AIへdescriptor＋SQLで必要分だけ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="slide-tag">問題</div>
+      <div class="slide-num">03 / 18</div>
+      <div class="content">
+        <div class="eyebrow">50,000トークン級</div>
+        <div class="title"><em>Token</em>爆増</div>
+        <div class="lead">MCPツールの応答が大きいと、そのままエージェント文脈に入ってトークン数・遅延・コストが増えます。</div>
+
+        <div class="subgrid">
+          <div class="listgrid">
+            <div class="card">
+              <div class="label">まず起きる</div>
+              <div class="v">巨大JSONをそのまま渡す必要が出る</div>
+              <div class="note">→ パース/再提示の負担も増える</div>
+            </div>
+            <div class="card">
+              <div class="label">困りごと</div>
+              <div class="v">「必要な行だけ」なのに全文が流れる</div>
+              <div class="note">→ 目的の集計・絞り込みに到達しづらい</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor">
+      <div class="slide-tag">発想</div>
+      <div class="slide-num">04 / 18</div>
+      <div class="content">
+        <div class="eyebrow">JSONを流さない</div>
+        <div class="title"><em>退避</em>という判断</div>
+        <div class="lead">巨大な中身は“プロンプトの川”ではなく、ローカルDBという“貯水槽”へ流して、必要な水だけくみ上げます。</div>
+
+        <div class="subgrid">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">Before</div>
+              <div class="text"><span class="smallmono">tool_result JSON</span> → そのまま文脈へ</div>
+            </div>
+            <div class="card">
+              <div class="label">After</div>
+              <div class="text"><span class="smallmono">tool_result</span>（巨大のみ）→ DuckDB保存 → descriptor＋SQL</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="slide-tag">全体像</div>
+      <div class="slide-num">05 / 18</div>
+      <div class="content">
+        <div class="eyebrow">Spill→DuckDB→SQL</div>
+        <div class="title"><em>流れ</em>で理解</div>
+        <div class="lead">SpillはMCPのPostToolUseイベントをフックし、条件に合う巨大出力だけをDuckDBテーブル化して、AIはSQLで必要部分を取得します。</div>
+
+        <div class="subgrid">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">i. フック</div>
+              <div class="text">MCP <span class="smallmono">PostToolUse</span> を監視</div>
+              <div class="note">（入力：ツール応答）</div>
+            </div>
+            <div class="card">
+              <div class="label">ii. 判定</div>
+              <div class="text">32KiB超かつ形が対象なら保存</div>
+              <div class="note">それ以外はpass through</div>
+            </div>
+            <div class="card">
+              <div class="label">iii. 参照</div>
+              <div class="text">AIへdescriptor＋SQL → DuckDBが実行</div>
+              <div class="note">（出力：必要部分のみ）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="slide-tag">介入条件</div>
+      <div class="slide-num">06 / 18</div>
+      <div class="content">
+        <div class="eyebrow">“常に”ではない</div>
+        <div class="title"><em>閾値</em>で最適化</div>
+        <div class="lead">Spillは巨大化問題を“自動介入”しますが、必ずしも全てを保存するわけではありません。必要なときだけ介入します。</div>
+
+        <div class="subgrid">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">条件 (検知)</div>
+              <div class="v">MCPツール応答サイズが<span class="smallmono">32KiB</span>を超える</div>
+              <div class="note">→ まずサイズ</div>
+            </div>
+            <div class="card">
+              <div class="label">条件 (形)</div>
+              <div class="v">JSONオブジェクトの配列が非空</div>
+              <div class="note">例：直接JSON配列、テキスト内埋め込み、<span class="smallmono">structuredContent</span> 等</div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px;">
+            <div class="label">対象外</div>
+            <div class="text">エラー、バイナリ／混在ブロックなどは <span class="smallmono">pass through</span>（そのまま）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="slide-tag">何が起きる</div>
+      <div class="slide-num">07 / 18</div>
+      <div class="content">
+        <div class="eyebrow">descriptorへ圧縮</div>
+        <div class="title"><em>生JSON</em>を回避</div>
+        <div class="lead">AIには巨大データそのものではなく、保存されたデータセットの“コンパクトな説明（descriptor）”が渡されます。</div>
+
+        <div class="subgrid">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">descriptor（例）</div>
+              <div class="text">テーブル名・列・型・要約方針（必要情報のみ）</div>
+              <div class="note">→ モデルに渡すのは最小限</div>
+            </div>
+            <div class="card">
+              <div class="label">SQLで取得</div>
+              <div class="text">必要な列だけ、必要な集計だけを <span class="smallmono">SELECT</span> で</div>
+              <div class="note">→ 読み込み・出力を絞る</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="slide-tag">データ化</div>
+      <div class="slide-num">08 / 18</div>
+      <div class="content">
+        <div class="eyebrow">ネストは“文字列化”</div>
+        <div class="title"><em>構造</em>の扱い</div>
+        <div class="lead">ネスト配列や型が混在する部分は、JSONテキストとして保存します。欠損値はSQLの<span class="smallmono">NULL</span>として扱われます。</div>
+
+        <div class="subgrid">
+          <div class="listgrid">
+            <div class="card">
+              <div class="label">ネスト/混在</div>
+              <div class="v">ネスト構造や配列、型の混在 → JSONテキストとして保存</div>
+              <div class="note">（そのまま再現しやすい）</div>
+            </div>
+            <div class="card">
+              <div class="label">欠損</div>
+              <div class="v">値が欠ける → SQLの <span class="smallmono">NULL</span></div>
+              <div class="note">（クエリで扱える）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="slide-tag">セキュリティ</div>
+      <div class="slide-num">09 / 18</div>
+      <div class="content">
+        <div class="eyebrow">SELECTだけ</div>
+        <div class="title"><em>多層ガード</em></div>
+        <div class="lead">単なる保存ではなく、安全策を多層化します。SQLは読み取り中心に制限し、DuckDB側も読み取り専用や外部アクセス無効を前提にします。</div>
+
+        <div class="subgrid">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">SQL許可</div>
+              <div class="text"><span class="smallmono">SELECT</span>中心＋<span class="smallmono">WITH / SHOW / DESCRIBE / EXPLAIN</span></div>
+              <div class="note">ミューテーションや複数ステートメントは禁止</div>
+            </div>
+            <div class="card">
+              <div class="label">DuckDB運用</div>
+              <div class="text">読み取り専用・外部アクセス無効・拡張ロード無効</div>
+              <div class="note">→ 実行時の危険範囲を縮小</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="slide-tag">ワークフロー</div>
+      <div class="slide-num">10 / 18</div>
+      <div class="content">
+        <div class="eyebrow">自動で差し替え</div>
+        <div class="title"><em>介入点</em>は最小</div>
+        <div class="lead">ワークフロー自体は変えずに、“巨大出力だけ”を退避することで、エージェント側の設計負担を抑えます。</div>
+
+        <div class="subgrid">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">通常時</div>
+              <div class="text">32KiB未満 → そのままAIへ</div>
+            </div>
+            <div class="card">
+              <div class="label">巨大時</div>
+              <div class="text">条件一致 → DuckDB保存＋descriptor生成</div>
+            </div>
+            <div class="card">
+              <div class="label">AIの役割</div>
+              <div class="text">SQLで絞り込み・集計し、必要だけ返す</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="slide-tag">制約</div>
+      <div class="slide-num">11 / 18</div>
+      <div class="content">
+        <div class="eyebrow">上限あり</div>
+        <div class="title"><em>500行</em>の壁</div>
+        <div class="lead">性能・応答サイズの都合で、保存・検索・出力に上限があります。巨大データ“全量そのまま”用途には注意が必要です。</div>
+
+        <div class="subgrid">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">保存/保持</div>
+              <div class="v">500行キャップ</div>
+              <div class="note">大量を丸ごと扱う設計ではない</div>
+            </div>
+            <div class="card">
+              <div class="label">出力</div>
+              <div class="v">32KiB出力キャップ</div>
+              <div class="note">SQL結果の戻りにも上限</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="slide-tag">導入運用</div>
+      <div class="slide-num">12 / 18</div>
+      <div class="content">
+        <div class="eyebrow">クライアント分離</div>
+        <div class="title"><em>Cursor/Codex/Claude</em></div>
+        <div class="lead">クライアント別にフック設定やインストール/アンインストールを分離し、他設定に干渉しないことを重視しています。</div>
+
+        <div class="subgrid">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">設定分離</div>
+              <div class="text">Cursor / Codex / Claude Codeで別ファイル前提</div>
+            </div>
+            <div class="card">
+              <div class="label">可逆性</div>
+              <div class="text">例：<span class="smallmono">spill uninstall cursor</span> のように除去可能</div>
+              <div class="note">→ 無関係な設定を触らない</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="slide-tag">結論</div>
+      <div class="slide-num">13 / 18</div>
+      <div class="content">
+        <div class="eyebrow">分析向き</div>
+        <div class="title"><em>必要だけ</em>取る</div>
+        <div class="lead">Spillは“安全に・局所的に・効果的に”巨大応答問題を緩和し、特に集計/絞り込み中心のエージェントに適しています。</div>
+
+        <div class="subgrid">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">強み</div>
+              <div class="text">生JSONを渡さず、トークン節約と遅延低減</div>
+            </div>
+            <div class="card">
+              <div class="label">安全</div>
+              <div class="text">SELECT許可＋読み取り専用・外部無効でガード</div>
+            </div>
+            <div class="card">
+              <div class="label">注意点</div>
+              <div class="text">500行・出力32KiB・型/形の前提に制約あり</div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px;">
+            <div class="label">日本語要約</div>
+            <div class="text">巨大なMCPツール結果を“DBへ逃がし”、AIは“SQLで必要分だけ”取りにいく。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing refs">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">14 / 18</div>
+      <div class="content">
+        <div class="eyebrow">参照先（一般情報）</div>
+        <div class="title"><em>背景</em>を押さえる</div>
+        <div class="lead">本デッキはユーザー提示の仕様概要と要点に基づく要約です。以下は関連概念の参照先としての一般的な方向性です。</div>
+
+        <div class="refs">
+          <div class="item">
+            <div class="t">Model Context Protocol (MCP) — ツール呼び出しとイベント（例：PostToolUse）</div>
+            <div class="u">検索キーワード例：MCP PostToolUse event / tool result JSON</div>
+          </div>
+          <div class="item">
+            <div class="t">DuckDB — ローカル分析DB、読み取り専用・外部アクセス無効などの運用</div>
+            <div class="u">検索キーワード例：DuckDB read-only external access disabled extensions</div>
+          </div>
+          <div class="item">
+            <div class="t">SQLセキュリティ — SELECT許可リスト、複数ステートメント禁止、ミューテーション抑止</div>
+            <div class="u">検索キーワード例：SQL allowlist SELECT only explain describe</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://duckdb.org/community_extensions/extensions/duckdb_mcp.html" target="_blank" rel="noreferrer noopener">duckdb_mcp – DuckDB Community Extensions</a></h2>
+<p class="reference-note">Security Framework: Flexible security models supporting both development and production environments. Development mode o…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=dwWzNak3Mps" target="_blank" rel="noreferrer noopener">Your AI coding tools are an attack surface. RAID Files</a></h2>
+<p class="reference-note">[10:07] and network endpoints are accessible from  a session run today. A lot of the default   settings on these tools m…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://enterprisedna.co/directories/changelog" target="_blank" rel="noreferrer noopener">Changelog · Directories by Enterprise DNA</a></h2>
+<p class="reference-note">## 2026-07-10
+
+485 entries shipped [...] ## 2026-09-15
+
+1 entry shipped
+
+ MCP  Aard — One MCP server, 173 agencies, 10 t…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/ktanaka101/mcp-server-duckdb" target="_blank" rel="noreferrer noopener">GitHub - ktanaka101/mcp-server-duckdb: A Model Context Protocol (MCP) server implementation for DuckDB, providing database interaction capabilities · GitHub</a></h2>
+<p class="reference-note">To install DuckDB Server for Claude Desktop automatically via Smithery:
+
+### Claude Desktop Integration
+
+Configure the M…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://motherduck.com/blog/faster-data-pipelines-with-mcp-duckdb-ai" target="_blank" rel="noreferrer noopener">MCP + DuckDB: Connect AI Assistants to Your Data Pipelines | MotherDuck</a></h2>
+<p class="reference-note">Post asset
+
+The DuckDB/MotherDuck MCP server allows the AI copilot (Cursor) to directly run queries against local DuckDB…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
