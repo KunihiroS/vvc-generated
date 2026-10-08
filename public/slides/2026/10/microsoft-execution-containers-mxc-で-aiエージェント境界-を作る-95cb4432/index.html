@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Microsoft Execution Containers（MXC）で“AIエージェント境界”を作る</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      padding: 24px 0 48px;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: block;
+    }
+    .slide {
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px auto;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+      padding: 56px 72px;
+      border-image: none;
+      border-top: 20px solid var(--paper);
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.22em;
+      color: var(--rust);
+      text-transform: uppercase;
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-2);
+      white-space: nowrap;
+      line-height: 1.1;
+      margin-top: -2px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 14px 0 10px;
+      position: relative;
+      z-index: 1;
+      max-width: 860px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 64px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      margin: 0 0 14px;
+      position: relative;
+      z-index: 1;
+    }
+    .title .em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+      margin-top: 6px;
+      position: relative;
+      z-index: 1;
+    }
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+    }
+    .rule-sep{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 14px;
+      border: 0;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 10px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px 16px;
+      margin-top: 10px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: rgba(20,17,13,0.12);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--rust);
+      margin-bottom: 8px;
+      display:flex;
+      gap:10px;
+      align-items:baseline;
+    }
+    .cell .k .jp{
+      font-weight: 500;
+      color: var(--ink-4);
+      letter-spacing: 0;
+    }
+    .cell .v{
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.38;
+    }
+    .mini{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+    }
+    .list-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 18px;
+      margin-top: 12px;
+    }
+    .li{
+      border-left: 3px solid rgba(232,129,74,0.7);
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: rgba(20,17,13,0.10);
+    }
+    .li .t{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--rust);
+      margin-bottom: 6px;
+    }
+    .li .b{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.4;
+    }
+    .footnote{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 52px;
+      color: var(--ink-4);
+      font-size: 14px;
+      z-index: 1;
+    }
+    .nowrap{ white-space: nowrap; }
+    @media (max-width: 900px){
+      .slide{ padding: 44px 48px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 20px; }
+      .slide-num{ font-size: 24px; }
+      .footnote{ left: 48px; right: 48px; bottom: 42px; }
+    }
+    @media (max-width: 520px){
+      .slide{ padding: 38px 22px; }
+      .title{ font-size: 42px; }
+      .lead{ font-size: 18px; }
+      .slide-num{ font-size: 20px; }
+      .grid2, .grid3, .list-grid{ grid-template-columns: 1fr; }
+      .footnote{ left: 22px; right: 22px; bottom: 36px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover slide">
+      <div class="topline">
+        <div class="slide-tag">Microsoft MXC</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">Agent安全を“境界”で作る</div>
+      <div class="title">Execution <span class="em">Containers</span></div>
+      <div class="lead">AIエージェントがファイル・ネットワーク・複数アプリにまたがる時、最大の課題は“権限の事故”。MXCは実行時にOSが境界を強制し、ポリシーで囲い込みます。</div>
+      <div class="content">
+        <div class="rule-sep"></div>
+        <div class="mini">（英語用語）containment=実行境界 / least privilege=最小権限 / observability=監視・可視化</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem framing slide">
+      <div class="topline">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">事故は“権限”から始まる</div>
+      <div class="title"><span class="em">自由</span>が強すぎる</div>
+      <div class="lead">AIエージェントにユーザーと同等の権限を与えると、モデルの判断や生成コード、プラグイン挙動が意図を超えてしまい、情報漏えい・業務停止のリスクが上がります。</div>
+      <div class="content">
+        <div class="list-grid">
+          <div class="li"><div class="t">意図超え</div><div class="b">生成コードが想定外のファイルや外部先へ到達</div></div>
+          <div class="li"><div class="t">被害拡大</div><div class="b">“信用”に依存する設計だと封じ込めが弱い</div></div>
+          <div class="li"><div class="t">運用負担</div><div class="b">最小権限ポリシー作成が難しく、拒否過多になりがち</div></div>
+          <div class="li"><div class="t">見えにくさ</div><div class="b">何へアクセスしたかが追えないと改善できない</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Core idea slide">
+      <div class="topline">
+        <div class="slide-tag">Core Idea</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">OSが“勝手”を止める</div>
+      <div class="title">Policyが <span class="em">境界</span>になる</div>
+      <div class="lead">MXCは、開発者/IT管理者が許可する資源を宣言し、実行時にOSが境界を強制します。これで“見た目は合理的でも、権限外はできない”形に変えられます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">宣言（policy）<span class="jp">指定</span></div>
+            <div class="v">許可するファイル・ネットワーク宛先・アプリ範囲などを定義</div>
+          </div>
+          <div class="cell">
+            <div class="k">強制（enforcement）<span class="jp">実行時</span></div>
+            <div class="v">OSが境界を適用し、エージェントの権限自己拡張を遮断</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture slide">
+      <div class="topline">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">境界の対象は広い</div>
+      <div class="title">ファイル / アプリ / <span class="em">ネット</span></div>
+      <div class="lead">MXCの境界は単一機能ではなく、ファイル・ネットワーク・複数アプリにまたがるアクセスへ及びます。攻撃や事故の“入口”を複数面で抑えるのが狙いです。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Files<span class="jp">領域</span></div>
+            <div class="v">参照/更新を許可した範囲のみ（例：ユーザーDocumentsの遮断など）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Network<span class="jp">接続</span></div>
+            <div class="v">任意のネット接続を遮断し、許可した宛先だけに制限</div>
+          </div>
+          <div class="cell">
+            <div class="k">Apps<span class="jp">実行</span></div>
+            <div class="v">必要なアプリ/機能の実行を許し、不要な実行面を閉じる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Modes slide">
+      <div class="topline">
+        <div class="slide-tag">Modes</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">最小権限を作るための“段階”</div>
+      <div class="title">Learning → Permissive → <span class="em">Enforcement</span></div>
+      <div class="lead">最小権限ポリシーは最初から完璧に当てるのが難しいため、MXCは3モードで現実的に作ります。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i. Learning<span class="jp">学習</span></div>
+            <div class="v">拒否されたアクセスも記録し、活動の実態を観測（activity report）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. Permissive<span class="jp">許可的</span></div>
+            <div class="v">計測・調整を進めつつ、業務停止を避ける運用寄りの段階</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. Enforcement<span class="jp">強制</span></div>
+            <div class="v">ポリシー通りに実行を制御（拒否・制御が“運用の本番”に近づく）</div>
+          </div>
+        </div>
+      </div>
+      <div class="footnote">ポイント：拒否の観測→許可の絞り込み→強制へ、という移行が前提。</div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Development and IT split">
+      <div class="topline">
+        <div class="slide-tag">Governance</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">“宣言”と“制約”を分ける</div>
+      <div class="title">開発者 × IT の <span class="em">分業</span></div>
+      <div class="lead">MXCポリシーは開発者の宣言と、IT組織の管理側制約を分離します。これにより、企業ごとの姿勢に合わせて運用できます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">開発者（policy作成）<span class="jp">定義</span></div>
+            <div class="v">必要な資源（ファイル・ネット宛先など）をエージェント側から宣言</div>
+          </div>
+          <div class="cell">
+            <div class="k">IT（組織制約）<span class="jp">運用</span></div>
+            <div class="v">Intune等で追加制約、承認/評価の方針を適用し安全に回す</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Identity slide">
+      <div class="topline">
+        <div class="slide-tag">Identity</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“人”と“エージェント”を切り分ける</div>
+      <div class="title">Identity（帰属）で <span class="em">影響範囲</span>を絞る</div>
+      <div class="lead">エージェント活動をユーザーと区別することで、セキュリティチームは“人の操作”ではなく“エージェントの振る舞い”として評価・遮断できます。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">帰属（attribution）<span class="jp">識別</span></div>
+            <div class="v">ローカルIDまたはEntra連携の身元に紐づけて区別</div>
+          </div>
+          <div class="cell">
+            <div class="k">侵害時の設計<span class="jp">隔離</span></div>
+            <div class="v">不正・不具合エージェントの影響を、従業員全体へ拡がりにくくする狙い</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Evidence and monitoring slide">
+      <div class="topline">
+        <div class="slide-tag">Observability</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">“見える化”が最小権限の前提</div>
+      <div class="title">活動レポートで <span class="em">学習</span></div>
+      <div class="lead">Learning/Permissiveの段階では、エージェントが実際にどの資源へアクセスを試みたかがレポートとして残ります。これが最小権限ポリシー作成の材料になります。</div>
+      <div class="content">
+        <div class="list-grid">
+          <div class="li"><div class="t">何を試したか</div><div class="b">ファイル・ネット宛先などのアクセス試行を把握</div></div>
+          <div class="li"><div class="t">拒否の理由</div><div class="b">境界に引っかかった操作を観測し調整へ</div></div>
+          <div class="li"><div class="t">段階移行</div><div class="b">拒否観測→許可絞り込み→本番強制へ</div></div>
+          <div class="li"><div class="t">改善ループ</div><div class="b">監視・更新を回せないと“境界の質”が上がらない</div></div>
+        </div>
+      </div>
+      <div class="footnote">FAQ要旨：Learning/Enforcementの違いは“観測あり/なし”の位置づけ。</div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Comparison slide">
+      <div class="topline">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">信用ではなく“強制”へ</div>
+      <div class="title">Trust型 vs <span class="em">Boundary型</span></div>
+      <div class="lead">MXCの本質は、エージェントを“信用する/しない”に寄せず、実行時に境界をOSが強制する点です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Trust型<span class="jp">典型</span></div>
+            <div class="v">許可の判断がモデル/コードに依存し、事故時の封じ込めが弱くなりがち</div>
+          </div>
+          <div class="cell">
+            <div class="k">Boundary型（MXC）<span class="jp">狙い</span></div>
+            <div class="v">必要資源以外をOSレベルで遮断し、権限外行動を構造的に防止</div>
+          </div>
+        </div>
+        <div class="rule-sep"></div>
+        <div class="mini">補足：隔離強度はバックエンド/ティアで異なる可能性があるため、防御レベルは設計と選択次第。</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Risks and limits slide">
+      <div class="topline">
+        <div class="slide-tag">Risks</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">“万能ではない”を前提にする</div>
+      <div class="title">許可範囲が広いと <span class="em">リスク</span>残る</div>
+      <div class="lead">MXCは隔離・境界強制でリスクを下げますが、万能な保証ではありません。最小権限ポリシーの設計と継続的な見直しが不可欠です。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">ポリシー誤設定<span class="jp">失敗</span></div>
+            <div class="v">許可範囲が広いと、境界内での悪用や被害が残り得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用の欠落<span class="jp">監査</span></div>
+            <div class="v">監視・更新・学習→強制移行が回らないと、安全は積み上がらない</div>
+          </div>
+          <div class="cell">
+            <div class="k">影響範囲<span class="jp">粒度</span></div>
+            <div class="v">identity/帰属の粒度やログ保持など、運用設計の確認が必要</div>
+          </div>
+          <div class="cell">
+            <div class="k">性能/コスト<span class="jp">現場</span></div>
+            <div class="v">導入・保守・監査・性能影響は、実運用で見積もりが必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Use with other products slide">
+      <div class="topline">
+        <div class="slide-tag">Usage</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">エージェント接続の現実</div>
+      <div class="title">対応は製品に <span class="em">依存</span></div>
+      <div class="lead">入力文では、GitHub Copilot、OpenClaw、OpenAI Codex、Replit等でMXCサポートがある/今後予定とされています。ただし“どの機能がどの程度”対応かは個別確認が必要です。</div>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">Copilot<span class="jp">例</span></div>
+            <div class="v">MXCと連携するケースが言及</div>
+          </div>
+          <div class="cell">
+            <div class="k">Codex / Replit<span class="jp">例</span></div>
+            <div class="v">サポートまたは予定が言及</div>
+          </div>
+          <div class="cell">
+            <div class="k">OpenClaw<span class="jp">例</span></div>
+            <div class="v">サポートの言及</div>
+          </div>
+        </div>
+        <div class="rule-sep"></div>
+        <div class="mini">また、session containerの分離はWindowsに限定される可能性があるため、利用OS制約も前提に。</div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Closing and references slide">
+      <div class="topline">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">結論：境界＋監視＋運用</div>
+      <div class="title">MXCは“足回り”を <span class="em">整える</span></div>
+      <div class="lead">MXCの強みは、OSが実行時に境界を強制し、Learning/Permissive/Enforcementと観測レポートで最小権限へ寄せられる点です。技術導入だけでなく、ポリシー設計・移行・監視改善のプロセスが回るかが成否を左右します。</div>
+      <div class="content">
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Your next check<span class="jp">次の確認</span></div>
+            <div class="v">許可範囲（最小権限）・ログ/監査・Entra/identityの粒度・ログ保持・移行運用を設計する</div>
+          </div>
+          <div class="cell">
+            <div class="k">References<span class="jp">参照</span></div>
+            <div class="v">Windows Developer Blog（Windows platform security for AI agents）／Petri（How Microsoft Execution Containers Define Boundaries for AI Agents）／Origin Technology（MXC Internals）</div>
+          </div>
+        </div>
+      </div>
+      <div class="footnote">用語メモ：containment=隔離/実行境界、least privilege=最小権限、observability=監視・可視化。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blogs.windows.com/windowsdeveloper/2026/06/02/windows-platform-security-for-ai-agents" target="_blank" rel="noreferrer noopener">Windows platform security for AI agents - Windows Developer Blog</a></h2>
+<p class="reference-note">Sessions in Windows run with distinct user accounts, which enables isolation. Windows assigns a local ID or a cloud prov…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://petri.com/microsoft-execution-containers-boundaries-ai-agents" target="_blank" rel="noreferrer noopener">How Microsoft Execution Containers Define Boundaries for AI Agents</a></h2>
+<p class="reference-note">Microsoft Intune will be responsible for enforcing device-level policies, Microsoft Defender for providing runtime threa…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://netwrix.com/en/resources/news/netwrix-extends-identity-security-to-ai-agents-in-microsoft-entra-id" target="_blank" rel="noreferrer noopener">Identity Security to AI Agents in Microsoft Entra ID</a></h2>
+<p class="reference-note">consequences are measurable: in its 2026 Data and Identity Security Report, Netwrix found a 43% breach rate among organi…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/microsoft/mxc" target="_blank" rel="noreferrer noopener">GitHub - microsoft/mxc: Policy-driven, layered isolation and containment · GitHub</a></h2>
+<p class="reference-note">### Platforms
+
+| Platform | Default backend | Other backends | Minimum build |
+ ---  --- |
+| Windows 11 24H2+ (verified …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.originhq.com/research/mxc-execution-containers-internals" target="_blank" rel="noreferrer noopener">MXC Internals: How Microsoft&#39;s eXecution Containers Actually Isolate Agent Code | Origin Technology</a></h2>
+<p class="reference-note">Enforcement strength varies by tier, and the source says so. Some boundaries are kernel-enforced (AppContainer tokens, W…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
