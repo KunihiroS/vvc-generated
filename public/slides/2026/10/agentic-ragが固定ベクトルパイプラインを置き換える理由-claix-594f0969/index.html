@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agentic RAGが固定ベクトルパイプラインを置き換える理由（Claix）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      border-radius: 10px;
+      position: relative;
+      overflow: hidden;
+      inset: 0;
+      padding: 56px 72px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .inset-border{
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 8px;
+    }
+    .topbar{
+      position: absolute;
+      left: 28px;
+      right: 28px;
+      top: 18px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 16px;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 22px;
+      height: 1px;
+      background: var(--rust);
+      display:inline-block;
+      box-shadow: 0 0 0 0.5px rgba(232,129,74,0.35);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      padding-left: 16px;
+    }
+    .content{
+      margin-top: 52px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+      margin-top: 4px;
+      text-transform: none;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      line-height: 1.0;
+      font-weight: 500;
+      margin-top: 0px;
+      letter-spacing: -0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 8px;
+    }
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 10px 0 2px 0;
+    }
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 12px;
+      margin-top: 6px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+      min-height: 86px;
+    }
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .value{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .kv{
+      display:flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .pill{
+      border: 1px solid var(--rule-strong);
+      border-radius: 999px;
+      padding: 10px 14px;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      background: rgba(240,232,216,0.02);
+      font-size: 18px;
+    }
+    .footnote{
+      margin-top: auto;
+      padding-top: 12px;
+      color: var(--ink-3);
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .bilingual{
+      color: var(--ink-2);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      margin-left: 8px;
+      font-size: 0.95em;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; }
+      .topbar{ left: 18px; right: 18px; }
+      .content{ margin-top: 48px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+      .inset-border{ inset: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Agenticへ、検索の主導権</div>
+        <div class="title">エージェント主導の <em>RAG</em></div>
+        <div class="lead">固定のベクトル検索パイプラインから、エージェントが「いつ・何を・どう確かめて」取りに行く設計へ移っていく理由を、Claixの文脈で整理します。</div>
+        <div class="rule"></div>
+        <div class="kv">
+          <div class="pill">Fixed RAG（固定）</div>
+          <div class="pill">Agentic Retrieval（反復）<span class="bilingual">/ 再取得</span></div>
+        </div>
+        <div class="footnote">日本語 / 英語用語は併記：RAG（Retrieval-Augmented Generation）、agentic retrieval</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“検索一発”の限界</div>
+        <div class="title"><em>単発</em>では足りない</div>
+        <div class="lead">従来のRAGは「質問→検索→回答」で終わりがちですが、業務の推論では途中結果の検査・追加確認・矛盾検出が必要になります。</div>
+        <div class="grid two" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">固定RAG</div>
+            <div class="value">検索結果を生成入力に渡して一度完結（前処理的に扱う）</div>
+          </div>
+          <div class="cell">
+            <div class="label">agentic RAG</div>
+            <div class="value">検索をツールとして呼び出し、評価し、足りなければ再取得</div>
+          </div>
+        </div>
+        <div class="footnote">要点：検索の位置づけが「前処理」から「意思決定の一部」へ移る</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ベクトルは“万能鍵”じゃない</div>
+        <div class="title">検索を <em>部品</em>に</div>
+        <div class="lead">ベクトルDBや埋め込みは有用でも、文書同士の関係が重要な領域では「最初に固定で使う土台」になりにくい、という主張です。</div>
+        <div class="grid three" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">万能感</div>
+            <div class="value">意味的近さを拾える（セマンティック発見）</div>
+          </div>
+          <div class="cell">
+            <div class="label">業務ギャップ</div>
+            <div class="value">整合（契約条項・金額・条件など）を保証しない</div>
+          </div>
+          <div class="cell">
+            <div class="label">最適化の転換</div>
+            <div class="value">エージェントが必要なツールを選ぶ</div>
+          </div>
+        </div>
+        <div class="footnote">英：evidence（根拠）を保持し、必要に応じて止まる設計が重要</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">多層アーキテクチャ</div>
+        <div class="title">検索の前後を <em>分解</em></div>
+        <div class="lead">今後の設計は「ベクトル中心」ではなく、文書処理→エージェント推論→業務アクションへと段階的に組み立てます。</div>
+        <div class="grid two" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">文書処理レイヤー</div>
+            <div class="value">Markdown/JSON化、複数文書比較、証拠保持（evidence）</div>
+          </div>
+          <div class="cell">
+            <div class="label">エージェント推論レイヤー</div>
+            <div class="value">ツール選択・評価・追加質問・再取得（反復）</div>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="label">情報操作</div>
+            <div class="value">照会・比較・検証・根拠取得（証拠の追跡）</div>
+          </div>
+          <div class="cell">
+            <div class="label">業務アクション</div>
+            <div class="value">記録作成、承認、却下、通知（Human-in-the-loop含む）</div>
+          </div>
+        </div>
+        <div class="footnote">Claixは「文書ツール群」を整え、エージェントが必要時に呼べる状態にする位置づけ</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide enumeration">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">01</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">前処理からツールへ</div>
+        <div class="title">検索＝<em>エージェントの手</em></div>
+        <div class="lead">固定RAGでは検索は一度だけ渡されがちですが、agentic retrievalでは評価と再取得がエージェントの意思決定プロセスに組み込まれます。</div>
+        <div class="grid two" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">固定RAG</div>
+            <div class="value">計画（plan）より先に、検索（retrieve）が固定される</div>
+          </div>
+          <div class="cell">
+            <div class="label">agentic retrieval</div>
+            <div class="value">計画→検索→検査→不足なら再検索（繰り返し）</div>
+          </div>
+        </div>
+        <div class="footnote">「いつ取りに行くか」を制御できるため、証拠の充足度（enough evidence）を上げやすい</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide distinction">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">02</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">チャンクは文書を壊す</div>
+        <div class="title">分割は<em>誤解</em>を生む</div>
+        <div class="lead">契約条項・表・脚注・例外・注釈・別ページ参照など、文書の意味が周辺情報に依存するケースでは、単純な断片化が不都合になります。</div>
+        <div class="grid three" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">壊れやすい要素</div>
+            <div class="value">例外、注釈、別ページ参照</div>
+          </div>
+          <div class="cell">
+            <div class="label">表・条件</div>
+            <div class="value">数量、税、通貨、合計、条件</div>
+          </div>
+          <div class="cell">
+            <div class="label">望ましい方針</div>
+            <div class="value">構造を保った抽出、文書比較、見出し/表の関係維持</div>
+          </div>
+        </div>
+        <div class="footnote">結論：類似度で“切り出した断片”より、構造化抽出や比較の方が効く場合がある</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide evidence">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">03</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">埋め込み≠検証</div>
+        <div class="title">関連性と<em>整合</em>がズレる</div>
+        <div class="lead">埋め込み類似度は意味的近さは得意でも、請求書と発注書の整合（供給者・数量・税・通貨・合計・条件など）を保証しません。</div>
+        <div class="grid two" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">得意</div>
+            <div class="value">文章の意味的近さ（semantic similarity）</div>
+          </div>
+          <div class="cell">
+            <div class="label">不得意</div>
+            <div class="value">検証タスクの直接保証（比較・計算・根拠確認が別途必要）</div>
+          </div>
+        </div>
+        <div class="footnote">固定パイプラインだと、比較/計算/証拠確認の工程が不足しやすい</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide distinction">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">04</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">捨てない、固定しない</div>
+        <div class="title">ベクトルは<em>一部</em>に戻す</div>
+        <div class="lead">ベクトルDBは万能ではありません。巨大で永続的なコレクションや高クエリ量など、用途が合う場合に価値を出します。</div>
+        <div class="grid two" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">有効になりやすい</div>
+            <div class="value">セマンティック発見、長期の大規模知識検索、繰り返し検索</div>
+          </div>
+          <div class="cell">
+            <div class="label">固定が危険</div>
+            <div class="value">文書間の関係が主役の業務（突合・計算・承認）ではズレが出る</div>
+          </div>
+        </div>
+        <div class="footnote">狙い：用途に応じてSQL/API/全文検索/人レビューへ分岐できる設計</div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide architecture">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Claix</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">文書ツール群が差になる</div>
+        <div class="title">“正しい粒度”へ <em>変換</em></div>
+        <div class="lead">ClaixはPDF/Excel/Word/画像/音声/HTML/XMLなどを、エージェントが使いやすいMarkdownやJSONに変換し、比較や証拠保持に接続します。</div>
+        <div class="grid three" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">入力</div>
+            <div class="value">PDF / Excel / Word / 画像 / 音声 / HTML / XML</div>
+          </div>
+          <div class="cell">
+            <div class="label">出力</div>
+            <div class="value">Markdown / JSON（ツール呼び出し向け）</div>
+          </div>
+          <div class="cell">
+            <div class="label">価値</div>
+            <div class="value">検索置換ではなく、正しい形式で“扱える”状態を作る</div>
+          </div>
+        </div>
+        <div class="footnote">位置づけ：エージェントフレームワーク（LangChain等）の代替ではなく文書処理レイヤー</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide process">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">反復の流れ</div>
+        <div class="title">証拠を<em>満たす</em>まで</div>
+        <div class="lead">エージェントは取得・検証・評価を繰り返し、根拠が不十分なら行動を止めたり人レビューへエスカレーションします。</div>
+        <div class="grid three" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">i. 取得</div>
+            <div class="value">ツールとして検索/照会を呼ぶ（必要な文書を集める）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. 検証</div>
+            <div class="value">構造化された情報で比較・計算・整合確認（evidence）</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. 判断</div>
+            <div class="value">十分ならアクション、足りなければ再取得/停止/レビュー</div>
+          </div>
+        </div>
+        <div class="footnote">ポイント：失敗時の制御（安全停止）を設計に含める</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide comparison">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">採用判断の軸</div>
+        <div class="title">どこまで<em>固定</em>するか</div>
+        <div class="lead">agentic化は強力ですが、ツール呼び出し回数増や証拠追跡・不確実性管理が難しくなるため、安全設計が前提になります。</div>
+        <div class="grid two" style="margin-top:10px;">
+          <div class="cell">
+            <div class="label">Agenticで増えること</div>
+            <div class="value">反復、複数ツール、矛盾検出、人へのエスカレーション</div>
+          </div>
+          <div class="cell">
+            <div class="label">設計で必要なこと</div>
+            <div class="value">証拠の追跡、品質閾値、ループ制御、コスト/レイテンシ監視</div>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="label">評価指標（例）</div>
+            <div class="value">正解率、監査可能性、誤承認率、証拠の十分性</div>
+          </div>
+          <div class="cell">
+            <div class="label">実務の分岐</div>
+            <div class="value">請求書：構造化抽出/検証、類似検索は補助に</div>
+          </div>
+        </div>
+        <div class="footnote">結論：ベクトル中心ではなく、タスクに応じて“選ぶ”ことが核心</div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide closing">
+      <div class="inset-border"></div>
+      <div class="topbar">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Takeaway</div>
+        <div class="title">固定ではなく <em>選択</em>へ</div>
+        <div class="lead">Claixの主張は、検索（ベクトル）を“第一基盤として固定”するより、文書処理と証拠に基づくエージェント推論へ設計を寄せることです。</div>
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="label">要点まとめ</div>
+            <div class="value">
+              (i) 検索は前処理でなくツール化<br/>
+              (ii) チャンク固定は文書構造を壊し得る<br/>
+              (iii) 埋め込み類似は検証を保証しない
+            </div>
+          </div>
+          <div class="cell">
+            <div class="label">次のアクション</div>
+            <div class="value">
+              「何をエージェントに担わせるか」を先に決める<br/>
+              文書ツール（Markdown/JSON、比較、証拠保持）を用意する<br/>
+              安全停止（不十分な証拠で止める）を組み込む
+            </div>
+          </div>
+        </div>
+        <div class="footnote">参考：agentic orchestration（LangGraph等）やHuman-in-the-loop設計は成功確率を左右します</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.claix.dev/blog/rag-for-ai-agents-agentic-retrieval" target="_blank" rel="noreferrer noopener">RAG for AI Agents: Why Agentic Retrieval Is Replacing Fixed Vector Pipelines | Claix</a></h2>
+<p class="reference-note">Is chunking the past?
+:   Fixed chunking is becoming less universal. Structure-aware extraction, full-document processin…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://toloka.ai/blog/agentic-rag-systems-for-enterprise-scale-information-retrieval" target="_blank" rel="noreferrer noopener">Agentic RAG systems for enterprise-scale information retrieval</a></h2>
+<p class="reference-note">#### Example
+
+Consider an internal audit RAG agent at a multinational firm. The system analyzes multiple data sources (p…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/alexxubyte_systemdesign-coding-interviewtips-activity-7344040591753678849-j-6J" target="_blank" rel="noreferrer noopener">RAG vs Agentic RAG | Alex Xu</a></h2>
+<p class="reference-note">What I like about Agentic RAG is how it feels way more natural for messy, real-world tasks. Regular RAG is fine for simp…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.callstack.com/blog/rag-is-dead-long-live-context-engineering-for-llm-systems" target="_blank" rel="noreferrer noopener">RAG Is Dead. Long Live Context Engineering for LLM Systems</a></h2>
+<p class="reference-note">But lately, in real-world projects, I find myself proposing something much simpler far more often: Pure LLM API implemen…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.indeed.com/viewjob?jk=d362022b604a5c99" target="_blank" rel="noreferrer noopener">ML/AI Research Engineer — Agentic AI Lab (Founding Team) - San Francisco Bay Area, CA - Indeed.com</a></h2>
+<p class="reference-note">Fine-tune and evaluate open-source LLMs (e.g. LLaMA 3, Mistral, Falcon, Mixtral) for enterprise use cases with both stru…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
