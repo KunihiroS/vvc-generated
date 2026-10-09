@@ -1,0 +1,2357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Docker Agent — YAML/HCLでAIエージェントを実行・共有する仕組み</title>
+  <meta name="description" content="Docker Agentの仕組み、価値、ツール統合、OCI配布、実行形態、セキュリティ、ガバナンス、導入判断を整理したリーディングデッキ。">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .deck {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(22px, 4vw, 46px);
+      padding: clamp(24px, 4vw, 52px) 0 clamp(48px, 7vw, 96px);
+    }
+
+    .slide {
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      position: relative;
+      flex: 0 0 auto;
+      overflow: hidden;
+      padding: clamp(18px, 5vw, 56px) clamp(20px, 6.4vw, 72px);
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.6);
+      isolation: isolate;
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: clamp(7px, 1.8vw, 20px);
+      border: 1px solid var(--rule);
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .slide-tag,
+    .slide-num {
+      position: absolute;
+      top: clamp(11px, 3vw, 34px);
+      z-index: 5;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+    }
+
+    .slide-tag {
+      left: clamp(20px, 6.4vw, 72px);
+      display: flex;
+      align-items: center;
+      gap: clamp(7px, 1vw, 12px);
+      font-size: clamp(6px, 0.9vw, 10px);
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      display: block;
+      width: clamp(14px, 2.5vw, 28px);
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      right: clamp(20px, 6.4vw, 72px);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(9px, 1.55vw, 17px);
+      font-style: italic;
+      letter-spacing: 0.08em;
+      line-height: 1;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding-top: clamp(13px, 2.8vw, 31px);
+    }
+
+    .eyebrow {
+      margin: 0 0 clamp(4px, 0.8vw, 9px);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(10px, 1.95vw, 22px);
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: 0.035em;
+      line-height: 1;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1,
+    h2 {
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      font-weight: 500;
+      letter-spacing: -0.045em;
+    }
+
+    h1 {
+      font-size: clamp(34px, 7.5vw, 84px);
+      line-height: 1.03;
+    }
+
+    h2 {
+      max-width: 940px;
+      font-size: clamp(20px, 4.8vw, 54px);
+      line-height: 1.12;
+    }
+
+    h2.tight {
+      font-size: clamp(19px, 4.35vw, 50px);
+    }
+
+    h1 em,
+    h2 em {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead {
+      max-width: 760px;
+      margin-top: clamp(6px, 1.2vw, 13px);
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(9px, 1.95vw, 22px);
+      font-weight: 300;
+      line-height: 1.65;
+      letter-spacing: -0.01em;
+    }
+
+    .visual {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      margin-top: clamp(9px, 2vw, 23px);
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4,
+    .grid-5,
+    .grid-6 {
+      display: grid;
+      gap: clamp(6px, 1.45vw, 16px);
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .grid-5 {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .grid-6 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      position: relative;
+      padding: clamp(7px, 1.55vw, 17px);
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .card-top {
+      border-top: 1px solid var(--rust);
+    }
+
+    .card-label,
+    .mini-label,
+    .source-id {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 0.88vw, 10px);
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .card-title {
+      margin-top: clamp(3px, 0.55vw, 6px);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(9px, 1.52vw, 17px);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .card-title.latin {
+      font-family: "Inter Tight", sans-serif;
+      letter-spacing: -0.01em;
+    }
+
+    .card-copy {
+      margin-top: clamp(3px, 0.6vw, 7px);
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(7px, 1.17vw, 13px);
+      font-weight: 300;
+      line-height: 1.58;
+    }
+
+    .micro {
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(6px, 1.02vw, 11.5px);
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .latin {
+      font-family: "Inter Tight", sans-serif;
+    }
+
+    .roman {
+      display: block;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(12px, 2.35vw, 26px);
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .accent {
+      color: var(--rust);
+    }
+
+    .muted {
+      color: var(--ink-3);
+    }
+
+    .callout {
+      display: flex;
+      align-items: center;
+      gap: clamp(8px, 1.2vw, 14px);
+      margin-top: clamp(7px, 1.4vw, 16px);
+      padding: clamp(7px, 1.2vw, 13px) clamp(9px, 1.45vw, 16px);
+      border-left: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.022);
+      color: var(--ink-2);
+      font-size: clamp(7px, 1.22vw, 13.5px);
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    .callout strong {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .footer-note {
+      margin-top: clamp(6px, 1.15vw, 13px);
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(6px, 0.98vw, 11px);
+      line-height: 1.45;
+    }
+
+    .footer-note .ref {
+      color: var(--rust);
+    }
+
+    .cover .content,
+    .closing .content {
+      align-items: center;
+      justify-content: center;
+      padding-top: 0;
+      text-align: center;
+    }
+
+    .cover .eyebrow,
+    .closing .eyebrow {
+      margin-bottom: clamp(7px, 1.3vw, 15px);
+    }
+
+    .cover .lead,
+    .closing .lead {
+      max-width: 830px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .cover-mark {
+      width: clamp(38px, 7vw, 78px);
+      height: 1px;
+      margin: clamp(12px, 2.3vw, 26px) auto;
+      background: var(--rust);
+    }
+
+    .cover-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: clamp(5px, 0.85vw, 10px);
+    }
+
+    .cover-meta span {
+      padding: clamp(4px, 0.75vw, 8px) clamp(7px, 1.1vw, 12px);
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 0.98vw, 11px);
+      letter-spacing: 0.08em;
+    }
+
+    .concept-card {
+      padding-top: clamp(10px, 1.9vw, 21px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .concept-card .roman {
+      margin-bottom: clamp(4px, 0.8vw, 9px);
+    }
+
+    .concept-card h3 {
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(10px, 1.75vw, 19px);
+      font-weight: 500;
+      line-height: 1.25;
+    }
+
+    .concept-card p {
+      margin-top: clamp(4px, 0.7vw, 8px);
+      color: var(--ink-2);
+      font-size: clamp(7px, 1.22vw, 13.5px);
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .architecture-grid {
+      display: grid;
+      grid-template-columns: 0.78fr 1.55fr 1fr;
+      align-items: stretch;
+      gap: clamp(7px, 1.3vw, 15px);
+    }
+
+    .architecture-node {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: clamp(8px, 1.45vw, 16px);
+      border: 1px solid var(--rule);
+    }
+
+    .architecture-node.primary {
+      border-top: 2px solid var(--rust);
+    }
+
+    .architecture-node h3 {
+      margin-top: clamp(3px, 0.45vw, 5px);
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(9px, 1.42vw, 16px);
+      font-weight: 500;
+    }
+
+    .architecture-node p {
+      margin-top: clamp(4px, 0.65vw, 7px);
+      color: var(--ink-2);
+      font-size: clamp(7px, 1.08vw, 12px);
+      font-weight: 300;
+      line-height: 1.48;
+    }
+
+    .loop-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: clamp(4px, 0.6vw, 7px);
+      margin-top: clamp(7px, 1.1vw, 12px);
+    }
+
+    .loop-step {
+      padding: clamp(5px, 0.8vw, 9px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .loop-step b {
+      display: block;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(10px, 1.55vw, 17px);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .loop-step span {
+      display: block;
+      margin-top: 3px;
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(5px, 0.76vw, 8.5px);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .subagent-rail {
+      display: grid;
+      grid-template-columns: 0.75fr repeat(3, 1fr);
+      gap: clamp(5px, 0.8vw, 9px);
+      margin-top: clamp(7px, 1.1vw, 12px);
+    }
+
+    .subagent-rail div {
+      padding: clamp(5px, 0.8vw, 9px);
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(6px, 0.9vw, 10px);
+    }
+
+    .subagent-rail .rail-label {
+      color: var(--rust);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .code-layout {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: clamp(8px, 1.6vw, 18px);
+      align-items: stretch;
+    }
+
+    .code-panel {
+      padding: clamp(9px, 1.55vw, 17px);
+      border: 1px solid var(--rule);
+      border-top: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    pre {
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(7px, 1.14vw, 12.5px);
+      font-weight: 300;
+      line-height: 1.52;
+      white-space: pre-wrap;
+    }
+
+    pre .key {
+      color: var(--rust);
+      font-weight: 500;
+    }
+
+    pre .value {
+      color: var(--ink);
+    }
+
+    .annotation-stack {
+      display: grid;
+      grid-template-rows: repeat(4, 1fr);
+      gap: clamp(5px, 0.8vw, 9px);
+    }
+
+    .annotation {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(6px, 0.9vw, 10px);
+      align-items: start;
+      padding: clamp(6px, 0.95vw, 10px);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .annotation .roman {
+      font-size: clamp(10px, 1.65vw, 18px);
+    }
+
+    .annotation b {
+      display: block;
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(7px, 1.12vw, 12.5px);
+      font-weight: 500;
+    }
+
+    .annotation span:last-child {
+      display: block;
+      margin-top: 2px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.9vw, 10px);
+      line-height: 1.4;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: stretch;
+      gap: clamp(8px, 1.5vw, 17px);
+    }
+
+    .metric-card {
+      padding: clamp(11px, 2.1vw, 24px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .metric-card.highlight {
+      border-top-color: var(--rust);
+    }
+
+    .metric-number {
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(40px, 8.2vw, 92px);
+      font-weight: 400;
+      line-height: 0.82;
+      letter-spacing: -0.05em;
+    }
+
+    .metric-card.highlight .metric-number {
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .metric-label {
+      margin-top: clamp(7px, 1.3vw, 14px);
+      color: var(--ink);
+      font-size: clamp(9px, 1.42vw, 16px);
+      font-weight: 500;
+    }
+
+    .metric-copy {
+      margin-top: clamp(4px, 0.7vw, 8px);
+      color: var(--ink-3);
+      font-size: clamp(7px, 1.05vw, 12px);
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    .metric-arrow {
+      display: flex;
+      align-items: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(22px, 4vw, 46px);
+      font-style: italic;
+    }
+
+    .tool-layout {
+      display: grid;
+      grid-template-columns: 1fr 0.25fr 1fr;
+      align-items: stretch;
+      gap: clamp(7px, 1.3vw, 15px);
+    }
+
+    .tool-box {
+      padding: clamp(9px, 1.7vw, 19px);
+      border: 1px solid var(--rule);
+      border-top: 2px solid var(--rust);
+    }
+
+    .tool-box h3 {
+      margin-top: 4px;
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(10px, 1.7vw, 19px);
+      font-weight: 500;
+    }
+
+    .tool-box p {
+      margin-top: clamp(4px, 0.65vw, 7px);
+      color: var(--ink-3);
+      font-size: clamp(7px, 1vw, 11px);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .tool-tags {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: clamp(4px, 0.65vw, 7px);
+      margin-top: clamp(7px, 1.1vw, 12px);
+    }
+
+    .tool-tags span {
+      padding: clamp(4px, 0.7vw, 8px);
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(6px, 0.93vw, 10.5px);
+    }
+
+    .tool-bridge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(17px, 3.3vw, 37px);
+      font-style: italic;
+    }
+
+    .benefit-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: clamp(5px, 0.9vw, 10px);
+      margin-top: clamp(7px, 1.25vw, 14px);
+    }
+
+    .benefit-strip div {
+      padding-top: clamp(5px, 0.8vw, 9px);
+      border-top: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-size: clamp(6px, 0.98vw, 11px);
+      line-height: 1.4;
+    }
+
+    .benefit-strip b {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 500;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      gap: clamp(5px, 0.8vw, 9px);
+    }
+
+    .flow-step {
+      padding: clamp(8px, 1.45vw, 16px);
+      border: 1px solid var(--rule);
+      border-top: 2px solid var(--rust);
+    }
+
+    .flow-step h3 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(9px, 1.45vw, 16px);
+      font-weight: 500;
+    }
+
+    .flow-step p {
+      margin-top: clamp(4px, 0.7vw, 8px);
+      color: var(--ink-3);
+      font-size: clamp(6px, 1vw, 11px);
+      font-weight: 300;
+      line-height: 1.48;
+    }
+
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(16px, 2.8vw, 31px);
+      font-style: italic;
+    }
+
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: clamp(5px, 0.9vw, 10px);
+    }
+
+    .mode-card {
+      grid-column: span 2;
+      padding: clamp(7px, 1.25vw, 14px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .mode-card:nth-child(4) {
+      grid-column: 2 / span 2;
+    }
+
+    .mode-card:nth-child(5) {
+      grid-column: 4 / span 2;
+    }
+
+    .mode-card code {
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(8px, 1.3vw, 14.5px);
+      font-weight: 500;
+    }
+
+    .mode-card h3 {
+      margin-top: clamp(3px, 0.45vw, 5px);
+      color: var(--ink);
+      font-size: clamp(8px, 1.25vw, 14px);
+      font-weight: 500;
+    }
+
+    .mode-card p {
+      margin-top: clamp(3px, 0.55vw, 6px);
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.95vw, 10.5px);
+      font-weight: 300;
+      line-height: 1.42;
+    }
+
+    .agent-map {
+      display: grid;
+      grid-template-columns: 0.9fr 0.3fr 1.5fr;
+      align-items: stretch;
+      gap: clamp(7px, 1.2vw, 14px);
+    }
+
+    .root-agent {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: clamp(10px, 1.8vw, 20px);
+      border: 1px solid var(--rust);
+    }
+
+    .root-agent h3 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(10px, 1.65vw, 18px);
+      font-weight: 500;
+    }
+
+    .root-agent p {
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-size: clamp(7px, 1.04vw, 11.5px);
+      line-height: 1.48;
+    }
+
+    .agent-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(18px, 3.4vw, 38px);
+      font-style: italic;
+    }
+
+    .agent-stack {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: clamp(6px, 1vw, 11px);
+    }
+
+    .agent-role {
+      padding: clamp(8px, 1.35vw, 15px);
+      border-top: 1px solid var(--rule-strong);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .agent-role h3 {
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: clamp(8px, 1.28vw, 14px);
+      font-weight: 500;
+    }
+
+    .agent-role p {
+      margin-top: 5px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.92vw, 10px);
+      line-height: 1.45;
+    }
+
+    .distinction-list {
+      display: grid;
+      gap: clamp(6px, 1vw, 11px);
+    }
+
+    .distinction-row {
+      display: grid;
+      grid-template-columns: 0.14fr 1fr 0.14fr 1fr;
+      gap: clamp(6px, 1vw, 11px);
+      align-items: center;
+      padding: clamp(6px, 1vw, 11px) 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .distinction-mark {
+      color: var(--ink-4);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(15px, 2.5vw, 28px);
+      font-style: italic;
+    }
+
+    .distinction-mark.is {
+      color: var(--rust);
+    }
+
+    .distinction-row h3 {
+      color: var(--ink);
+      font-size: clamp(8px, 1.28vw, 14px);
+      font-weight: 500;
+    }
+
+    .distinction-row p {
+      margin-top: 3px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.93vw, 10.5px);
+      line-height: 1.42;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: clamp(5px, 0.85vw, 9px);
+    }
+
+    .pipeline-step {
+      position: relative;
+      padding: clamp(7px, 1.3vw, 14px);
+      border-top: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .pipeline-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 46%;
+      right: clamp(-8px, -0.7vw, -4px);
+      z-index: 3;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(11px, 1.75vw, 19px);
+      font-style: italic;
+    }
+
+    .pipeline-step h3 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(8px, 1.2vw, 13.5px);
+      font-weight: 500;
+    }
+
+    .pipeline-step p {
+      margin-top: 5px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.88vw, 9.8px);
+      line-height: 1.42;
+    }
+
+    .two-lane {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: stretch;
+      gap: clamp(8px, 1.4vw, 16px);
+    }
+
+    .lane {
+      padding: clamp(10px, 1.8vw, 20px);
+      border: 1px solid var(--rule);
+    }
+
+    .lane h3 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: clamp(10px, 1.55vw, 17px);
+      font-weight: 500;
+    }
+
+    .lane p {
+      margin-top: clamp(5px, 0.8vw, 9px);
+      color: var(--ink-2);
+      font-size: clamp(7px, 1.1vw, 12px);
+      font-weight: 300;
+      line-height: 1.55;
+    }
+
+    .lane-items {
+      display: grid;
+      gap: clamp(4px, 0.65vw, 7px);
+      margin-top: clamp(7px, 1.1vw, 12px);
+    }
+
+    .lane-items span {
+      padding: clamp(4px, 0.7vw, 8px);
+      border-top: 1px solid var(--rule);
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(6px, 0.9vw, 10px);
+    }
+
+    .lane-bridge {
+      display: flex;
+      align-items: center;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(19px, 3.6vw, 40px);
+      font-style: italic;
+    }
+
+    .risk-card {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(7px, 1vw, 11px);
+      align-items: start;
+      padding: clamp(8px, 1.4vw, 16px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .risk-index {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(16px, 2.7vw, 30px);
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .risk-card h3 {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(9px, 1.45vw, 16px);
+      font-weight: 500;
+    }
+
+    .risk-card p {
+      margin-top: 4px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 1vw, 11px);
+      line-height: 1.5;
+    }
+
+    .layer-card {
+      padding: clamp(8px, 1.35vw, 15px);
+      border-left: 1px solid var(--rule);
+    }
+
+    .layer-card:first-child {
+      border-left-color: var(--rust);
+    }
+
+    .layer-card h3 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(9px, 1.35vw, 15px);
+      font-weight: 500;
+    }
+
+    .layer-card p {
+      margin-top: 5px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.93vw, 10.5px);
+      line-height: 1.48;
+    }
+
+    .governance-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: clamp(5px, 0.9vw, 10px);
+    }
+
+    .governance-card {
+      grid-column: span 2;
+      padding: clamp(7px, 1.2vw, 13px);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .governance-card:nth-child(4) {
+      grid-column: 2 / span 2;
+    }
+
+    .governance-card:nth-child(5) {
+      grid-column: 4 / span 2;
+    }
+
+    .governance-card h3 {
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: clamp(8px, 1.23vw, 13.5px);
+      font-weight: 500;
+    }
+
+    .governance-card p {
+      margin-top: 4px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.91vw, 10px);
+      line-height: 1.44;
+    }
+
+    .control-column {
+      padding: clamp(8px, 1.35vw, 15px);
+      border-top: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .control-column h3 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: clamp(9px, 1.4vw, 15.5px);
+      font-weight: 500;
+    }
+
+    .control-stack {
+      display: grid;
+      gap: clamp(4px, 0.65vw, 7px);
+      margin-top: clamp(7px, 1vw, 11px);
+    }
+
+    .control-stack div {
+      padding: clamp(4px, 0.7vw, 8px);
+      border-top: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-size: clamp(6px, 0.93vw, 10.5px);
+      line-height: 1.4;
+    }
+
+    .score-table {
+      display: grid;
+      gap: 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .score-row {
+      display: grid;
+      grid-template-columns: 0.8fr 0.65fr 2fr;
+      gap: clamp(7px, 1.2vw, 14px);
+      align-items: center;
+      padding: clamp(5px, 0.85vw, 9px) 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .score-row.header {
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(5px, 0.8vw, 9px);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .score-axis {
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(7px, 1.13vw, 12.5px);
+      font-weight: 500;
+    }
+
+    .score-signal {
+      color: var(--rust);
+      font-family: "Noto Serif JP", serif;
+      font-size: clamp(7px, 1.05vw, 11.5px);
+      font-weight: 500;
+    }
+
+    .score-check {
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.97vw, 10.8px);
+      font-weight: 300;
+      line-height: 1.4;
+    }
+
+    .phase-card {
+      padding: clamp(9px, 1.55vw, 17px);
+      border-top: 2px solid var(--rust);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .phase-card h3 {
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: clamp(9px, 1.4vw, 15.5px);
+      font-weight: 500;
+    }
+
+    .phase-block {
+      margin-top: clamp(6px, 0.9vw, 10px);
+      padding-top: clamp(5px, 0.8vw, 9px);
+      border-top: 1px solid var(--rule);
+    }
+
+    .phase-block b {
+      display: block;
+      color: var(--rust);
+      font-family: "Inter Tight", sans-serif;
+      font-size: clamp(5px, 0.78vw, 8.5px);
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .phase-block p {
+      margin-top: 3px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.92vw, 10px);
+      line-height: 1.45;
+    }
+
+    .fit-column {
+      padding: clamp(9px, 1.55vw, 17px);
+      border-top: 2px solid var(--rust);
+    }
+
+    .fit-column.pause {
+      border-top-color: var(--rule-strong);
+    }
+
+    .fit-column h3 {
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(10px, 1.55vw, 17px);
+      font-weight: 500;
+    }
+
+    .fit-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(6px, 0.9vw, 10px);
+      padding: clamp(5px, 0.8vw, 9px) 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .fit-row:first-of-type {
+      margin-top: clamp(7px, 1vw, 11px);
+    }
+
+    .fit-row .roman {
+      font-size: clamp(10px, 1.65vw, 18px);
+    }
+
+    .fit-row p {
+      color: var(--ink-2);
+      font-size: clamp(6px, 1vw, 11px);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .gate {
+      padding: clamp(7px, 1.2vw, 13px);
+      border: 1px solid var(--rule);
+      border-top: 1px solid var(--rust);
+    }
+
+    .gate h3 {
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: clamp(8px, 1.2vw, 13px);
+      font-weight: 500;
+    }
+
+    .gate p {
+      margin-top: 4px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.9vw, 10px);
+      line-height: 1.4;
+    }
+
+    .closing h2 {
+      max-width: 900px;
+      font-size: clamp(27px, 6vw, 68px);
+      line-height: 1.2;
+    }
+
+    .closing-steps {
+      display: grid;
+      grid-template-columns: repeat(3, auto);
+      gap: clamp(12px, 3.2vw, 36px);
+      margin-top: clamp(14px, 2.8vw, 31px);
+    }
+
+    .closing-steps span {
+      position: relative;
+      color: var(--ink-2);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: clamp(7px, 1.18vw, 13px);
+      letter-spacing: 0.08em;
+    }
+
+    .closing-steps span:not(:last-child)::after {
+      content: "/";
+      position: absolute;
+      right: clamp(-19px, -1.7vw, -8px);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+
+    .references-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: clamp(5px, 0.9vw, 10px) clamp(10px, 1.5vw, 17px);
+    }
+
+    .reference-item {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(7px, 1vw, 11px);
+      padding: clamp(6px, 0.95vw, 10px) 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .reference-item h3 {
+      color: var(--ink);
+      font-size: clamp(7px, 1.08vw, 12px);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .reference-item p {
+      margin-top: 3px;
+      color: var(--ink-3);
+      font-size: clamp(6px, 0.86vw, 9.5px);
+      line-height: 1.42;
+    }
+
+    @media (max-width: 640px) {
+      .slide {
+        width: calc(100vw - 24px);
+      }
+
+      .deck {
+        gap: 18px;
+        padding-top: 18px;
+      }
+    }
+
+    @media print {
+      @page {
+        size: 16in 9in;
+        margin: 0;
+      }
+
+      body {
+        background: var(--cream);
+      }
+
+      .deck {
+        gap: 0;
+        padding: 0;
+      }
+
+      .slide {
+        width: 16in;
+        height: 9in;
+        aspect-ratio: auto;
+        break-after: page;
+        box-shadow: none;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck" aria-label="Docker Agent reading deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover" aria-label="Slide 1: Cover">
+      <div class="slide-tag">Field Guide</div>
+      <div class="slide-num">02 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Declare, run, and distribute</p>
+        <h1>Docker <em>Agent</em></h1>
+        <p class="lead">YAML/HCLでAIエージェントを宣言し、モデル・ツール・サブエージェントのループを実行し、OCIレジストリで共有するオープンソースの仕組み。</p>
+        <div class="cover-mark"></div>
+        <div class="cover-meta" aria-label="Key technologies">
+          <span>YAML / HCL</span>
+          <span>LLM ORCHESTRATION</span>
+          <span>MCP</span>
+          <span>OCI</span>
+          <span>A2A</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor" aria-label="Slide 2: Core idea">
+      <div class="slide-tag">Core Idea</div>
+      <div class="slide-num">03 / 27</div>
+      <div class="content">
+        <p class="eyebrow">The container analogy</p>
+        <h2>宣言・実行・共有を、一つの <em>型</em> に</h2>
+        <p class="lead">Dockerがアプリケーションの実行環境を再現可能にしたように、Docker Agentはエージェントを再利用可能な実行単位として扱います。</p>
+        <div class="visual">
+          <div class="grid-3">
+            <article class="concept-card">
+              <span class="roman">i</span>
+              <h3>Declare</h3>
+              <p>モデル、役割、ツール、サブエージェントをYAML/HCLで記述する。</p>
+            </article>
+            <article class="concept-card">
+              <span class="roman">ii</span>
+              <h3>Run</h3>
+              <p>LLMとツールの反復ループをランタイム側がオーケストレーションする。</p>
+            </article>
+            <article class="concept-card">
+              <span class="roman">iii</span>
+              <h3>Distribute</h3>
+              <p>エージェントをOCI形式でパッケージし、push / pullの流れに載せる。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>本質：</strong>
+            新しいモデルではなく、エージェントの構築・実行・配布を標準化するためのランタイムです。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem" aria-label="Slide 3: Glue code problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">04 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Why agents stay prototypes</p>
+        <h2>手書きの <em>glue code</em> が、再利用を止める</h2>
+        <p class="lead">従来のエージェント開発では、本来の業務ロジックよりも「モデルと道具をつなぐコード」が増えがちです。</p>
+        <div class="visual">
+          <div class="grid-4">
+            <article class="card card-top">
+              <div class="card-label">Model</div>
+              <h3 class="card-title">モデル接続</h3>
+              <p class="card-copy">プロバイダー別API、ストリーミング、メッセージ形式を個別に処理。</p>
+            </article>
+            <article class="card card-top">
+              <div class="card-label">Tools</div>
+              <h3 class="card-title">ツール配線</h3>
+              <p class="card-copy">スキーマ、呼び出し、結果変換、例外処理を毎回実装。</p>
+            </article>
+            <article class="card card-top">
+              <div class="card-label">Loop</div>
+              <h3 class="card-title">反復制御</h3>
+              <p class="card-copy">推論、実行、観測、再推論、停止条件を独自に組み立てる。</p>
+            </article>
+            <article class="card card-top">
+              <div class="card-label">Surface</div>
+              <h3 class="card-title">入出力と運用</h3>
+              <p class="card-copy">TUI、API、ログ、配布方法がプロジェクトごとに分断される。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>結果：</strong>
+            同じ機能でもプロジェクトごとに再発明され、保守・引き継ぎ・本番移行が難しくなります。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="Slide 4: Orchestration architecture">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 27</div>
+      <div class="content">
+        <p class="eyebrow">The managed loop</p>
+        <h2>利用者は目的を定義し、<em>loop</em> はランタイムが回す</h2>
+        <p class="lead">Docker Agentがモデル応答、ツール呼び出し、結果反映、次の推論までを仲介します。</p>
+        <div class="visual">
+          <div class="architecture-grid">
+            <article class="architecture-node">
+              <div class="mini-label">Input</div>
+              <h3>User / Task</h3>
+              <p>自然言語の依頼、CLI入力、APIリクエスト。</p>
+            </article>
+
+            <article class="architecture-node primary">
+              <div class="mini-label">Docker Agent Runtime</div>
+              <h3>LLM Orchestration</h3>
+              <p>instructionと状態を保ち、モデル判断に応じてツールやサブエージェントへ処理を委譲。</p>
+              <div class="loop-strip">
+                <div class="loop-step"><b>i</b><span>Observe</span></div>
+                <div class="loop-step"><b>ii</b><span>Reason</span></div>
+                <div class="loop-step"><b>iii</b><span>Act</span></div>
+                <div class="loop-step"><b>iv</b><span>Reflect</span></div>
+              </div>
+            </article>
+
+            <article class="architecture-node">
+              <div class="mini-label">Execution</div>
+              <h3>Models &amp; Tools</h3>
+              <p>選択したLLM、filesystem、shell、Web、memory、MCPツール。</p>
+            </article>
+          </div>
+
+          <div class="subagent-rail">
+            <div class="rail-label">Delegation</div>
+            <div>Research agent</div>
+            <div>Coding agent</div>
+            <div>Review agent</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="Slide 5: Declarative configuration">
+      <div class="slide-tag">Configuration</div>
+      <div class="slide-num">06 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Configuration as the interface</p>
+        <h2>設定が、エージェントの <em>contract</em> になる</h2>
+        <p class="lead">YAML/HCLには「何を達成するか」「どのモデルと道具を使うか」「誰へ委譲するか」を宣言します。</p>
+        <div class="visual">
+          <div class="code-layout">
+            <div class="code-panel" aria-label="Conceptual YAML example">
+<pre><span class="key">agents</span>:
+  <span class="key">root</span>:
+    <span class="key">model</span>: <span class="value">provider/model</span>
+    <span class="key">instruction</span>: <span class="value">|
+      Repositoryを分析し、
+      必要な修正を提案する。</span>
+    <span class="key">toolsets</span>:
+      - <span class="value">filesystem</span>
+      - <span class="value">shell</span>
+    <span class="key">sub_agents</span>:
+      - <span class="value">reviewer</span></pre>
+            </div>
+            <div class="annotation-stack">
+              <div class="annotation">
+                <span class="roman">i</span>
+                <span><b>Model</b><span>利用者がプロバイダーとモデルを選ぶ。</span></span>
+              </div>
+              <div class="annotation">
+                <span class="roman">ii</span>
+                <span><b>Instruction</b><span>役割、目的、行動方針を定義する。</span></span>
+              </div>
+              <div class="annotation">
+                <span class="roman">iii</span>
+                <span><b>Toolsets</b><span>許可する能力と外部連携を指定する。</span></span>
+              </div>
+              <div class="annotation">
+                <span class="roman">iv</span>
+                <span><b>Sub-agents</b><span>役割分担と委譲先を構成する。</span></span>
+              </div>
+            </div>
+          </div>
+          <p class="footer-note">構成イメージ。正確なキー名・対応形式・バージョンは利用時点の公式Configuration資料で確認が必要です。<span class="ref">[01][02]</span></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="Slide 6: Code reduction example">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">07 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Less plumbing, more intent</p>
+        <h2>約30行の実装を、約8行の <em>declaration</em> へ</h2>
+        <p class="lead">提示例では、同じコーディング支援エージェントをコードで組む場合とYAMLで宣言する場合が比較されています。</p>
+        <div class="visual">
+          <div class="metric-grid">
+            <article class="metric-card">
+              <div class="metric-number">≈30</div>
+              <div class="metric-label">lines of code</div>
+              <p class="metric-copy">モデル接続、ツール定義、反復ループ、ストリーミング処理を手書き。</p>
+            </article>
+
+            <div class="metric-arrow">→</div>
+
+            <article class="metric-card highlight">
+              <div class="metric-number">≈8</div>
+              <div class="metric-label">lines of YAML</div>
+              <p class="metric-copy">目的、モデル、ツールセットを宣言し、共通処理をランタイムへ移す。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>評価の焦点：</strong>
+            行数の短さ自体ではなく、反復処理を共通化し、レビュー可能な設定へ変える点に価値があります。
+          </div>
+          <p class="footer-note">数値は提供資料中の提示例であり、すべてのユースケースにそのまま当てはまる工数保証ではありません。<span class="ref">[01]</span></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="Slide 7: Tool integration and MCP">
+      <div class="slide-tag">Tooling</div>
+      <div class="slide-num">08 / 27</div>
+      <div class="content">
+        <p class="eyebrow">A standard toolbox</p>
+        <h2>組み込みツールと <em>MCP</em> を同じ設計へ</h2>
+        <p class="lead">標準機能で始め、専門的な外部機能はMCPサーバーを「外付けの道具箱」として接続できます。</p>
+        <div class="visual">
+          <div class="tool-layout">
+            <article class="tool-box">
+              <div class="mini-label">Built-in toolsets</div>
+              <h3>すぐ使える基本能力</h3>
+              <p>エージェントが頻繁に必要とするローカル操作や情報取得。</p>
+              <div class="tool-tags">
+                <span>filesystem</span>
+                <span>shell</span>
+                <span>memory</span>
+                <span>web fetch</span>
+              </div>
+            </article>
+
+            <div class="tool-bridge">+</div>
+
+            <article class="tool-box">
+              <div class="mini-label">MCP servers</div>
+              <h3>標準プロトコルで拡張</h3>
+              <p>外部SaaS、データソース、社内機能をMCP経由でツール化。</p>
+              <div class="tool-tags">
+                <span>catalog</span>
+                <span>data</span>
+                <span>services</span>
+                <span>internal APIs</span>
+              </div>
+            </article>
+          </div>
+
+          <div class="benefit-strip">
+            <div><b>Reuse</b><br>ツール連携の再実装を減らす</div>
+            <div><b>Maintain</b><br>エージェント本体と機能を分離</div>
+            <div><b>Replace</b><br>モデルやツールの差し替えを容易にする</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="Slide 8: OCI distribution">
+      <div class="slide-tag">Distribution</div>
+      <div class="slide-num">09 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Agents as distributable artifacts</p>
+        <h2>設定ファイルを、<em>OCI artifact</em> へ引き上げる</h2>
+        <p class="lead">単にagent.yamlを渡すのではなく、OCIレジストリを使ってエージェントを識別・配布・取得できる設計です。</p>
+        <div class="visual">
+          <div class="flow">
+            <article class="flow-step">
+              <span class="roman">i</span>
+              <h3>Define</h3>
+              <p>モデル参照、instruction、toolsets、サブエージェントを宣言。</p>
+            </article>
+            <div class="flow-arrow">→</div>
+            <article class="flow-step">
+              <span class="roman">ii</span>
+              <h3>Push</h3>
+              <p>エージェントをOCI互換レジストリへ登録し、版を共有。</p>
+            </article>
+            <div class="flow-arrow">→</div>
+            <article class="flow-step">
+              <span class="roman">iii</span>
+              <h3>Pull &amp; Run</h3>
+              <p>チームや環境が同じ参照から取得し、共通の導線で実行。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>運用上の意味：</strong>
+            Docker画像と近い認証・参照・バージョン管理の作法に寄せ、開発から本番への移送を扱いやすくします。
+          </div>
+          <p class="footer-note">配布対象はエージェントの実行定義であり、利用するLLMそのものを新たに提供するという意味ではありません。<span class="ref">[01][02]</span></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration" aria-label="Slide 9: Execution modes">
+      <div class="slide-tag">Execution</div>
+      <div class="slide-num">10 / 27</div>
+      <div class="content">
+        <p class="eyebrow">One agent, many surfaces</p>
+        <h2>試すためのTUIから、組み込むための <em>API</em> まで</h2>
+        <p class="lead">同じエージェント定義を、対話、バッチ、サービス、エージェント間連携へ展開できます。</p>
+        <div class="visual">
+          <div class="mode-grid">
+            <article class="mode-card">
+              <code>TUI</code>
+              <h3>対話的に探索する</h3>
+              <p>プロンプトやツール動作を端末上で確認しながら改善。</p>
+            </article>
+            <article class="mode-card">
+              <code>--exec</code>
+              <h3>非対話で一発実行</h3>
+              <p>ログ解析、定型処理、パイプやスクリプトへの組み込み。</p>
+            </article>
+            <article class="mode-card">
+              <code>HTTP API</code>
+              <h3>サービスとして提供</h3>
+              <p>HTTPやOpenAI互換の接続面からアプリケーションが利用。</p>
+            </article>
+            <article class="mode-card">
+              <code>MCP Server</code>
+              <h3>別のAIへ能力を公開</h3>
+              <p>エージェント自身をMCP経由の機能として接続。</p>
+            </article>
+            <article class="mode-card">
+              <code>A2A</code>
+              <h3>エージェント間で連携</h3>
+              <p>Agent-to-Agentプロトコルを通じた役割分担を想定。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>移行の利点：</strong>
+            「対話で試す」と「自動化して回す」の間で、エージェントを作り直す必要を減らします。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture" aria-label="Slide 10: Multi-agent composition">
+      <div class="slide-tag">Multi-Agent</div>
+      <div class="slide-num">11 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Delegation by configuration</p>
+        <h2>一体型ではなく、役割ごとの <em>agents</em> を組み合わせる</h2>
+        <p class="lead">ルートエージェントが目的を分解し、専門化したサブエージェントへ処理を委譲できます。</p>
+        <div class="visual">
+          <div class="agent-map">
+            <article class="root-agent">
+              <div class="mini-label">Root agent</div>
+              <h3>Coordinator</h3>
+              <p>依頼を理解し、必要な役割を選び、最終結果を統合する。</p>
+            </article>
+
+            <div class="agent-connector">→</div>
+
+            <div class="agent-stack">
+              <article class="agent-role">
+                <span class="roman">i</span>
+                <h3>Researcher</h3>
+                <p>情報収集と根拠整理に集中する。</p>
+              </article>
+              <article class="agent-role">
+                <span class="roman">ii</span>
+                <h3>Builder</h3>
+                <p>ファイル操作や実装タスクを担当する。</p>
+              </article>
+              <article class="agent-role">
+                <span class="roman">iii</span>
+                <h3>Reviewer</h3>
+                <p>結果を検証し、誤りや不足を指摘する。</p>
+              </article>
+            </div>
+          </div>
+          <div class="callout">
+            <strong>設計原則：</strong>
+            エージェント数を増やすことより、責務・入力・権限・終了条件を明確に分けることが重要です。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction" aria-label="Slide 11: What Docker Agent is and is not">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">12 / 27</div>
+      <div class="content">
+        <p class="eyebrow">What it is — and is not</p>
+        <h2><em>Model</em> ではない。実行と配布のレイヤーである</h2>
+        <p class="lead">Docker Agentの価値を正しく評価するには、LLM、アプリケーションコード、配布物を分けて考える必要があります。</p>
+        <div class="visual">
+          <div class="distinction-list">
+            <div class="distinction-row">
+              <div class="distinction-mark">not</div>
+              <div>
+                <h3>新しい基盤モデル</h3>
+                <p>独自LLMを提供し、そのモデルだけを使わせる仕組みではない。</p>
+              </div>
+              <div class="distinction-mark is">is</div>
+              <div>
+                <h3>モデル選択可能なランタイム</h3>
+                <p>OpenAI、Anthropic、Gemini、AWS Bedrock、localなどを利用者が選ぶ。</p>
+              </div>
+            </div>
+
+            <div class="distinction-row">
+              <div class="distinction-mark">not</div>
+              <div>
+                <h3>すべてをコード化する専用SDK</h3>
+                <p>反復ループや基本的なツール配線を毎回実装する前提ではない。</p>
+              </div>
+              <div class="distinction-mark is">is</div>
+              <div>
+                <h3>宣言中心のオーケストレーター</h3>
+                <p>目的と構成を設定へ移し、共通の実行処理をランタイムが担う。</p>
+              </div>
+            </div>
+
+            <div class="distinction-row">
+              <div class="distinction-mark">not</div>
+              <div>
+                <h3>単独のYAMLファイル共有</h3>
+                <p>環境差異や版の所在を人手だけで管理する運用に留まらない。</p>
+              </div>
+              <div class="distinction-mark is">is</div>
+              <div>
+                <h3>OCIで参照できる実行単位</h3>
+                <p>既存のレジストリ運用へエージェント配布を接続する。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="Slide 12: Agent lifecycle">
+      <div class="slide-tag">Lifecycle</div>
+      <div class="slide-num">13 / 27</div>
+      <div class="content">
+        <p class="eyebrow">From idea to operation</p>
+        <h2>一つの宣言を、検証しながら <em>promote</em> する</h2>
+        <p class="lead">Docker Agentは、プロトタイプと運用を別々の実装にせず、同じ定義を段階的に昇格させる流れに向きます。</p>
+        <div class="visual">
+          <div class="pipeline">
+            <article class="pipeline-step">
+              <span class="roman">i</span>
+              <h3>Explore</h3>
+              <p>TUIで目的、instruction、出力傾向を探索。</p>
+            </article>
+            <article class="pipeline-step">
+              <span class="roman">ii</span>
+              <h3>Define</h3>
+              <p>モデル、toolsets、サブエージェントを固定。</p>
+            </article>
+            <article class="pipeline-step">
+              <span class="roman">iii</span>
+              <h3>Validate</h3>
+              <p>代表タスク、権限、失敗時挙動を検証。</p>
+            </article>
+            <article class="pipeline-step">
+              <span class="roman">iv</span>
+              <h3>Package</h3>
+              <p>版を付け、OCIレジストリへpush。</p>
+            </article>
+            <article class="pipeline-step">
+              <span class="roman">v</span>
+              <h3>Operate</h3>
+              <p>--execやAPIから取得・実行・監視。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>重要：</strong>
+            OCI化は配布経路を整えますが、品質検証や本番承認を自動的に代替するものではありません。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="Slide 13: Prototype to automation">
+      <div class="slide-tag">Operations</div>
+      <div class="slide-num">14 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Preserve the agent, change the surface</p>
+        <h2>試作から自動化へ、<em>rewrite</em> を減らす</h2>
+        <p class="lead">対話で確かめたエージェントを、その定義を保ったままバッチやAPI運用へ移しやすい点が実務上の利点です。</p>
+        <div class="visual">
+          <div class="two-lane">
+            <article class="lane">
+              <div class="mini-label">Explore</div>
+              <h3>人が対話しながら確認</h3>
+              <p>出力を読み、instructionやツール構成を素早く修正する段階。</p>
+              <div class="lane-items">
+                <span>TUI interaction</span>
+                <span>Prompt iteration</span>
+                <span>Tool behavior check</span>
+              </div>
+            </article>
+
+            <div class="lane-bridge">→</div>
+
+            <article class="lane">
+              <div class="mini-label">Automate</div>
+              <h3>システムが継続的に実行</h3>
+              <p>同じエージェント定義をCLI、パイプ、HTTPサービスへ接続する段階。</p>
+              <div class="lane-items">
+                <span>Non-interactive --exec</span>
+                <span>Scheduled workflow</span>
+                <span>HTTP / compatible endpoint</span>
+              </div>
+            </article>
+          </div>
+
+          <div class="benefit-strip">
+            <div><b>Reproducibility</b><br>同じ定義を再実行しやすい</div>
+            <div><b>Handoff</b><br>チーム間で構成を共有しやすい</div>
+            <div><b>Promotion</b><br>試作と本番の分断を減らす</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem" aria-label="Slide 14: Security risk surface">
+      <div class="slide-tag">Security</div>
+      <div class="slide-num">15 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Capability creates exposure</p>
+        <h2>リスクを決めるのは、モデルより <em>authority</em></h2>
+        <p class="lead">エージェントがfilesystem、shell、network、credentialsへ触れられるほど、誤操作や攻撃時の影響範囲は広がります。</p>
+        <div class="visual">
+          <div class="grid-2">
+            <article class="risk-card">
+              <span class="risk-index">i</span>
+              <div>
+                <h3>Filesystem</h3>
+                <p>機密ファイルの読み取り、意図しない上書き、許可範囲外への書き込み。</p>
+              </div>
+            </article>
+            <article class="risk-card">
+              <span class="risk-index">ii</span>
+              <div>
+                <h3>Shell</h3>
+                <p>任意コマンド、破壊的処理、依存パッケージ経由の実行リスク。</p>
+              </div>
+            </article>
+            <article class="risk-card">
+              <span class="risk-index">iii</span>
+              <div>
+                <h3>Network</h3>
+                <p>不正な外部通信、情報流出、信頼できない取得物の実行。</p>
+              </div>
+            </article>
+            <article class="risk-card">
+              <span class="risk-index">iv</span>
+              <div>
+                <h3>Credentials</h3>
+                <p>モデルAPIキー、クラウド資格情報、MCP接続先の秘密情報。</p>
+              </div>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>設計基準：</strong>
+            「何ができるか」ではなく「侵害や誤判断が起きたとき、どこまで届くか」で権限を決めます。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="Slide 15: Isolation signals and caveats">
+      <div class="slide-tag">Isolation</div>
+      <div class="slide-num">16 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Evidence versus assumption</p>
+        <h2>隔離の <em>方向性</em> と、製品の既定保証を分ける</h2>
+        <p class="lead">関連するDocker発信では多層サンドボックスが示されていますが、それがすべてのDocker Agent構成に自動適用されるとは限りません。</p>
+        <div class="visual">
+          <div class="grid-4">
+            <article class="layer-card">
+              <span class="roman">i</span>
+              <h3>Landlock</h3>
+              <p>ファイルシステム操作をカーネル側の制約で限定する考え方。</p>
+            </article>
+            <article class="layer-card">
+              <span class="roman">ii</span>
+              <h3>seccomp</h3>
+              <p>利用可能なシステムコールを絞り、OSへの到達面を縮小。</p>
+            </article>
+            <article class="layer-card">
+              <span class="roman">iii</span>
+              <h3>Network namespace</h3>
+              <p>実行環境の通信境界を分離し、到達可能なネットワークを限定。</p>
+            </article>
+            <article class="layer-card">
+              <span class="roman">iv</span>
+              <h3>Policy egress</h3>
+              <p>外向き通信をポリシーで許可し、送信先を制御する考え方。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>確認ポイント：</strong>
+            Docker SandboxesとNanoClawに関する関連情報は有力な方向性ですが、Docker Agentの版・モード・設定ごとの適用範囲を公式資料と実機で確認すべきです。
+          </div>
+          <p class="footer-note">関連するDocker公式ブログおよび提供されたWeb検索メモに基づく補足。Docker Agentの全構成に対する保証としては扱っていません。<span class="ref">[03]</span></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration" aria-label="Slide 16: Governance requirements">
+      <div class="slide-tag">Governance</div>
+      <div class="slide-num">17 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Distribution is not governance</p>
+        <h2>レジストリは配れる。しかし <em>control</em> は別に要る</h2>
+        <p class="lead">共有可能な実行単位になったからこそ、登録・承認・実行・監査の責任分界を明示する必要があります。</p>
+        <div class="visual">
+          <div class="governance-grid">
+            <article class="governance-card">
+              <span class="roman">i</span>
+              <h3>Ownership</h3>
+              <p>誰が登録し、更新し、廃止し、インシデントへ対応するか。</p>
+            </article>
+            <article class="governance-card">
+              <span class="roman">ii</span>
+              <h3>Approved capabilities</h3>
+              <p>利用可能なモデル、toolsets、MCP接続先を誰が承認するか。</p>
+            </article>
+            <article class="governance-card">
+              <span class="roman">iii</span>
+              <h3>Secrets</h3>
+              <p>資格情報をどこから注入し、どの範囲で読めるようにするか。</p>
+            </article>
+            <article class="governance-card">
+              <span class="roman">iv</span>
+              <h3>Auditability</h3>
+              <p>モデル判断、ツール呼び出し、変更内容、利用者をどう記録するか。</p>
+            </article>
+            <article class="governance-card">
+              <span class="roman">v</span>
+              <h3>Budget &amp; failure</h3>
+              <p>トークン、実行時間、再試行回数、停止・復旧をどう制御するか。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>原則：</strong>
+            OCIレジストリはartifactの所在と版を扱えても、そのエージェントへ与える権限までは自動的に決めません。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="Slide 17: Reliability controls">
+      <div class="slide-tag">Reliability</div>
+      <div class="slide-num">18 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Make failure explicit</p>
+        <h2>品質はinstructionではなく、<em>controls</em> で支える</h2>
+        <p class="lead">提供資料だけでは、検証方法、ツール失敗時の挙動、再試行、監査粒度の標準仕様までは確定できません。</p>
+        <div class="visual">
+          <div class="grid-3">
+            <article class="control-column">
+              <span class="roman">i</span>
+              <h3>Before run</h3>
+              <div class="control-stack">
+                <div>代表タスクと期待結果を定義</div>
+                <div>ツールと宛先をallowlist化</div>
+                <div>トークン・時間・反復上限を設定</div>
+              </div>
+            </article>
+            <article class="control-column">
+              <span class="roman">ii</span>
+              <h3>During run</h3>
+              <div class="control-stack">
+                <div>timeout、retry、停止条件を明示</div>
+                <div>ツール失敗時の継続可否を固定</div>
+                <div>判断とツール呼び出しを追跡</div>
+              </div>
+            </article>
+            <article class="control-column">
+              <span class="roman">iii</span>
+              <h3>After run</h3>
+              <div class="control-stack">
+                <div>出力と実際の変更を別々に検証</div>
+                <div>高リスク操作に人間承認を要求</div>
+                <div>版ごとの回帰テストを保存</div>
+              </div>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>導入条件：</strong>
+            「失敗しないこと」ではなく、「失敗を検知し、影響を限定し、復旧できること」を受け入れ基準にします。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="Slide 18: Evaluation scorecard">
+      <div class="slide-tag">Assessment</div>
+      <div class="slide-num">19 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Decision-support scorecard</p>
+        <h2>魅力は明確。確証が必要なのは <em>operations</em></h2>
+        <p class="lead">提供資料から見えるシグナルと、導入前に追加確認すべき項目を分けると、評価の偏りを防げます。</p>
+        <div class="visual">
+          <div class="score-table" role="table" aria-label="Docker Agent evaluation scorecard">
+            <div class="score-row header" role="row">
+              <div role="columnheader">Axis</div>
+              <div role="columnheader">Signal</div>
+              <div role="columnheader">Next verification</div>
+            </div>
+            <div class="score-row" role="row">
+              <div class="score-axis" role="cell">Practical</div>
+              <div class="score-signal" role="cell">強い適合</div>
+              <div class="score-check" role="cell">実案件で設定量、変更容易性、既存コード削減を測る。</div>
+            </div>
+            <div class="score-row" role="row">
+              <div class="score-axis" role="cell">Security</div>
+              <div class="score-signal" role="cell">要検証</div>
+              <div class="score-check" role="cell">sandbox、権限境界、egress、秘密情報、既定値を実機確認。</div>
+            </div>
+            <div class="score-row" role="row">
+              <div class="score-axis" role="cell">Operational</div>
+              <div class="score-signal" role="cell">強い適合</div>
+              <div class="score-check" role="cell">TUIから--exec / APIへの移行、ログ、停止・復旧手順を確認。</div>
+            </div>
+            <div class="score-row" role="row">
+              <div class="score-axis" role="cell">Technical</div>
+              <div class="score-signal" role="cell">有望</div>
+              <div class="score-check" role="cell">MCP、OCI、A2A、既存SDKとの相性と制約を検証。</div>
+            </div>
+            <div class="score-row" role="row">
+              <div class="score-axis" role="cell">Governance</div>
+              <div class="score-signal" role="cell">設計必要</div>
+              <div class="score-check" role="cell">所有者、承認、監査、予算、廃止プロセスを社内側で定義。</div>
+            </div>
+          </div>
+          <p class="footer-note">これは提供情報に基づく導入判断用の整理であり、製品の正式な評価点や保証ではありません。<span class="ref">[01][03][05]</span></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process" aria-label="Slide 19: Phased adoption plan">
+      <div class="slide-tag">Adoption</div>
+      <div class="slide-num">20 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Expand only after evidence</p>
+        <h2>権限ではなく、まず <em>evidence</em> を増やす</h2>
+        <p class="lead">本番権限を最初から与えず、再現性・可観測性・安全境界を確認しながら段階的に導入します。</p>
+        <div class="visual">
+          <div class="grid-3">
+            <article class="phase-card">
+              <span class="roman">i</span>
+              <h3>Sandbox prototype</h3>
+              <div class="phase-block">
+                <b>Scope</b>
+                <p>読み取り中心、隔離データ、固定予算、本番資格情報なし。</p>
+              </div>
+              <div class="phase-block">
+                <b>Exit criterion</b>
+                <p>同じ入力で挙動を再現でき、失敗パターンを把握できる。</p>
+              </div>
+            </article>
+
+            <article class="phase-card">
+              <span class="roman">ii</span>
+              <h3>Controlled pilot</h3>
+              <div class="phase-block">
+                <b>Scope</b>
+                <p>限定業務、最小権限、監査ログ、高リスク操作は人間承認。</p>
+              </div>
+              <div class="phase-block">
+                <b>Exit criterion</b>
+                <p>ツール失敗・費用・誤操作を検知し、安全に停止できる。</p>
+              </div>
+            </article>
+
+            <article class="phase-card">
+              <span class="roman">iii</span>
+              <h3>Production service</h3>
+              <div class="phase-block">
+                <b>Scope</b>
+                <p>OCI昇格、承認済みtoolsets、ロールバック、運用責任者。</p>
+              </div>
+              <div class="phase-block">
+                <b>Exit criterion</b>
+                <p>SLO、監査、コスト上限、インシデント対応が継続運用できる。</p>
+              </div>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>昇格ルール：</strong>
+            次の段階へ進む条件を、モデル品質だけでなく権限・ログ・復旧・費用の測定結果で決めます。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison" aria-label="Slide 20: Fit and non-fit">
+      <div class="slide-tag">Fit</div>
+      <div class="slide-num">21 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Where the design fits</p>
+        <h2>向いている組織と、立ち止まるべき <em>conditions</em></h2>
+        <p class="lead">Docker Agentは万能な置き換えではなく、標準化の価値が既存制約を上回る場面で効果を発揮します。</p>
+        <div class="visual">
+          <div class="grid-2">
+            <article class="fit-column">
+              <h3>Good fit</h3>
+              <div class="fit-row">
+                <span class="roman">i</span>
+                <p>プロジェクトごとにLLMとツールのglue codeを再実装している。</p>
+              </div>
+              <div class="fit-row">
+                <span class="roman">ii</span>
+                <p>Docker / OCIレジストリの認証・配布運用をすでに持っている。</p>
+              </div>
+              <div class="fit-row">
+                <span class="roman">iii</span>
+                <p>TUIでの試作からCLI / API運用へ素早く移したい。</p>
+              </div>
+              <div class="fit-row">
+                <span class="roman">iv</span>
+                <p>MCPやサブエージェントを共通構成として再利用したい。</p>
+              </div>
+            </article>
+
+            <article class="fit-column pause">
+              <h3>Pause and verify</h3>
+              <div class="fit-row">
+                <span class="roman">i</span>
+                <p>既存の独自SDKやワークフローへ深く依存し、置換費用が大きい。</p>
+              </div>
+              <div class="fit-row">
+                <span class="roman">ii</span>
+                <p>厳格な規制要件に対し、隔離・監査・データ所在をまだ説明できない。</p>
+              </div>
+              <div class="fit-row">
+                <span class="roman">iii</span>
+                <p>shellやnetworkの最小権限化、ログ収集、秘密管理が未整備。</p>
+              </div>
+              <div class="fit-row">
+                <span class="roman">iv</span>
+                <p>決定論的な処理が必須で、LLM判断を許容できない領域に使おうとしている。</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-label="Slide 21: Recommendation">
+      <div class="slide-tag">Recommendation</div>
+      <div class="slide-num">22 / 27</div>
+      <div class="content">
+        <p class="eyebrow">A conditional go</p>
+        <h2>推奨は、<em>小さく Go</em></h2>
+        <p class="lead">設定中心の開発体験とOCI配布は検証価値が高い一方、本番採用は安全性・監査・費用・失敗時制御を通過条件にすべきです。</p>
+        <div class="visual" style="width:100%; flex:0 0 auto; margin-top:clamp(12px,2.3vw,26px);">
+          <div class="grid-6">
+            <article class="gate">
+              <span class="roman">i</span>
+              <h3>Isolation</h3>
+              <p>書き込み範囲と通信先を実機で制限できる。</p>
+            </article>
+            <article class="gate">
+              <span class="roman">ii</span>
+              <h3>Allowlist</h3>
+              <p>モデル、ツール、MCP接続先を承認制にできる。</p>
+            </article>
+            <article class="gate">
+              <span class="roman">iii</span>
+              <h3>Secrets</h3>
+              <p>資格情報を設定ファイルへ埋め込まず注入できる。</p>
+            </article>
+            <article class="gate">
+              <span class="roman">iv</span>
+              <h3>Audit</h3>
+              <p>利用者、判断、ツール実行、変更結果を追跡できる。</p>
+            </article>
+            <article class="gate">
+              <span class="roman">v</span>
+              <h3>Budget</h3>
+              <p>トークン、時間、反復回数、並列数へ上限を置ける。</p>
+            </article>
+            <article class="gate">
+              <span class="roman">vi</span>
+              <h3>Recovery</h3>
+              <p>停止、再試行、ロールバック、責任者呼び出しができる。</p>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>判断ルール：</strong>
+            6項目を満たす狭いユースケースでpilotを行い、測定結果を根拠に権限と対象業務を広げます。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-label="Slide 22: Closing takeaway">
+      <div class="slide-tag">Takeaway</div>
+      <div class="slide-num">23 / 27</div>
+      <div class="content">
+        <p class="eyebrow">The operating principle</p>
+        <h2>設定で <em>作る</em>。<br>境界で守る。OCIで運ぶ。</h2>
+        <p class="lead">Docker Agentの強みは、AIエージェントを個別のコード作品から、再利用・検証・配布できる運用単位へ変えることです。</p>
+        <div class="cover-mark"></div>
+        <div class="closing-steps" aria-label="Three takeaway principles">
+          <span>DECLARE THE INTENT</span>
+          <span>BOUND THE AUTHORITY</span>
+          <span>SHIP THE ARTIFACT</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence" aria-label="Slide 23: References">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">24 / 27</div>
+      <div class="content">
+        <p class="eyebrow">Sources and claim boundaries</p>
+        <h2>根拠と <em>境界</em></h2>
+        <p class="lead">本資料は提供テキストを圧縮・構造化したものであり、製品バージョン固有の仕様は公式資料と実機で再確認する必要があります。</p>
+        <div class="visual">
+          <div class="references-list">
+            <article class="reference-item">
+              <div class="source-id">[01]</div>
+              <div>
+                <h3>ユーザー提供の事前知識・要約・Points・FAQ・意見</h3>
+                <p>YAML/HCL宣言、オーケストレーション、MCP、OCI、実行形態、実務上の未確認事項に関する本デッキの主資料。</p>
+              </div>
+            </article>
+
+            <article class="reference-item">
+              <div class="source-id">[02]</div>
+              <div>
+                <h3>Docker Agentの公式Configuration / Features / 配布関連資料</h3>
+                <p>提供テキストが参照する一次資料群。正確な構成キー、CLI、対応モデル、OCI操作、API仕様の確認先。</p>
+              </div>
+            </article>
+
+            <article class="reference-item">
+              <div class="source-id">[03]</div>
+              <div>
+                <h3>Docker公式ブログ：Docker SandboxesとNanoClawによる安全なエージェント実行</h3>
+                <p>隔離、境界、多層防御に関する補足文脈。Docker Agentの全モードに対する既定保証としては引用していない。</p>
+              </div>
+            </article>
+
+            <article class="reference-item">
+              <div class="source-id">[04]</div>
+              <div>
+                <h3>MCP・OCI Distribution・A2Aの各標準資料</h3>
+                <p>ツールサーバー連携、artifact配布、エージェント間通信の用語と相互運用性を確認するための関連仕様。</p>
+              </div>
+            </article>
+
+            <article class="reference-item">
+              <div class="source-id">[05]</div>
+              <div>
+                <h3>ユーザー提供の過去履歴メモ</h3>
+                <p>以前の評価でセキュリティ詳細と運用ガバナンスが不足情報とされ、今回の補足で隔離技術への注目が増したという経緯。</p>
+              </div>
+            </article>
+
+            <article class="reference-item">
+              <div class="source-id">NOTE</div>
+              <div>
+                <h3>確認できない情報</h3>
+                <p>資料の取得日、Docker Agentの具体的バージョン、既定のsandbox範囲、監査ログ粒度、秘密管理、費用制御、標準の失敗時挙動。</p>
+              </div>
+            </article>
+          </div>
+          <div class="callout">
+            <strong>最終確認：</strong>
+            導入判断では、対象バージョンの公式ドキュメント、脅威モデル、検証環境での権限テスト、ログ確認を根拠に更新してください。
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">25 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://forums.docker.com/t/sandboxing-ai-agents-with-mcp-servers/150586" target="_blank" rel="noreferrer noopener">Sandboxing AI agents with MCP servers - General - Docker Community Forums</a></h2>
+<p class="reference-note">| Topic |  | Replies | Views | Activity |
+ ---  --- 
+| Please Generalize Docker Sandbox  Docker Sandbox | 3 | 1003 | Mar…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://cosmonic.com/ai-sandbox/choosing-an-agent-sandbox" target="_blank" rel="noreferrer noopener">How to Choose an AI Agent Sandbox (2026 Guide) | Cosmonic</a></h2>
+<p class="reference-note">Wasm components run in every one of these places with the same model. The same component, with the same list of granted …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">26 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.docker.com/blog/nanoclaw-docker-sandboxes-agent-security" target="_blank" rel="noreferrer noopener">Trusted AI Agents with NanoClaw + Docker Sandboxes | Docker</a></h2>
+<p class="reference-note">Skip to content
+
+Sign In
+
+# Secure Agent Execution with NanoClaw and Docker Sandboxes
+
+Posted Mar 13, 2026
+
+Eli Aleyner …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.betterclaw.io/compare/nemoclaw" target="_blank" rel="noreferrer noopener">BetterClaw vs NemoClaw: AI Agent Security Compared (2026)</a></h2>
+<p class="reference-note">Monthly Price
+
+BetterClawFree, or $49/mo for 5 agents (BYOK)
+
+NemoClawFree software + $20–50+/mo server + API costs
+
+Pro…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">27 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://northflank.com/blog/how-to-sandbox-ai-agents" target="_blank" rel="noreferrer noopener">How to sandbox AI agents in 2026: MicroVMs, gVisor &amp; isolation strategies | Blog — Northflank</a></h2>
+<p class="reference-note">A sandbox provides strict boundaries that limit what an agent can access, modify, or interact with. Effective sandboxing…</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
