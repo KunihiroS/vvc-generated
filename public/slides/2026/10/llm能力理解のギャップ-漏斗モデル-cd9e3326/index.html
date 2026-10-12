@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM能力理解のギャップ：漏斗モデル</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-header{
+      display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-left: 12px;
+      position: relative;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute; left:0; top: 2px;
+      width: 6px; height: 18px;
+      border-left: 3px solid var(--rust);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 26px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      margin-top: 6px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title{
+      margin: 6px 0 10px 0;
+      font-size: 64px;
+      line-height: 0.96;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      position: relative;
+      z-index: 1;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      text-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 16px;
+    }
+
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(28,24,19,0.35);
+      min-height: 88px;
+    }
+    .card .h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .card .h::after{
+      content:"";
+      height:1px; flex:1;
+      background: var(--rule-strong);
+    }
+    .card .t{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.35;
+      font-weight: 500;
+    }
+    .mono{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.01em;
+    }
+    .jp{
+      color: var(--ink-2);
+      font-size: 16px;
+      line-height: 1.35;
+      margin-top: 8px;
+    }
+    .muted{
+      color: var(--ink-3);
+    }
+
+    .listlike{
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .row{
+      display:flex; gap: 10px; align-items:flex-start;
+    }
+    .dot{
+      width: 10px; height: 10px; border-radius: 3px;
+      background: rgba(232,129,74,0.9);
+      margin-top: 7px;
+      flex: 0 0 auto;
+    }
+    .row .txt{
+      font-size: 18px; color: var(--ink-2); line-height: 1.35;
+    }
+
+    .hr{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0;
+      border:none;
+    }
+
+    .coverCenter{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 14px;
+      padding-left: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .closingCenter{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: flex-start;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+      padding-top: 54px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 36px 28px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .slide-num{ font-size: 22px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">Reading</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+
+      <div class="coverCenter">
+        <div class="eyebrow">体験で“能力”が別物に</div>
+        <div class="title"><em>漏斗</em>モデル</div>
+        <div class="lead">
+          LLM（大規模言語モデル）への理解が、時間とともに「二組のすれ違い」から
+          <span class="mono">鋭い漏斗</span>（funnel）へ広がっている、という見立てです。
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+
+      <div class="eyebrow">何が噛み合わない？</div>
+      <div class="title"><em>すれ違い</em>の拡大</div>
+      <div class="lead">
+        「LLMはすごい／たいしたことない」の論争が、単なる誤解ではなく
+        <span class="mono">体験の層</span>の違いで体系的に分岐する状況に移っています。
+      </div>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="h">見え方の入口</div>
+            <div class="t">無料・課金・企業内アクセスで体験が変わる</div>
+            <div class="jp">体験差が「能力像」を固定化しやすい</div>
+          </div>
+          <div class="card">
+            <div class="h">論点のずれ</div>
+            <div class="t">同じ言葉（能力）でも、見ている前提が違う</div>
+            <div class="jp">議論が“噛み合わない”が構造化する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+
+      <div class="eyebrow">鍵は“漏斗”</div>
+      <div class="title">funnel＝<em>分岐</em></div>
+      <div class="lead">
+        人々がAIを見聞きする経路が、利用層（アクセス権・利用頻度・課題の規模）で分岐し、
+        最終的に「能力の見え方」が極端に変わる、という比喩です。
+      </div>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="h">多数</div>
+            <div class="t">限定的な試用（無料枠中心）</div>
+            <div class="jp">たまに役立つが、過度な期待はしにくい</div>
+          </div>
+          <div class="card">
+            <div class="h">中間層</div>
+            <div class="t">課金・先端モデルを利用</div>
+            <div class="jp">作業短縮など“部分的な実感”が増える</div>
+          </div>
+          <div class="card">
+            <div class="h">少数</div>
+            <div class="t">内部の最先端システムに触れる</div>
+            <div class="jp">協働エージェントの“見える化”に接する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+
+      <div class="eyebrow">掛け算で理解する</div>
+      <div class="title"><em>体験×課題</em>×アクセス</div>
+      <div class="lead">
+        漏斗は、<span class="mono">課題の効き方</span>と<span class="mono">検証可能性</span>と<span class="mono">アクセス差</span>が同時に重なることで強まります。
+        だから、理解の齟齬が“同時多発”します。
+      </div>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="h">課題の規模</div>
+            <div class="t">大きく切実ほど、効果が体感されやすい</div>
+          </div>
+          <div class="card">
+            <div class="h">得意領域</div>
+            <div class="t">デジタルで検証できるほど“立ち上がり”が見える</div>
+          </div>
+          <div class="card">
+            <div class="h">アクセス差</div>
+            <div class="t">無料／課金／内部で性能・安定性・運用が違う</div>
+          </div>
+        </div>
+        <div class="jp muted">Bilingual用語：funnel（漏斗）/ verification（検証）/ agent（エージェント）</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+
+      <div class="eyebrow">体験の層が“能力認識”を分断</div>
+      <div class="title"><em>認識</em>の固定化</div>
+      <div class="lead">
+        人は自分がアクセスできた範囲でAIを評価しがちです。だから無料で“そこそこ”を見た人は過小評価し、内部実演を見た人は過大評価し得ます。
+      </div>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="h">過小評価の起点</div>
+            <div class="t">短い会話・冗長・誤りが目立つ体験</div>
+            <div class="jp">巨大タスクの自動化が見えにくい</div>
+          </div>
+          <div class="card">
+            <div class="h">過大評価の起点</div>
+            <div class="t">最先端フロンティア＋運用（ワークフロー）を体感</div>
+            <div class="jp">“前提となる能力像”が別物になる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+
+      <div class="eyebrow">効きやすい領域が偏る</div>
+      <div class="title"><em>得意</em>が先に見える</div>
+      <div class="lead">
+        能力の立ち上がりは、特にデジタルで検証でき、経済的価値に結びつく領域でピークが出やすいとされます。
+        文章の“表面”だけだとインパクトが小さくなりがちです。
+      </div>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="h"><span class="mono">例</span>1</div>
+            <div class="t">数学</div>
+            <div class="jp">正解/検証が明確で改善が見える</div>
+          </div>
+          <div class="card">
+            <div class="h"><span class="mono">例</span>2</div>
+            <div class="t">コード</div>
+            <div class="jp">実行・テストで評価できる</div>
+          </div>
+          <div class="card">
+            <div class="h"><span class="mono">例</span>3</div>
+            <div class="t">科学的発見</div>
+            <div class="jp">検証可能な前進が“速く”見える</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+
+      <div class="eyebrow">体験の差＝“同じAI”に見えない</div>
+      <div class="title"><em>運用</em>込みで差が出る</div>
+      <div class="lead">
+        無料・課金・内部で、性能だけでなく安定性や連携（例：エージェント運用）が違います。結果として「すごい／たいしたことない」が、それぞれ事実に見えてしまいます。
+      </div>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="h">無料枠</div>
+            <div class="t">対話中心で、運用の複雑さが薄い</div>
+            <div class="jp">短期の印象に寄りやすい</div>
+          </div>
+          <div class="card">
+            <div class="h">内部</div>
+            <div class="t">多エージェント協働＋長期運用</div>
+            <div class="jp">“見える化”された成果に遭遇しやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+
+      <div class="eyebrow">なぜ漏斗が鋭くなる？</div>
+      <div class="title"><em>検証</em>負荷が増える</div>
+      <div class="lead">
+        内部側では協働エージェントが高速に成果を出しますが、人間側の検証・理解は追いつきにくい、と示唆されています。
+        これは速度だけでなく、監査可能性の遅れにも関係します。
+      </div>
+
+      <div class="content">
+        <div class="listlike">
+          <div class="row">
+            <div class="dot"></div>
+            <div class="txt">エージェントが成果を増やすほど、追跡・精査の量が跳ねる</div>
+          </div>
+          <div class="row">
+            <div class="dot"></div>
+            <div class="txt">人間のレビューは段取りや説明可能性（explainability）に時間がかかる</div>
+          </div>
+          <div class="row">
+            <div class="dot"></div>
+            <div class="txt">その間に“見え方のギャップ”がさらに固定化される</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+
+      <div class="eyebrow">二分法から“地形”へ</div>
+      <div class="title"><em>ギザギザ</em>した能力</div>
+      <div class="lead">
+        漏斗の背景には「得意領域にピークが出る」ギザギザした能力地形がある、という見方があります。
+        だから“どのタスクを見たか”で結論が変わります。
+      </div>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="h">タスク条件A</div>
+            <div class="t">検証可能（verification）</div>
+            <div class="jp">改善が観測されやすい</div>
+          </div>
+          <div class="card">
+            <div class="h">タスク条件B</div>
+            <div class="t">デジタルで扱いやすい</div>
+            <div class="jp">自動化・反復が効く</div>
+          </div>
+          <div class="card">
+            <div class="h">タスク条件C</div>
+            <div class="t">経済的価値に直結</div>
+            <div class="jp">導入が進み体験が蓄積</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+
+      <div class="eyebrow">批判的に読むべき点</div>
+      <div class="title"><em>数字</em>は注意</div>
+      <div class="lead">
+        推定人数（例：6B人、1–2B人、20M人、5,000人）の根拠や定義（“接触”の基準）が不明です。
+        また、能力の定量指標や安全事故の頻度が提示されていないため、結論を飛躍させるべきではありません。
+      </div>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="h">定量の限界</div>
+            <div class="t">前提が不明だと、方向性は比喩でも検証は難しい</div>
+          </div>
+          <div class="card">
+            <div class="h">社会影響の不足</div>
+            <div class="t">教育・労働・安全・責任分界の整理が追加で必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+
+      <div class="eyebrow">自分の判断に落とす</div>
+      <div class="title"><em>点検</em>チェック</div>
+      <div class="lead">
+        自分が見ているAIの層と、自分のタスクが「検証可能・デジタル・価値に直結」に当たるかを確認すると、理解のズレを減らせます。
+      </div>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="h">あなたの層</div>
+            <div class="t">無料/課金/内部のどこに近い体験か</div>
+            <div class="jp">見ている前提が揃っているか</div>
+          </div>
+          <div class="card">
+            <div class="h">あなたのタスク</div>
+            <div class="t">検証可能性（verification）が高いか</div>
+            <div class="jp">自動化の効きどころか（数学・コード等）</div>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="lead" style="font-size:18px; max-width: 880px;">
+          さらに重要：成果が増えるほどレビュー（監査）のボトルネックが起き得るため、安全・品質・説明責任の前提も一緒に確認するのが望ましいです。
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+
+      <div class="closingCenter">
+        <div class="eyebrow">結論</div>
+        <div class="title">理解のズレは、<em>漏斗</em>で説明できる</div>
+        <div class="lead">
+          人は見た範囲で能力を判断し、LLMは検証可能で価値に結びつく領域で鋭く効く。
+          その結果、アクセス層が違うと“同じAI”に見えず、理解のギャップが拡大します。
+        </div>
+
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="h">要点 i</div>
+              <div class="t">体験（アクセス）が能力認識を分断</div>
+            </div>
+            <div class="card">
+              <div class="h">要点 ii</div>
+              <div class="t">得意領域が見えやすい（検証・価値）</div>
+            </div>
+            <div class="card">
+              <div class="h">要点 iii</div>
+              <div class="t">検証・監査が追いつかず固定化</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://karpathy.bearblog.dev/sequoia-ascent-2026" target="_blank" rel="noreferrer noopener">Sequoia Ascent 2026 summary – karpathy</a></h2>
+<p class="reference-note">Andrej: Traditional computers automate what you can specify in code. This latest round of LLMs can automate what you can…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/rakeshgohel01_ai-agents-are-building-a-new-vertical-with-activity-7408854869899513857-YGV4" target="_blank" rel="noreferrer noopener">AI Agents in 2026: Andrej Karpathy on LLMs and Vertical Expertise | Rakesh Gohel posted on the topic | LinkedIn</a></h2>
+<p class="reference-note">AI Agents are building a new vertical with LLMs in 2026 and Andrej Karpathy just proved it with his new post... Andrej K…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=I2K81s0OQto&amp;xstg=CAMSBhUDze3xHw%3D%3D" target="_blank" rel="noreferrer noopener">Andrej Karpathy&#39;s Math Proves Agent Skills Will Fail. Here&#39;s What to Build Instead.</a></h2>
+<p class="reference-note">A lot of people are banking on 2026 as the year AI delivers real business value, not blog posts and social media drafts,…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://karpathy.ai/" target="_blank" rel="noreferrer noopener">Andrej Karpathy</a></h2>
+<p class="reference-note">bio
+
+Andrej Karpathy is an AI researcher and educator. He was a founding member of OpenAI and later the Director of AI a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=f9jwTSfIPuM&amp;xstg=CAMSBhUDze3xHw%3D%3D" target="_blank" rel="noreferrer noopener">AI Trends 2026: OpenClaw Agents, Reasoning LLMs, and More [Sebastian Raschka] - 762</a></h2>
+<p class="reference-note">[33:46] the verifiable rewards were um coding and math. So with math um for example you ask the model to output the fina…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
