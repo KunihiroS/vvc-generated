@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>承認booleanのリプレイ脆弱性</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Noto Serif", serif;
+    }
+
+    .deck{
+      width: 100%;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide{
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      margin: 0 auto 20px auto;
+      background: var(--paper);
+      padding: 56px 72px;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide-inner{
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--rule-strong);
+      padding: 28px 28px 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .topline{
+      display:flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 8px;
+      width: 6px;
+      height: 26px;
+      background: var(--rust);
+      opacity: 0.92;
+      border-radius: 2px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 76px;
+      font-weight: 500;
+      line-height: 1.0;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin-top: 0px;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 64px;
+      letter-spacing: -0.02em;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 6px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin-top: 8px;
+      margin-bottom: 6px;
+      width: 100%;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.10);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .mini{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      font-weight: 300;
+    }
+
+    .em{
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .footnote{
+      margin-top: auto;
+      color: var(--ink-4);
+      font-size: 14px;
+      line-height: 1.4;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.02em;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">cover</div>
+          <div class="slide-num">02 / 18</div>
+        </div>
+        <div class="eyebrow">承認が1ビットになる</div>
+        <div class="title">リプレイ</div>
+        <div class="lead">AIエージェントが「ユーザー承認」を根拠に副作用を実行するとき、<span class="em">approved=true</span> のような承認booleanだけでは別操作へ“なりすまし”できる脆弱性が起きます。</div>
+        <div class="footnote">Key terms: リプレイ脆弱性 / 実行境界 / immutable receipt（操作記録）</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">03 / 18</div>
+        </div>
+        <div class="eyebrow">承認の“意味”が落ちる</div>
+        <div class="title">要約の副作用</div>
+        <div class="lead">会話ログを要約（コンパクション）すると、承認に含まれていた「どのファイル／どこへ／何の操作として」が曖昧になります。結果として、承認は“はい”の事実だけに縮みがちです。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">落ちやすい情報</div>
+            <div class="v">対象（file）・宛先（destination）・操作種別（action）</div>
+          </div>
+          <div class="cell">
+            <div class="k">残りがち</div>
+            <div class="v"><span class="mono">approved=true</span>（承認した、という事実だけ）</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: コンパクション（compression）／承認（approval）</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">04 / 18</div>
+        </div>
+        <div class="eyebrow">安全性は“実行境界”</div>
+        <div class="title jp">境界検証</div>
+        <div class="lead">UI上で「承認しました」と表示されても、最終的な安全性は<span class="em">ツール実行直前</span>で何を検証しているかで決まります。要約・リトライ・状態変化があっても、境界でズレを止める必要があります。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">UIの役割</div>
+            <div class="v">承認文（creative writing）になり得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">防御の役割</div>
+            <div class="v">実行境界で同一性を再検証し、fail-closed</div>
+          </div>
+        </div>
+        <div class="footnote">核心: “権威（authority）”を実行側が握る</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">05 / 18</div>
+        </div>
+        <div class="eyebrow">リプレイ脆弱性の形</div>
+        <div class="title">別の副作用へ</div>
+        <div class="lead"><span class="mono">approved=true</span> だけが万能キーになると、「承認したはず」として別の操作（違う宛先／違う対象／違う操作種別）を通してしまう余地が生まれます。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">本来の承認</div>
+            <div class="v">action A × file F × destination D</div>
+          </div>
+          <div class="cell">
+            <div class="k">実際に起きること</div>
+            <div class="v">action A' × file F' × destination D' が通る</div>
+          </div>
+        </div>
+        <div class="footnote">Replay（リプレイ）= “同じ承認”が別の文脈へ流用される</div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">06 / 18</div>
+        </div>
+        <div class="eyebrow">booleanは“資格”になりがち</div>
+        <div class="title">approved</div>
+        <div class="lead">承認booleanは本来、特定の操作のための“根拠”であるべきです。しかしコンパクション等で根拠の名詞が落ちると、booleanは意味を失い、同一性を担保できなくなります。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k"><i>i</i> 情報の喪失</div>
+            <div class="v">名詞（対象・宛先・操作種別）が欠落</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>ii</i> 曖昧化</div>
+            <div class="v">“承認した”が一般化</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>iii</i> 再利用</div>
+            <div class="v">別操作へ同じ許可が流用</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: 名詞（noun）／根拠（evidence）</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">07 / 18</div>
+        </div>
+        <div class="eyebrow">鍵ではなく“領収書”</div>
+        <div class="title">Receipt</div>
+        <div class="lead">承認をbooleanのような鍵ではなく、<span class="em">immutable（不変）な操作記録</span>＝receipt（領収書）に結びつけます。実行境界で完全一致（または厳格な再検証）するのが要点です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">悪い例</div>
+            <div class="v"><span class="mono">approved=true</span>（文脈を失う）</div>
+          </div>
+          <div class="cell">
+            <div class="k">良い例</div>
+            <div class="v">署名付きの操作タプル（action / digest / destination / expiry …）</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: receipt（領収書）／immutable（不変）</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">08 / 18</div>
+        </div>
+        <div class="eyebrow">操作タプルの一致</div>
+        <div class="title">不変性</div>
+        <div class="lead">receiptには「何を・何へ・いつまで・何の要約か」を入れ、実行直前に同一性を再検証します。ログは説明のためで、防御は“ズレたら拒否”が担います。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">含める例</div>
+            <div class="v">action／object（対象）／payload digest／destination／expiration</div>
+          </div>
+          <div class="cell">
+            <div class="k">さらに可能</div>
+            <div class="v">発行者・環境・ポリシーバージョン・nonce 等</div>
+          </div>
+        </div>
+        <div class="footnote">原則: 実行境界で fail-closed</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">09 / 18</div>
+        </div>
+        <div class="eyebrow">リトライの分岐</div>
+        <div class="title">再試行</div>
+        <div class="lead">リトライは万能ではありません。同じoperation record（同一タプル）への再試行だけを許し、別操作になったら新規承認が必要です。nonceや消費（consumption）の原子性も重要です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">許す</div>
+            <div class="v">同一receipt（同一タプル）での再試行</div>
+          </div>
+          <div class="cell">
+            <div class="k">拒否</div>
+            <div class="v">タプルが変わったら（宛先/対象/操作種別が別）新規承認へ</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: リトライ（retry）／consumption（消費）</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">10 / 18</div>
+        </div>
+        <div class="eyebrow">期限だけでは足りない</div>
+        <div class="title">鮮度</div>
+        <div class="lead">expiration（有効期限）だけでは不十分です。宛先ポリシー、ACL、アカウント状態、sandbox→prod のような環境変化も、承認の成立条件を揺らします。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k"><i>i</i> 時間</div>
+            <div class="v">expiration（有効期限）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>ii</i> ポリシー</div>
+            <div class="v">宛先の権限・ルールが変化</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>iii</i> 環境</div>
+            <div class="v">昇格（sandbox→prod）で前提が変わる</div>
+          </div>
+        </div>
+        <div class="footnote">鍵: “承認されたのが今実行するものと同一”を止める</div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">11 / 18</div>
+        </div>
+        <div class="eyebrow">パスは信用しない</div>
+        <div class="title">解決の罠</div>
+        <div class="lead">「承認したパス」と「実行時に解決された実体」が一致しない場合があります。シンボリックリンクのスワップ、inodeの変化、latestエイリアス等で、見かけが同じでも別物になるためです。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">危険</div>
+            <div class="v">パス参照の一致≠実体の同一性</div>
+          </div>
+          <div class="cell">
+            <div class="k">指針</div>
+            <div class="v">対象は“解決後の同一性（実体）”に紐づけて検証</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: symlink（シンボリックリンク）／inode（i-node）</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">12 / 18</div>
+        </div>
+        <div class="eyebrow">ログは説明、拒否は防御</div>
+        <div class="title">観測 vs 防御</div>
+        <div class="lead">監査ログ（observability）は後から何が起きたかを説明しますが、起こしてはいけないことを止めるのは別です。防御は実行境界での検証と fail-closed に依存します。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">監査ログ</div>
+            <div class="v">検出・説明に役立つ（ただし停止力は弱い）</div>
+          </div>
+          <div class="cell">
+            <div class="k">実行境界</div>
+            <div class="v">同一性が崩れたら拒否（fail-closed）</div>
+          </div>
+        </div>
+        <div class="footnote">Core: “止める”設計を最優先</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">enumeration</div>
+          <div class="slide-num">13 / 18</div>
+        </div>
+        <div class="eyebrow">対策の要点（まとめ）</div>
+        <div class="title">3原則</div>
+        <div class="lead">承認booleanに権威を持たせないことが入口です。次に、immutable receiptへ結び、最後に実行境界で厳格検証と失効（revoke/expiry）・状態変化への対応を行います。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k"><i>i</i> 絶対に残す</div>
+            <div class="v">action / object / destination / payload digest</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>ii</i> 更新の扱い</div>
+            <div class="v">replay不可（消費・nonce・同一性）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><i>iii</i> 失効</div>
+            <div class="v">expiration・ポリシー/ACL/環境変化で拒否</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: 失効（revocation）／同一性（identity）</div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">14 / 18</div>
+        </div>
+        <div class="eyebrow">“強いけど難しい”</div>
+        <div class="title">実装の地雷</div>
+        <div class="lead">receiptアプローチは方向性が正しい一方、どのフィールドを不変にするか・検証場所をどこに置くか・署名鍵や状態ソースの信頼境界・消費の原子性などが難所です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">設計が左右する</div>
+            <div class="v">検証の場所／信頼できるデータ源／canonicalization（正規化）</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用で崩れる</div>
+            <div class="v">single-useの原子性・鍵境界・UXとの両立</div>
+          </div>
+        </div>
+        <div class="footnote">結論: “美しいチェック”ではなく、実際に止める必要がある</div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">15 / 18</div>
+        </div>
+        <div class="eyebrow">最後の一文</div>
+        <div class="title">止める</div>
+        <div class="lead">承認を boolean に圧縮してしまうと、リプレイ脆弱性として“権威が移動”します。対策はimmutableな操作記録に結び、実行境界で完全一致（または厳格再検証）し、ズレたら拒否することです。</div>
+        <div class="rule"></div>
+        <div class="mini">
+          推奨チェック: 「approved=trueで通らないか？」→「receiptがaction/object/destination/環境/期限まで固定しているか？」→「実体（解決後）を検証しているか？」（fail-closed）
+        </div>
+        <div class="footnote">ありがとう。次の設計レビューでこの観点を当ててください。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://our-languages.canada.ca/en/writing-tips-plus/approval-of-approval-to-approve-approve-of" target="_blank" rel="noreferrer noopener">approval of, approval to, approve, approve of</a></h2>
+<p class="reference-note">Approval suggests agreement or consent and can be followed by the preposition of or to. Your approval means a lot to me.</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://forum.wordreference.com/threads/approval-to-for.2674875" target="_blank" rel="noreferrer noopener">approval to/ for | WordReference Forums</a></h2>
+<p class="reference-note">They have the same meaning but &quot;approval to&quot; must be followed by a verb and &quot;approval for&quot; must be followed by a noun. F…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/groups/5688211251275040/posts/9283180371778092" target="_blank" rel="noreferrer noopener">What is the difference between approve ...</a></h2>
+<p class="reference-note">Approve is a verb, approved is past tense, and approval is the process or result of being approved.</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.tiktok.com/@usagedictionary/video/7600073039388232991" target="_blank" rel="noreferrer noopener">Approve vs Approve Of: Meaning and Grammar Difference</a></h2>
+<p class="reference-note">Approve means to give formal sanction or official permission for something. Approve of means to like something or to hav…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.collinsdictionary.com/us/dictionary/english/approval" target="_blank" rel="noreferrer noopener">APPROVAL definition in American English</a></h2>
+<p class="reference-note">approval in American English · 1. the act of approving · 2. favorable attitude or opinion · 3. formal consent or sanctio…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
