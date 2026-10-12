@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>拒否が飾りになる：定時実行の権限撤回</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      border-radius: 10px;
+      border: 20px solid var(--rule);
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .topline {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 2px solid rgba(232, 129, 74, 0.85);
+      padding-top: 8px;
+      line-height: 1.1;
+      max-width: 62%;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 10px;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      line-height: 1.02;
+      margin: 0 0 12px;
+      font-style: italic;
+      color: var(--rust-deep);
+      max-width: 980px;
+    }
+
+    .lead {
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 4px;
+      color: var(--ink);
+    }
+
+    .grid {
+      margin-top: 18px;
+      border-top: 1px solid var(--rule);
+      padding-top: 16px;
+      width: 100%;
+      display: grid;
+      gap: 12px;
+    }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.02);
+      padding: 14px 14px;
+      border-radius: 10px;
+    }
+
+    .label {
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .label::before {
+      content: "";
+      width: 10px;
+      height: 2px;
+      background: rgba(232,129,74,0.95);
+      display: inline-block;
+    }
+
+    .text {
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .small {
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .ref {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--rule);
+      width: 100%;
+    }
+    .ref a { color: var(--ink-2); text-decoration: underline; text-decoration-color: rgba(216,204,188,0.4); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 21</div>
+      </div>
+      <div class="eyebrow">拒否が届かない</div>
+      <div class="title">権限撤回</div>
+      <div class="lead">AIエージェントが会話で「no」を言っても、定時ジョブ（スケジューラ側）が実行時に撤回を再検証しなければ、その拒否は実質的に止められません。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">二つのタイムライン / 二重の時系列</div>
+          <div class="text">会話（意思決定）と、実行（キュー/ワーカー）が別で進み、ズレが「安全の幻想」になります。</div>
+        </div>
+        <div class="cell">
+          <div class="label">核心 / Core</div>
+          <div class="text">安全は「言葉」ではなく、<span class="mono">副作用の境界</span>で“現在の許可”を強制できるかで決まります。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Problem">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 21</div>
+      </div>
+      <div class="eyebrow">止まらない「no」</div>
+      <div class="title">会話と実行が分離</div>
+      <div class="lead">チャットで拒否が出ても、スケジュール済みジョブが“古い前提”のまま別タイムラインで進むと、ユーザー意図が失われ得ます。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">会話タイムライン</div>
+          <div class="text">AIが「やらない/拒否」を返す（ログ上は進捗）。</div>
+        </div>
+        <div class="cell">
+          <div class="label">実行タイムライン</div>
+          <div class="text">キュー/ワーカーが定時実行を継続（撤回再検証なし）。</div>
+        </div>
+        <div class="cell">
+          <div class="label">ズレの結果</div>
+          <div class="text">拒否が“会話だけの出来事”になり、副作用が起こり得る。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Metaphor">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 21</div>
+      </div>
+      <div class="eyebrow">キャンセルしても発送</div>
+      <div class="title">二段階の世界</div>
+      <div class="lead">買い物の「注文をやめる（no）」がチャットで伝わっても、倉庫が別フローで梱包・発送を進めていれば止まらない、という構図です。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">キャンセル / 取消</div>
+          <div class="text">会話上の撤回（revocation）＝“意思の表明”。</div>
+        </div>
+        <div class="cell">
+          <div class="label">発送 / 副作用</div>
+          <div class="text">実行境界での再検証がない限り、“梱包済みの何か”が動く。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 21</div>
+      </div>
+      <div class="eyebrow">境界で強制する</div>
+      <div class="title">副作用ゲート</div>
+      <div class="lead">解決の中心は、ジョブを“キューで止める”のではなく、<span class="mono">副作用の直前（境界）</span>で現在の権限を判定してfail closedすることです。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">入り口</div>
+          <div class="text">dispatch / 入隊時チェックはスナップショットでしかない。</div>
+        </div>
+        <div class="cell">
+          <div class="label">境界</div>
+          <div class="text">ツールコール/送信/支払い/外部書き込みの直前で最終判定。</div>
+        </div>
+        <div class="cell">
+          <div class="label">終端</div>
+          <div class="text">拒否・停止は終端クラスとして記録（tombstone）。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Comparison">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">06 / 21</div>
+      </div>
+      <div class="eyebrow">いつチェック？</div>
+      <div class="title">TOCTOUの罠</div>
+      <div class="lead">チェックをdispatch時だけに寄せると、チェックと副作用の間に撤回が挟まる競合（TOCTOU）が残ります。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">入隊/dispatchチェック</div>
+          <div class="text">撤回が後から来ると無効化できない（古い許可が走る）。</div>
+        </div>
+        <div class="cell">
+          <div class="label">副作用直前チェック</div>
+          <div class="text">“現在の許可”を参照して、成立しなければ止められる。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Enumeration">
+      <div class="topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">07 / 21</div>
+      </div>
+      <div class="eyebrow">設計要件セット</div>
+      <div class="title">世代/リース</div>
+      <div class="lead">世代番号（permission generation）やリースは有効ですが、「どう比較するか」が要点です。スタンプだけでは“古い許可の持ち越し”になります。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">世代番号 / generation</div>
+          <div class="text">ジョブが保持する世代と、実行時の現在世代を突き合わせる。</div>
+        </div>
+        <div class="cell">
+          <div class="label">リース / lease</div>
+          <div class="text">有効期限が切れたら実行を止める（現在性の表現）。</div>
+        </div>
+        <div class="cell">
+          <div class="label">失効の再検証</div>
+          <div class="text">撤回後のリトライでも不一致なら“端末的に失敗”。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 21</div>
+      </div>
+      <div class="eyebrow">tombstoneが要る</div>
+      <div class="title">監査と停止は別</div>
+      <div class="lead">監査ログ（tombstone/終端状態）は「防止」と別物です。ログだけでは止まらず、ジョブ削除だけでも誤運用（再試行）が起きます。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">防止（Stop）</div>
+          <div class="text">副作用境界での許可判定により、実行を止める。</div>
+        </div>
+        <div class="cell">
+          <div class="label">説明（Explain）</div>
+          <div class="text">tombstoneで“拒否/停止が起きた”ことを運用者と監査に残す。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Distinction">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 21</div>
+      </div>
+      <div class="eyebrow">fail closedの現実</div>
+      <div class="title">安全か可用性か</div>
+      <div class="lead">fail closed（許可できないなら止める）は安全性に寄りますが、止まりすぎは運用事故や遅延を生むため、危険度別の扱いが論点です。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">高リスク領域</div>
+          <div class="text">副作用が不可逆ならfail closed寄り（例：支払い/外部書き込み）。</div>
+        </div>
+        <div class="cell">
+          <div class="label">低リスク領域</div>
+          <div class="text">段階的許容（fail openに寄せる）や補償（compensating action）。</div>
+        </div>
+        <div class="cell">
+          <div class="label">設計の軸</div>
+          <div class="text">待機（park）・責任所有（owner）・分類（分類器）が必要。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Process">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 21</div>
+      </div>
+      <div class="eyebrow">最後の判定</div>
+      <div class="title">境界チェック手順</div>
+      <div class="lead">最終判断は副作用境界で、権威（authority）に結び付いた検証として実装するのが強い主張です。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">手順（i）</div>
+          <div class="text">ジョブが持つ世代/リース情報を取得し、現在の許可状態と比較する。</div>
+        </div>
+        <div class="cell">
+          <div class="label">手順（ii）</div>
+          <div class="text">不一致なら副作用を行わず、拒否/停止のtombstoneを作って終端化する。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Enumeration">
+      <div class="topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">11 / 21</div>
+      </div>
+      <div class="eyebrow">残る失敗パターン</div>
+      <div class="title">競合・リトライ</div>
+      <div class="lead">単にチェック頻度を増やしても不十分です。TOCTOU、リトライが拒否を回避する設計、撤回伝播の不達・遅延が残ります。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">TOCTOU</div>
+          <div class="text">チェック→副作用の間に撤回が挟まる。</div>
+        </div>
+        <div class="cell">
+          <div class="label">リトライ</div>
+          <div class="text">撤回後に“再実行”が成立しない規則が必要。</div>
+        </div>
+        <div class="cell">
+          <div class="label">伝播遅延/不達</div>
+          <div class="text">オフラインで撤回が間に合わない問題（SLOと設計で扱う）。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="FAQ">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">12 / 21</div>
+      </div>
+      <div class="eyebrow">FAQを統合</div>
+      <div class="title">なぜ成立しない？</div>
+      <div class="lead">この議論の要点は「会話のno」ではなく「実行時の許可が現在性を持つか」です。言い換えると、撤回の“反映タイミング”が失われています。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">Q1 会話でnoが止めない</div>
+          <div class="text">二つのタイムラインが別で、ジョブが撤回を再検証しない。</div>
+        </div>
+        <div class="cell">
+          <div class="label">Q2 世代番号だけでは不足</div>
+          <div class="text">比較は“実行時に現在世代”と突き合わせて初めて意味を持つ。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="FAQ2">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">13 / 21</div>
+      </div>
+      <div class="eyebrow">設計の要 / Design core</div>
+      <div class="title">境界で再検証</div>
+      <div class="lead">dispatch時チェックはスナップショットで止まりません。安全が必要な副作用領域では、境界で権威に結び付いた検証が必要です。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">Q3 dispatchチェック</div>
+          <div class="text">チェック→副作用の間に撤回が挟まる（TOCTOU）。</div>
+        </div>
+        <div class="cell">
+          <div class="label">Q4 リトライ</div>
+          <div class="text">回数削減だけでは保証にならない。</div>
+        </div>
+        <div class="cell">
+          <div class="label">Q5 tombstone</div>
+          <div class="text">防止と説明を分けて必須。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Opinion">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">14 / 21</div>
+      </div>
+      <div class="eyebrow">結論：言葉より権威</div>
+      <div class="title">実行レイヤが鍵</div>
+      <div class="lead">この議論は「丁寧な拒否（bedside manner）」ではなく、実行レイヤが“許可の現在性”を強制するかが安全と制御を決める、という主張です。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">実装確認すべきこと</div>
+          <div class="text">実行時に撤回再検証するか、取消がキュー/実行中へどう伝播するか、オフライン時の挙動。</div>
+        </div>
+        <div class="cell">
+          <div class="label">導入の姿勢</div>
+          <div class="text">一般論で終わらせず、測定可能な形で要件を満たすかを検証する。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Checklist">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">15 / 21</div>
+      </div>
+      <div class="eyebrow">導入チェック</div>
+      <div class="title">確認テンプレ</div>
+      <div class="lead">（要件として）世代/リース、失敗分類、tombstone項目、リトライ規則、オフライン時の挙動をテンプレ化すると運用と安全が揃います。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">世代/リース</div>
+          <div class="text">ジョブ世代＝実行時現在と比較して不一致で停止。</div>
+        </div>
+        <div class="cell">
+          <div class="label">失敗分類</div>
+          <div class="text">撤回不一致は“再試行不可の端末失敗”に寄せる。</div>
+        </div>
+        <div class="cell">
+          <div class="label">オフライン時</div>
+          <div class="text">不達ならfail closed寄り＋補償（compensating action）/待機（park）。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Bilingual terms">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">16 / 21</div>
+      </div>
+      <div class="eyebrow">用語（英語＋短い日本語）</div>
+      <div class="title">要点語彙</div>
+      <div class="lead">読解のための中心語は次のとおりです。英語の概念を“現在性”と“境界”に紐づけると迷いが減ります。</div>
+
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="label">revocation（撤回）</div>
+          <div class="text">権限の取り消し。会話だけでなく実行側に反映が必要。</div>
+        </div>
+        <div class="cell">
+          <div class="label">TOCTOU（競合）</div>
+          <div class="text">確認（check）と実行（use）の間に状態が変わる。</div>
+        </div>
+        <div class="cell">
+          <div class="label">tombstone（終端記録）</div>
+          <div class="text">拒否/停止を説明可能な形で残す監査上の終端クラス。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Time expression footnote">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">17 / 21</div>
+      </div>
+      <div class="eyebrow">時間表現の注意</div>
+      <div class="title">agoの基準</div>
+      <div class="lead">別件として、英語の <span class="mono">ago</span> は「基準時が必要」で、文法上の解釈は“時を表す語の後”に置かれます。</div>
+
+      <div class="grid grid-2">
+        <div class="cell">
+          <div class="label">観察</div>
+          <div class="text">Agoはpresent perfectと基本的に組み合わせにくく、単独で意味が確定しません。</div>
+        </div>
+        <div class="cell">
+          <div class="label">注意</div>
+          <div class="text">対象事象と基準日時が不明だと <span class="mono">2 days ago</span> の断定はできません。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="References">
+      <div class="topline">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">18 / 21</div>
+      </div>
+      <div class="eyebrow">参考（一般論）</div>
+      <div class="title">Sources</div>
+      <div class="lead">本スライドはユーザー提示の要約と論点に基づく再整理です。一般論として関連する概念（権限撤回の再検証、TOCTOU、監査ログ）はセキュリティ工学の文脈で広く知られています。</div>
+
+      <div class="ref">
+        <div class="grid grid-2">
+          <div class="cell">
+            <div class="label">TOCTOU（競合）</div>
+            <div class="text">“Time-of-check to time-of-use” は典型的な競合脆弱性カテゴリとして参照可能。</div>
+          </div>
+          <div class="cell">
+            <div class="label">権限撤回 / revocation</div>
+            <div class="text">Permissionの“現在性”と“実行境界の再検証”は、ワークフロー設計の要件として一般に議論される。</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          ※ユーザー提示文中では「Talorysの実装に具体的バグがある」ことを確証する一次情報は十分でない、という注意が含まれていました。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 21</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/letstalkpodcast/posts/use-of-ago-how-to-talk-about-the-past-in-english-learn-english-with-ananyaall-on/1427942179365674" target="_blank" rel="noreferrer noopener">Use of AGO | How to Talk About the Past in English</a></h2>
+<p class="reference-note">AGO Ago is used to say when past events happened, going back from today towards the past. The verb is in the Past Tense.</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.instagram.com/reel/DaDBvBvlPy2?hl=en" target="_blank" rel="noreferrer noopener">Instagram</a></h2>
+<p class="reference-note">AGO is used with the Simple Past tense to talk about a completed action that happened a specific amount of time before t…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">20 / 21</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=cO8SlvoW6fE" target="_blank" rel="noreferrer noopener">using &quot;ago&quot; to talk about the past</a></h2>
+<p class="reference-note">[1:00] they arrived an hour ago here the verb is in the past tense and the word ago
+[1:08] appears at the end this could…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=12AMct8t-bE" target="_blank" rel="noreferrer noopener">How to use &quot;for,&quot; &quot;since,&quot; and &quot;ago&quot; in English</a></h2>
+<p class="reference-note">[24:31] interchangeably yeah if you want to use since and ago together use a length of time to do that okay let&#39;s look a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">21 / 21</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=qsJzxq4DnmU" target="_blank" rel="noreferrer noopener">Before vs Ago vs Earlier vs Previously — Are You Using These Past Time Words Correctly?</a></h2>
+<p class="reference-note">[2:04] 2 hours ago. Ago always goes with simple past. Arrived. Left. Finished. Never
+[2:12] with have or has. Priya expl…</p>
+</article>
+</div>
+</section>
+</div>
+
+  <script>
+    // Update slide numbers (NN / 16) where needed
+    (function () {
+      const slides = document.querySelectorAll('.slide');
+      const total = slides.length;
+      slides.forEach((s, idx) => {
+        const el = s.querySelector('.slide-num');
+        if (!el) return;
+        const n = idx === total - 1 ? total + " / " + total : (idx < total ? String(idx).padStart(2,'0') : (idx+1));
+      });
+    })();
+  </script>
+</body>
+</html>
