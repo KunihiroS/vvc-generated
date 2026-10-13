@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AWS Lambda Web Functions — HTTPネイティブな新実行形態</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      display:flex;
+      flex-direction:column;
+      border-radius: 12px;
+    }
+    .inner{
+      padding: 56px 72px;
+      width: 100%;
+      height: 100%;
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      border-radius: 10px;
+      margin: 20px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    @media (max-width: 720px){
+      .inner{ padding: 40px 28px; margin: 14px; border-width: 12px; }
+      .eyebrow{ font-size: 18px !important; }
+      .title{ font-size: 46px !important; }
+      .lead{ font-size: 18px !important; }
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      position: relative;
+      padding-left: 16px;
+    }
+    .eyebrow:before{
+      content:"";
+      position:absolute;
+      left:0; top: 0.56em;
+      width: 10px; height: 2px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: 0.95;
+      font-size: 26px;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin-top: -6px;
+      margin-bottom: 6px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title .accent{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .lead{
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 4px;
+    }
+    .content{
+      margin-top: auto;
+      display:flex;
+      flex-direction:column;
+      gap: 16px;
+    }
+    .grid2, .grid3{
+      width: 100%;
+      display:grid;
+      gap: 14px;
+      align-items:stretch;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    @media (max-width: 900px){
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 14px 14px 12px;
+      border-radius: 10px;
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 500;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .value{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.45;
+      margin-top: 8px;
+    }
+    .term{
+      font-style: italic;
+      color: var(--ink-2);
+    }
+    .jp{
+      color: var(--ink-3);
+      font-size: 15px;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 14px;
+      color: var(--ink-2);
+      background: rgba(240,232,216,0.06);
+      border: 1px solid var(--rule);
+      padding: 6px 8px;
+      border-radius: 8px;
+      display:inline-block;
+      margin-top: 8px;
+      max-width: 100%;
+      word-break: break-word;
+    }
+    .tiny{
+      font-size: 16px;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.5;
+    }
+    .refs{
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+      margin-top: 6px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.03);
+      padding: 12px 12px 10px;
+      border-radius: 10px;
+    }
+    .ref a{
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: rgba(232,129,74,0.6);
+      text-underline-offset: 3px;
+    }
+    .ref .meta{
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.35;
+      font-family: "Inter Tight", sans-serif;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">LAMBDA WEB FUNCTIONS</div>
+          <div class="slide-num">02 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">HTTP <span class="accent">そのまま</span>、Lambdaへ</h1>
+        <div class="lead">AWS Lambdaに「HTTPネイティブ」な新形態 <span class="term">Lambda Web Functions</span> が登場しました。Express/Next.jsなどのWebサーバを、イベントハンドラへ書き換えずに動かす設計です。</div>
+        <div class="content" style="margin-top:auto;">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">ゴール</div>
+              <div class="value">既存Webコードの<br/>サーバレス移行コストを削減</div>
+              <div class="jp">移行コスト削減 / 既存資産活用</div>
+            </div>
+            <div class="card">
+              <div class="label">位置づけ</div>
+              <div class="value">Event Functions / MicroVMと並ぶ<br/>新しい実行モデル</div>
+              <div class="jp">実行モデルの選択肢が拡張</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">WHY NOW</div>
+          <div class="slide-num">03 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title"><span class="accent">変換</span>がつらい</h1>
+        <div class="lead">従来のLambdaはイベント駆動で、HTTPアプリでも「イベントハンドラ形式」への適合が必要になりがちでした。Webサーバとして書いたものを、そのまま載せたいニーズが強まっています。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">従来</div>
+              <div class="value">イベント適合が必要<br/>(HTTPも例外ではない)</div>
+              <div class="jp">入力モデル差が移行負担に</div>
+            </div>
+            <div class="card">
+              <div class="label">新形態</div>
+              <div class="value">HTTPサーバとして動作<br/>(ポート待ち受け型)</div>
+              <div class="jp">Webアプリ形を維持</div>
+            </div>
+            <div class="card">
+              <div class="label">狙い</div>
+              <div class="value">学習・改修・実装の手間を圧縮</div>
+              <div class="jp">“書き換えない”を現実へ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">CORE IDEA</div>
+          <div class="slide-num">04 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">HTTP <span class="accent">ネイティブ</span></h1>
+        <div class="lead">Lambda Web Functionsは、既存のExpress/Fastify/Hono/Next.js等を「コードを書き換えず」にLambda上で動かすことを目指します。起動時に <span class="mono">AWS_LAMBDA_HTTP_ENDPOINT</span> を使い、listen先だけLambdaに合わせます。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">対応イメージ</div>
+              <div class="value">Express / Fastify / Hono / Next.js 等</div>
+              <div class="jp">“サーバを作る”発想のまま</div>
+            </div>
+            <div class="card">
+              <div class="label">最小差分</div>
+              <div class="value">listen先をLambda用ホスト/ポートへ</div>
+              <div class="jp">構造より起動設定の調整</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Execution model">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">EXECUTION MODEL</div>
+          <div class="slide-num">05 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">同時実行と <span class="accent">CPU課金</span></h1>
+        <div class="lead">Web Functionsはイベント駆動ではなくHTTPネイティブとして動き、1環境が複数リクエストを同時に処理します（最大128同時リクエスト/環境）。課金はアクティブCPUに基づくため、I/O待ちが多い処理で親和性が期待されます。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">同時性</div>
+              <div class="value">最大128同時リクエスト/環境</div>
+              <div class="jp">ポート待ち受け前提</div>
+            </div>
+            <div class="card">
+              <div class="label">課金</div>
+              <div class="value">アクティブCPUに基づく</div>
+              <div class="jp">待ち時間は有利になり得る</div>
+            </div>
+            <div class="card">
+              <div class="label">向き/注意</div>
+              <div class="value">DB/API待ちに強い可能性<br/>計算負荷は要実測</div>
+              <div class="jp">“一般論”は検証前提</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Multiregion">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">MULTI-REGION</div>
+          <div class="slide-num">06 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">レイテンシ <span class="accent">ルーティング</span></h1>
+        <div class="lead">複数リージョンを指定するとコードが複製され、単一のグローバルURLから呼び出し元に近いリージョンへ振り分ける仕組みを自動設定します。運用側で「どこへデプロイするか」「遅延調整」を個別設計せずに済むのが利点です。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">配布</div>
+              <div class="value">指定リージョンへ複製して配置</div>
+              <div class="jp">コードの複製＝運用の自動化</div>
+            </div>
+            <div class="card">
+              <div class="label">到達先</div>
+              <div class="value">呼び出し元に近いリージョンへ<br/>(レイテンシベース)</div>
+              <div class="jp">URL一本で最適化</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Revision and canary">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">REVISIONS</div>
+          <div class="slide-num">07 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">段階配信は <span class="accent">revision</span> で</h1>
+        <div class="lead">リビジョンはイミュータブルなスナップショットで、エンドポイントはリビジョンへルーティングします。さらに revision weights で割合指定でき、カナリア相当の段階的切替をCLIから実行可能です。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">リビジョン</div>
+              <div class="value">イミュータブルなスナップショット</div>
+              <div class="jp">変更の扱いが明確</div>
+            </div>
+            <div class="card">
+              <div class="label">切替</div>
+              <div class="value">エンドポイント→リビジョンへルーティング</div>
+              <div class="jp">安全な差し替え</div>
+            </div>
+            <div class="card">
+              <div class="label">段階配信</div>
+              <div class="value">revision weightsで比率制御</div>
+              <div class="jp">カナリア運用を容易に</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="CloudFront integration">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">CLOUDFRONT</div>
+          <div class="slide-num">08 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">CDN × <span class="accent">動的</span></h1>
+        <div class="lead">CloudFrontと統合し、静的コンテンツはCDNキャッシュ、動的処理はWeb Functionsへ振り分ける構成が組みやすいとされています。OAC（Origin Access Control）連携でプライベートオリジン呼び出しのパターンも紹介されます。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">役割分担</div>
+              <div class="value">静的：CloudFrontキャッシュ<br/>動的：Web Functions</div>
+              <div class="jp">最適化しやすい分業</div>
+            </div>
+            <div class="card">
+              <div class="label">プライベート化</div>
+              <div class="value">OACで制御し、エンドポイント直接公開を抑制</div>
+              <div class="jp">セキュリティ設計の余地</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="How to adapt express">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">MIGRATION</div>
+          <div class="slide-num">09 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">“listenだけ”の <span class="accent">差</span></h1>
+        <div class="lead">既存Expressは大きくは同じで、起動設定として <span class="mono">AWS_LAMBDA_HTTP_ENDPOINT</span> のホスト/ポートを app.listen に渡す前提が示されています。つまり移行は「イベント関数へ書き換え」ではなく「起動先の差」です。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">環境変数</div>
+              <div class="value">AWS_LAMBDA_HTTP_ENDPOINT を取得</div>
+              <div class="jp">提供される接続情報</div>
+            </div>
+            <div class="card">
+              <div class="label">変更点</div>
+              <div class="value">app.listen の host/port を切替</div>
+              <div class="jp">コード構造は維持しやすい</div>
+            </div>
+          </div>
+          <div class="tiny">※具体のコード差分はアプリ構成に依存しますが、主旨は「HTTPサーバとしての形を保つ」ことです。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Comparison and selection">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">CHOICE</div>
+          <div class="slide-num">10 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title">Event vs Web vs MicroVM</h1>
+        <div class="lead">イベント関数はキュー消費や他AWSサービス起点など「イベント処理」に向きます。Web FunctionsはHTTPで複数同時リクエストを扱うWebアプリ/APIバックエンドに向く、という整理が提示されています。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label"><span class="term">Event Functions</span></div>
+              <div class="value">イベント起点の処理</div>
+              <div class="jp">キュー/サービス連携向け</div>
+            </div>
+            <div class="card">
+              <div class="label"><span class="term">Lambda Web Functions</span></div>
+              <div class="value">HTTPネイティブのWeb/API</div>
+              <div class="jp">同時リクエスト前提</div>
+            </div>
+            <div class="card">
+              <div class="label"><span class="term">MicroVM</span></div>
+              <div class="value">別の実行モデル枠</div>
+              <div class="jp">要件に応じて比較対象</div>
+            </div>
+          </div>
+          <div class="tiny">実装・運用の選択は、同時性、外部I/O比率、状態管理（セッション等）の設計要否で決めます。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="References">
+      <div class="inner">
+        <div class="topbar">
+          <div class="eyebrow">REFERENCES</div>
+          <div class="slide-num">11 / 14</div>
+        </div>
+        <div class="rule"></div>
+        <h1 class="title"><span class="accent">出典</span>と補足</h1>
+        <div class="lead">一次情報（AWS公式資料/発表）を軸に、補助として公開ソース解析やコミュニティ整理を参照しました。</div>
+        <div class="content">
+          <div class="refs">
+            <div class="ref">
+              <div class="label">DevelopersIO</div>
+              <div class="value">
+                「リリース前のAWS Lambda Web Functions（lambda-web）の仕組みを公開ソースから読み解いてみた」
+              </div>
+              <div class="meta">公開ソース解析ベース（実際に動かした結果の裏取りは別途必要、との注意あり）</div>
+            </div>
+            <div class="ref">
+              <div class="label">Botocore/SDKの記載変化</div>
+              <div class="value">実験的扱い→更新により外部提供の状態が変わった可能性</div>
+              <div class="meta">Web検索における記述の一例（最終的には公式での提供可否確認推奨）</div>
+            </div>
+            <div class="ref">
+              <div class="label">本資料の根拠</div>
+              <div class="value">ユーザー提示の発表要約・FAQ・所見、ならびにWebおよび過去履歴の補足情報</div>
+              <div class="meta">数値（例：最大128同時リクエスト/環境）は提示文に基づく</div>
+            </div>
+          </div>
+          <div class="tiny">導入判断は必ず公式ドキュメントと実測（同時性・レイテンシ・外部I/O・課金）で検証してください。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dev.classmethod.jp/articles/aws-lambda-web-functions-source-analysis" target="_blank" rel="noreferrer noopener">リリース前のAWS Lambda Web Functions（lambda-web）の仕組みを公開ソースから読み解いてみた | DevelopersIO</a></h2>
+<p class="reference-note">この記事では、公開リポジトリのソースを読み、リソース構成、デプロイの仕組み、エンドポイントの公開方式、CloudFront と IAM の定義を整理しました。
+
+## 公開されている情報と現在の状態
+
+botocore 1.43.107（2…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.to/parag477/ecs-vs-eks-vs-lambda-how-to-pick-the-right-aws-compute-service-2026-24pg" target="_blank" rel="noreferrer noopener">ECS vs EKS vs Lambda: How to Pick the Right AWS Compute Service (2026) - DEV Community</a></h2>
+<p class="reference-note">### Lambda Pricing (us-east-1)
+
+| Component | Price |
+ --- |
+| Requests | $0.20 per 1 million requests |
+| Duration (128…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://mecanik.dev/ja/posts/cloudflare-workers-vs-aws-lambda-2026" target="_blank" rel="noreferrer noopener">Cloudflare Workers vs AWS Lambda 2026年版</a></h2>
+<p class="reference-note">TL;DR
+
+ Workers は軽量な V8 isolates 上でエッジで実行され、cold start がほぼゼロで、既定でグローバルに分散されます
+ Lambda は AWS リージョンで microVM モデルにより実行され、多く…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://aws.amazon.com/blogs/aws/category/compute/aws-lambda" target="_blank" rel="noreferrer noopener">AWS Lambda | AWS News Blog</a></h2>
+<p class="reference-note">alt
+alt
+
+From startups to enterprises, find AWS solutions scaled to your needs. Access tailored resources, pricing model…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 14</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.acrovision.jp/service/aws/aws-lambda-google-cloud-functions" target="_blank" rel="noreferrer noopener">「AWS Lambda」と「Google Cloud Functions」とは – Amazon Web Service(AWS)導入開発支援</a></h2>
+<p class="reference-note">コンテンツに移動 ナビゲーションに移動
+
+Amazon Web Service(AWS)導入開発支援
+
+1. HOME
+2. 技術記事
+3. AWS
+4. 「AWS Lambda」と「Google Cloud Functions」とは
+
+2…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
