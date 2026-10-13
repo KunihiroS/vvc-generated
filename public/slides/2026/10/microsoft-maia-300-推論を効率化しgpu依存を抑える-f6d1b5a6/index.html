@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Microsoft Maia 300：推論を効率化しGPU依存を抑える</title>
+  <style>
+    :root{
+      --cream:#14110d;
+      --paper:#1c1813;
+      --ink:#f0e8d8;
+      --ink-2:#d4ccbc;
+      --ink-3:#948b7c;
+      --ink-4:#645c50;
+      --rust:#e8814a;
+      --rust-deep:#c9683a;
+      --rule:rgba(240,232,216,0.10);
+      --rule-strong:rgba(240,232,216,0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--cream);
+      color:var(--ink);
+      font-family:"Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow:hidden;
+      border-radius: 14px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 10px;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      position:relative;
+      z-index:1;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-weight: 600;
+      color: var(--rust);
+      font-size: 18px;
+      text-transform: uppercase;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      white-space:nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width:26px; height:1px;
+      background: var(--rust);
+      opacity:0.85;
+    }
+    .slide-num{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-2);
+      white-space:nowrap;
+    }
+    .content{
+      position:relative;
+      z-index:1;
+      margin-top: 18px;
+      height: calc(100% - 70px);
+      display:flex;
+      flex-direction:column;
+    }
+    .eyebrow{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size:22px;
+      margin: 6px 0 10px;
+      letter-spacing:0.02em;
+    }
+    .title{
+      font-family:"Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.02;
+      margin: 0 0 14px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.5;
+      margin: 0;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      width: 100%;
+      margin: 18px 0 18px;
+    }
+    .grid{
+      display:grid;
+      gap:14px;
+      margin-top: 14px;
+      width: 100%;
+    }
+    .grid.two{grid-template-columns: 1fr 1fr;}
+    .grid.three{grid-template-columns: 1fr 1fr 1fr;}
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.10);
+    }
+    .kicker{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing:0.02em;
+      color: var(--ink-3);
+      font-size: 14px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .value{
+      font-family:"Noto Serif JP", serif;
+      font-size: 20px;
+      line-height:1.45;
+      color: var(--ink);
+      margin:0;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      margin:0;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    .footer-note{
+      margin-top:auto;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height:1.4;
+    }
+    .nowrap{white-space:nowrap;}
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide cover">
+      <div class="topline">
+        <div class="slide-tag">MAIA 300</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">推論を“電力効率”で変える</div>
+        <h1 class="title">Azure <em>推論</em>チップ</h1>
+        <p class="lead">Microsoftが発表したAIアクセラレータ「Maia 300」は、GPU依存を抑えつつ、推論（inference）のトークン処理とコスト効率を強化する狙いです。</p>
+        <div class="footer-note">見どころ：<span class="mono">1MW</span>あたりのトークン処理 +40%、HBM4、400GbE、導入は2027年（生産展開）。</div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide problem">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">電力とコストがボトルネック</div>
+        <h2 class="title">推論が増える</h2>
+        <p class="lead">生成AIは学習（training）よりも、実運用の推論（推論＝答えを出す計算）が急増しやすく、データセンターの電力・費用・処理能力のバランスが崩れがちです。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">課題 1</div>
+            <p class="value">推論コストは利用量に連動（従量課金と相性）</p>
+            <p class="small">固定費より変動費の影響が大きい</p>
+          </div>
+          <div class="card">
+            <div class="kicker">課題 2</div>
+            <p class="value">電力効率が収益に直結</p>
+            <p class="small">同じ電力で出せるトークン数が競争力</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide architecture">
+      <div class="topline">
+        <div class="slide-tag">CORE IDEA</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">脱GPU依存で効率化</div>
+        <h2 class="title">Maia <em>300</em></h2>
+        <p class="lead">Maia 300は、MicrosoftがAzure向けに投入する自社設計チップ（カスタムシリコン）で、推論時の計算効率を高めて提供コストを下げることを主眼にしています。</p>
+        <div class="grid three">
+          <div class="card">
+            <div class="kicker">狙い（目的）</div>
+            <p class="value">推論の電力効率向上</p>
+          </div>
+          <div class="card">
+            <div class="kicker">方向性</div>
+            <p class="value">GPU中心運用からの脱却</p>
+          </div>
+          <div class="card">
+            <div class="kicker">成果イメージ</div>
+            <p class="value">コスト構造を改善</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide evidence">
+      <div class="topline">
+        <div class="slide-tag">METRIC</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">最重要指標：電力あたり</div>
+        <h2 class="title"><em>+40%</em> トークン</h2>
+        <p class="lead">公開情報の中心は「1メガワットあたりに処理できるトークン数が40%増加」する点です。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">効く理由</div>
+            <p class="value">推論はトークン消費が増えやすい</p>
+            <p class="small">だから“電力効率”が収益に波及</p>
+          </div>
+          <div class="card">
+            <div class="kicker">事業への接続</div>
+            <p class="value">価格競争力（UBB）の改善余地</p>
+            <p class="small">同電力でより多く回せる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide architecture">
+      <div class="topline">
+        <div class="slide-tag">DESIGN</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">2nm + チップレット</div>
+        <h2 class="title">TSMC <em>2nm</em></h2>
+        <p class="lead">Maia 300はTSMCの2nm（N2P）で製造されるコンピュートダイを中心に、複数ダイで構成するチップレット構造を採用しています。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">構造</div>
+            <p class="value">チップレット（複数ダイで構成）</p>
+            <p class="small">スケール設計をしやすい</p>
+          </div>
+          <div class="card">
+            <div class="kicker">製造</div>
+            <p class="value">TSMC 2nm（N2P）コンピュートダイ</p>
+            <p class="small">世代更新で効率を狙う</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide evidence">
+      <div class="topline">
+        <div class="slide-tag">MEMORY</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">HBM4で“動かす量”を増やす</div>
+        <h2 class="title">HBM4：<em>288GB</em></h2>
+        <p class="lead">Maia 300はHBM4（288GB、帯域18TB/s）に強化し、推論に必要なデータ移動の律速を下げる設計が示されています。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">メモリ容量</div>
+            <p class="value">288GB</p>
+            <p class="small">大規模運用（スケールアップ）向け</p>
+          </div>
+          <div class="card">
+            <div class="kicker">帯域</div>
+            <p class="value">18TB/s</p>
+            <p class="small">通信ボトルネックを抑える</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide architecture">
+      <div class="topline">
+        <div class="slide-tag">NETWORK</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">400GbEで“つなぐ”を強化</div>
+        <h2 class="title"><em>400GbE</em>×32</h2>
+        <p class="lead">さらに、400GbEの32ポートや2階層スイッチ対応などにより、ラック規模でのスループットを高める前提が読み取れます。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">通信</div>
+            <p class="value">400GbE 32ポート</p>
+            <p class="small">大規模分散推論を支える</p>
+          </div>
+          <div class="card">
+            <div class="kicker">構成</div>
+            <p class="value">2階層スイッチ対応</p>
+            <p class="small">ネットワークの伸びを狙う</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide comparison">
+      <div class="topline">
+        <div class="slide-tag">SCALE</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Maia 200比で伸び</div>
+        <h2 class="title">性能とスケール</h2>
+        <p class="lead">Maia 300は、従来世代（Maia 200）比で性能とスケールの伸びが示され、推論基盤を“増やして回す”前提の設計です。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">キーメッセージ</div>
+            <p class="value">同じ方向性で効率を底上げ</p>
+            <p class="small">チップ＋メモリ＋ネットワークの相乗</p>
+          </div>
+          <div class="card">
+            <div class="kicker">現場目線</div>
+            <p class="value">スケール時ほど改善が効きやすい</p>
+            <p class="small">電力・帯域・通信が鍵</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide process">
+      <div class="topline">
+        <div class="slide-tag">DEPLOY</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">技術発表 ≠ 即全面転換</div>
+        <h2 class="title">導入は <em>2027</em></h2>
+        <p class="lead">Microsoftは実際の導入（production deployments）を2027年としており、発表直後に現場がすぐ置き換わるわけではありません。</p>
+        <div class="grid three">
+          <div class="card">
+            <div class="kicker">段階性</div>
+            <p class="value">検証・調整が必要</p>
+            <p class="small">ソフト最適化（推論フレーム）</p>
+          </div>
+          <div class="card">
+            <div class="kicker">移行</div>
+            <p class="value">既存GPU資産との併用</p>
+            <p class="small">ワークロードごとに判断</p>
+          </div>
+          <div class="card">
+            <div class="kicker">柔軟性</div>
+            <p class="value">“適切なシリコン×適切なモデル”</p>
+            <p class="small">用途別投入のニュアンス</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide distinction">
+      <div class="topline">
+        <div class="slide-tag">UBB</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">従量課金（UBB）との整合</div>
+        <h2 class="title">価格設計が鍵</h2>
+        <p class="lead">推論コストが利用量に比例しやすいため、クラウドは従量課金（UBB）へ移行しやすい一方、顧客側には“価格の戸惑い”も起き得ます。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">技術</div>
+            <p class="value">効率改善で単価を下げ得る</p>
+            <p class="small">ただし条件に依存</p>
+          </div>
+          <div class="card">
+            <div class="kicker">運用</div>
+            <p class="value">上限・予測可能性・ガバナンスが必要</p>
+            <p class="small">部署/案件ごとの管理も重要</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide enumeration">
+      <div class="topline">
+        <div class="slide-tag">CHECK</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">意思決定で確認すべき不足</div>
+        <h2 class="title">追加検証</h2>
+        <p class="lead">公開指標だけでは断定できないため、同一条件でのベンチ、移行コスト、最適化の実像、ワークロード別効果を確認する必要があります。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">実ベンチ</div>
+            <p class="value">代表モデルでの原価/遅延（同条件）</p>
+            <p class="small">モデル種別×コンテキスト長で差が出る</p>
+          </div>
+          <div class="card">
+            <div class="kicker">TCO</div>
+            <p class="value">移行コスト（検証・ドライバ・最適化）</p>
+            <p class="small">既存GPU併用期間も含める</p>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">ソフト</div>
+            <p class="value">推論最適化（フレーム最適化）の具体</p>
+            <p class="small">成功/失敗で効果が変動</p>
+          </div>
+          <div class="card">
+            <div class="kicker">効果</div>
+            <p class="value">利用形態別（サービス/部署）改善幅</p>
+            <p class="small">運用設計で体感が変わる</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide closing">
+      <div class="topline">
+        <div class="slide-tag">TAKEAWAY</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論：効率改善は事業へつながる</div>
+        <h2 class="title"><em>電力×トークン</em>で勝つ</h2>
+        <p class="lead">Maia 300は、電力効率（1MWあたりトークン +40%）を軸に、HBM4・400GbE・チップレット構造で推論基盤を強化し、GPU依存とコストを下げる方向性を示しています。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">できること</div>
+            <p class="value">推論の経済性を底上げしやすい</p>
+            <p class="small">（電力/帯域/通信の同時最適化）</p>
+          </div>
+          <div class="card">
+            <div class="kicker">注意点</div>
+            <p class="value">導入は2027年、効果は最適化と運用次第</p>
+            <p class="small">モデル・ワークロードでばらつく</p>
+          </div>
+        </div>
+        <div class="footer-note">用語：推論（inference／推論）＝モデルで回答を生成する計算。トークン（token／トークン）＝生成テキストの単位。</div>
+      </div>
+    </section>
+
+    <!-- References slide (must be 16:9 and same styling) -->
+    <section class="slide problem">
+      <div class="topline">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">14 / 17</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">参照（要約元の論点）</div>
+        <h2 class="title">出典の要旨</h2>
+        <p class="lead">以下は、ユーザー提示情報と検索要約に基づく論点整理です（原文リンクは本デッキ生成時点では未提示）。</p>
+        <div class="grid two">
+          <div class="card">
+            <div class="kicker">技術・指標</div>
+            <p class="value">Maia 300：1MWあたりトークン +40%、HBM4（288GB/18TB/s）、400GbE 32ポート、チップレット、TSMC 2nm（N2P）</p>
+            <p class="small">ラック規模スループット（Maia 200比）に関する言及</p>
+          </div>
+          <div class="card">
+            <div class="kicker">導入時期</div>
+            <p class="value">Microsoft公式ブログ：2027年にproduction deployments（生産展開）</p>
+            <p class="small">モデル/ワークロードに応じた柔軟投入のニュアンス</p>
+          </div>
+        </div>
+        <div class="footer-note">補足：QZ等による解釈（「適切なシリコンを適切なモデルに合わせて投入」）も、ユーザー提示の範囲で反映しています。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://shattered.io/microsoft-maia-300-ai-chip-2026" target="_blank" rel="noreferrer noopener">Microsoft Maia 300: 300K TSMC Chips Aim at Nvidia</a></h2>
+<p class="reference-note">Microsoft is reportedly planning to unveil Maia 300 in fall 2026, with some reports suggesting a reveal as early as Sept…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://thenextweb.com/news/microsoft-maia-300-chip-tsmc-production-boost-nvidia" target="_blank" rel="noreferrer noopener">Microsoft is ordering 300,000+ Maia 300 AI chips from TSMC as it races to reduce its dependence on Nvidia</a></h2>
+<p class="reference-note">Microsoft is planning to “significantly” increase production of its next-generation AI chips, The Information reported. …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blogs.microsoft.com/blog/2026/10/12/microsoft-to-expand-azure-maia-system-to-multi-gigawatt-deployments" target="_blank" rel="noreferrer noopener">Microsoft to expand Azure Maia system to multi-gigawatt deployments - The Official Microsoft Blog</a></h2>
+<p class="reference-note">Maia 300 will begin production deployments in 2027. For more information on Maia 300 architectural details, read our tec…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://qz.com/microsoft-maia-300-ai-chip-inference-primary-101226" target="_blank" rel="noreferrer noopener">Microsoft Maia 300 AI chip to lead inference workloads</a></h2>
+<p class="reference-note">The new chip also achieves 40% greater token output per megawatt than GPUs, according to CNBC. Production is set to begi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://finance.yahoo.com/technology/article/microsoft-reveals-maia-300-ai-chip-as-it-works-to-reduce-dependence-on-nvidia-amd-130000212.html" target="_blank" rel="noreferrer noopener">Microsoft reveals Maia 300 AI chip, as it works to reduce dependence on Nvidia, AMD</a></h2>
+<p class="reference-note">Unveiled at the OCP Global Summit 2026 in San Jose on Monday, the Maia 300 will join Microsoft&#39;s Maia 200 and Maia 100 c…</p>
+</article>
+</div>
+</section>
+</div>
+
+  <script>
+    // Set slide numbers as NN / total (without changing layout design).
+    (function(){
+      const slides = document.querySelectorAll('.slide');
+      const total = slides.length;
+      slides.forEach((s, idx)=>{
+        const num = s.querySelector('.slide-num');
+        if(num){
+          num.textContent = String(idx).padStart(2,'0') + ' / ' + String(total).padStart(2,'0');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
