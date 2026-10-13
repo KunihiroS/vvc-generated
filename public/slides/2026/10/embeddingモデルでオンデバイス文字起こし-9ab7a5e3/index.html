@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Embeddingモデルでオンデバイス文字起こし</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+    a{ color: var(--ink); text-decoration: underline; text-decoration-color: rgba(232,129,74,0.55); }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240,232,216,0.12);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 14px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 28px;
+      left: 36px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.12em;
+      font-size: 16px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 12px;
+      height: 2px;
+      background: var(--rust);
+      margin-right: 12px;
+      transform: translateY(-3px);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.14);
+    }
+    .slide-num{
+      position:absolute;
+      top: 24px;
+      right: 40px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+      margin-top: 8px;
+      white-space: nowrap;
+    }
+    .title{
+      font-size: 64px;
+      margin: 0 0 18px;
+      font-weight: 500;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: -0.02em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      font-weight: 300;
+    }
+    .mono{ font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.03);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .v{
+      font-size: 20px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .subtle{
+      color: var(--ink-2);
+      font-size: 20px;
+      font-weight: 300;
+      max-width: 760px;
+      margin-top: 18px;
+    }
+    .divider{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 22px 0 16px;
+      width: 100%;
+    }
+    .smallnote{
+      color: var(--ink-3);
+      font-size: 18px;
+      max-width: 760px;
+      margin-top: 14px;
+      font-weight: 300;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; }
+      .slide-tag{ top: 20px; left: 18px; font-size: 14px; }
+      .slide-num{ top: 18px; right: 18px; font-size: 20px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+      .card .v{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" style="--i:1;">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 19</div>
+      <div class="eyebrow">読む器で再構成する</div>
+      <h1 class="title">EmbeddingGemma <em>Transcribe</em></h1>
+      <p class="lead">Embeddingモデルを“音声→単語”へ転用し、Mac上でオンデバイス高速に文字起こしする試み。</p>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 19</div>
+      <div class="eyebrow">音声認識の別ルート</div>
+      <h2 class="title"><em>ASR</em>だけではない</h2>
+      <p class="lead">通常の音声認識（CTC/トランスフォーマ）は“連続時間の音から文字を生成”します。ここでは、別の発想として“近い意味空間”から単語列を復元します。</p>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 19</div>
+      <div class="eyebrow">近さで当てる</div>
+      <h2 class="title">音声は <em>単語の鏡</em></h2>
+      <p class="lead">Embeddingモデルは音声と言葉を同じ空間に置き、近いもの同士を比較できます。そこで音声を短く切り、各区間が“どの語に近いか”を選びます。</p>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 19</div>
+      <div class="eyebrow">固定＋追加で転用</div>
+      <h2 class="title">設計は <em>二段</em></h2>
+      <p class="lead">音声エンコーダは保持し、追加モジュール（reader）を学習して“音声スライス”をテキスト埋め込み空間へ写像します。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">そのまま</div>
+          <div class="v mono">Audio encoder（固定）</div>
+        </div>
+        <div class="card">
+          <div class="k">学習する</div>
+          <div class="v mono">Reader（音声→語彙空間）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">06 / 19</div>
+      <div class="eyebrow">スライス→最寄り語</div>
+      <h2 class="title">手順は <em>切って選ぶ</em></h2>
+      <p class="lead">音声を短区間（スライス）に分割し、各スライスを“約22.9万語の英語語彙”側の最も近い単語へ対応づけて骨格を作ります。</p>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">i</div>
+          <div class="v">音声をスライス</div>
+        </div>
+        <div class="card">
+          <div class="k">ii</div>
+          <div class="v">埋め込みへ写像</div>
+        </div>
+        <div class="card">
+          <div class="k">iii</div>
+          <div class="v">最寄り語を選択</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">07 / 19</div>
+      <div class="eyebrow">整形は小さな補助器</div>
+      <h2 class="title">最後に <em>句読点・大文字</em></h2>
+      <p class="lead">単語列の骨格の後、非常に小さな補助モデルで句読点や大文字を整える構成になっています。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">主役</div>
+          <div class="v">reader（単語の近さ）</div>
+        </div>
+        <div class="card">
+          <div class="k">整形</div>
+          <div class="v">小型モデル（文体補正）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">08 / 19</div>
+      <div class="eyebrow">爆速の主張</div>
+      <h2 class="title">処理は <em>12.6秒</em></h2>
+      <p class="lead">MacBook Air（M3、8GB）で「1時間の音声を約12.6秒」で処理したとされています（実時間の約288倍）。</p>
+      <div class="subtle">注意：比較には“like-for-likeでない可能性”が明示されています。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">09 / 19</div>
+      <div class="eyebrow">品質はまだ途中</div>
+      <h2 class="title">WERは <em>約5%</em></h2>
+      <p class="lead">単語誤り率（WER）は約5%と報告されています。先行的な音声認識のWER（2〜3%程度）にはギャップがあります。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">本事例</div>
+          <div class="v mono">WER ≈ 5%</div>
+        </div>
+        <div class="card">
+          <div class="k">先行</div>
+          <div class="v mono">WER ≈ 2–3%</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">10 / 19</div>
+      <div class="eyebrow">ここがASRと違う</div>
+      <h2 class="title">生成ではなく <em>近さ選択</em></h2>
+      <p class="lead">連続時間から直接文字を“生成”するのではなく、音声スライスをテキスト空間へ写像し、語彙の中から最も近い単語を選びます。その後に補正します。</p>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">11 / 19</div>
+      <div class="eyebrow">速度と誤りのトレード</div>
+      <h2 class="title">速いが <em>文脈弱め</em></h2>
+      <p class="lead">単語をスライスごとに選ぶ方式は、文脈整合性や同音異義・言い換えに不利になり得ます。改善余地はreaderの学習品質に強く依存します。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">良い点</div>
+          <div class="v">高速・オンデバイス</div>
+        </div>
+        <div class="card">
+          <div class="k">課題</div>
+          <div class="v">WERギャップ（主にreader由来）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">12 / 19</div>
+      <div class="eyebrow">オンデバイス前提</div>
+      <h2 class="title">your audio <em>never leaves</em></h2>
+      <p class="lead">Neural Engine上で処理され、音声が端末外へ送信されないと強調されています。プライバシー面での安心材料になります。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">実行</div>
+          <div class="v">MacのNeural Engine</div>
+        </div>
+        <div class="card">
+          <div class="k">設計</div>
+          <div class="v">端末外へ送信しない</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">13 / 19</div>
+      <div class="eyebrow">改善のレバー</div>
+      <h2 class="title">鍵は <em>reader学習</em></h2>
+      <p class="lead">品質改善は“より良く訓練されたreader”により見込めるとされています。容量・データ品質・学習設計が限界を左右します。</p>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">i</div>
+          <div class="v">対応データの質</div>
+        </div>
+        <div class="card">
+          <div class="k">ii</div>
+          <div class="v">写像の精度</div>
+        </div>
+        <div class="card">
+          <div class="k">iii</div>
+          <div class="v">語彙との整合</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">14 / 19</div>
+      <div class="eyebrow">転用の価値</div>
+      <h2 class="title"><em>表現空間</em>を読む</h2>
+      <p class="lead">Embeddingモデルの“共有埋め込み空間の近さ”を、文字起こしへ再構成するアプローチです。高速さとオンデバイス性が魅力ですが、WERは先行に届かず、今後のreader改善と統合が焦点です。</p>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">references</div>
+      <div class="slide-num">15 / 19</div>
+      <div class="eyebrow">参照</div>
+      <h2 class="title">Sources</h2>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">モデル</div>
+          <div class="v">Google DeepMind：EmbeddingGemma 2（マルチモーダルEmbedding、768次元）</div>
+        </div>
+        <div class="card">
+          <div class="k">プロジェクト</div>
+          <div class="v">EmbeddingGemma Transcribe（独立プロジェクト、Apache 2.0、Mac on-device/Neural Engine）</div>
+        </div>
+      </div>
+      <p class="smallnote">本デッキはユーザー提供要約を元に構成しています。速度比較の“like-for-likeでない可能性”は入力テキストの注意書きに従っています。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.google/innovation-and-ai/technology/developers-tools/embeddinggemma-2" target="_blank" rel="noreferrer noopener">EmbeddingGemma 2 is a best-in-class open model for natively multimodal embeddings</a></h2>
+<p class="reference-note">Breadcrumb
+
+1. Home
+2. Innovation &amp; AI
+3. Technology
+4. Developer tools
+
+# EmbeddingGemma 2: an open, lightweight multim…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ai.google.dev/gemma/docs/embeddinggemma/model_card_2" target="_blank" rel="noreferrer noopener">EmbeddingGemma 2 model card  |  Google AI for Developers</a></h2>
+<p class="reference-note">EmbeddingGemma 2 is an open multimodal embedding model built by Google DeepMind which maps text (incl. code), images, vi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/codetodeploy/stop-everything-google-embedding-gemma-2-is-here-41acf0b47a87" target="_blank" rel="noreferrer noopener">🚨Stop Everything Google Embedding Gemma 2 is Here🤯 | by Greek Ai | CodeToDeploy | Oct, 2026 | Medium</a></h2>
+<p class="reference-note">Announced by Google DeepMind on October 6, 2026, EmbeddingGemma 2 takes the original EmbeddingGemma beyond text and brin…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.marktechpost.com/2026/10/06/google-deepmind-releases-embeddinggemma-2-a-740m-open-multimodal-embedding-model-built-on-gemma-4" target="_blank" rel="noreferrer noopener">Google DeepMind Releases EmbeddingGemma 2, a 740M Open Multimodal Embedding Model Built on Gemma 4 - MarkTechPost</a></h2>
+<p class="reference-note">Developers load only what they need: 270M for text, 440M for text and vision, 570M for text and audio, or 740M for every…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=anPsS6huQk0&amp;xstg=CAMSBhUDze3xHw%3D%3D" target="_blank" rel="noreferrer noopener">Introducing EmbeddingGemma 2: An open model for natively multimodal embeddings</a></h2>
+<p class="reference-note"># Introducing EmbeddingGemma 2: An open model for natively multimodal embeddings
+## Channel: Google for Developers (veri…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
