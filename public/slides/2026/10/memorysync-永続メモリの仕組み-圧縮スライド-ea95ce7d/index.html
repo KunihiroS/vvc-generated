@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MemorySync：永続メモリの仕組み（圧縮スライド）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    .slide-tag{
+      color: var(--rust);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 10px;
+      height: 10px;
+      width: 3px;
+      background: var(--rust);
+      border-radius: 2px;
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      color: var(--ink-2);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      margin: 6px 0 2px;
+    }
+    .title{
+      margin: 0 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      letter-spacing: 0.01em;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 14px;
+      opacity: 0.8;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.10);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .card .v{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .list-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .li{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 12px 12px;
+      background: rgba(0,0,0,0.08);
+    }
+    .li .head{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--rust);
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .li .text{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    .footer-note{
+      position:absolute;
+      bottom: 22px;
+      left: 72px;
+      right: 72px;
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.45;
+      border-top: 1px solid var(--rule);
+      padding-top: 12px;
+    }
+
+    @media (max-width: 760px){
+      .slide{ padding: 40px 18px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .footer-note{ left: 18px; right: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">READING DECK</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">永続メモリを“見える形”で理解</div>
+      <h2 class="title"><i>MemorySync</i></h2>
+      <p class="lead">提示データは、AIの「好み（パーソナライズされた事実）」をサーバ側に永続保存し、言い換え検索で再取得できることを、PlaygroundとAPIレスポンスで示しています。</p>
+      <div class="footer-note">このデッキは読んで理解するための圧縮版です（ライブ説明なし）。</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">CONTEXT</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">まず前提を揃える</div>
+      <h2 class="title"><i>履歴 vs メモリ</i></h2>
+      <p class="lead"><span style="font-style:italic; color: var(--rust);">チャット履歴</span>は会話文そのもの（セッションでリセットされがち）。<span style="font-style:italic; color: var(--rust);">永続メモリ</span>は、会話から抽出した長期的な事実を保存し、次回に呼び出します（MemorySyncは後者のデモ）。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">Chat history</div>
+          <div class="v">“今の会話”中心。再読込や時間経過で失われやすい</div>
+        </div>
+        <div class="card">
+          <div class="k">Persistent memory</div>
+          <div class="v">“次回にも効く事実”中心。保存されて再取得される</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">狙い：好みを固定する</div>
+      <h2 class="title"><i>再現性</i></h2>
+      <p class="lead">毎回の会話で同じ希望（例：答えは前置きなしで簡潔に）が必要だと、体験は不安定になります。MemorySyncは、その希望を“学習済みの事実”として安定化させます。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">ユーザーの入力</div>
+          <div class="v">言い換えで届く（自然に質問してもOK）</div>
+        </div>
+        <div class="card">
+          <div class="k">システムの結果</div>
+          <div class="v">同じ好み（好みの“意味”）へ到達して回答方針に反映</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">CORE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">意味ベースで探す</div>
+      <h2 class="title"><i>言い換え検索</i></h2>
+      <p class="lead">保存された「Prefers concise answers with no preamble（前置きなしで簡潔な回答を好む）」は、単語一致ではなく意味（semantic）に基づく検索で再取得されます。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">保存される事実</div>
+          <div class="v">簡潔 &amp; 前置きなし</div>
+        </div>
+        <div class="card">
+          <div class="k">再取得される経路</div>
+          <div class="v">別表現でも relevance（関連度）でヒットする</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">STORAGE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">リロードしても消えない</div>
+      <h2 class="title"><i>サーバ永続</i></h2>
+      <p class="lead">「ブラウザ内に保存していない」ため、ページリロードで状態は失われても、サーバ側の永続メモリは残ります。再問い合わせすれば返ってくる設計です。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">Playground挙動</div>
+          <div class="v">保存操作が可視</div>
+        </div>
+        <div class="card">
+          <div class="k">リロード</div>
+          <div class="v">ブラウザ内の保持は否定</div>
+        </div>
+        <div class="card">
+          <div class="k">再取得</div>
+          <div class="v">Saved on the server（示唆）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">SECURITY</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">キーで“範囲”が変わる</div>
+      <h2 class="title"><i>デモ vs 本番</i></h2>
+      <p class="lead">デモキーと本番キーはプライバシーと適用範囲が分かれます。デモはMemorySync側のデモアカウント、保存済みデータは本番キー作成後に自分のアカウントへ引き継がれる前提です。</p>
+      <div class="rule"></div>
+      <div class="list-grid">
+        <div class="li">
+          <div class="head">デモキー</div>
+          <div class="text">“他者に見えない”前提のデモアカウントで検証</div>
+        </div>
+        <div class="li">
+          <div class="head">本番キー</div>
+          <div class="text">自分のアカウント領域に保存（保存データがコピーされる前提）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">RESPONSE</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“保存”はただの文字ではない</div>
+      <h2 class="title"><i>運用パラメータ</i></h2>
+      <p class="lead">APIレスポンスには抽出（preference）・重要度・ティア（hot）などの運用情報が含まれます。これにより、単なるテキスト保存ではなく、品質と鮮度で取り出しを制御していることが分かります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">例：重要度</div>
+          <div class="v"><span class="mono">importance: 0.92</span></div>
+        </div>
+        <div class="card">
+          <div class="k">例：ティア</div>
+          <div class="v"><span class="mono">tier: hot</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">PIPELINE</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">処理の流れ（推定）</div>
+      <h2 class="title"><i>preprocess→search</i></h2>
+      <p class="lead">レスポンスにある評価指標（relevance / confidence 等）が示す通り、保存・検索・ランキングのパイプラインが前提にあります。ユーザーの自然な入力から“関連度の高い好み”へ到達します。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">保存側</div>
+          <div class="v">入力を抽出（preference）し、重要度・品質を付与</div>
+        </div>
+        <div class="card">
+          <div class="k">検索側</div>
+          <div class="v">意味検索で関連度を計算し、ランキングして返す</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">設計の核心</div>
+      <h2 class="title"><i>“学習済み事実”</i></h2>
+      <p class="lead">この仕組みは、毎回の会話文脈をそのまま引き継ぐのではありません。会話から抽出した安定した事実を保存し、次のセッションで必要に応じて呼び出します。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">会話</div>
+          <div class="v">好みが述べられる</div>
+        </div>
+        <div class="card">
+          <div class="k">抽出・保存</div>
+          <div class="v">preferenceとして登録</div>
+        </div>
+        <div class="card">
+          <div class="k">再利用</div>
+          <div class="v">semantic検索で呼び出し</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">EVALUATION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">強みと限界</div>
+      <h2 class="title"><i>説得力の源</i></h2>
+      <p class="lead">最大の強みは「リロード後も返る」「言い換えで検索できる」「ブラウザではなくサーバ側に保存」の3点が、デモとAPI構造で確認できることです。一方、失敗例やガバナンス詳細（削除・暗号化・監査ログ等）が不足しています。</p>
+      <div class="rule"></div>
+      <div class="list-grid">
+        <div class="li">
+          <div class="head">強み</div>
+          <div class="text">成功例が“観測できる”ので理解が早い</div>
+        </div>
+        <div class="li">
+          <div class="head">限界</div>
+          <div class="text">誤保存・拒否・失敗率・ポリシーの材料が足りない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">RISKS</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">実運用で確認すべきこと</div>
+      <h2 class="title"><i>ガバナンス</i></h2>
+      <p class="lead">永続メモリは便利ですが、保持期間・削除・誤学習の抑制・権限管理が欠けるとリスクになります。提示データでは詳細が見えにくく、追加確認が必要です。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">必須の確認</div>
+          <div class="v">保持期間（TTL）/ 削除・修正手段 / スコープと権限</div>
+        </div>
+        <div class="card">
+          <div class="k">品質・安全</div>
+          <div class="v">失敗例（拒否・誤一致）の割合 / 暗号化・監査ログの粒度</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">理解の要点</div>
+      <h2 class="title"><i>Takeaway</i></h2>
+      <p class="lead">MemorySyncは「好みを永続保存し、意味ベースで再取得する」設計デモです。採用判断では、成功の観測に加えて、誤保存・削除・権限・保持ポリシーまで確認するのが重要です。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">Key 3</div>
+          <div class="v">言い換え検索 / サーバ永続 / デモキーと本番キーの分離</div>
+        </div>
+        <div class="card">
+          <div class="k">Next step</div>
+          <div class="v">失敗率・ガバナンス仕様（削除/監査/暗号化）を追加で確認</div>
+        </div>
+      </div>
+      <div class="footer-note">出典：ユーザー提示のMemorySync Playground挙動・APIレスポンス例、および要約/FAQ/意見内の記述。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://memorysync.io/try" target="_blank" rel="noreferrer noopener">Playground – Persistent AI Agent Memory in Your Browser | MemorySync</a></h2>
+<p class="reference-note">2 · Keep it
+
+After you create a key, add your email here. The same key keeps working and stops expiring, and your accoun…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=c3gtnZvsSsA" target="_blank" rel="noreferrer noopener">AIエージェントの記憶ツール、結局どれが正解？</a></h2>
+<p class="reference-note">### Transcript
+[0:11] AIエージェントに記憶を持たせるツール、種類多すぎない？ 最近めっちゃ乱立してるよね。 名前も似てるし、どれがどう違うのかさっぱりなのです。
+[0:19] 名前が似てても、中身の作りは全然違ったり…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://mem0.ai/pricing" target="_blank" rel="noreferrer noopener">AI Memory Pricing - LLM Memory Plans Starting Free | Mem0</a></h2>
+<p class="reference-note">Star62,590
+
+Get Started
+
+DEVELOPERS
+
+uiw
+
+RESOURCES
+
+uiw
+
+PRICING
+
+USECASES
+
+uiw
+
+COMPANY
+
+uiw
+
+Star62,590
+
+pricing\_pri…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ai.google.dev/gemini-api/docs/pricing?hl=ja" target="_blank" rel="noreferrer noopener">Gemini Developer API の料金  |  Gemini API  |  Google AI for Developers</a></h2>
+<p class="reference-note">|  | 無料枠 | 有料枠、100 万トークンあたりの料金（米ドル） |
+ --- 
+| 入力価格 | 無料 | 利用不可 |
+| 出力価格 | 無料 | 利用不可 |
+| コンテキスト キャッシュ保存の料金 | 無料 | 利用不可 |
+…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://developer.mamezou-tech.com/blogs/2025/02/26/langmem-intro" target="_blank" rel="noreferrer noopener">LangMemの長期記憶の概要と使い方を理解する | 豆蔵デベロッパーサイト</a></h2>
+<p class="reference-note">これに対して長期記憶は、スレッドをまたがってやり取りの履歴やユーザーの好み等を保持します。  
+ LLMはこれを利用することで、より人間に近い自然な会話を実現できます。
+
+LangChainが提供するLangMem SDKは、この長期記憶を…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
