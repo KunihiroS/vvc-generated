@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Xtract — 読む前にWebページの価値を推定</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      letter-spacing: 0.01em;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px 0 40px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 26px;
+      left: 34px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-left: 3px solid var(--rust);
+      padding-left: 10px;
+      height: 18px;
+      display:flex;
+      align-items:center;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 26px;
+      right: 34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 18px;
+    }
+
+    .title{
+      margin: 10px 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      line-height: 1;
+      font-style: italic;
+      color: var(--rust);
+      max-width: 900px;
+      text-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    .rule{
+      margin-top: 18px;
+      border-top: 1px solid var(--rule-strong);
+      width: 520px;
+      max-width: 100%;
+    }
+
+    .content{
+      margin-top: 18px;
+      width: 100%;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.03);
+      min-height: 86px;
+    }
+
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .cell .value{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 400;
+    }
+
+    .grid3{
+      display:grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    .mini{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      font-weight: 300;
+      max-width: 760px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 18px;
+    }
+
+    .nowrap{ white-space: nowrap; }
+
+    @media (max-width: 860px){
+      .slide{ padding: 44px 44px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .grid, .grid3{ grid-template-columns: 1fr; }
+      .slide-tag{ top: 22px; left: 22px; }
+      .slide-num{ top: 22px; right: 22px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">読む前に価値判断</div>
+      <div class="title">Xtract</div>
+      <p class="lead">AIエージェントとWeb検索の間で、各ページの「有用性」と「読むコスト（トークン負荷）」を事前推定し、読むページを絞り込みます。</p>
+      <div class="content">
+        <div class="rule"></div>
+        <p class="mini">狙い：古い情報（stale facts）による誤案内を減らしつつ、不要ページを読むためのトークン浪費を抑えます。</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">AI営業の失敗源</div>
+      <div class="title">無差別な読み</div>
+      <p class="lead">検索結果は複数ページに散らばり、エージェントが全部読むとトークン費用が増えます。さらに古いニュースが混ざると提案の質が落ち、失注やブランド毀損につながります。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">コスト</div>
+            <div class="value">読む（トークン）を増やす</div>
+          </div>
+          <div class="cell">
+            <div class="label">品質</div>
+            <div class="value">stale facts（鮮度低下）で誤案内</div>
+          </div>
+          <div class="cell">
+            <div class="label">失敗</div>
+            <div class="value">Paywall / bot-blockで読めない</div>
+          </div>
+          <div class="cell">
+            <div class="label">増幅</div>
+            <div class="value">同じページを何度も評価</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">検索の手前に層</div>
+      <div class="title">スクリーニング</div>
+      <p class="lead">Xtractは、エージェントがページを読んでから判断するのではなく、検索結果の段階で「買う価値のあるページ」だけを選びます。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">入力</div>
+            <div class="value">検索結果（タイトル・スニペット等）</div>
+          </div>
+          <div class="cell">
+            <div class="label">推定</div>
+            <div class="value">有用性スコア + 読むコスト</div>
+          </div>
+          <div class="cell">
+            <div class="label">出力</div>
+            <div class="value">読むページの絞り込み</div>
+          </div>
+          <div class="cell">
+            <div class="label">効果</div>
+            <div class="value">不要読みを減らし総コストを下げる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">試飲じゃなく選別</div>
+      <div class="title">前検品</div>
+      <p class="lead">検索結果の“棚”から、飲む前にラベル（タイトル・スニペット）で「役に立つか」「読む価値があるか」を見極めます（試飲＝本文読みに相当する高コストを回避）。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">本文（高コスト）</div>
+            <div class="value">トークン負荷が大きい</div>
+          </div>
+          <div class="cell">
+            <div class="label">ラベル（低コスト）</div>
+            <div class="value">埋め込み類似・判定・順位などで評価</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">読む／読まないを決める</div>
+      <div class="title">2つの軸</div>
+      <p class="lead">Xtractは各ページを、(1)有用性（usefulness）と、(2)読むコスト（token load）で見積もります。読み取りを含むトータルコストを抑える方向で選別します。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">i. 有用性</div>
+            <div class="value">タスクに対して答えを含む確率の近似</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. コスト</div>
+            <div class="value">本文を読むために必要なトークン負荷の見積り</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. 結論</div>
+            <div class="value">読むページを“絞る”意思決定</div>
+          </div>
+          <div class="cell">
+            <div class="label">効果</div>
+            <div class="value">不要ページの読み取りを削減</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">コストも評価も削減</div>
+      <div class="title">検証結果</div>
+      <p class="lead">README上の報告では、ナイーブに検索結果10ページを全読みに比べ、Xtractは“スコアリングにもトークンを使う”にも関わらず、コストシミュレーションで大幅削減を示しています。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">比較</div>
+            <div class="value">全10ページ読書（naive） vs Xtract</div>
+          </div>
+          <div class="cell">
+            <div class="label">指標</div>
+            <div class="value">コストシミュレーション（読む+評価）</div>
+          </div>
+          <div class="cell">
+            <div class="label">営業評価</div>
+            <div class="value">最新ニュース反映率：同等以上</div>
+          </div>
+          <div class="cell">
+            <div class="label">鮮度検出</div>
+            <div class="value">置き換えられた記事の検出：好成績</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">精度より鮮度</div>
+      <div class="title">staleness検出</div>
+      <p class="lead">Xtractは「後から出たページが、同じ文脈のニュースを置き換える／覆す」パターンを検出します。営業では鮮度が誤案内の致命傷になり得るため、要約精度だけでは足りない領域を狙います。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">対象</div>
+            <div class="value">同一結果セット内の置換・逆転（replacement / reversal）</div>
+          </div>
+          <div class="cell">
+            <div class="label">設計</div>
+            <div class="value">1回のモデル呼び出しで検出</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="value">古い情報を掴む確率を下げる</div>
+          </div>
+          <div class="cell">
+            <div class="label">用語</div>
+            <div class="value">鮮度（staleness）／古さ（stale facts）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">効く工夫が3つ</div>
+      <div class="title">再利用・重複抑制</div>
+      <p class="lead">有用性スコアの使い回し、重複結果の価値低下、そして同一答えを買わない判断が、読み取りの無駄を減らします。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">i.</div>
+            <div class="value">スコア再利用：同じページを再評価しない（キャッシュ最適化）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii.</div>
+            <div class="value">重複価値の低下：残りページの有用性を35%下げる</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii.</div>
+            <div class="value">価格も連動して下げる：同じ答えを繰り返し買わない</div>
+          </div>
+          <div class="cell">
+            <div class="label">効果</div>
+            <div class="value">規模が増えるほど効きやすい（多検索・多社運用）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">有用性スコアの材料</div>
+      <div class="title">合成スコア</div>
+      <p class="lead">READMEでは、有用性スコアを複数信号で重み付き合成するとされています：クエリとページの埋め込み類似、安価モデルによるスニペット判定、検索順位、過去に引用した頻度など。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="cell">
+            <div class="label">i. 関連度</div>
+            <div class="value">埋め込み類似（query↔page）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. 即応性</div>
+            <div class="value">安価モデルで「スニペットが質問に答えるか」判定</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. 優先度</div>
+            <div class="value">検索エンジンの順位</div>
+          </div>
+          <div class="cell">
+            <div class="label">iv. 履歴</div>
+            <div class="value">過去にそのページ／ドメインを引用した頻度</div>
+          </div>
+          <div class="cell">
+            <div class="label">実装</div>
+            <div class="value"><span class="mono">usefulness.py</span>（README記載）</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="value">読む前に“当たりページ”を上位へ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">期待できるが注意</div>
+      <div class="title">導入の論点</div>
+      <p class="lead">README上の課題として、ページ価格はシミュレーションであり、実料金・ネットワーク条件まで完全再現できるとは限りません。さらに評価タスク数も限定的です。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">不確実性</div>
+            <div class="value">ページ価格がシミュレーション（実費に直結しない可能性）</div>
+          </div>
+          <div class="cell">
+            <div class="label">範囲</div>
+            <div class="value">評価タスク数が限定的→一般化に追加検証が必要</div>
+          </div>
+          <div class="cell">
+            <div class="label">現場変数</div>
+            <div class="value">取得失敗率、検索APIのレイテンシ、キャッシュヒット率、課金体系</div>
+          </div>
+          <div class="cell">
+            <div class="label">未実装に見える</div>
+            <div class="value">Paywall／bot-block検出（“確実に回避”の仕組みは未整備の可能性）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">要約精度 vs 意思決定</div>
+      <div class="title">差別化</div>
+      <p class="lead">Xtractは“答えを上手に書く”ための改良ではなく、“読む／読まない”という前工程の意思決定を検索結果に埋め込む設計です（現場の失敗パターンに直撃）。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">従来の弱点</div>
+            <div class="value">要約精度や巨大モデルだけでは鮮度混入を十分抑えにくい</div>
+          </div>
+          <div class="cell">
+            <div class="label">Xtractの軸</div>
+            <div class="value">鮮度（staleness）とコストに基づくページ選別</div>
+          </div>
+          <div class="cell">
+            <div class="label">営業への適合</div>
+            <div class="value">最新情報反映の割合を保ちつつコストを下げる方向</div>
+          </div>
+          <div class="cell">
+            <div class="label">スケール性</div>
+            <div class="value">キャッシュと重複抑制で、多検索・多社ほど効きやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">導入前の安全確認</div>
+      <div class="title">結論</div>
+      <p class="lead">Xtractは「読む前に価値判断」を実装し、鮮度と意思決定を中心に据える点で筋が良いです。ただし実費コスト・誤検知/取りこぼし・Paywall/ブロック時の失敗モードは、自社ログでの再現評価が必須です。</p>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="label">自社で見る</div>
+            <div class="value">誤検知（古いのを掴む）／取りこぼし（新しいのを逃す）</div>
+          </div>
+          <div class="cell">
+            <div class="label">計測する</div>
+            <div class="value">実費に近いコスト（取得失敗率・課金・レイテンシ含む）</div>
+          </div>
+          <div class="cell">
+            <div class="label">防御する</div>
+            <div class="value">Paywall / bot-block時の挙動と回避（あるいはフォールバック）</div>
+          </div>
+          <div class="cell">
+            <div class="label">期待</div>
+            <div class="value">キャッシュ効果は継続すると見込まれるが、長期運用で検証を</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.fwdslash.ai/blog/ai-agent-statistics" target="_blank" rel="noreferrer noopener">AI Agent Statistics 2026: 100+ Stats on Market and Adoption</a></h2>
+<p class="reference-note">The market reached an estimated $7.63 to $8.29 billion in 2025, depending on the analyst, and is projected to reach roug…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.grandviewresearch.com/industry-analysis/ai-agents-market-report" target="_blank" rel="noreferrer noopener">AI Agents Market Size, Share And Trends Report, 2026-2033</a></h2>
+<p class="reference-note">The global AI agents market size was valued at USD 7.6 billion in 2025 and is projected to grow from USD 10.9 billion in…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://nevermined.ai/blog/based-pricing-ai-agents-statistics" target="_blank" rel="noreferrer noopener">26 Cost-Based Pricing in AI Agents Statistics | Nevermined</a></h2>
+<p class="reference-note">The market is exploding - AI agents represent a $7.38 billion market in 2025, projected to reach $47.1 billion by 2030 a…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.marketsandmarkets.com/Market-Reports/ai-agents-market-15761548.html" target="_blank" rel="noreferrer noopener">AI Agents Market Report 2025-2030, by Application, Geo, Tech</a></h2>
+<p class="reference-note">## Market Size and Forecast:
+
+ 2024 Market Size: USD 5.26 Billion
+ 2025 Projected Market Size: USD 7.84 Billion
+ 2030 Fo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://nevermined.ai/blog/ai-agent-market-size-statistics" target="_blank" rel="noreferrer noopener">55 AI Agent Market Size Statistics | Nevermined</a></h2>
+<p class="reference-note">### 6. Alternative projections estimate $182.97 billion by 2033
+
+Grand View Research projects the market will reach $182…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
