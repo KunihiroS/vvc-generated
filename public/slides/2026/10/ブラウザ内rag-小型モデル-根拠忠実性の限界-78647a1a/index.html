@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ブラウザ内RAG×小型モデル：根拠忠実性の限界</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: block;
+      position: relative;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      margin: 20px 0;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      inset: 0;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 10px;
+      pointer-events: none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 22px;
+      left: 22px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      font-size: 14px;
+      font-style: italic;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      text-transform: uppercase;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 40px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.7;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 22px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: 0.95;
+      font-size: 20px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 8px 0 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 78px;
+      line-height: 1.0;
+      margin: 0 0 12px;
+      font-style: italic;
+      color: var(--rust);
+      position: relative;
+      z-index: 1;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 64px;
+      font-style: normal;
+      color: var(--ink);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin: 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .content{
+      margin-top: 22px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid2, .grid3{
+      display: grid;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.08);
+      min-height: 86px;
+    }
+
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .card p{
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+    .muted{
+      color: var(--ink-4);
+      font-size: 18px;
+      line-height: 1.4;
+    }
+
+    .ref{
+      font-size: 19px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.35;
+      margin-top: 8px;
+    }
+
+    .callout{
+      border: 1px dashed rgba(232,129,74,0.45);
+      background: rgba(232,129,74,0.08);
+      border-radius: 14px;
+      padding: 16px 18px;
+      margin-top: 18px;
+    }
+
+    .callout .callout-title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 8px;
+    }
+
+    .callout .callout-text{
+      margin:0;
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.4;
+    }
+
+    .hr{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 40px 28px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 56px; }
+      .title.jp{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .card p{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" data-type="cover">
+      <div class="slide-tag">COVER / 表紙</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">ブラウザ内RAGの挑戦</div>
+      <div class="title">忠実性</div>
+      <p class="lead">小型言語モデルをクライアント側で動かすRAGは魅力的だが、「根拠に忠実」かは別問題になる。</p>
+      <div class="content">
+        <div class="callout">
+          <div class="callout-title">一言結論</div>
+          <p class="callout-text">数百MB級の小型モデルでは、根拠付き要約でも忠実性が崩れやすい。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" data-type="problem">
+      <div class="slide-tag">PROBLEM / 問題</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">デモはできる</div>
+      <div class="title">でも品質は？</div>
+      <p class="lead">RAG（Retrieval-Augmented Generation）は「検索で根拠を集め、生成で答える」仕組みだが、生成が根拠から外れると失敗になる。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Retrieval（検索）</div>
+            <p>関連パッセージを抽出し、根拠テキストにする。</p>
+          </div>
+          <div class="card">
+            <div class="label">Generation（生成）</div>
+            <p>根拠だけを使って要約・回答するはず。</p>
+          </div>
+        </div>
+        <div class="small">本稿の焦点：ブラウザ内（クライアント側）で小型モデルが、どこまで「根拠忠実」になれるか。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" data-type="architecture">
+      <div class="slide-tag">ARCHITECTURE / 構成</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">クライアント完結</div>
+      <div class="title">4パッセージ</div>
+      <p class="lead">作者は、自分のブログをブラウザで検索し、トップ4の根拠だけを読み、小型モデルに要約・回答させる実装を作った（サーバーなし）。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Step i：抽出</div>
+            <p>セマンティック検索で関連パッセージ上位4を取得。</p>
+          </div>
+          <div class="card">
+            <div class="label">Step ii：ゲート</div>
+            <p>閾値（スコア）が低いならモデルを呼ばず「見つからない」。</p>
+          </div>
+          <div class="card">
+            <div class="label">Step iii：生成</div>
+            <p>Web Worker上で transformers.js を用い、小型モデルを実行。</p>
+          </div>
+          <div class="card">
+            <div class="label">Step iv：制約</div>
+            <p>最大2文＋「その4つだけ」を使うようプロンプトで強制。</p>
+          </div>
+        </div>
+        <div class="small">狙い：根拠が薄いときはそもそも回答させない。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" data-type="evidence">
+      <div class="slide-tag">EVIDENCE / 根拠</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">評価結果</div>
+      <div class="title">忠実性が崩れる</div>
+      <p class="lead">評価の結論は「ブラウザで扱えるサイズ（数百MB以下）の小型モデル」では、根拠への忠実性が大きく崩れる、というものだった。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">対象</div>
+            <p>小型モデル（既製）</p>
+          </div>
+          <div class="card">
+            <div class="label">条件</div>
+            <p>トップ4根拠＋最大2文</p>
+          </div>
+          <div class="card">
+            <div class="label">観測</div>
+            <p>忠実回答が多くて数割まで</p>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="callout-title">代表例</div>
+          <p class="callout-text">質問30件中、忠実が「3/30程度」にまで落ちるモデル群が中心。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" data-type="comparison">
+      <div class="slide-tag">COMPARISON / 比較</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">大きい方が当たる</div>
+      <div class="title">Gemma / Haiku</div>
+      <p class="lead">より大きいモデルや、高性能モデル（API）では同条件でも忠実性が高いことが示された。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Gemma 4 E2B</div>
+            <p>28/30のように高い忠実性。</p>
+          </div>
+          <div class="card">
+            <div class="label">Haiku 5.5（API）</div>
+            <p>高性能側として良好。</p>
+          </div>
+        </div>
+        <div class="small">サイズと推論性能の差が、「根拠の範囲に留める力」に直結している。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" data-type="distinction">
+      <div class="slide-tag">DISTINCTION / 軸</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">ニアミス</div>
+      <div class="title">幻覚の温床</div>
+      <p class="lead">小型モデルは「近いが微妙に違う質問（ニアミス）」で、根拠にない情報を“補完”しやすい。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">何が起きる</div>
+            <p>検索が“関連しそうな記事断片”を拾う。</p>
+          </div>
+          <div class="card">
+            <div class="label">なぜ危険</div>
+            <p>小型モデルが不足分を「それっぽく埋める」可能性が上がる。</p>
+          </div>
+        </div>
+        <div class="small">閾値ゲートはオフトピックを止めるが、ニアミスは通ってしまう。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" data-type="process">
+      <div class="slide-tag">PROCESS / 実験</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">文数を増やすと？</div>
+      <div class="title">悪化しやすい</div>
+      <p class="lead">回答文数を増やしても、小型モデルでは改善どころか悪化しやすい傾向が確認された。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">短文</div>
+            <p>失敗率は下がり得るが、底は残る</p>
+          </div>
+          <div class="card">
+            <div class="label">長文化</div>
+            <p>作り話（創作）確率が上がる傾向</p>
+          </div>
+          <div class="card">
+            <div class="label">根本</div>
+            <p>モデルが根拠外に出る癖が消えにくい</p>
+          </div>
+        </div>
+        <div class="small">「短くすれば安全」は万能ではなく、当たる/外れるモデル差が残る。</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" data-type="distinction">
+      <div class="slide-tag">DISTINCTION / 焦点</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">鍵は二つ</div>
+      <div class="title">検索 × データ</div>
+      <p class="lead">単に生成モデルを縛るだけでは限界があり、検索側（関連度）と、渡す根拠パッセージの質が結果を左右する。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">閾値ゲート</div>
+            <p>関係ない質問は弾ける。</p>
+          </div>
+          <div class="card">
+            <div class="label">ニアミス対策</div>
+            <p>関連度スコアリングや抽出（段落選定）を改善する必要がある。</p>
+          </div>
+        </div>
+        <div class="small">結局「根拠として何を渡すか」が、忠実性の上限を決める。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" data-type="enumeration">
+      <div class="slide-tag">ENUMERATION / 要点</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">まとめ（5点）</div>
+      <div class="title">設計の論点</div>
+      <p class="lead">本稿から読み取れる中心論点を、根拠忠実性に関わる順に圧縮する。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">i. 実現と品質は別</div>
+            <p>サーバーなしでも“動く”が、忠実性は保証されない。</p>
+          </div>
+          <div class="card">
+            <div class="label">ii. ニアミスが崩す</div>
+            <p>関連断片を手がかりに、根拠外を補完しやすい。</p>
+          </div>
+          <div class="card">
+            <div class="label">iii. 文数制約は頭打ち</div>
+            <p>短文化でも限界があり、長文化で悪化し得る。</p>
+          </div>
+          <div class="card">
+            <div class="label">iv. 検索側が支配する</div>
+            <p>閾値・関連度・パッセージ選定が結果を左右。</p>
+          </div>
+          <div class="card">
+            <div class="label">v. モデル選びで逆転</div>
+            <p>用途次第で、APIや大きいモデルが有利。</p>
+          </div>
+          <div class="card">
+            <div class="label">vi. UIが安全</div>
+            <p>“答えられない”を返し、根拠を見せる思想が最低要件。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" data-type="comparison">
+      <div class="slide-tag">COMPARISON / コスト</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">金と品質</div>
+      <div class="title">逆転あり</div>
+      <p class="lead">ダウンロード配布（クラウド配信）とAPI推論のコストは、呼び出し回数や運用次第で逆転する。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">クライアント配布</div>
+            <p>モデルを数百MB単位で配る（キャッシュ/容量が効く）。</p>
+          </div>
+          <div class="card">
+            <div class="label">API推論</div>
+            <p>毎回呼ぶ費用が積み上がるが、高性能で忠実性が稼げる。</p>
+          </div>
+        </div>
+        <div class="small">静的サイトでもAPIキー管理の注意が必要、という釘もある。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" data-type="metaphor">
+      <div class="slide-tag">METAPHOR / 感想</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">読んだ人の学び</div>
+      <div class="title">「当てる」より「留める」</div>
+      <p class="lead">筆者の強みは、忠実性（faithful / unsupported / non-answer）で実測し、ブラウザ制約を最初から織り込んだ点にある。</p>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="label">強み</div>
+            <p>30問・忠実性判定・文数実験で再現性がある。</p>
+          </div>
+          <div class="card">
+            <div class="label">注意点</div>
+            <p>データ/検索方式/評価基準に依存し、一般化には追加検証が要る。</p>
+          </div>
+        </div>
+        <div class="callout">
+          <div class="callout-title">次の一手</div>
+          <p class="callout-text">単機能タスクに合わせたファインチューニング（“できない”を言う役割学習）と、検索・抽出の改善。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" data-type="closing">
+      <div class="slide-tag">CLOSING / まとめ</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">最終結論</div>
+      <div class="title">壁は忠実性</div>
+      <p class="lead">ブラウザ内RAGは実装できても、小型モデルだけで“根拠付き要約”の忠実性を高く保つのは難しい。</p>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="label">合う用途</div>
+            <p>根拠が十分・ニアミスが少ない</p>
+          </div>
+          <div class="card">
+            <div class="label">難しい用途</div>
+            <p>近い話題・根拠が薄い</p>
+          </div>
+          <div class="card">
+            <div class="label">打ち手</div>
+            <p>検索強化／抽出改善／役割学習</p>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="ref">
+          <span class="label">参考（用語）</span><br/>
+          RAG（Retrieval-Augmented Generation, 検索拡張生成）／faithful（根拠忠実）／unsupported（根拠なし）／non-answer（答えられない）
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@visrow/building-a-serverless-rag-ai-app-with-java-webassembly-webgpu-and-local-llms-6095d71223aa" target="_blank" rel="noreferrer noopener">Building a Serverless RAG AI App with Java WebAssembly, WebGPU, and Local LLMs</a></h2>
+<p class="reference-note">The interesting observation in 2026 is that none of these taxes are fundamental any more. Browsers have quietly become c…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://diegobetto.com/en/webgpu-client-side-ai-browser" target="_blank" rel="noreferrer noopener">WebGPU and Client-Side AI: In-Browser Inference with JavaScript and TypeScript — Diego Betto</a></h2>
+<p class="reference-note">Photo by Jackson Sophat on Unsplash
+
+Diego Betto · September 29, 2026 · 12 min di lettura
+
+# WebGPU and Client-Side AI: …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://web.dev/learn/ai/client-side" target="_blank" rel="noreferrer noopener">The client-side AI stack  |  web.dev</a></h2>
+<p class="reference-note">### WebGPU
+
+WebGPU is a graphics API that&#39;s built for ML workloads. It delivers major speed improvements over Wasm, and …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.sitepoint.com/webgpu-vs-webasm-transformers-js" target="_blank" rel="noreferrer noopener">WebGPU vs WebASM: Browser Inference Benchmarks</a></h2>
+<p class="reference-note">## Benchmark Results
+
+### Text Embedding: all-MiniLM-L6-v2
+
+For small embedding models processing short input sequences …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.mrappz.com/llm-models-8gb-vram-guide-2026" target="_blank" rel="noreferrer noopener">LLM Models for 8GB VRAM: 2026 Guide - Mr. Appz</a></h2>
+<p class="reference-note">Microsoft’s small model consumes only 3.5 GB of VRAM at Q4\_K\_M and generates over 60 tokens per second on virtually an…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
