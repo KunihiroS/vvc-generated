@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Scion: Gitの限界と設計転換</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: 100%;
+      padding: 24px 0 72px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap: 18px;
+    }
+    .slide{
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 20px;
+      overflow: hidden;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 14px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-inner{
+      width:100%;
+      height:100%;
+      padding: 56px 72px;
+      position:relative;
+    }
+    .slide-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 14px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: .18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 2px solid var(--rust);
+      padding-top: 10px;
+      padding-right: 10px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-2);
+      opacity: .95;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin-top: 18px;
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: .02em;
+    }
+    .title{
+      margin-top: 10px;
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-weight: 500;
+      font-size: 66px;
+      line-height: 1.03;
+      letter-spacing: .01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.45;
+    }
+    .divider{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 92px;
+      height: 1px;
+      background: var(--rule);
+    }
+    .content{
+      margin-top: 26px;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 12px;
+      width:100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(28,24,19,0.35);
+      padding: 14px 14px;
+      border-radius: 6px;
+      min-height: 66px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card strong{
+      display:block;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.25;
+    }
+    .card span{
+      display:block;
+      margin-top: 6px;
+      color: var(--ink-2);
+      font-size: 17px;
+      line-height: 1.35;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .bilingual{
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .refs{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+    ul.clean{
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+    }
+    .pill-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .pill{
+      border: 1px solid var(--rule);
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      color: var(--ink-2);
+      background: rgba(28,24,19,0.35);
+      white-space: nowrap;
+    }
+    .closing-center{
+      height:100%;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:flex-start;
+      padding-left: 0;
+    }
+    @media (max-width: 640px){
+      .slide-inner{ padding: 44px 22px; }
+      .divider{ left: 22px; right: 22px; bottom: 82px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 20px; }
+      .slide-num{ font-size: 22px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 01 Cover -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">AI時代のVCS再定義</div>
+        <div class="title">Scion <em>—</em> Gitの限界</div>
+        <div class="lead">
+          Anthropicは、AIエージェントが大量に書き、短時間に何万回ものマージ/チェックアウトが起きる環境で、Git前提がボトルネックになると結論づけ、社内版VCS「Scion」を設計しました。
+        </div>
+        <div class="content">
+          <div class="pill-row">
+            <div class="pill">monorepo（巨大単一リポジトリ）</div>
+            <div class="pill">常時接続 / サーバ問い合わせ</div>
+            <div class="pill">changeset + derived data</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 Problem -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">破綻の根は構造</div>
+        <div class="title">Git前提が <em>ズレる</em></div>
+        <div class="lead">
+          Gitは「クライアントがオフラインでも完結できる」設計を強く含みますが、AIエージェント/ジョブの常時オンライン運用では、巨大monorepoの履歴・検索・diff/blame要求が集中して破綻します。
+        </div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">スケールの例</div>
+              <strong>マージ増加</strong>
+              <span>1日約2,500 → 9月に3万件超</span>
+            </div>
+            <div class="card">
+              <div class="label">問い合わせの例</div>
+              <strong>CIのチェックアウト</strong>
+              <span>1日 約2,500万回規模</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">核心</div>
+            <strong>ボトルネックはネットだけでない</strong>
+            <span>差分計算や帯域以前に、「分散・オフライン自立」というアーキテクチャ仮定が環境に合わない。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 Metaphor -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">“図書館”へ</div>
+        <div class="title">ローカル原典 <em>から</em></div>
+        <div class="lead">
+          Gitは「各端末が本棚ごと持つ」感覚に寄りますが、Scionは「必要な情報をサーバに問い合わせる」モデルに寄せ、問い合わせ主体のVCSへ移します。
+        </div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">Git（発想）</div>
+              <strong>端末が“持つ”</strong>
+              <span>ローカルに履歴/差分計算を抱えやすい（オフライン前提）。</span>
+            </div>
+            <div class="card">
+              <div class="label">Scion（発想）</div>
+              <strong>端末は“使う”</strong>
+              <span>サーバが履歴・diff/blame・マージ基盤を担い、必要分だけ取得。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 Architecture -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">非対称な責務</div>
+        <div class="title">サーバ中心 <em>設計</em></div>
+        <div class="lead">
+          Scionの要点は、クライアントが常時オンラインで、サーバが履歴や高度問い合わせを提供する「クライアント—サーバ非対称」です。
+        </div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">原則 i</div>
+              <strong>常時オンライン</strong>
+              <span class="bilingual">（常に接続 / always connected）</span>
+            </div>
+            <div class="card">
+              <div class="label">原則 ii</div>
+              <strong>サーバが機能を担う</strong>
+              <span class="bilingual">diff/blame/mergeをAPI化</span>
+            </div>
+            <div class="card">
+              <div class="label">原則 iii</div>
+              <strong>必要部分だけ取得</strong>
+              <span class="bilingual">working copy不要（スパース/仮想化）</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">原則 iv-v</div>
+            <strong>分散・水平スケール</strong>
+            <span>データを分散し、キャッシュ階層と相性よくスケールできる形にする。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 Architecture details -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">changesetが芯</div>
+        <div class="title">commitの代わりに <em>変化</em></div>
+        <div class="lead">
+          Scionはcommitの木構造ポインタ中心ではなく、changesetが「親に対して何が変わったか」を記録し、blobストレージへコンテンツアドレスで紐づけます。
+        </div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">Git（モデル）</div>
+              <strong>commit中心</strong>
+              <span>木構造へのポインタが核になりやすい。</span>
+            </div>
+            <div class="card">
+              <div class="label">Scion（モデル）</div>
+              <strong>changeset中心</strong>
+              <span>「親との差分」を単位として安価に作る。</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">派生の考え方</div>
+            <strong>検索・blame等は derived data</strong>
+            <span>changesetから再帰的に構築し、必要な問い合わせを満たす。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 Process -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">必要になったら計算</div>
+        <div class="title">derived dataの <em>再帰</em></div>
+        <div class="lead">
+          Scionは、blameやパス履歴、コミットグラフの情報などをchangesetから派生的に作り、要求に応じて最適化された索引・グラフへ育てます。
+        </div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">Step i</div>
+              <strong>changeset作成</strong>
+              <span>親との差分（変更単位）をサーバ側で記録。</span>
+            </div>
+            <div class="card">
+              <div class="label">Step ii</div>
+              <strong>derived data構築</strong>
+              <span>必要な問いに合わせて派生構造を作成。</span>
+            </div>
+            <div class="card">
+              <div class="label">Step iii</div>
+              <strong>高速応答</strong>
+              <span>問い合わせは派生データへヒットしやすい。</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">設計の狙い</div>
+            <strong>“圧縮”より“問い合わせ最適化”</strong>
+            <span>クライアント更新なしでサーバ側の索引/派生を拡張し続けられる。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 Evidence -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">速さの理由</div>
+        <div class="title">階層キャッシュ <em>で勝つ</em></div>
+        <div class="lead">
+          scion-daemon / scion-cache / scion-serverの複数階層キャッシュでヒット率99%以上を狙い、CIや研究ジョブのチェックアウトを分ではなく秒単位へ改善したと報告されています。
+        </div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">層 i</div>
+              <strong>daemon/cache</strong>
+              <span>局所の再利用で遅延を圧縮。</span>
+            </div>
+            <div class="card">
+              <div class="label">層 ii</div>
+              <strong>キャッシュ中間層</strong>
+              <span>頻出問い合わせを吸収。</span>
+            </div>
+            <div class="card">
+              <div class="label">層 iii</div>
+              <strong>server</strong>
+              <span>必要時に派生/問い合わせを実行。</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">報告値</div>
+            <strong>キャッシュヒット率 99%+</strong>
+            <span>さらにCPU/メモリフットプリントも削減したと述べられています。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 Comparison -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">置換ではない</div>
+        <div class="title">Gitの“代わり” <em>ではない</em></div>
+        <div class="lead">
+          Scionは万人向けのGit代替ではなく、周辺工程（レビュー・検索・CI）まで移行できる規模と、常時オンライン前提の運用が前提です。
+        </div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">Scionが向く条件</div>
+              <strong>大規模 &amp; エージェント主導</strong>
+              <span>書き込み量が多く、短時間に大量マージ/照会が発生。</span>
+            </div>
+            <div class="card">
+              <div class="label">Scionが難しい条件</div>
+              <strong>ローカル自立が必要</strong>
+              <span>オフライン前提や、移行コストを許容できない組織。</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">FAQの要点</div>
+            <strong>“完全置換”ではない</strong>
+            <span>設計思想の共有と、同種課題への応用を狙う立場です。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 Distinction -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">一番の違い</div>
+        <div class="title">commitではなく <em>changeset</em></div>
+        <div class="lead">
+          「何を変えたか」を変更単位として扱い、blame等はderived dataとして後から作る発想が、機能拡張と問い合わせ性能の両立を支えます。
+        </div>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <div class="label">1</div>
+              <strong>変更単位の記録</strong>
+              <span>changesetが親との差分を表す。</span>
+            </div>
+            <div class="card">
+              <div class="label">2</div>
+              <strong>派生データへ分離</strong>
+              <span>blame/グラフ等は必要に応じて再帰構築。</span>
+            </div>
+            <div class="card">
+              <div class="label">3</div>
+              <strong>クエリ適応</strong>
+              <span>要求に応じた索引・グラフを育てる。</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">日本語用語</div>
+            <strong>changeset（変更セット）/ derived data（派生データ）</strong>
+            <span class="bilingual">英語用語を併記：changeset, derived data</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 Distinction -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">“常時接続”の意味</div>
+        <div class="title">問い合わせを <em>サーバへ</em></div>
+        <div class="lead">
+          Gitのオフライン志向が重いローカル要件を作るのに対し、Scionは常時接続で必要問い合わせをAPI化し、CIがローカルリポジトリを持ち続ける必要を減らします。
+        </div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">Git（典型）</div>
+              <strong>ローカルで再計算</strong>
+              <span>履歴・差分・索引に計算とデータ転送が寄りやすい。</span>
+            </div>
+            <div class="card">
+              <div class="label">Scion（典型）</div>
+              <strong>サーバで応答</strong>
+              <span>APIでdiff/blame/mergeを提供し、端末負担を抑える。</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">設計上の前提</div>
+            <strong>クライアントは“主役ではない”</strong>
+            <span>ローカルworking copyを前提にしない（スパース/仮想化）。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 Critique -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">EVALUATION</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">良いが検証は不足</div>
+        <div class="title">採用判断は <em>追加調査</em></div>
+        <div class="lead">
+          性能・運用改善の主張はある一方、外部第三者ベンチマークや運用コスト、障害率、セキュリティ評価の深さなどの実証詳細が提示されていません。
+        </div>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <div class="label">強み</div>
+              <strong>前提のズレを特定</strong>
+              <span>Gitの分散/オフライン自立がAIエージェント運用に不利と結論づけて設計へ反映。</span>
+            </div>
+            <div class="card">
+              <div class="label">懸念</div>
+              <strong>成功要因の一般化は不明</strong>
+              <span>Anthropic固有の条件（移行能力、内部コスト、アクセスパターン）への依存の可能性。</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">要確認</div>
+            <strong>スパイク/障害/復旧/セキュリティ</strong>
+            <span>平均性能だけでなく、障害時の挙動とリスク管理の具体が必要です。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 References -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="slide-head">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参照の置き場</div>
+        <div class="title">出典は <em>原文＋検索</em></div>
+        <div class="lead">
+          このデッキは、ユーザー提示の要約（Scionの設計思想・仕組み・学び・批判的読み）を元に圧縮しています。追加の一次情報確認のための“調べ方”を残します。
+        </div>
+        <div class="content">
+          <div class="card refs">
+            <div class="label">調査観点</div>
+            <div class="mono" style="margin-top:8px;">
+              1) AnthropicのScion解説（設計原則、changeset/derived data、キャッシュ階層）<br/>
+              2) 性能結果の条件（リポジトリ構成・アクセスパターン・期間・計測方法）<br/>
+              3) 運用面（障害率/復旧/監視/人員コスト）<br/>
+              4) セキュリティ（権限、監査、分離、監査可能性）
+            </div>
+          </div>
+          <div class="grid2" style="margin-top:12px;">
+            <div class="card">
+              <div class="label">Web一般論</div>
+              <strong>分散 vs 集中</strong>
+              <span>Gitはオフライン前提、集中/サーバ設計へ論点が移り得る—という一般整理。</span>
+            </div>
+            <div class="card">
+              <div class="label">関連メモ</div>
+              <strong>過去のERSC/Oak</strong>
+              <span>非Git保存層・遅延マウント/チャンク化など、AIエージェント向けVCS高速化の流れ。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Sairyss/system-design-patterns" target="_blank" rel="noreferrer noopener">GitHub - Sairyss/system-design-patterns: Resources related to distributed systems, system design, microservices, scalability and performance, etc · GitHub</a></h2>
+<p class="reference-note">Vertical scaling means scaling by adding more power (CPU, RAM, Storage, etc.) to your existing servers.
+
+Horizontal scal…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/Distributed_version_control" target="_blank" rel="noreferrer noopener">Distributed version control - Wikipedia</a></h2>
+<p class="reference-note">| Client–server | |  |  |  --- | | Free/open-source |  CVS (1986, 1990 in C)  CVSNT (1998)  QVCS Enterprise (1998)  Subv…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.geeksforgeeks.org/git/version-control-systems" target="_blank" rel="noreferrer noopener">Version Control Systems - GeeksforGeeks</a></h2>
+<p class="reference-note">geeksforgeeks
+
+search icon
+
+ Interview Prep
+
+ Git Tutorial
+ Interview Questions
+ Exercises
+ Cheat Sheet
+ Bash
+ GitHub
+ B…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://stackoverflow.blog/2023/01/09/beyond-git-the-other-version-control-systems-developers-use" target="_blank" rel="noreferrer noopener">Beyond Git: The other version control systems developers use - Stack Overflow</a></h2>
+<p class="reference-note">on a very large project (millions of commits, millions of files). Over the years, companies have contributed performance…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.anchorpoint.app/blog/best-version-control-software" target="_blank" rel="noreferrer noopener">Best Version Control Software 2026: Git, Perforce, Unity VCS, SVN</a></h2>
+<p class="reference-note">Pros:‍
+
+ Excels with large binary files and huge repositories (e.g., supporting terabytes of data without slowing down),…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
