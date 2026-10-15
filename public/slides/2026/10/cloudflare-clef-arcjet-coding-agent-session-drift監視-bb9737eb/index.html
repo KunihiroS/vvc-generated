@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Cloudflare Clef × Arcjet: Coding Agent Session Drift監視</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 20px solid rgba(0,0,0,0);
+      outline: 1px solid var(--rule);
+      outline-offset: -1px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius: 10px;
+    }
+    .topline{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 40px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.22em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .slide-tag::before{
+      content:"";
+      display:inline-block;
+      width: 56px;
+      height: 2px;
+      background: var(--rust);
+      margin-right: 12px;
+      transform: translateY(-4px);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+
+    .content{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 88px;
+      bottom: 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0;
+      line-height: 1.05;
+    }
+    .title{
+      font-size: 72px;
+      margin: 0;
+      line-height: 1.0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+    }
+    .jp-title{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+    }
+    .muted{
+      color: var(--ink-3);
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      margin-top: 6px;
+    }
+    .grid{
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.12);
+      min-height: 72px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.45;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+    }
+    .footnote{
+      margin-top:auto;
+      color: var(--ink-4);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .bilingual{
+      display:flex;
+      gap: 10px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+    .bilingual .ja{
+      font-weight: 500;
+    }
+    .bilingual .en{
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 18px;
+    }
+    .listgrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+      margin-top: 6px;
+    }
+    .li{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 12px 12px;
+      background: rgba(0,0,0,0.10);
+    }
+    .li .k{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      color: var(--ink-3);
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .li .v{
+      font-size: 18px;
+      line-height: 1.35;
+      margin: 0;
+    }
+    @media (max-width: 860px){
+      .slide{ padding: 44px 28px; }
+      .topline{ left: 28px; right: 28px; top: 28px; }
+      .content{ left: 28px; right: 28px; top: 72px; bottom: 42px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ font-size: 12px; }
+      .slide-num{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="topline">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">セッション逸脱を“封じる”監視</p>
+        <h1 class="title jp-title">Cloudflare <em>Clef</em> × Arcjet</h1>
+        <p class="lead">AIコーディングエージェントの長いワークフローで起きる「behavior drift（行動逸脱）」を、証拠付きで検知し後続アクションを制限します。</p>
+        <div class="rule"></div>
+        <div class="grid two" style="margin-top: 8px; width: 100%;">
+          <div class="cell">
+            <div class="label">核心</div>
+            <p><span class="bilingual"><span class="ja">間接プロンプト注入</span><span class="en">context poisoning</span></span>をセッション全体で扱う</p>
+          </div>
+          <div class="cell">
+            <div class="label">設計</div>
+            <p><span class="bilingual"><span class="ja">taint</span><span class="en">汚染フラグ</span></span>を保存し次の判断に反映</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="topline">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">単発では見えない</p>
+        <h2 class="title jp-title">“間接”が本命</h2>
+        <p class="lead">直接の悪意ある指示（プロンプト注入）は目立ちますが、ツール結果や外部API/MCP/ファイル由来の内容が文脈を汚染し、長時間で危険に繋がりやすいです。</p>
+        <div class="listgrid">
+          <div class="li">
+            <div class="k">例 i</div>
+            <p class="v">GitHub issue本文の“命令めいた”記述がモデルに入り、次の操作を誘導</p>
+          </div>
+          <div class="li">
+            <div class="k">例 ii</div>
+            <p class="v">コメント/外部APIレスポンスが暗黙の前提を上書きし、意図しないシェル実行へ</p>
+          </div>
+        </div>
+        <div class="footnote">ポイント：1回の入力出力判定ではなく、時系列の組み合わせで危険が顕在化します。</div>
+      </div>
+    </section>
+
+    <section class="slide metaphor">
+      <div class="topline">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">汚染は“状態”</p>
+        <h2 class="title jp-title">Taint（taint）</h2>
+        <p class="lead">実行後に得たツール結果はもうモデルに混ざっているため、その場で完全拒否できないことがあります—そこで「taint」を次の判断材料として保持します。</p>
+        <div class="grid three" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">i. 記録</div>
+            <p>実行結果のリスクをセッションにフラグ化</p>
+          </div>
+          <div class="cell">
+            <div class="label">ii. 参照</div>
+            <p>次のツールコール前にGuardが参照</p>
+          </div>
+          <div class="cell">
+            <div class="label">iii. 制御</div>
+            <p>危険カテゴリの後続操作を抑止</p>
+          </div>
+        </div>
+        <div class="footnote">“帳尻合わせ”ではなく、次の分岐を確実に安全側へ倒します。</div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="topline">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">フック → 決定 → 状態</p>
+        <h2 class="title jp-title"><em>Arcjet</em> の役割</h2>
+        <p class="lead">Arcjetがツールコールをフックで監視し、実行前はGuardポリシーで拒否できるものを止めます。</p>
+        <div class="grid two" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">実行前（pre）</div>
+            <p>ポリシーで決定的に拒否・制限</p>
+          </div>
+          <div class="cell">
+            <div class="label">実行後（post）</div>
+            <p>検知をセッション状態（taint）へ書き込み</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <p class="lead" style="max-width: 760px;">次のツール呼び出し時、taintが入力に含まれてGuardが安全側の判断を下します。</p>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="topline">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">二段階で封じ込め</p>
+        <h2 class="title jp-title">後続を止める設計</h2>
+        <p class="lead">「その場で止められない」領域を、Durable Objectで状態保持し、次のフック時にGuardで確実に抑止します。</p>
+        <div class="listgrid">
+          <div class="li">
+            <div class="k">i. フック時点</div>
+            <p class="v">ツールコール種別（例：Web/MCP/ファイル/シェル）を監視</p>
+          </div>
+          <div class="li">
+            <div class="k">ii. 保存</div>
+            <p class="v">セッションへ taint / リスクカテゴリ / 閾値判断材料を直列化して保持</p>
+          </div>
+          <div class="li">
+            <div class="k">iii. 次回</div>
+            <p class="v">Guardがtaintを参照し、後続の危険操作を拒否</p>
+          </div>
+          <div class="li">
+            <div class="k">iv. ロック</div>
+            <p class="v">“開発体験”への影響が大きい操作ほど条件を厳格化</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="topline">
+        <div class="slide-tag">Guard</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">型付きレビュー</p>
+        <h2 class="title jp-title">Clef の質問設計</h2>
+        <p class="lead">Clef（Cloudflareの意思決定モデル）を使い、個別リスクだけでなく“複数ステップの積み重ね”が攻撃に見えるかをスコア化します。</p>
+        <div class="grid two" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">ハイライト（人確認）</div>
+            <p>軽い措置：誤検知コストを抑えつつ人に見せる</p>
+          </div>
+          <div class="cell">
+            <div class="label">ロック（封じ込め）</div>
+            <p>重い措置：高スコア＋追加の証拠要件で発動</p>
+          </div>
+        </div>
+        <div class="footnote">つまり「見せる」と「止める」を分け、閾値と証拠条件で運用します。</div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="topline">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“危険”の粒度</p>
+        <h2 class="title jp-title">評価を分割</h2>
+        <p class="lead">危険カテゴリを一括で聞くと粒度不足と誤検知が起きます。代わりに「何が起きたか」「証拠が十分か」「人確認が要るか」を分けます。</p>
+        <div class="grid three" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">i. 事象</div>
+            <p>発生した行動（tool結果/操作内容）を特定</p>
+          </div>
+          <div class="cell">
+            <div class="label">ii. 証拠</div>
+            <p>クレデンシャル等は“実対象＋中身”で慎重に判断</p>
+          </div>
+          <div class="cell">
+            <div class="label">iii. 結果</div>
+            <p>ハイライト or ロック、次の分岐を決める</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="topline">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">自己増幅を遮断</p>
+        <h2 class="title jp-title">フィードバック拒否</h2>
+        <p class="lead">スコアリングでArcjet自身の出力（要約・ロック拒否の痕跡）を読まないことで、危険判定が次の判定を押し上げ続ける自己増幅ループを避けます。</p>
+        <div class="grid two" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">避ける</div>
+            <p class="mono">Arcjetの要約/拒否痕跡 → 次判定の入力</p>
+          </div>
+          <div class="cell">
+            <div class="label">使う</div>
+            <p>エージェントが行った“事実”と証拠（操作対象・中身）</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <p class="lead">結果として、判定の安定性と説明可能性が上がります。</p>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="topline">
+        <div class="slide-tag">Policy</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">taint × Guard</p>
+        <h2 class="title jp-title">Rego（ガード）で止める</h2>
+        <p class="lead">taintフラグをGuardポリシー入力に含め、危険カテゴリ（prompt injection / データ流出 / 特権的リスク等）に応じて後続のシェル実行やWeb/MCP呼び出し、ファイル書き込みを止めます。</p>
+        <div class="grid two" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">入力</div>
+            <p>セッション状態：taint / 証拠 / リスクカテゴリ</p>
+          </div>
+          <div class="cell">
+            <div class="label">出力</div>
+            <p>拒否・制限（後続ツールコールの挙動変更）</p>
+          </div>
+        </div>
+        <div class="footnote">“次の選択”を安全側に寄せることがこの設計の要です。</div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="topline">
+        <div class="slide-tag">FAQ</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">疑問を一発で</p>
+        <h2 class="title jp-title">5つの要点</h2>
+        <p class="lead">質問に対する最短の答えを並べます。</p>
+        <div class="grid two" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">Q1</div>
+            <p>直接注入より間接注入が危険：外部コンテンツが“信頼経路”を通って入力に見えるため。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Q2</div>
+            <p>その場停止が難しい：taintを保存し次のフックでGuardが参照する。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Q3</div>
+            <p>ハイライト＝軽い確認促進、ロック＝強い封じ込め（閾値と証拠要件がより厳格）。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Q4</div>
+            <p>クレデンシャル検知は慎重に：語彙だけでは誤検知しやすく、対象操作の中身も組み合わせる。</p>
+          </div>
+          <div class="cell">
+            <div class="label">Q5</div>
+            <p>taintは勝手に解除されない：Durable Objectが保持し、エージェントが“清浄”を宣言しにくい設計。</p>
+          </div>
+          <div class="cell">
+            <div class="label">要約</div>
+            <p>“セッション全体の文脈”＋“状態保持”＋“次の判断で停止”がセット。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="topline">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">導入の勘所</p>
+        <h2 class="title jp-title">実務での注意</h2>
+        <p class="lead">この設計は筋が良い一方、導入には評価指標・閾値調整・運用のガバナンスが必要です。</p>
+        <div class="grid two" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">懸念</div>
+            <p>誤検知率/見逃し率、閾値最適化手順、未知ツールへのカバレッジが不足しがち。</p>
+          </div>
+          <div class="cell">
+            <div class="label">対策</div>
+            <p>まずdry runでロック対象を把握し、段階的に質問設計・ポリシー・閾値を更新する。</p>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <p class="lead">また、セッションが汚染されたとき「どこを制限し、どこを劣化運転として許すか」を組織フローに合わせて決めます。</p>
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="topline">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">参照の軸</p>
+        <h2 class="title jp-title"><em>Clef</em> / Arcjet / Durable Object</h2>
+        <p class="lead">本デッキは、提示された要約本文（Arcjetのcoding agent session behavior drift analysis、Clefを用いたシーケンスレビュー、taint保持とGuard制御）と、Clefの意思決定用途の一般的性質（確率スコアで分岐、低遅延のベンチマーク報道）に基づき圧縮しています。</p>
+        <div class="grid two" style="margin-top: 6px;">
+          <div class="cell">
+            <div class="label">デザイン要素</div>
+            <p>taint / セッション状態（Durable Object）/ Guard（Rego例）/ ハイライト・ロック閾値</p>
+          </div>
+          <div class="cell">
+            <div class="label">関連概念</div>
+            <p>間接プロンプト注入（context poisoning）/ ツール結果の入力化 / 自己増幅ループ回避</p>
+          </div>
+        </div>
+        <div class="footnote">実装詳細・数値（誤検知率、見逃し率、遅延やコスト）は別資料での裏取りが推奨です。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=50087289" target="_blank" rel="noreferrer noopener">AI agent behavior drift analysis with Cloudflare Clef | Hacker News</a></h2>
+<p class="reference-note">|  |  |  |
+ --- 
+|  | Hacker Newsnew | past | comments | &lt;ask&gt; | &lt;show&gt; | &lt;jobs&gt; | &lt;submit&gt; | login |
+
+|  |  |  |
+ --- 
+…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://securityonline.info/cloudflare-clef-decision-models" target="_blank" rel="noreferrer noopener">Cloudflare Clef Decision Models Speed Up AI Agents</a></h2>
+<p class="reference-note">Skip to content
+
+October 13, 2026
+
+ Bluesky
+ Facebook
+ Linkedin
+ Mastodon
+ RSS
+ Twitter
+ Youtube
+
+Daily CyberSecurity
+
+Z…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://the-decoder.com/cloudflare-says-its-new-clef-model-means-humans-no-longer-need-to-be-in-the-loop-for-ai-agents" target="_blank" rel="noreferrer noopener">Cloudflare says its new Clef model means humans no longer need to be in the loop for AI agents</a></h2>
+<p class="reference-note">Scatter plot with Decision Index score on the y-axis and median latency in milliseconds on the x-axis. Clef scores 61.2 …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=ygBmXTqGWwc" target="_blank" rel="noreferrer noopener">Cloudflare&#39;s Clef Is #1 on the Decision Index — Open-Source AI Gets Real | AI | AI Agent | LLM</a></h2>
+<p class="reference-note">### Description
+565 views
+Posted: 2026-10-06
+Cloudflare just open-sourced Clef and Clef-flash — decision models that lea…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.infoq.com/news/2026/10/clef-decision-models" target="_blank" rel="noreferrer noopener">Cloudflare Open Sources Decision Models for AI Agents - InfoQ</a></h2>
+<p class="reference-note">Clef is a 27B multimodal model that takes a state and a schema of typed questions as input and returns decisions. It can…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
