@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MCP懐疑：CLI＋分業・プロキシで組む</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: "Noto Serif JP", serif; }
+    .wrap {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+    .deck { display: block; }
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-sizing: border-box;
+      padding: 56px 72px;
+      position: relative;
+      margin: 18px auto;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:18px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      display:flex; align-items:flex-start; justify-content:space-between; gap: 16px;
+      margin-bottom: 10px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink-2);
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1.1;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 18px 0 4px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink);
+      font-weight: 500;
+      font-size: clamp(54px, 5.2vw, 84px);
+      margin: 0 0 14px;
+      line-height: 0.98;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+      margin: 0 0 14px;
+    }
+    .title.em{
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      color: var(--ink);
+      margin: 0;
+      font-weight: 300;
+    }
+    .lead.tight{ font-size: 20px; }
+    .rule{
+      height: 1px; background: var(--rule-strong); opacity: 0.9; margin: 16px 0 14px;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 14px;
+      width: 100%;
+    }
+    .grid.cols2{ grid-template-columns: 1fr 1fr; }
+    .grid.cols3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .codebox{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.10);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 15px;
+      line-height: 1.45;
+      overflow:auto;
+      max-height: 220px;
+    }
+    .bilingual{
+      display:inline;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .mono-hint{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 400;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .closing{
+      max-width: 840px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 34px 22px; }
+      .lead{ font-size: 18px; }
+      .grid.cols2, .grid.cols3{ grid-template-columns: 1fr; }
+      .cell .v{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+      <!-- 1 -->
+      <section class="slide" aria-label="cover">
+        <div class="slide-top">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">MCPよりCLIへ</div>
+        <div class="title">懐疑と再配置</div>
+        <p class="lead">MCP（Model Context Protocol）を廃止しつつあるべき代替として、成熟した連携は「よく作られたCLI＋分業・プロキシ」で統合できる、という主張への返答です。</p>
+      </section>
+
+      <!-- 2 -->
+      <section class="slide" aria-label="problem">
+        <div class="slide-top">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">標準の波及</div>
+        <div class="title">安定性の懸念</div>
+        <p class="lead">MCPは「標準プロトコル」ですが、MCPサーバーのツール指示がエージェントのコンテキストへ注入されるため、更新の差分が挙動を揺らす可能性があります。</p>
+        <div class="grid cols2">
+          <div class="cell">
+            <div class="k">変化の入口</div>
+            <div class="v">提供者更新・利用者側のプロンプト変更</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">全体へ波及し「不安定」が設計課題化</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section class="slide" aria-label="metaphor">
+        <div class="slide-top">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">注入は便利だが</div>
+        <div class="title">揺れる契約</div>
+        <p class="lead">MCPはツール連携を“契約”のように見せますが、実際は指示がその場の文脈へ入るため、双方の更新で「同じはずの挙動」がズレ得ます。</p>
+        <div class="grid cols3">
+          <div class="cell">
+            <div class="k">提供者</div>
+            <div class="v">ツール定義・監視・最適化を更新</div>
+          </div>
+          <div class="cell">
+            <div class="k">利用者</div>
+            <div class="v">エージェント設定・プロンプトを更新</div>
+          </div>
+          <div class="cell">
+            <div class="k">エージェント</div>
+            <div class="v">コンテキスト注入で振る舞いが変化</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4 -->
+      <section class="slide" aria-label="enumeration">
+        <div class="slide-top">
+          <div class="slide-tag">Core</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">反論は5点中心</div>
+        <div class="title">致命度の再評価</div>
+        <p class="lead">多い反論は、オンデバイス制約・設定の継続・セキュリティ・監査・ログ・トークン消費です。筆者は「問題は理解するが、恒久的にMCPを残すほど致命的ではない」と位置づけます。</p>
+        <div class="grid cols2">
+          <div class="cell">
+            <div class="k">利用面</div>
+            <div class="v">オンデバイス／MCP設定の継続</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用面</div>
+            <div class="v">セキュリティ／監査・ログ／コスト</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5 -->
+      <section class="slide" aria-label="evidence">
+        <div class="slide-top">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">クラウドが進む</div>
+        <div class="title">オンデバイス減</div>
+        <p class="lead">クラウド主体のエージェント基盤が増えれば、「オンデバイスでREPL/シェルが必要→MCP必須」という必然性は薄れうる、という見立てです。</p>
+        <div class="grid cols2">
+          <div class="cell">
+            <div class="k">反論</div>
+            <div class="v">手元制約が強いならMCPが必要</div>
+          </div>
+          <div class="cell">
+            <div class="k">筆者の返答</div>
+            <div class="v">クラウド隔離が一般化すれば必然性が低下</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6 -->
+      <section class="slide" aria-label="distinction">
+        <div class="slide-top">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">セキュリティは実装</div>
+        <div class="title">プロトコルではない</div>
+        <p class="lead">MCPだから安全/危険が決まるわけではなく、認証は実装責任です。CLIでも同等に設計できる、という立て付けになります。</p>
+        <div class="grid cols2">
+          <div class="cell">
+            <div class="k">筆者の主張</div>
+            <div class="v">MCPプロトコル自体は強制力を持ちにくい</div>
+          </div>
+          <div class="cell">
+            <div class="k">代替の方向</div>
+            <div class="v">CLI＋プロキシ＋短命トークン（short-lived token）</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7 -->
+      <section class="slide" aria-label="comparison">
+        <div class="slide-top">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">監査はどこが担当？</div>
+        <div class="title">観測の所在</div>
+        <p class="lead">監査・観測（audit/logging）の優位性は「MCP特有」とは見えにくく、APIやMCPサービス提供者が担うべき責務として再整理しています。</p>
+        <div class="grid cols3">
+          <div class="cell">
+            <div class="k">MCP側の期待</div>
+            <div class="v">統一により監査が良くなる</div>
+          </div>
+          <div class="cell">
+            <div class="k">筆者の見方</div>
+            <div class="v">実装（提供者側）で決まる</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">CLIでも設計可能</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 8 -->
+      <section class="slide" aria-label="architecture">
+        <div class="slide-top">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">提供者の役割</div>
+        <div class="title">CLIを作る</div>
+        <p class="lead">対案は「MCP終了」ではなく、提供者がMCPサーバーではなくCLIを提供し、監査・観測・アクセス制御・短命トークンなどの“共通の工学的手当て”を施す方向です。</p>
+        <div class="grid cols2">
+          <div class="cell">
+            <div class="k">提供者がやる</div>
+            <div class="v">CLI（＋実行周辺の安全策）</div>
+          </div>
+          <div class="cell">
+            <div class="k">利用者がやる</div>
+            <div class="v">サンドボックス／資格情報の隠蔽</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 9 -->
+      <section class="slide" aria-label="process">
+        <div class="slide-top">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">責務分担で設計</div>
+        <div class="title">分離すれば良い</div>
+        <p class="lead">利用者は、資格情報をエージェントに直接渡さず“資格情報サロゲート（credential surrogate）”を使うべきで、さらにOSレベルのプロキシ機構の普及を期待します。</p>
+        <div class="grid cols3">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">サンドボックスで隔離（隔離）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">Credential surrogateで隠蔽（隠蔽）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">OSプロキシで制御を標準化</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 10 -->
+      <section class="slide" aria-label="enumeration">
+        <div class="slide-top">
+          <div class="slide-tag">Risk</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">さらに重い話</div>
+        <div class="title">責務の集中</div>
+        <p class="lead">MCPでは提供者が、モニタリング／評価／モデル更新への追随といった“重い責務”を背負いやすくなる、という点が問題だとされます。</p>
+        <div class="grid cols2">
+          <div class="cell">
+            <div class="k">起きがち</div>
+            <div class="v">ツール定義だけで終わらない</div>
+          </div>
+          <div class="cell">
+            <div class="k">期待する分離</div>
+            <div class="v">最適な使い方の保証はエージェント側へ寄せる</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 11 -->
+      <section class="slide" aria-label="closing">
+        <div class="slide-top">
+          <div class="slide-tag">My View</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">全廃は必然か</div>
+        <div class="title">条件付き懐疑</div>
+        <p class="lead closing">筆者の方向性（MCP一辺倒ではなく、CLI＋分業・プロキシで安全に組む）は魅力的です。ただし「オンデバイス否定」「監査比較」「MCP固有の不安定性」の根拠は追加データが不足しています。</p>
+        <div class="grid cols3">
+          <div class="cell">
+            <div class="k">弱点候補</div>
+            <div class="v">オフライン・規制・機密は未潰し</div>
+          </div>
+          <div class="cell">
+            <div class="k">比較不足</div>
+            <div class="v">指標や実装例が足りない</div>
+          </div>
+          <div class="cell">
+            <div class="k">一般化注意</div>
+            <div class="v">CLIでも環境差で再現し得る</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 12 -->
+      <section class="slide" aria-label="references">
+        <div class="slide-top">
+          <div class="slide-tag">References</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参照の型</div>
+        <div class="title">論点地図</div>
+        <p class="lead">本デッキは、提示された入力文（MCP／CLI／反論と再反論の要旨）に基づく圧縮まとめです。追加の検証観点として、用途別（オンデバイス/クラウド）、規制要件、監査要件、失敗時の再試行コストを並べて比較するのが有効です。</p>
+        <div class="grid cols2">
+          <div class="cell">
+            <div class="k">検証すべき軸</div>
+            <div class="v">監査ログの生成・追跡可能性（observability）／再試行コスト</div>
+          </div>
+          <div class="cell">
+            <div class="k">意思決定の着地点</div>
+            <div class="v">「MCPが担うべき範囲」を用途で切る（全廃か一部か）</div>
+          </div>
+        </div>
+      </section>
+
+    
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://manveerc.substack.com/p/mcp-vs-cli-ai-agents" target="_blank" rel="noreferrer noopener">MCP vs. CLI for AI agents: How to choose the right tool transport (2026)</a></h2>
+<p class="reference-note">### Is MCP more secure than CLI?
+
+Not inherently. CLI has decades of OS-level security primitives (permissions, ACLs, sa…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/@tahirbalarabe2/cli-vs-mcp-for-ai-agents-which-one-wins-fcdc2bb0e4c9" target="_blank" rel="noreferrer noopener">CLI vs MCP for AI Agents Which One Wins</a></h2>
+<p class="reference-note">No. MCP is too new (late 2024 onward). Models don’t know MCP schemas. That’s why you must inject them into the context w…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=YLVY03VCsy4&amp;xstg=CAMSBhUDze3xHw%3D%3D" target="_blank" rel="noreferrer noopener">CLI-Native AI Agents. Why Your AI Agent is Slow: The Token Tax of MCP vs. The Power of CLI Skills.</a></h2>
+<p class="reference-note">### Description
+249 views
+Posted: 2026-03-11
+MCP vs Skills.
+For the past year, the industry has been obsessed with the M…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.scalekit.com/blog/stripe-mcp-vs-api" target="_blank" rel="noreferrer noopener">Stripe MCP vs Stripe API for AI Agents: Which to Build Against</a></h2>
+<p class="reference-note">on MCP, the event-driven pipeline on REST. Either way the credential problem is the same, and that is the part that need…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.pillar.security/blog/best-ai-coding-agent-security-tools-for-the-enterprise-2026" target="_blank" rel="noreferrer noopener">Best AI Coding Agent Security Tools for the Enterprise (2026): Securing Claude Code, Cursor, Codex and Local AI Agents</a></h2>
+<p class="reference-note">A coding agent is a program that reads untrusted input (a repository, an issue, a web page, an MCP tool response) and th…</p>
+</article>
+</div>
+</section>
+</div>
+  </div>
+</body>
+</html>
