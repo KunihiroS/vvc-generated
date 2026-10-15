@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>NixOS + microvm.nixでAIエージェントを安全に運用する</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.55;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 44px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--rule);
+      background: var(--paper);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      position: relative;
+    }
+    .slide-inner{
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 56px 72px;
+      position: relative;
+    }
+    .topline{
+      position:absolute;
+      left: 16px;
+      right: 16px;
+      top: 16px;
+      height: 34px;
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-size: 14px;
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 12px;
+    }
+    .slide-tag:before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform: translateY(-50%);
+      width: 5px;
+      height: 18px;
+      background: rgba(232,129,74,0.35);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 18px;
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+    }
+    .title{
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 1.05;
+      letter-spacing: 0.01em;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 60px;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+    .divider{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 16px 0;
+      max-width: 920px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px 16px;
+      margin-top: 14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(20,17,13,0.15);
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .card .text{
+      font-size: 18px;
+      color: var(--ink);
+    }
+    .muted{
+      color: var(--ink-3);
+    }
+    .bilingual{
+      font-size: 17px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 900px){
+      .slide-inner{ padding: 48px 34px; }
+      .title{ font-size: 54px; }
+      .title .jp{ font-size: 46px; }
+      .lead{ font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">01 / 15</div>
+        </div>
+        <p class="eyebrow">使い捨てで隔離する</p>
+        <h2 class="title"><em>NixOS</em><span class="jp">と</span><em>microvm.nix</em></h2>
+        <p class="lead">AIコーディングエージェントを、エフェメラル（使い捨て）VMに閉じ込めて運用するための考え方と仕組みを要約します。</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">02 / 15</div>
+        </div>
+        <p class="eyebrow">安全が“運用負債”になる</p>
+        <h2 class="title">レビュー不能</h2>
+        <p class="lead">エージェントが実行するコマンドは増え続け、逐一レビューするコストが急増します。<br/>そこで必要なのは「レビュー不要に近い形で安全に動かす基盤」です。</p>
+
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">核心</div>
+            <div class="text">事故の影響範囲を小さくする</div>
+          </div>
+          <div class="card">
+            <div class="label">狙い</div>
+            <div class="text">侵害しても回復しやすくする</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">03 / 15</div>
+        </div>
+        <p class="eyebrow">隔離して捨てる</p>
+        <h2 class="title">安全＝</h2>
+        <p class="lead">万能な防御ではなく、「脅威モデルの一部（private data）を排除」し、VM侵害時は“捨ててやり直す”前提で安全を成立させます。<br/><span class="bilingual muted">隔離（隔離）× 破棄（discard）× 再作成（recreate）</span></p>
+
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">脅威モデル</div>
+            <div class="text">private data流出/破壊</div>
+          </div>
+          <div class="card">
+            <div class="label">手段</div>
+            <div class="text">VM内のみで作業</div>
+          </div>
+          <div class="card">
+            <div class="label">復旧</div>
+            <div class="text">侵害したら破棄→再作成</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">04 / 15</div>
+        </div>
+        <p class="eyebrow">宣言的にVMを組む</p>
+        <h2 class="title">NixOSの</h2>
+        <p class="lead">fl ake（flake.nix）で入力を固定し、microvm.nixにVMごとの設定を宣言します。アップデート時もVMが新しいソフトへ追随しやすく、保守コストを下げます。</p>
+
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">再現性</div>
+            <div class="text">flakeで依存を固定</div>
+          </div>
+          <div class="card">
+            <div class="label">隔離</div>
+            <div class="text">microvm.nixでVMを宣言</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">ENUMERATION</div>
+          <div class="slide-num">05 / 15</div>
+        </div>
+        <p class="eyebrow">渡すものを限定</p>
+        <h2 class="title">共有範囲</h2>
+        <p class="lead">安全は「渡さないことで作る」です。VMに渡すのは必要なものだけ（workspace / Nix store / VM固有SSH鍵など）に絞ります。</p>
+
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">i 共有</div>
+            <div class="text">workspace（作業領域）</div>
+          </div>
+          <div class="card">
+            <div class="label">ii 再利用</div>
+            <div class="text">ホストのNix store</div>
+          </div>
+          <div class="card">
+            <div class="label">iii 設定</div>
+            <div class="text">VM固有SSH鍵（接続一貫性）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">06 / 15</div>
+        </div>
+        <p class="eyebrow">ネットワークも“作法”で</p>
+        <h2 class="title">到達性を制御</h2>
+        <p class="lead">networkd / resolv ed を使ってネットワーク設定を行います。境界（NATやブリッジ、FW）次第で攻撃面が変わるため、ここが安全の重要要素になります。</p>
+
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">構成</div>
+            <div class="text">microbr + NAT（例）</div>
+          </div>
+          <div class="card">
+            <div class="label">注意</div>
+            <div class="text">公開範囲とFWが結果を左右</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">07 / 15</div>
+        </div>
+        <p class="eyebrow">土台を再利用</p>
+        <h2 class="title">microvm-base</h2>
+        <p class="lead">microvm-base.nix / microvm-home.nix などの再利用可能な土台を作り、複数VM（例：Emacs用、Go Protobuf用）を同じ設計思想で宣言できます。</p>
+
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">分割</div>
+            <div class="text">VMごとに役割（作業単位）</div>
+          </div>
+          <div class="card">
+            <div class="label">共通化</div>
+            <div class="text">base/homeで設定を整理</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">08 / 15</div>
+        </div>
+        <p class="eyebrow">“VM作成”をスキル化</p>
+        <h2 class="title">Claude Skills</h2>
+        <p class="lead">Claude Skillsで「新しいmicroVMを作る」手順を markdown のスキルとして定義します。プロンプトに応じて、ディレクトリ作成からIP割当、SSH鍵生成までを自動化します。</p>
+
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">i 準備</div>
+            <div class="text">ディレクトリ生成</div>
+          </div>
+          <div class="card">
+            <div class="label">ii 設定</div>
+            <div class="text">microvm.nix更新 + IP選定</div>
+          </div>
+          <div class="card">
+            <div class="label">iii 実行</div>
+            <div class="text">SSH鍵生成 + リポジトリ取り込み</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">09 / 15</div>
+        </div>
+        <p class="eyebrow">“動いた”が強い</p>
+        <h2 class="title">自動生成の</h2>
+        <p class="lead">筆者は、この自動生成が期待通りに動作したと報告しています。結果として「新規VM作成→ビルド検証」までの導入摩擦が下がります。</p>
+
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">効果</div>
+            <div class="text">定型作業を人間から削減</div>
+          </div>
+          <div class="card">
+            <div class="label">余力</div>
+            <div class="text">創造的作業へ時間を配分</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">10 / 15</div>
+        </div>
+        <p class="eyebrow">“安全”は部分集合</p>
+        <h2 class="title">盲信しない</h2>
+        <p class="lead">この記事の安全は主に private data を排除することで成立します。つまり、workspaceの中身・外部通信・権限・水平移動・監査ログの有無でリスクは再配分されます。</p>
+
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">再分配要因</div>
+            <div class="text">workspace / 外部通信 / 実行権限</div>
+          </div>
+          <div class="card">
+            <div class="label">追加論点</div>
+            <div class="text">水平移動 / ログ情報漏えい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">11 / 15</div>
+        </div>
+        <p class="eyebrow">自動化には検証が必要</p>
+        <h2 class="title">定型チェック</h2>
+        <p class="lead">Claude Skillsの生成は便利ですが、生成内容そのものに攻撃者が混ざる余地はゼロではありません。ビルド成功に加えて、共有先・ネットワーク・外部通信・依存パッケージ妥当性を定型チェックする運用が望まれます。</p>
+
+        <div class="divider"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">i 共有</div>
+            <div class="text">共有先（何が入るか）</div>
+          </div>
+          <div class="card">
+            <div class="label">ii 境界</div>
+            <div class="text">ネットワーク到達性/公開範囲</div>
+          </div>
+          <div class="card">
+            <div class="label">iii 外部</div>
+            <div class="text">外部通信/依存の妥当性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide closing">
+      <div class="slide-inner">
+        <div class="topline">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">12 / 15</div>
+        </div>
+        <p class="eyebrow">仕組みで“安全”を実装する</p>
+        <h2 class="title">結論</h2>
+        <p class="lead">NixOS × microvm.nix × エフェメラルVMにより、AI開発を「閉じ込めて回復可能」に変える出発点が示されています。過信せず、脅威モデルを拡張し、境界（共有/ネットワーク/監査）を補強しましょう。</p>
+
+        <div class="divider"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">価値</div>
+            <div class="text">設計思想 + 再現性 + 仕組み化</div>
+          </div>
+          <div class="card">
+            <div class="label">次の一手</div>
+            <div class="text">境界条件と検証（定型チェック）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://daily.dev/posts/coding-agent-vms-on-nixos-with-microvm-nix-srrlmefyj" target="_blank" rel="noreferrer noopener">Coding Agent VMs on NixOS with microvm.nix | daily.dev</a></h2>
+<p class="reference-note">environments. Claude Skills can automate the creation of new MicroVMs by analyzing existing configurations and generatin…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://devctrl.blog/posts/maximum-security-confinement-for-your-ai-agents-with-microvm-nix" target="_blank" rel="noreferrer noopener">Maximum security confinement for your AI agents with microVM.nix | DevCtrl</a></h2>
+<p class="reference-note">(code=exited, status=0/SUCC&gt; Main PID: 996234 (cloud-hyperviso) IP: 0B in, 0B out IO: 8K read, 6.6M written Tasks: 44 (l…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=46844410" target="_blank" rel="noreferrer noopener">Coding Agent VMs on NixOS with Microvm.nix | Hacker News</a></h2>
+<p class="reference-note">| |  |  |  |  ---  |  |  | giancarlostoro 8 months ago  | root | parent | next (javascript:void(0))   If that&#39;s the goal…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/microvm-nix/microvm.nix" target="_blank" rel="noreferrer noopener">GitHub - microvm-nix/microvm.nix: NixOS MicroVMs · GitHub</a></h2>
+<p class="reference-note">MicroVMs are Virtual Machines but use special device interfaces (virtio) for high performance.
+ This project runs them o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.cyberus-technology.de/en/articles/microvm-nix" target="_blank" rel="noreferrer noopener">Cyberus Blog | microvm.nix: The Declarative Virtualization Tool for NixOS</a></h2>
+<p class="reference-note">Another popular use case for microvm.nix is to isolate complex services, such as Docker and Kubernetes, into VMs. This s…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
