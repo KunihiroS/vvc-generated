@@ -110,3 +110,67 @@ test("keyboard focus uses local horizontal scrolling and arrows respect reduced 
   assert.match(component, /prefers-reduced-motion:\s*reduce/);
   assert.match(component, /behavior:\s*reducedMotion\.matches\s*\?\s*"auto"\s*:\s*"smooth"/);
 });
+
+test("visual polish keeps unframed SVG chevrons in 36px targets", () => {
+  const component = scrollComponent();
+  for (const direction of ["back", "forward"]) {
+    const contents = component.match(new RegExp(`<button\\b[^>]*data-scroll-${direction}[^>]*>([\\s\\S]*?)<\\/button>`))?.[1] ?? "";
+    assert.match(contents, /<svg\b[^>]*aria-hidden="true"[^>]*>/, `${direction} control must render an aria-hidden SVG chevron`);
+    assert.match(contents, /focusable="false"/);
+    assert.match(contents, /<path\b[^>]*stroke="currentColor"/);
+    assert.doesNotMatch(contents, /[←→]/);
+  }
+  const root = cssRule(component, ".horizontal-scroll");
+  assert.match(root, /--scroll-arrow-size:\s*36px\s*;/);
+  assert.match(root, /--scroll-gap:\s*4px\s*;/);
+  assert.match(root, /gap:\s*var\(--scroll-gap\)\s*;/);
+  const arrow = cssRule(component, ".horizontal-scroll__arrow");
+  assert.match(arrow, /flex:\s*0\s+0\s+var\(--scroll-arrow-size\)\s*;/);
+  assert.match(arrow, /min-height:\s*var\(--scroll-arrow-size\)\s*;/);
+  assert.match(arrow, /border:\s*0\s*;/);
+  assert.match(arrow, /background:\s*transparent\s*;/);
+  assert.match(arrow, /border-radius:\s*4px\s*;/);
+  assert.doesNotMatch(arrow, /999|50%/);
+});
+
+test("visual polish retains a thin warm native scrollbar with transparent track", () => {
+  const component = scrollComponent();
+  const viewport = cssRule(component, ".horizontal-scroll__viewport");
+  assert.match(viewport, /scrollbar-width:\s*thin\s*;/, "native scrollbar must stay visible and thin");
+  assert.match(viewport, /scrollbar-color:\s*var\(--line-strong\)\s+transparent\s*;/);
+  assert.match(cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar"), /height:\s*4px\s*;/);
+  assert.match(cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar-track"), /background:\s*transparent\s*;/);
+  assert.match(cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar-thumb"), /background:\s*var\(--line-strong\)\s*;/);
+  assert.doesNotMatch(component, /scrollbar-width:\s*none|::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
+});
+
+test("visual polish shows only available directional fades and clears them during focus", () => {
+  const component = scrollComponent();
+  const root = cssRule(component, ".horizontal-scroll");
+  assert.match(root, /position:\s*relative\s*;/, "root must anchor fades without clipping focus outlines");
+  assert.match(root, /--scroll-edge-inset:\s*calc\(var\(--scroll-arrow-size\)\s*\+\s*var\(--scroll-gap\)\)\s*;/);
+  const fades = cssRule(component, ".horizontal-scroll::before,\n  .horizontal-scroll::after");
+  assert.match(fades, /content:\s*""\s*;/);
+  assert.match(fades, /position:\s*absolute\s*;/);
+  assert.match(fades, /pointer-events:\s*none\s*;/);
+  assert.match(fades, /opacity:\s*0\s*;/);
+  for (const [pseudo, direction, edge, gradient] of [
+    ["before", "back", "left", "right"],
+    ["after", "forward", "right", "left"],
+  ]) {
+    const fade = cssRule(component, `.horizontal-scroll::${pseudo}`);
+    assert.match(fade, new RegExp(`${edge}:\\s*var\\(--scroll-edge-inset\\)\\s*;`));
+    assert.match(fade, new RegExp(`background:\\s*linear-gradient\\(to ${gradient},\\s*var\\(--bg\\),\\s*transparent\\)\\s*;`));
+    assert.match(cssRule(component, `.horizontal-scroll[data-scroll-${direction}-available]::${pseudo}`), /opacity:\s*\.85\s*;/);
+    assert.match(component, new RegExp(`root\\.toggleAttribute\\("data-scroll-${direction}-available",\\s*!${direction === "back" ? "back" : "forward"}\\.disabled\\)`));
+  }
+  const focusedFades = cssRule(component, ".horizontal-scroll:focus-within::before,\n  .horizontal-scroll:focus-within::after");
+  assert.match(focusedFades, /opacity:\s*0\s*;/);
+  assert.ok(component.indexOf(".horizontal-scroll:focus-within::before") > component.indexOf(".horizontal-scroll[data-scroll-forward-available]::after"), "focus suppression must win over directional fade visibility");
+  const markup = component.split("<style>")[0];
+  assert.doesNotMatch(markup, /data-scroll-(?:back|forward)-available/, "no-JS markup must not enable fades");
+});
+
+test("visual polish tightens toolbar row spacing without reducing the column gap", () => {
+  assert.match(cssRule(archivePage(), ".controls"), /gap:\s*10px\s+14px\s*;/, "toolbar must use 10px row gap and retain 14px column gap");
+});
