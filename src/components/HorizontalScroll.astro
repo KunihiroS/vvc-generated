@@ -1,0 +1,210 @@
+<div class="horizontal-scroll" data-horizontal-scroll>
+  <button class="horizontal-scroll__arrow" type="button" data-scroll-back aria-label="Scroll filters left" hidden disabled>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+      <path d="m10 3-5 5 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  </button>
+  <div class="horizontal-scroll__viewport" data-scroll-viewport>
+    <div class="horizontal-scroll__content" data-scroll-content>
+      <slot />
+    </div>
+  </div>
+  <button class="horizontal-scroll__arrow" type="button" data-scroll-forward aria-label="Scroll filters right" hidden disabled>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+      <path d="m6 3 5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  </button>
+</div>
+
+<style>
+  .horizontal-scroll {
+    --scroll-arrow-size: 36px;
+    --scroll-gap: 4px;
+    --scroll-edge-inset: calc(var(--scroll-arrow-size) + var(--scroll-gap));
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--scroll-gap);
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .horizontal-scroll::before {
+    left: var(--scroll-edge-inset);
+    background: linear-gradient(to right, var(--bg), transparent);
+  }
+
+  .horizontal-scroll::after {
+    right: var(--scroll-edge-inset);
+    background: linear-gradient(to left, var(--bg), transparent);
+  }
+
+  .horizontal-scroll::before,
+  .horizontal-scroll::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    bottom: 8px;
+    width: 18px;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .horizontal-scroll[data-scroll-back-available]::before {
+    opacity: .85;
+  }
+
+  .horizontal-scroll[data-scroll-forward-available]::after {
+    opacity: .85;
+  }
+
+  .horizontal-scroll:focus-within::before,
+  .horizontal-scroll:focus-within::after {
+    opacity: 0;
+  }
+
+  .horizontal-scroll__viewport {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+    padding: 4px;
+    box-sizing: border-box;
+  }
+
+  @supports selector(::-webkit-scrollbar) {
+    @media (forced-colors: none) {
+      .horizontal-scroll__viewport {
+        scrollbar-width: auto;
+        scrollbar-color: auto;
+      }
+    }
+  }
+
+  .horizontal-scroll__viewport::-webkit-scrollbar {
+    height: 11px;
+  }
+
+  .horizontal-scroll__viewport::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .horizontal-scroll__viewport::-webkit-scrollbar-thumb {
+    border-radius: 8px;
+    border-block: 4px solid transparent;
+    background: var(--line-strong);
+    background-clip: padding-box;
+  }
+
+  .horizontal-scroll__viewport::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  .horizontal-scroll__content {
+    display: flex;
+    flex-wrap: nowrap;
+    width: max-content;
+  }
+
+  .horizontal-scroll__arrow {
+    display: grid;
+    place-items: center;
+    flex: 0 0 var(--scroll-arrow-size);
+    min-height: var(--scroll-arrow-size);
+    border: 0;
+    border-radius: 4px;
+    padding: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .horizontal-scroll__arrow[hidden] {
+    display: none;
+  }
+
+  .horizontal-scroll__arrow:hover:not(:disabled) {
+    color: var(--fg);
+  }
+
+  .horizontal-scroll__arrow:disabled {
+    opacity: .4;
+    cursor: default;
+  }
+
+  .horizontal-scroll__arrow:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+</style>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-horizontal-scroll]")) {
+    const viewport = root.querySelector<HTMLElement>("[data-scroll-viewport]");
+    const content = root.querySelector<HTMLElement>("[data-scroll-content]");
+    const back = root.querySelector<HTMLButtonElement>("[data-scroll-back]");
+    const forward = root.querySelector<HTMLButtonElement>("[data-scroll-forward]");
+    if (!viewport || !content || !back || !forward) continue;
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let pendingFrame = 0;
+
+    function measure() {
+      pendingFrame = 0;
+      const style = getComputedStyle(viewport);
+      const focusPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      const contentWidth = content.getBoundingClientRect().width;
+      // Use the arrow-free width so showing arrows cannot sustain false overflow.
+      const overflowing = contentWidth + focusPadding > root.clientWidth + 1;
+      back.hidden = !overflowing;
+      forward.hidden = !overflowing;
+
+      const maxScroll = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      back.disabled = !overflowing || viewport.scrollLeft <= 1;
+      forward.disabled = !overflowing || viewport.scrollLeft >= maxScroll - 1;
+      root.toggleAttribute("data-scroll-back-available", !back.disabled);
+      root.toggleAttribute("data-scroll-forward-available", !forward.disabled);
+    }
+
+    function scheduleMeasure() {
+      if (!pendingFrame) pendingFrame = requestAnimationFrame(measure);
+    }
+
+    function scrollPage(direction: number) {
+      viewport.scrollBy({
+        left: direction * viewport.clientWidth * .8,
+        behavior: reducedMotion.matches ? "auto" : "smooth",
+      });
+    }
+
+    back.addEventListener("click", () => scrollPage(-1));
+    forward.addEventListener("click", () => scrollPage(1));
+    viewport.addEventListener("scroll", scheduleMeasure, { passive: true });
+    viewport.addEventListener("focusin", (event) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      const target = event.target.getBoundingClientRect();
+      const bounds = viewport.getBoundingClientRect();
+      const style = getComputedStyle(viewport);
+      const left = bounds.left + viewport.clientLeft + parseFloat(style.paddingLeft);
+      const right = bounds.left + viewport.clientLeft + viewport.clientWidth - parseFloat(style.paddingRight);
+      const distance = target.left < left ? target.left - left : target.right > right ? target.right - right : 0;
+      if (distance) viewport.scrollBy({ left: distance, behavior: "auto" });
+    });
+
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(root);
+    observer.observe(content);
+    document.fonts.ready.then(scheduleMeasure);
+    document.fonts.addEventListener("loadingdone", scheduleMeasure);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) scheduleMeasure();
+    });
+    scheduleMeasure();
+  }
+</script>
