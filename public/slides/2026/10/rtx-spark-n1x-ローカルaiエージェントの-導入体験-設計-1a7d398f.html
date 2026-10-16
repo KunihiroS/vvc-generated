@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RTX Spark N1X：ローカルAIエージェントの“導入体験”設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .wrap{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .deck-title{
+      display:none;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 18px;
+      padding: 0;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow:hidden;
+    }
+    .slide-inner{
+      padding: 56px 72px;
+      height: 100%;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      position: relative;
+    }
+    .frame{
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+      border-radius: 14px;
+    }
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      font-size: 16px;
+      text-transform: uppercase;
+      padding-top: 4px;
+      position: relative;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left: -18px;
+      top: 12px;
+      width: 12px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink-2);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+      padding-top: 0px;
+      white-space:nowrap;
+    }
+
+    .eyebrow{
+      font-family:"Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: -6px;
+      margin-bottom: -2px;
+    }
+    .title{
+      font-size: 74px;
+      line-height: 1.02;
+      margin: 0;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust-deep);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 2px;
+    }
+    .hr{
+      height:1px;
+      background: var(--rule);
+      margin-top: 2px;
+      width:100%;
+    }
+
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 14px;
+      margin-top: 8px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .grid3{
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 14px;
+      background: rgba(28,24,19,0.45);
+    }
+    .cell .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .value{
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+
+    @media (max-width: 900px){
+      .slide-inner{ padding: 36px 28px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ font-size: 14px; }
+      .slide-num{ font-size: 16px; }
+      .grid, .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <!-- 1 / 14 -->
+    <section class="slide" aria-label="Cover">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">01 / 17</div>
+        </div>
+        <div class="eyebrow">ローカルAIを“買ってすぐ”</div>
+        <h1 class="title"><i>RTX Spark N1X</i> <br/>導入体験の設計</h1>
+        <div class="lead">
+          RTX Spark N1Xは、ローカルで動くエージェント型AIを“設定の壁”なく始めるためのWindows向けSoCとして描かれています。
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 14 -->
+    <section class="slide" aria-label="Problem">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">02 / 17</div>
+        </div>
+        <div class="eyebrow">難しさが普及を止める</div>
+        <h1 class="title"><i>ローカルAI</i>の壁</h1>
+        <div class="lead">
+          ローカルAIは、性能だけでなく「導入手順の難しさ」と「安全・互換性の不安」が普及のボトルネックになります。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">普及の要因</div>
+            <div class="value">OOBE（初期セットアップ）で、すぐ動き始める導線があるか</div>
+          </div>
+          <div class="cell">
+            <div class="label">不安の要因</div>
+            <div class="value">Windows on Arm（Arm版）での互換性、特にカーネル領域とアンチチート</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 14 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Core</div>
+          <div class="slide-num">03 / 17</div>
+        </div>
+        <div class="eyebrow">最優先：導入体験</div>
+        <h1 class="title"><i>エージェント</i>即稼働</h1>
+        <div class="lead">
+          RTX Spark N1Xは、GPU/CPU性能より先に「買ってすぐローカルのエージェント型AIが動く」体験を狙っています。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">体験の鍵（例）</div>
+            <div class="value">Windows 11 OOBEで “Hermes Agent”“OpenClaw”“Perplexity” を選んで開始</div>
+          </div>
+          <div class="cell">
+            <div class="label">狙い</div>
+            <div class="value">設定や理解の手間を下げ、ローカルAIを“日常用途”へ寄せる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 14 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">04 / 17</div>
+        </div>
+        <div class="eyebrow">チップレット統合</div>
+        <h1 class="title">3nm <i>連携</i>設計</h1>
+        <div class="lead">
+          RTX Spark N1XはTSMC 3nmのチップレット構造（MediaTek設計CPUダ＋NVIDIA設計GPUダ）で、ローカルAI向けの土台を組みます。
+        </div>
+        <div class="grid3 grid">
+          <div class="cell">
+            <div class="label">構成</div>
+            <div class="value">CPUダ：MediaTek設計</div>
+          </div>
+          <div class="cell">
+            <div class="label">構成</div>
+            <div class="value">GPUダ：NVIDIA設計</div>
+          </div>
+          <div class="cell">
+            <div class="label">目的</div>
+            <div class="value">端末内でAIを回すための“統合”最適化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 14 -->
+    <section class="slide" aria-label="Power">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Power</div>
+          <div class="slide-num">05 / 17</div>
+        </div>
+        <div class="eyebrow">cTDPが体感を変える</div>
+        <h1 class="title"><i>45〜80W</i>可変</h1>
+        <div class="lead">
+          合計cTDP（可変TDP）が45〜80Wで設計され、OEMが熱設計に合わせて性能を調整できるとされています。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">示された範囲</div>
+            <div class="value">cTDP：45〜80W（可変）</div>
+          </div>
+          <div class="cell">
+            <div class="label">注意点</div>
+            <div class="value">同じ型番でも熱設計差で実機性能が変わり得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 14 -->
+    <section class="slide" aria-label="Memory">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Memory</div>
+          <div class="slide-num">06 / 17</div>
+        </div>
+        <div class="eyebrow">帯域＋大容量メモリ</div>
+        <h1 class="title">ローカルAI向け</h1>
+        <div class="lead">
+          メモリ帯域と大容量メモリ設計が強調され、上位SKUでは最大128GB、下位でも最大32GBが想定されています。
+        </div>
+        <div class="grid3 grid">
+          <div class="cell">
+            <div class="label">設計の狙い</div>
+            <div class="value">データ移動を抑えてフロンティアAIを端末内で動かす</div>
+          </div>
+          <div class="cell">
+            <div class="label">最大容量</div>
+            <div class="value">128GB（上位SKU）</div>
+          </div>
+          <div class="cell">
+            <div class="label">下位の上限</div>
+            <div class="value">32GB（下位でも最大）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 14 -->
+    <section class="slide" aria-label="GPU-CPU interconnect">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Interconnect</div>
+          <div class="slide-num">07 / 17</div>
+        </div>
+        <div class="eyebrow">高速アクセスの設計</div>
+        <h1 class="title">NVLink C2C <i>共有</i>志向</h1>
+        <div class="lead">
+          CPU側メモリコントローラにGPUがNVLink C2Cで高速アクセスし、共有メモリ的な振る舞いを目指す方向性が示されています。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">ポイント</div>
+            <div class="value">NVLink C2Cで、CPU↔GPU間のアクセスを速くする</div>
+          </div>
+          <div class="cell">
+            <div class="label">関係</div>
+            <div class="value">ローカル実行で重要な“データ移動の遅延”を圧縮する発想</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 14 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">08 / 17</div>
+        </div>
+        <div class="eyebrow">性能の優位（傾向）</div>
+        <h1 class="title">Snapdragon X2 Elite</h1>
+        <div class="lead">
+          ベンチマークではSnapdragon X2 Elite比で高い傾向が示され、ローカルAIを動かす“計算力”面でも強みがあると整理されています。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">比較対象</div>
+            <div class="value">Snapdragon X2 Elite</div>
+          </div>
+          <div class="cell">
+            <div class="label">示唆</div>
+            <div class="value">処理性能の優位が出やすい（ただし実機cTDPで変動）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 14 -->
+    <section class="slide" aria-label="Security">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Safety</div>
+          <div class="slide-num">09 / 17</div>
+        </div>
+        <div class="eyebrow">OS側で“暴走”を抑える</div>
+        <h1 class="title">隔離と制御</h1>
+        <div class="lead">
+          エージェントが勝手に危険なことをしないために、OpenShellやMicrosoftのExecution Containers（MXC）などOS側の仕組みが関与し得ると述べられています。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">例</div>
+            <div class="value">OpenShell</div>
+          </div>
+          <div class="cell">
+            <div class="label">例</div>
+            <div class="value">Execution Containers（MXC, 実行コンテナ）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 14 -->
+    <section class="slide" aria-label="Compatibility">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Compatibility</div>
+          <div class="slide-num">10 / 17</div>
+        </div>
+        <div class="eyebrow">互換性は“最後の壁”</div>
+        <h1 class="title">Prismで補う</h1>
+        <div class="lead">
+          CPUがArm命令セットのため、互換性（特にカーネルドライバやアンチチート）がボトルネックになり得ますが、Prismがx64互換を支えます。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">支え</div>
+            <div class="value">Prism：x86/x64アプリのバイナリ変換（ユーザーモード中心）</div>
+          </div>
+          <div class="cell">
+            <div class="label">残る論点</div>
+            <div class="value">カーネル領域は別途Armネイティブ対応が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 14 -->
+    <section class="slide" aria-label="Anticheat">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Games</div>
+          <div class="slide-num">11 / 17</div>
+        </div>
+        <div class="eyebrow">アンチチートが関門</div>
+        <h1 class="title">Javelin <i>Anticheat</i></h1>
+        <div class="lead">
+          ゲームは“全部そのまま”とは限らず、特にアンチチートのArm対応が最後の関門になり得るとされ、EAのJavelin AnticheatがArm対応予定と説明されています。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">懸念</div>
+            <div class="value">アンチチートはOS深部（カーネル）と関わりやすい</div>
+          </div>
+          <div class="cell">
+            <div class="label">例</div>
+            <div class="value">EAのJavelin Anticheat：Armネイティブ対応予定</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 14 -->
+    <section class="slide" aria-label="Battery">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Battery</div>
+          <div class="slide-num">12 / 17</div>
+        </div>
+        <div class="eyebrow">アイドル電力が弱点</div>
+        <h1 class="title"><i>バッテリー</i>課題</h1>
+        <div class="lead">
+          性能面の優位があっても、アイドル時消費電力が弱点になり得るため、バッテリー持続時間は別SoCより短くなる結果が示唆されています。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="label">示唆</div>
+            <div class="value">処理性能は強めでも、アイドル電力の影響でバッテリーが不利になり得る</div>
+          </div>
+          <div class="cell">
+            <div class="label">対策の方向</div>
+            <div class="value">“AIを回さない時間”の運用設計が重要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 / 14 -->
+    <section class="slide" aria-label="Takeaways">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Takeaways</div>
+          <div class="slide-num">13 / 17</div>
+        </div>
+        <div class="eyebrow">買う前に確認</div>
+        <h1 class="title">3つのチェック</h1>
+        <div class="lead">
+          RTX Spark N1Xは魅力的ですが、cTDP差・バッテリー運用・必須ソフト/ゲームの互換性を事前確認するとリスクを減らせます。
+        </div>
+        <div class="grid3 grid">
+          <div class="cell">
+            <div class="label">i. 熱設定</div>
+            <div class="value">搭載機のcTDP（同型番でも体感が変わる）</div>
+          </div>
+          <div class="cell">
+            <div class="label">ii. 運用</div>
+            <div class="value">アイドル時電力を前提に、AI稼働の時間設計</div>
+          </div>
+          <div class="cell">
+            <div class="label">iii. 互換性</div>
+            <div class="value">アンチチート/カーネルドライバが必要な用途を要検証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 / 14 -->
+    <section class="slide" aria-label="Closing">
+      <div class="frame"></div>
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">14 / 17</div>
+        </div>
+        <div class="eyebrow">ローカルAIの大衆化へ</div>
+        <h1 class="title">次の争点は <i>実機条件</i></h1>
+        <div class="lead">
+          RTX Spark N1Xは「ローカルAIの日常化」を狙う現実的な第一歩で、特にOOBEでエージェントが動き始める導線が強みです。
+        </div>
+        <div class="hr"></div>
+        <div class="small">
+          ただし最終的な満足度は、OEMのcTDP設定／バッテリー運用／互換性（特にアンチチート）で決まりやすい点が論点になります。
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    // Update slide numbers to keep "NN / 14" style while remaining consistent.
+    (function(){
+      const slides = document.querySelectorAll('.slide');
+      const total = slides.length;
+      slides.forEach((s, idx)=>{
+        const el = s.querySelector('.slide-num');
+        if(!el) return;
+        const now = String(idx).padStart(2,'0');
+        el.textContent = `${now} / ${total}`;
+      });
+    })();
+  </script>
+
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ascii.jp/elem/000/004/443/4443010" target="_blank" rel="noreferrer noopener">ASCII.jp：Surface Laptop Ultraの基本性能を検証、RTX Sparkの3D描画性能はRTX 5060と5050の間ぐらい (1/4)</a></h2>
+<p class="reference-note">Special
+
+ マカフィー
+ キヤノンMJ
+ JAPANNEXT
+ ソフマップ
+ brand  
+  new ME!
+ pCloud
+
+前へ 1 2 3 4 次へ
+
+最大96GBまでVRAMに割り当て可能
+
+# Surface Lapt…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://pc.watch.impress.co.jp/docs/column/ubiq/2148478.html" target="_blank" rel="noreferrer noopener">【笠原一輝のユビキタス情報局】買ったらすぐローカルエージェント型AIが始められるRTX Spark N1Xのすべて - PC Watch</a></h2>
+<p class="reference-note">ただ、Surface Laptop 13.8インチの方はバッテリ容量が54Wh(公称値最大)で、Surface Laptop Ultraの方は92Wh(公称値最大)となるため、バッテリの容量が1.7倍であるのにこの結果となる。バッテリ駆動時…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://forum.level1techs.com/t/i-ve-spent-a-month-with-nvidia-s-rtx-spark-in-microsoft-s-surface-laptop-ultra/253202" target="_blank" rel="noreferrer noopener">I’ve Spent A Month With NVIDIA’s RTX Spark in Microsoft’s Surface Laptop Ultra - Laptops &amp; Netbooks - Level1Techs Forums</a></h2>
+<p class="reference-note">Blender Classroom - 03m53s10ms - Surface Laptop Ultra NVIDIA N1X 80W PL1 95W PL2
+
+CB2026 ARM64 - 5771 - Surface Laptop U…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.yahoo.co.jp/articles/baa0dcf09364da322353d60ce736237a504d7dae" target="_blank" rel="noreferrer noopener">RTX Spark搭載ノートPC「Surface Laptop Ultra」、ローカルAIで堪能するならメモリーは最低48GBは必要か？（アスキー） - Yahoo!ニュース</a></h2>
+<p class="reference-note">とはいえ、「とんでもないPCが出てきた！」が正直な感想だ。すでに「ローカルAIをWindows環境で」と謳っているPCは多数存在する。たとえば、Ryzen AI Max+搭載PCはHPやマウスコンピューターといった有名メーカーが販売している…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tech-insider.org/nvidia-rtx-spark-intel-amd-stock-decline-2026" target="_blank" rel="noreferrer noopener">Nvidia RTX Spark Sinks Intel, AMD Stock 4.4% [2026]</a></h2>
+<p class="reference-note">RTX Spark is the PC processor Nvidia unveiled at Computex 2026 in Taipei, built around a 20-core Arm-based Grace CPU pai…</p>
+</article>
+</div>
+</section>
+</body>
+</html>
