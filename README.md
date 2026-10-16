@@ -55,6 +55,8 @@ Image-only publishing does not create a slide entry.
 The archive page is titled `Tech info slides` and uses the KUN-377 `05 Warm Charcoal` Gallery Wall direction as the KUN-381 implementation baseline. The page derives its visible controls from entry dates, not from `tags`.
 
 - The exclusive archive filters show `All months`, `Featured`, and each `YYYY-MM` derived from the archive date. `Featured` shows only entries whose `featured` value is `true`; `All months` continues to show every entry.
+- Filters stay in a single native horizontal scroll region, usable by touch/trackpad and without JavaScript. With JavaScript, left/right scroll buttons appear only when the filters overflow and are disabled at the corresponding end. Tab reaches every filter, with the focused button kept visible; scroll buttons respect reduced-motion preferences.
+- Sort controls remain outside the filter scroller, alongside it on wide screens and on a separate row at widths of 820px or less.
 - The archive date is `generatedAt` when present, otherwise `pubDate`.
 - Initial order is `Newest`; users can switch to `Oldest`.
 - `tags` remain readable in the Content Collection schema for compatibility, but are not exposed as filter buttons.
