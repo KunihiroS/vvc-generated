@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Incus OSで作る 自動・再構築可能な自宅インフラ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow:hidden;
+      padding: 56px 72px;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+
+    .slide-header{
+      position: relative;
+      z-index: 2;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 12px;
+      margin-bottom: 2px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.16em;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-left: 4px solid var(--rule-strong);
+      padding-left: 12px;
+      line-height: 1.1;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-3);
+      white-space:nowrap;
+      padding-top: 2px;
+    }
+
+    .eyebrow{
+      position: relative;
+      z-index: 2;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+    }
+
+    .title{
+      position: relative;
+      z-index: 2;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 76px;
+      line-height: 1;
+      margin-top: -4px;
+      margin-bottom: 4px;
+      color: var(--rust);
+      max-width: 920px;
+      letter-spacing: 0.01em;
+    }
+
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--rust);
+      font-size: 68px;
+    }
+
+    .lead{
+      position: relative;
+      z-index: 2;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: 2px;
+    }
+
+    .rule{
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 10px;
+    }
+
+    .content{
+      position: relative;
+      z-index: 2;
+      margin-top: 4px;
+      flex: 1;
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+    }
+
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 12px;
+    }
+
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+      min-height: 60px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-3);
+      font-weight: 600;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+    .value{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.45;
+      font-weight: 400;
+    }
+
+    .mini{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    /* References tweaks */
+    .ref-list{
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.05);
+    }
+    .ref-title{
+      font-size: 18px;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+    .ref-url{
+      font-size: 16px;
+      color: var(--ink-3);
+      word-break: break-word;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" style="aspect-ratio: 16 / 9;">
+      <div class="slide-header">
+        <div class="slide-tag">cover</div>
+        <div class="slide-num">02 / 19</div>
+      </div>
+      <div class="eyebrow">不変OS×使い捨て</div>
+      <div class="title">Incus OS</div>
+      <div class="lead">自宅1台でも、クラウド級の思想（不変性・境界分離・暗号化・監視/復旧）を“仕組みとして”積み上げ、壊れても再構築できる設計。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="label">核</div>
+            <div class="value">Incus OS（immutable）</div>
+          </div>
+          <div class="card">
+            <div class="label">反映</div>
+            <div class="value">OpenTofuで破棄→再生成</div>
+          </div>
+          <div class="card">
+            <div class="label">安全</div>
+            <div class="value">デフォルト拒否＋sops/age</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 19</div>
+      </div>
+      <div class="eyebrow">怖いのは“ズレ”</div>
+      <div class="title">設定ドリフト</div>
+      <div class="lead">手作業で直すほど、意図と実状態がずれ（設定のドリフト）、いつの間にか危険な穴が固定される。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">起きること</div>
+            <div class="value">手修正が積み重なり、戻せない</div>
+          </div>
+          <div class="card">
+            <div class="label">困る理由</div>
+            <div class="value">侵害時に“直したつもり”が通用しない</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="mini">解決の狙いは「変更＝再生成」で、実状態を信用できる形に戻すこと。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 19</div>
+      </div>
+      <div class="eyebrow">壊れたら入れ替え</div>
+      <div class="title">使い捨て運用</div>
+      <div class="lead">rootディスクの状態を“証拠にならない前提”にして、壊れたら作り直す（再構築）で安全を保つ。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="label">方針 i</div>
+            <div class="value">OS/システムは不変（immutable）</div>
+          </div>
+          <div class="card">
+            <div class="label">方針 ii</div>
+            <div class="value">サービスは再生成（破棄→作成）</div>
+          </div>
+          <div class="card">
+            <div class="label">方針 iii</div>
+            <div class="value">永続化はZFS/Incus volumes</div>
+          </div>
+        </div>
+        <div class="mini">“直す”より“作り直す”ことで、ドリフトと復旧不安を同時に減らす。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">05 / 19</div>
+      </div>
+      <div class="eyebrow">階層で固める</div>
+      <div class="title">構成全体</div>
+      <div class="lead">Incus OSの上に多数の“システムコンテナ”を立て、各コンテナ内でpodman＋quadletがアプリコンテナを起動する。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">基盤</div>
+            <div class="value">Incus OS（コンテナ/仮想化管理）</div>
+            <div class="mini">Secure Boot・A/Bブート・暗号化を前提</div>
+          </div>
+          <div class="card">
+            <div class="label">アプリ</div>
+            <div class="value">podman（quadletsでsystemd連携）</div>
+            <div class="mini">systemdの仕組みを活用して運用を安定化</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="mini">結果として「再生成しやすい層」と「保つべきデータの層」を分離できる。</div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">06 / 19</div>
+      </div>
+      <div class="eyebrow">宣言→再生成</div>
+      <div class="title">Git + OpenTofu</div>
+      <div class="lead">設定は手作業せず、Git + OpenTofu（Terraform派生）+ cloud-initで宣言的に管理し、変更時は対象を作り直す。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="label">i 編集</div>
+            <div class="value">Gitで差分（source of truth）</div>
+          </div>
+          <div class="card">
+            <div class="label">ii 適用</div>
+            <div class="value">OpenTofuがインスタンス破棄→再生成</div>
+          </div>
+          <div class="card">
+            <div class="label">iii 初期化</div>
+            <div class="value">cloud-initがアップグレード/秘密復号/起動</div>
+          </div>
+        </div>
+        <div class="mini">これで“本当にその設定になっているか”を検証しやすくなる。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">07 / 19</div>
+      </div>
+      <div class="eyebrow">ドリフト封じ</div>
+      <div class="title">いつも同じ状態</div>
+      <div class="lead">壊れても再構築できるのは、root/システム側を“信用しない”設計だから。変更のたびに作り直す。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">変更の扱い</div>
+            <div class="value">アップデート/設定差分→再作成</div>
+            <div class="mini">（apply＝修正）ではなく（apply＝置換）に寄せる</div>
+          </div>
+          <div class="card">
+            <div class="label">保持するもの</div>
+            <div class="value">データのみZFS/Incus volumesへ</div>
+            <div class="mini">侵害後も永続化を絞り込む</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="mini">結果：セキュリティも運用不安も“時間”に強くなる。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">08 / 19</div>
+      </div>
+      <div class="eyebrow">横移動を止める</div>
+      <div class="title">デフォルト拒否</div>
+      <div class="lead">ネットワークは相互にデフォルト拒否し、必要な通信だけIncus ACLで明示的に許可する（Ingress/Egress両方を意識）。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">意図</div>
+            <div class="value">サービス侵害→他サービス到達を難化</div>
+          </div>
+          <div class="card">
+            <div class="label">実装</div>
+            <div class="value">許可はOpenTofuコードで理由付きに管理</div>
+          </div>
+        </div>
+        <div class="mini">設計として「最小権限（minimum privilege）」をネットワークにまで拡張している。</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">09 / 19</div>
+      </div>
+      <div class="eyebrow">境界を分割</div>
+      <div class="title">公開入口</div>
+      <div class="lead">公開は段階的に分離：haproxy VM → caddy → サービス。haproxyはTLS鍵を保持せず、PROXY protocolで実IPを維持する。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="label">入口 i</div>
+            <div class="value">haproxy（TLS終端しない）</div>
+            <div class="mini mono">PROXY protocol</div>
+          </div>
+          <div class="card">
+            <div class="label">入口 ii</div>
+            <div class="value">caddy（公開/非公開で分離）</div>
+          </div>
+          <div class="card">
+            <div class="label">入口 iii</div>
+            <div class="value">CrowdSec bouncer（nftablesでブロック）</div>
+          </div>
+        </div>
+        <div class="mini">公開caddyが侵害されても、VPN専用側へ波及しにくい形にする。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">10 / 19</div>
+      </div>
+      <div class="eyebrow">鍵を持たない</div>
+      <div class="title">TLS境界</div>
+      <div class="lead">境界側の攻撃面を整理するため、haproxy VMはTLS鍵を保持しない。さらにcaddy側を入口用途で分離する。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">狙い（English）</div>
+            <div class="value">Reduce blast radius</div>
+            <div class="mini">侵害が起きても“広がらない”設計</div>
+          </div>
+          <div class="card">
+            <div class="label">狙い（日本語）</div>
+            <div class="value">被害範囲を縮める</div>
+            <div class="mini">鍵・終端・公開経路を役割分離</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="mini">役割分離（分離＝境界）を、ネットワークだけでなく証明書の責務にも適用している。</div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">11 / 19</div>
+      </div>
+      <div class="eyebrow">連鎖を遮断</div>
+      <div class="title">秘密情報</div>
+      <div class="lead">機密情報はGitに平文を置かず、sops+ageで暗号化して保管。復号範囲はインスタンス単位で限定する。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">保存</div>
+            <div class="value">Gitには暗号文のみ（sops+age）</div>
+            <div class="mini">age鍵をインスタンスのボリュームに留める</div>
+          </div>
+          <div class="card">
+            <div class="label">復号</div>
+            <div class="value">必要なサービスだけが復号可能</div>
+            <div class="mini">侵害→別サービスの秘密が漏れにくい</div>
+          </div>
+        </div>
+        <div class="mini">“アクセス可能範囲を狭める”ことで、侵害の波及（連鎖）を抑制する。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">12 / 19</div>
+      </div>
+      <div class="eyebrow">監視で早期発見</div>
+      <div class="title">Prometheus / Loki</div>
+      <div class="lead">監視はPrometheusでメトリクス、Lokiでログ集約し、Alertmanagerで通知。CrowdSecの検知にもLokiを利用する。</div>
+      <div class="content">
+        <div class="grid three">
+          <div class="card">
+            <div class="label">メトリクス</div>
+            <div class="value">Prometheus</div>
+            <div class="mini">異常の“兆し”を数値で検出</div>
+          </div>
+          <div class="card">
+            <div class="label">ログ</div>
+            <div class="value">Loki</div>
+            <div class="mini">原因追跡のための集約</div>
+          </div>
+          <div class="card">
+            <div class="label">通知</div>
+            <div class="value">Alertmanager</div>
+            <div class="mini">障害を人へ届ける</div>
+          </div>
+        </div>
+        <div class="mini">早期発見は“安全”のコストを下げる（被害を小さくする）。</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">13 / 19</div>
+      </div>
+      <div class="eyebrow">時間に強い</div>
+      <div class="title">復旧と更新</div>
+      <div class="lead">自動更新で脆弱性の滞留時間を減らし、復旧はZFSスナップショット＋resticで外部保管する。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">ロールバック</div>
+            <div class="value">ZFSスナップショット</div>
+            <div class="mini">素早い戻し（局所的復旧）</div>
+          </div>
+          <div class="card">
+            <div class="label">外部保管</div>
+            <div class="value">restic（S3へ暗号化転送）</div>
+            <div class="mini">S3バージョニングで削除耐性</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="mini">データの分業（内部＝素早く、外部＝保護）で“壊れた後”に備える。</div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">14 / 19</div>
+      </div>
+      <div class="eyebrow">トレードオフも明記</div>
+      <div class="title">弱点</div>
+      <div class="lead">最大の制約は単一マシン運用による可用性の弱さと、再構築時に数分規模の切断が起き得る点。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">可用性</div>
+            <div class="value">単一点（回線障害/ダウンに弱い）</div>
+          </div>
+          <div class="card">
+            <div class="label">運用</div>
+            <div class="value">再構築で数分の停止の可能性</div>
+            <div class="mini">HA/DRは追加設計が必要</div>
+          </div>
+        </div>
+        <div class="mini">さらに、使い捨て寄りなのでフォレンジックは“常に可能”ではない点も注意。</div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">15 / 19</div>
+      </div>
+      <div class="eyebrow">設計原理で守る</div>
+      <div class="title">結論</div>
+      <div class="lead">この構成の説得力は、製品名ではなく「不変性・最小権限・境界分離・再現可能性・監視/復旧」を積み上げている点にある。</div>
+      <div class="content">
+        <div class="grid two">
+          <div class="card">
+            <div class="label">安全の核</div>
+            <div class="value">変更＝破棄→再生成（ドリフト抑制）</div>
+            <div class="mini">侵害耐性と運用の安心感を両立</div>
+          </div>
+          <div class="card">
+            <div class="label">導入前の確認</div>
+            <div class="value">脅威モデル/ログ/復旧手順/停止許容</div>
+            <div class="mini">自宅規模でも前提を見積もる</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div class="mini">（参考）同様の発想は、SecNumCloudやISO 27001の考え方にも近い。</div>
+      </div>
+    </section>
+
+    <!-- References slide -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">references</div>
+        <div class="slide-num">16 / 19</div>
+      </div>
+      <div class="eyebrow">読むための起点</div>
+      <div class="title jp">参考</div>
+      <div class="lead">ここに挙げるのは、本文で言及した技術・概念の公式/一次情報の入口です。</div>
+      <div class="content">
+        <div class="ref-list">
+          <div class="ref-item">
+            <div class="ref-title">Incus OS / Incus（公式ドキュメント）</div>
+            <div class="ref-url">https://linuxcontainers.org/incus/</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">OpenTofu（公式）</div>
+            <div class="ref-url">https://opentofu.org/</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">cloud-init（公式）</div>
+            <div class="ref-url">https://cloud-init.io/</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">sops + age（公式/ドキュメント入口）</div>
+            <div class="ref-url">https://github.com/getsops/sops</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">Prometheus / Grafana / Loki / Alertmanager</div>
+            <div class="ref-url">https://prometheus.io/ （Loki/Grafanaは別ドキュメント）</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">CrowdSec（公式）</div>
+            <div class="ref-url">https://www.crowdsec.net/</div>
+          </div>
+          <div class="ref-item">
+            <div class="ref-title">restic（公式）</div>
+            <div class="ref-url">https://restic.net/</div>
+          </div>
+        </div>
+        <div class="mini">※本文の詳細はユーザー提供テキストを要約したもので、ここでは技術の参照先のみ示します。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.stephane-robert.info/en/post/incus-os-cluster-without-a-shell" target="_blank" rel="noreferrer noopener">Incus OS: I built a cluster without ever opening the UI</a></h2>
+<p class="reference-note">The Incus engine itself moves fast. In 2026 alone: 7.0 LTS in May brought OCI image support and a built-in S3 listener, …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://linuxcontainers.org/incus-os/introduction" target="_blank" rel="noreferrer noopener">Linux Containers - IncusOS - Introduction</a></h2>
+<p class="reference-note">Linux containers logo
+
+Menu Close menu
+
+ IncusOS
+ Introduction
+
+Go to Table of Contents
+
+# What&#39;s IncusOS?¶
+
+IncusOS is …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/lxc/incus-os" target="_blank" rel="noreferrer noopener">GitHub - lxc/incus-os: Immutable Linux OS to run Incus · GitHub</a></h2>
+<p class="reference-note">## Repository files navigation
+
+# Introduction
+
+IncusOS is an immutable OS image dedicated to running Incus. It&#39;s based …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://wiki.archlinux.org/title/Incus" target="_blank" rel="noreferrer noopener">Incus - ArchWiki</a></h2>
+<p class="reference-note">If you want Incus daemon to always start with some static environment variables, like `_proxy`, you can use `Environment…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=45821154" target="_blank" rel="noreferrer noopener">Incus-OS: Immutable Linux OS to run Incus as a hypervisor | Hacker News</a></h2>
+<p class="reference-note">You can set your own Secure Boot keys. The history of outrageous security vulnerabilities that break it is long and stor…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
