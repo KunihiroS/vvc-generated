@@ -96,3 +96,11 @@ Production Chromium 145 / DPR 1、load後103〜136秒、fonts=loaded。1280px: d
 - 維持条件の機械検証: 既存7 testsとhelperは不変。indexは`.controls`のgap 1行だけ、component scriptはfade属性更新2行だけの差分。plan旧履歴はprefix一致。指定4ファイル以外の差分・新規ファイルなし、HEADは`58323b1d011207df885e988827c2f62371049190`のまま。
 - 生ログ: repo外`/Users/kunihiros/.hermes/cache/scratch/kun1181-visual-{red,focused,green,build,nonvacuity}.log`。patchツールの`boundary_note` import errorで未適用を確認したため、localの`git apply --check`→`git apply`を使用した。
 - 残る確認: 実ブラウザーでの各幅の見た目、focus outline、続き側fade、native scrollbarのOS/browser差、旧操作の回帰を親エージェントが確認する。本担当は既存previewやbrowserを操作せず、commit/push・外部writeを行っていない。
+
+## Task 4: Scrollbarの見える高さを半分へ（2026-10-16）
+
+- Operator feedback: 「だいぶ良くなりました。横スクロールバーはもう半分ぐらいの高さにしたほうがいいかもできますか？」。既存の暖色・native操作とAC-1..6を維持して、barだけを局所調整する。
+- 375px Chromium PNGのpaint計測は6px、native gutterは11px。対応engineかつforced-colorsなしのときだけstandard指定をautoへ戻し、11pxのnative scrollbarに上下4pxの透明border＋padding-box clipを設定する。見えるthumbは3px、drag areaは11pxのまま。非対応engine／forced-colorsでは既存thinを維持する。
+- DOM・component JS・page・filter/sort・content・依存は変更しない。既存source contractの新しい期待値とfeature/forced-colors分岐テストを先に追加し、12 tests中10成功／2失敗の意味のあるREDを確認した。
+- GREEN: full35/35、build成功、diff check成功。実PNGは6px→3px、gutter11px不変。透明border部分を実dragしてscrollLeft195px、続けてwheelで295px。320/375/768/1280pxでdocument overflowなし・month一列、forced-colors emulationはthinに戻る。全8filterの実Tab・visible outline・focus時fade抑止、JS無効wheel250pxも確認した。
+- この記録時点ではlocal previewを先に更新し、remote PR head `f1c08d17`は変更していない。旧HEADのreview証拠を新しいcandidateへ流用しない。merge/deploy/Doneは未承認。Safari/Firefox実機のpixel高さは未検証。

@@ -138,7 +138,13 @@ test("visual polish retains a thin warm native scrollbar with transparent track"
   const viewport = cssRule(component, ".horizontal-scroll__viewport");
   assert.match(viewport, /scrollbar-width:\s*thin\s*;/, "native scrollbar must stay visible and thin");
   assert.match(viewport, /scrollbar-color:\s*var\(--line-strong\)\s+transparent\s*;/);
-  assert.match(cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar"), /height:\s*4px\s*;/);
+  const scrollbar = cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar");
+  const thumb = cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar-thumb");
+  const height = Number(scrollbar.match(/height:\s*(\d+)px\s*;/)?.[1]);
+  const transparentBorder = Number(thumb.match(/border-block:\s*(\d+)px\s+solid\s+transparent\s*;/)?.[1]);
+  assert.equal(height, 11, "preserve the native scrollbar drag area");
+  assert.equal(height - 2 * transparentBorder, 3, "paint a 3px thumb within the drag area");
+  assert.match(thumb, /background-clip:\s*padding-box\s*;/);
   assert.match(cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar-track"), /background:\s*transparent\s*;/);
   assert.match(cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar-thumb"), /background:\s*var\(--line-strong\)\s*;/);
   assert.doesNotMatch(component, /scrollbar-width:\s*none|::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
@@ -173,4 +179,14 @@ test("visual polish shows only available directional fades and clears them durin
 
 test("visual polish tightens toolbar row spacing without reducing the column gap", () => {
   assert.match(cssRule(archivePage(), ".controls"), /gap:\s*10px\s+14px\s*;/, "toolbar must use 10px row gap and retain 14px column gap");
+});
+
+
+test("precise scrollbar sizing retains the platform and forced-colors fallback", () => {
+  const component = scrollComponent();
+  const precise = component.match(/@supports selector\(::-webkit-scrollbar\)\s*\{\s*@media\s*\(forced-colors:\s*none\)\s*\{\s*\.horizontal-scroll__viewport\s*\{([^}]*)\}/)?.[1];
+  assert.ok(precise, "limit precise scrollbar styling to supported engines outside forced colors");
+  assert.match(precise, /scrollbar-width:\s*auto\s*;/);
+  assert.match(precise, /scrollbar-color:\s*auto\s*;/);
+  assert.match(cssRule(component, ".horizontal-scroll__viewport::-webkit-scrollbar-button"), /display:\s*none\s*;/);
 });
