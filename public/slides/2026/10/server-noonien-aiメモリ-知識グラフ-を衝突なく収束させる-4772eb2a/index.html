@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>server-noonien：AIメモリ（知識グラフ）を衝突なく収束させる</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events: none;
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 22px;
+      left: 22px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 26px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 18px;
+    }
+
+    .eyebrow {
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+    }
+
+    .title {
+      margin: 14px 0 10px;
+      font-size: 68px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      line-height: 0.98;
+    }
+
+    .title em {
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 300;
+      max-width: 760px;
+      color: var(--ink);
+    }
+
+    .divider {
+      margin-top: auto;
+      padding-top: 18px;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-4);
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .grid2, .grid3 {
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .grid2 { grid-template-columns: 1fr 1fr; }
+    .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 14px;
+      min-height: 86px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+    }
+    .label {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+    .value {
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--ink-2);
+    }
+    .value small { color: var(--ink-4); font-size: 14px; }
+
+    .mini {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .boxed {
+      margin-top: 16px;
+      border: 1px solid var(--rule);
+      padding: 16px;
+      background: rgba(240, 232, 216, 0.03);
+    }
+
+    .quote {
+      margin: 0;
+      font-size: 22px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    @media (max-width: 720px) {
+      .slide { padding: 46px 26px; }
+      .title { font-size: 46px; }
+      .lead { font-size: 18px; }
+      .grid2 { grid-template-columns: 1fr; }
+      .grid3 { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover" aria-label="cover">
+      <div class="slide-tag">OVERVIEW</div>
+      <div class="slide-num">02 / 18</div>
+      <p class="eyebrow">AIメモリを安全に共有</p>
+      <h1 class="title"><em>server-noonien</em></h1>
+      <p class="lead">複数マシンでAIエージェントの知識グラフメモリを共有しても、衝突（上書き）やデータ消失を起こしにくい仕組みを、CRDTと追記型シャードで実現します。</p>
+      <div class="divider">
+        <span>知識グラフ / CRDT / tombstone</span>
+        <span>web-ready HTML slide deck</span>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem" aria-label="problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 18</div>
+      <p class="eyebrow">“最後が勝つ”事故</p>
+      <h2 class="title">単一JSONLの罠</h2>
+      <p class="lead">公式の <span class="mono">@modelcontextprotocol/server-memory</span> は更新を <span class="mono">単一JSONL</span> に読み直して書き戻す設計になりがちです。複数端末が同時更新すると、片方の更新が黙って消える（競合/取りこぼし）のリスクがあります。</p>
+      <div class="boxed">
+        <p class="mini">前提（最低限）: entity/observation/relation をグラフとして保持し、複数ノードで同期すると“最後の書き込みが勝つ”問題が起こり得る</p>
+      </div>
+      <div class="divider">
+        <span>conflict / lost update</span>
+        <span>データ消失の恐れ</span>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor" aria-label="metaphor">
+      <div class="slide-tag">IDEA</div>
+      <div class="slide-num">04 / 18</div>
+      <p class="eyebrow">上書きではなく追記</p>
+      <h2 class="title"><em>シャード</em>で勝つ</h2>
+      <p class="lead">server-noonienは知識グラフを、ノードごとの <span class="mono">&lt;node&gt;.jsonl</span> という追記型シャードに分解します。他ノードは自分のコピーに取り込み、消さずに統合します。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">公式（ありがち）</div>
+          <div class="value">単一ファイル更新 → 上書き競合</div>
+        </div>
+        <div class="cell">
+          <div class="label">server-noonien</div>
+          <div class="value">単一書き込みシャード → 取り込みで収束</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>drop-in互換を狙う</span>
+        <span>ローカルファースト</span>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture" aria-label="architecture">
+      <div class="slide-tag">CORE</div>
+      <div class="slide-num">05 / 18</div>
+      <p class="eyebrow">CRDTで折りたたむ</p>
+      <h2 class="title">LWW-Element-Set</h2>
+      <p class="lead">知識グラフ全体をCRDT（ <span class="mono">LWW-Element-Set</span> ）として扱い、HLC（Hybrid Logical Clock）・node・sequence で要素ごとの決定を行います。同じ操作集合なら、統合の順序に依存せず同じ結果に収束します。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="label">冪等</div>
+          <div class="value">再送しても同じ</div>
+        </div>
+        <div class="cell">
+          <div class="label">可換</div>
+          <div class="value">順序が変わっても同じ</div>
+        </div>
+        <div class="cell">
+          <div class="label">結合的</div>
+          <div class="value">部分統合でも収束</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>“最後が勝つ”ではなく“収束する”</span>
+        <span>convergent 保証の狙い</span>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide distinction" aria-label="distinction">
+      <div class="slide-tag">DELETE</div>
+      <div class="slide-num">06 / 18</div>
+      <p class="eyebrow">削除は論理から</p>
+      <h2 class="title">tombstone設計</h2>
+      <p class="lead">削除は即時の物理削除ではなく、 <span class="mono">tombstone（削除操作）</span> を追記して表現します。これにより競合のある状況でも、復活や取り戻し事故を防ぎます。</p>
+      <div class="boxed">
+        <p class="quote"><span style="font-style: italic; color: var(--rust);">tombstone</span> は「消した」の事実を残す（論理的に無効化）</p>
+        <p class="mini" style="margin-top:10px;">物理削除は、収集（collection）のゲート条件が満たされるときだけ実行</p>
+      </div>
+      <div class="divider">
+        <span>tombstone / collection gate</span>
+        <span>整合性の要</span>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide process" aria-label="process">
+      <div class="slide-tag">MERGE</div>
+      <div class="slide-num">07 / 18</div>
+      <p class="eyebrow">読むときに折りたたむ</p>
+      <h2 class="title">統合の場所</h2>
+      <p class="lead">マージ（折りたたみ）は主にMCPサーバの読み取り時にシャードを畳み込むことで行います。nooniendはシャードの複製と同期（anti-entropy）を担当し、計算負担を読み取り側に寄せます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">nooniend（複製）</div>
+          <div class="value">シャード配布 / 追従</div>
+        </div>
+        <div class="cell">
+          <div class="label">MCP側（折りたたみ）</div>
+          <div class="value">CRDT統合 / 読み取り整合</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>anti-entropy</span>
+        <span>読取整合に集中</span>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide enumeration" aria-label="enumeration">
+      <div class="slide-tag">COMPAT</div>
+      <div class="slide-num">08 / 18</div>
+      <p class="eyebrow">MCPツール互換</p>
+      <h2 class="title">9ツール維持</h2>
+      <p class="lead">server-noonienはMCPメモリサーバの公式ツール（9つ）との互換性を保ちつつ、必要な拡張（更新系、<span class="mono">merge_entities</span>、<span class="mono">read_conflicts</span> など）も追加します。エージェント側の変更を最小化する方針です。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="label">互換</div>
+          <div class="value">公式9ツール（維持）</div>
+        </div>
+        <div class="cell">
+          <div class="label">拡張</div>
+          <div class="value">update系 / merge / read_conflicts</div>
+        </div>
+        <div class="cell">
+          <div class="label">狙い</div>
+          <div class="value">エージェント改修を抑える</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>drop-in互換</span>
+        <span>運用しやすさ</span>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide description" aria-label="integration">
+      <div class="slide-tag">SYNC</div>
+      <div class="slide-num">09 / 18</div>
+      <p class="eyebrow">共有フォルダ不要</p>
+      <h2 class="title"><em>nooniend</em>で複製</h2>
+      <p class="lead">共有ディレクトリが不要なのは、推奨の <span class="mono">nooniend（ピアツーピア複製デーモン）</span> によって、VPN/LAN上の到達性だけでシャードを直接複製するためです。ファイル/S3バックエンドも選べますが、導入はP2Pが中心です。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">推奨</div>
+          <div class="value">P2P複製（nooniend）</div>
+        </div>
+        <div class="cell">
+          <div class="label">代替</div>
+          <div class="value">file / S3（輸送層を置換）</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>LAN/VPN到達性</span>
+        <span>共有領域なし</span>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide evidence" aria-label="safety">
+      <div class="slide-tag">SAFETY</div>
+      <div class="slide-num">10 / 18</div>
+      <p class="eyebrow">統合順序が無害</p>
+      <h2 class="title">収束性で担保</h2>
+      <p class="lead">衝突解決を「最後に書いた側」ではなく、HLC・node・sequence とCRDTの性質に委ねることで、ネットワーク遅延や受信順が変わっても同じ操作集合なら同一グラフへ収束します。</p>
+      <div class="boxed">
+        <p class="mini">ポイント: 冪等・可換・結合的 → “順序不定・再送・重複”に強い設計根拠</p>
+      </div>
+      <div class="divider">
+        <span>convergence</span>
+        <span>lost update回避</span>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide comparison" aria-label="compare">
+      <div class="slide-tag">COMPARE</div>
+      <div class="slide-num">11 / 18</div>
+      <p class="eyebrow">公式と何が違う</p>
+      <h2 class="title">上書き→統合</h2>
+      <p class="lead">最大の差は、単一JSONLへの全更新書き戻しをやめて、ノード別追記シャードへ分解する点です。結果として、同時更新があっても“取り込みで統合”され、分岐ファイルのような問題を避けます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">公式server-memory</div>
+          <div class="value">全更新の再書き戻し<br/><small>→競合/分岐/消失</small></div>
+        </div>
+        <div class="cell">
+          <div class="label">server-noonien</div>
+          <div class="value">〈node〉.jsonlへ追記<br/><small>→CRDT統合で収束</small></div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>structureで解消</span>
+        <span>最後勝ちの誤解を排除</span>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide distinction" aria-label="runtime">
+      <div class="slide-tag">RUNTIME</div>
+      <div class="slide-num">12 / 18</div>
+      <p class="eyebrow">“消す”と“消すまで”</p>
+      <h2 class="title">GCは安全に</h2>
+      <p class="lead">物理削除（GC）は、誰がその要素をまだ確実に知っているかの条件が満たされたときだけ進みます。到達不能ピアや未検証ピアがあると、削除が進みにくくなり、保管が残る可能性があります。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">論理削除</div>
+          <div class="value">tombstoneを追記</div>
+        </div>
+        <div class="cell">
+          <div class="label">物理削除</div>
+          <div class="value">collectionゲート成立時のみ</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>整合性 vs 容量計画</span>
+        <span>運用の前提</span>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide problem" aria-label="risks">
+      <div class="slide-tag">RISK</div>
+      <div class="slide-num">13 / 18</div>
+      <p class="eyebrow">前提が崩れると複雑化</p>
+      <h2 class="title">運用リスク</h2>
+      <p class="lead">NOONIENDの <span class="mono">NOONIEND_NODE_ID</span> が一意で、同じnode idに対して同時に複数サーバが書かないという運用前提が重要です。mTLS運用や到達可能性（ピア参加状況）も誤ると、安全性や動作が揺れます。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="label">node id</div>
+          <div class="value">一意性 / 単一書き込み</div>
+        </div>
+        <div class="cell">
+          <div class="label">到達性</div>
+          <div class="value">未到達だと削除が進まない</div>
+        </div>
+        <div class="cell">
+          <div class="label">セキュリティ</div>
+          <div class="value">mTLS前提 / 設定緩和は危険</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>failure modes</span>
+        <span>運用責任が増える</span>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide evidence" aria-label="security">
+      <div class="slide-tag">SECURITY</div>
+      <div class="slide-num">14 / 18</div>
+      <p class="eyebrow">mTLSで認証</p>
+      <h2 class="title">改ざん面の抑制</h2>
+      <p class="lead">デーモン間は <span class="mono">mTLS</span> による認証を前提とし、証明書のCNがnode idになる設計で制御します。さらに、シャード受け入れは「そのノードが書いたシャードのみ」という制約で勝手な上書きを防ぎます。</p>
+      <div class="boxed">
+        <p class="mini">注意: mTLSを緩めると攻撃面が広がるため、本文中でも <span class="mono">NOONIEND_TLS_REQUIRE_CLIENT=false</span> のような設定には警告があります</p>
+      </div>
+      <div class="divider">
+        <span>mTLS / node id binding</span>
+        <span>“受け入れ制約”が鍵</span>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide closing" aria-label="closing">
+      <div class="slide-tag">TAKEAWAY</div>
+      <div class="slide-num">15 / 18</div>
+      <p class="eyebrow">結論</p>
+      <h2 class="title"><em>衝突なく収束</em></h2>
+      <p class="lead">server-noonienは「ノード別追記シャード + CRDT折りたたみ + tombstone/collection安全条件」により、分散環境でのAIメモリ共有を、データ消失しにくい形に再設計します。共有領域なしのP2P同期（nooniend）も含め、drop-in互換を目指します。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="label">うまくいく条件</div>
+          <div class="value">一意なnode id / 到達性 / mTLS運用</div>
+        </div>
+        <div class="cell">
+          <div class="label">未確定（本文範囲外）</div>
+          <div class="value">実測ベンチ、スケール限界、性能詳細、既知不具合</div>
+        </div>
+      </div>
+      <div class="divider">
+        <span>次はPLAN/SCALING/docs/paper.mdも</span>
+        <span>read→judge→test</span>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://nvd.nist.gov/vuln/detail/cve-2026-29087" target="_blank" rel="noreferrer noopener">NVD-CVE-2026-29087</a></h2>
+<p class="reference-note">Vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N
+
+### References to Advisories, Solutions, and Tools [...] ### Weakn…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/tlsnotary/tlsn/releases" target="_blank" rel="noreferrer noopener">Releases · tlsnotary/tlsn · GitHub</a></h2>
+<p class="reference-note">### Benchmarking
+
+A new, enhanced harness CLI lets you benchmark the TLSNotary protocol under configurable network condi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://coinmarketcap.com/ja/cmc-ai/solana/what-is" target="_blank" rel="noreferrer noopener">Solana（SOL）の概要と仕組み</a></h2>
+<p class="reference-note">会社概要
+   弊社について
+   利用規約
+   プライバシーポリシー
+   クッキーの設定
+   クッキーポリシー
+   コミュニティルール
+   免責事項
+   方法論
+   セキュリティ
+   採用情報採用中です！!
+
+サポート
+ …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tlsnotary.github.io/docs-mdbook" target="_blank" rel="noreferrer noopener">Introduction - tlsn-docs</a></h2>
+<p class="reference-note">you have access to an account on a web platform
+ a website showed specific content on a certain date
+ you have private i…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://coinmarketcap.com/ja/cmc-ai/portaltobitcoin/what-is" target="_blank" rel="noreferrer noopener">Portal To Bitcoin（PTB）の概要と仕組み</a></h2>
+<p class="reference-note">市況概要Spot MarketDerivatives MarketNo. of CryptocurrenciesBitcoin TreasuriesBNB Treasuries. # Portal To Bitcoin（PTB）とは. 26…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
