@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cloudflare Void：AI製アプリの社内統制を自己ホストで</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 24px auto 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      position: relative;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0px;
+      overflow: hidden;
+    }
+    .inner{
+      position:absolute;
+      inset: 56px 56px 56px 56px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 2px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.12em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+      white-space: nowrap;
+    }
+    .slide-tag:before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 26px;
+      background: var(--rust);
+      border-radius: 999px;
+      opacity: 0.95;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-3);
+      white-space: nowrap;
+      margin-top: -6px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+      line-height: 1.2;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      margin-top: 4px;
+      letter-spacing: 0.02em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin-top: 4px;
+    }
+    .grid{
+      display:grid;
+      gap: 12px;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule-strong);
+      background: rgba(240,232,216,0.03);
+      padding: 12px 14px;
+      border-radius: 10px;
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .value{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .bilingual{
+      display:flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: baseline;
+    }
+    .jp{
+      font-size: 18px;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+    }
+    .closing-center{
+      margin-top: auto;
+      align-self: center;
+      text-align: left;
+      width: 100%;
+      max-width: 860px;
+    }
+    @media (max-width: 900px){
+      .deck{ width: calc(100vw - 28px); }
+      .inner{ inset: 48px 28px 48px 28px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 19px; }
+      .slide-num{ font-size: 24px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">OVERVIEW</div>
+          <div class="slide-num">02 / 18</div>
+        </div>
+        <div class="eyebrow">AI社内アプリを、統制する器。</div>
+        <div class="title">Cloudflare <em>Void</em></div>
+        <div class="lead">Cloudflareは、AIで作られる社内アプリの「シャドーIT化」を抑えるため、オープンソース基盤「Void」を提供しました。特にPlatformは自己ホストでき、権限・ログ・運用を企業側に寄せられます。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Key idea / 要点</div>
+            <div class="value">“止める”より“管理”</div>
+          </div>
+          <div class="card">
+            <div class="label">System / 構成</div>
+            <div class="value">SDK / CLI / <em style="font-style: italic; color: var(--rust);">Platform</em></div>
+          </div>
+          <div class="card">
+            <div class="label">Operating mode</div>
+            <div class="value">自己ホスト可能</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 18</div>
+        </div>
+        <div class="eyebrow">vibe codingが生む、新しい混沌。</div>
+        <div class="title">シャドーITの <em>別形</em></div>
+        <div class="lead">非エンジニア（または経験の浅い開発者）がAIでアプリを増やすと、IT部門は「誰が何をデプロイしたか／どの社内データにアクセスするか／コスト・事故をどう防ぐか」を追いにくくなります。これが“管理できない自由”として現れます。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Trace / 追跡</div>
+            <div class="value">Deploy者・履歴</div>
+          </div>
+          <div class="card">
+            <div class="label">Access / アクセス</div>
+            <div class="value">社内データ範囲</div>
+          </div>
+          <div class="card">
+            <div class="label">Control / 統制</div>
+            <div class="value">セキュリティ・コスト</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">GOAL</div>
+          <div class="slide-num">04 / 18</div>
+        </div>
+        <div class="eyebrow">自由は残し、責任を戻す。</div>
+        <div class="title">“公開”を <em>統治</em>へ</div>
+        <div class="lead">Voidの狙いは、AI開発を止めることではなく、成果物を“統治可能な形”に取り込むことです。従業員が作ったアプリを、権限・ログ・運用で追える状態にします。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Before / 前</div>
+            <div class="value">シャドーIT：見えない／止めづらい</div>
+          </div>
+          <div class="card">
+            <div class="label">After / 後</div>
+            <div class="value">Voidで：デプロイ・利用・運用を可視化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 18</div>
+        </div>
+        <div class="eyebrow">3つの部品で回す。</div>
+        <div class="title">SDK / CLI / <em>Platform</em></div>
+        <div class="lead">Voidは、作る側（SDK）、デプロイする側（CLI）、ホスト／管理する側（Platform）の3要素に分かれます。企業は、特にPlatformを自社で自己ホストし、統制の設計自由度を確保します。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">SDK（作成）</div>
+            <div class="value">組み込み・実装</div>
+          </div>
+          <div class="card">
+            <div class="label">CLI（配布/実行）</div>
+            <div class="value">デプロイ操作</div>
+          </div>
+          <div class="card">
+            <div class="label">Platform（統制）</div>
+            <div class="value">権限・ログ・運用</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">KEY CHANGE</div>
+          <div class="slide-num">06 / 18</div>
+        </div>
+        <div class="eyebrow">Platformを“自己運用”へ。</div>
+        <div class="title">企業が <em>寄せられる</em></div>
+        <div class="lead">Platformは自己ホスト可能に再設計されています。管理者は「誰がデプロイでき誰が利用できるか」を定め、ログ確認やトラブル時のロールバック等も運用設計に含められます。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Governance / ガバナンス</div>
+            <div class="value">デプロイ権限・利用権限</div>
+          </div>
+          <div class="card">
+            <div class="label">Operations / 運用</div>
+            <div class="value">ログ・監視・ロールバック</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">SECURITY</div>
+          <div class="slide-num">07 / 18</div>
+        </div>
+        <div class="eyebrow">アクセス制御は効く。</div>
+        <div class="title">“誰が使うか”を絞る</div>
+        <div class="lead">アイデンティティ基盤（Identity Provider）やCloudflare Accessの利用で、許可された従業員だけがアプリへアクセスできます。まずは「利用者の線引き」を確実にすることで、統制の土台を作ります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">IdP / 認証</div>
+            <div class="value">SSO・認証連携</div>
+          </div>
+          <div class="card">
+            <div class="label">Access / 認可</div>
+            <div class="value">許可ユーザのみ</div>
+          </div>
+          <div class="card">
+            <div class="label">Outcome / 結果</div>
+            <div class="value">利用範囲の縮小</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">LIMITATION</div>
+          <div class="slide-num">08 / 18</div>
+        </div>
+        <div class="eyebrow">万能ではない。</div>
+        <div class="title">漏えいは“ゼロ”にできない</div>
+        <div class="lead">アクセス制御で「誰がアプリを使えるか」は制限できますが、アプリが機密情報を取得し外部へ送信する可能性をゼロにできません。Voidは監視・統制を助けますが、振る舞いの完全な封じ込めまで自動担保するわけではない点が重要です。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Control / できる</div>
+            <div class="value">利用者・アクセス範囲</div>
+          </div>
+          <div class="card">
+            <div class="label">Not guaranteed / できない可能性</div>
+            <div class="value">外部送信・機密取得の完全防止</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">GOVERNANCE</div>
+          <div class="slide-num">09 / 18</div>
+        </div>
+        <div class="eyebrow">承認は“必須と断言できない”。</div>
+        <div class="title">レビュー設計は企業側</div>
+        <div class="lead">記事の示唆では、デプロイ前の承認がVoid側で必ず強制されるわけではない可能性があります。その場合、厳格なガバナンスが必要な組織ほど、追加の運用設計・拡張で安全を担保する必要が出ます。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Default / 標準</div>
+            <div class="value">承認フロー“必須”とは限らない</div>
+          </div>
+          <div class="card">
+            <div class="label">Risk / リスク</div>
+            <div class="value">未整備だと危険</div>
+          </div>
+          <div class="card">
+            <div class="label">Action / 対策</div>
+            <div class="value">権限・レビュー・監査を設計</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">COST</div>
+          <div class="slide-num">10 / 18</div>
+        </div>
+        <div class="eyebrow">“無料”は表面だけ。</div>
+        <div class="title">TCOは自己ホストで増える</div>
+        <div class="lead">自己ホストには、Workers for Platformsの費用、R2ストレージ、別途PostgreSQLが必要になり得ます。Voidのソフト自体がオープンソースでも、導入時は運用体制とTCOを前提に判断が必要です。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Potential costs / 例</div>
+            <div class="value">Workers・R2・PostgreSQL</div>
+          </div>
+          <div class="card">
+            <div class="label">Decision / 判断軸</div>
+            <div class="value">開発スピード改善 × 運用コスト</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">DEPENDENCY</div>
+          <div class="slide-num">11 / 18</div>
+        </div>
+        <div class="eyebrow">Cloudflare前提が残る。</div>
+        <div class="title">ベンダーロックインに注意</div>
+        <div class="lead">Voidの自動インフラ自動プロビジョニングはCloudflare前提だとされています。将来のベンダーニュートラル拡張の可能性は示唆される一方、対抗クラウドへの積極性は明確ではなく、移行コストも評価対象になります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Today / 現状</div>
+            <div class="value">Cloudflare前提</div>
+          </div>
+          <div class="card">
+            <div class="label">Concern / 懸念</div>
+            <div class="value">移行コスト・ロックイン</div>
+          </div>
+          <div class="card">
+            <div class="label">Need / 要確認</div>
+            <div class="value">将来の対応範囲</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">WHAT TO VERIFY</div>
+          <div class="slide-num">12 / 18</div>
+        </div>
+        <div class="eyebrow">導入前の“穴”を埋める。</div>
+        <div class="title">未確定ポイントを調査</div>
+        <div class="lead">記事だけでは、最小権限の粒度、外部送信の制御、コード／依存関係の検査、脅威モデルに対する具体策が十分に見えません。導入前の追加調査・実証で確認が必要です。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Data & egress / データ・外部送信</div>
+            <div class="value">範囲制御・出力制御の有無</div>
+          </div>
+          <div class="card">
+            <div class="label">Supply chain / 依存関係</div>
+            <div class="value">依存関係検査・脅威対策の実装度</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">13 / 18</div>
+        </div>
+        <div class="eyebrow">“器”としての強み。</div>
+        <div class="title">Practical × Governance</div>
+        <div class="lead">SDK/CLI/Platformの役割分担により、作成からデプロイ、運用管理までの業務フローに組み込みやすいのが実務上の利点です。自己ホスト設計は、企業ごとの統制要件へ寄せる効果があります。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Practical（実務性）</div>
+            <div class="value">フロー統合しやすい</div>
+          </div>
+          <div class="card">
+            <div class="label">Organizational（組織統治）</div>
+            <div class="value">運用責任を設計できる</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">BALANCE</div>
+          <div class="slide-num">14 / 18</div>
+        </div>
+        <div class="eyebrow">評価：有望、ただ誤解禁物。</div>
+        <div class="title">結論：統治の“器”</div>
+        <div class="lead">Voidは、AI開発を無秩序に増やすのではなく、統治可能に取り込む器として有望です。一方でアクセス制御だけでは不十分になり得るため、企業は承認・検査・監査・データ保護ポリシーを別途設計すべきです。</div>
+        <div class="rule"></div>
+        <div class="grid grid-3" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Strength / 強み</div>
+            <div class="value">権限・ログ・ロールバック</div>
+          </div>
+          <div class="card">
+            <div class="label">Gap / ギャップ</div>
+            <div class="value">機密漏えいの完全防止は不明</div>
+          </div>
+          <div class="card">
+            <div class="label">Action / 行動</div>
+            <div class="value">運用＋TCO＋調査で判断</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">15 / 18</div>
+        </div>
+        <div class="eyebrow">参照・出典（要整理）</div>
+        <div class="title">Sources <em>&</em> Notes</div>
+        <div class="lead">本スライドはユーザー提供の要約（Web検索結果の要旨＋過去履歴情報）を根拠に圧縮しています。正確な原文URL・日付は、導入前に公式発表／ドキュメントで最終確認してください。</div>
+        <div class="rule"></div>
+        <div class="grid grid-2" style="margin-top: 6px;">
+          <div class="card">
+            <div class="label">Referenced topics</div>
+            <div class="small">
+              VoidZero買収後の公開方針／Void（SDK・CLI・Platform）／自己ホスト可能なPlatform／Cloudflare Access/IdP連携／運用機能（ログ・監視・ロールバック）／費用構造（Workers・R2・PostgreSQL）／Cloudflare前提の自動プロビジョニング
+            </div>
+          </div>
+          <div class="card">
+            <div class="label">Check before use</div>
+            <div class="small">
+              承認フローの標準挙動、データアクセスの最小権限粒度、外部送信（egress）制御、コード/依存関係の検査、脅威モデルに対する具体対策、将来のベンダーニュートラル対応範囲
+            </div>
+          </div>
+        </div>
+        <div class="closing-center small" style="margin-top: auto;">
+          <div class="bilingual">
+            <div><span style="color: var(--rust); font-style: italic;">vibe coding</span></div>
+            <div class="jp">（気分的・対話的に作る開発スタイル）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.cloudflare.com/press/press-releases/2026/cloudflare-acquires-voidzero-to-build-the-future-of-the-ai-native-web" target="_blank" rel="noreferrer noopener">Cloudflare Acquires VoidZero to Build the Future of the AI-Native Web | Cloudflare</a></h2>
+<p class="reference-note">San Francisco, CA — June 4, 2026 — Cloudflare, Inc. (NYSE: NET), the leading connectivity cloud company, today announced…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://voidzero.dev/posts/voidzero-cloudflare" target="_blank" rel="noreferrer noopener">VoidZero is Joining Cloudflare | VoidZero</a></h2>
+<p class="reference-note">VoidZero iconVoidZero is joining Cloudflare
+
+VoidZeroVoidZero
+
+// announcements
+
+# VoidZero is Joining Cloudflare
+
+JUN 4…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://siliconangle.com/2026/06/04/cloudflare-acquires-voidzero-maker-vite-javascript-toolchain" target="_blank" rel="noreferrer noopener">Cloudflare acquires VoidZero, maker of the Vite JavaScript toolchain - SiliconANGLE</a></h2>
+<p class="reference-note">UPDATED 18:23 EDT / JUNE 04 2026
+
+### Cloudflare acquires VoidZero, maker of the Vite JavaScript toolchain
+
+by Duncan Ri…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://blog.cloudflare.com/voidzero-joins-cloudflare" target="_blank" rel="noreferrer noopener">VoidZero is joining Cloudflare | Cloudflare Blog</a></h2>
+<p class="reference-note">Longer term:
+
+ We start the work on moving the Cloudflare CLI toward an experience built directly on top of Vite.
+ Vite …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.cloudflare.com/deploy-with-void" target="_blank" rel="noreferrer noopener">Deploy with Void</a></h2>
+<p class="reference-note">We’re excited to open-source three new products that bring server routing, typed data access, and Cloudflare deployment …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
