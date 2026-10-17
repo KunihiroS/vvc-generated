@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>各層は「メモリストア」—干渉/信号で測るTransformerの記憶容量</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px 0;
+      position: relative;
+      padding: 56px 72px;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .tag{
+      position:absolute;
+      top: 26px;
+      left: 28px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-size: 14px;
+      font-style: italic;
+      text-transform: uppercase;
+    }
+    .tag::before{
+      content:"—";
+      margin-right: 10px;
+      color: var(--rust-deep);
+    }
+    .num{
+      position:absolute;
+      top: 26px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-3);
+      font-size: 18px;
+      font-style: italic;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-size: 22px;
+      font-style: italic;
+      margin: 0 0 10px 0;
+      max-width: 900px;
+    }
+    .title{
+      margin: 0 0 16px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: clamp(44px, 5.2vw, 84px);
+      line-height: 1.02;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      text-shadow: none;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 22px 0;
+      max-width: 860px;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+      max-width: 900px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      font-size: 12px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .nowrap{ white-space: nowrap; }
+    .closing-centre{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 78px;
+      text-align: left;
+      max-width: 820px;
+    }
+    .hero-centre{
+      position:absolute;
+      left:72px; right:72px;
+      top: 118px;
+    }
+    @media (max-width: 900px){
+      .slide{ padding: 48px 48px; }
+      .slide::before{ inset: 14px; }
+      .tag{ top: 22px; left: 22px; }
+      .num{ top: 22px; right: 22px; }
+      .lead{ font-size: 20px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="tag">Cover</div>
+      <div class="num">01 / 11</div>
+      <p class="eyebrow">Transformerを「記憶装置」で読む</p>
+      <h1 class="title">各層は <em>メモリストア</em></h1>
+      <p class="lead">ニューラルネットの各層を、キーとバリューの“記憶”を取り出す装置として捉え、性能差を <span class="mono">干渉/信号</span> で比べます。</p>
+      <div class="rule"></div>
+      <p class="lead small">英: interference-to-signal ratio（干渉/信号比）／日: 干渉＝別記憶の混入、信号＝正しい記憶の寄与。</p>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="tag">Problem</div>
+      <div class="num">02 / 11</div>
+      <p class="eyebrow">何が容量を決める？</p>
+      <h2 class="title"><em>干渉</em>が支配する</h2>
+      <p class="lead">記憶を増やすほど、呼び出し時に他の記憶が混ざります。そこで「正しい寄与（信号）」に対して「混ざり（干渉）」がどれくらいかで、実質的な容量を測ります。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Signal（信号）</div>
+          <div class="v">狙ったキーに対応するバリューの寄与</div>
+        </div>
+        <div class="cell">
+          <div class="k">Interference（干渉）</div>
+          <div class="v">他のキー由来のバリューの混入</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="tag">Metaphor</div>
+      <div class="num">03 / 11</div>
+      <p class="eyebrow">連想記憶としての層</p>
+      <h2 class="title">キー・バリュー <em>記憶</em></h2>
+      <p class="lead">入力（クエリ）でキーとの類似度を計算し、類似している記憶ほど強く混ざって出力されます。層の“形”の違いは、類似度がどれだけ混ざりを抑えるかの違いになります。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Query</div>
+          <div class="v">検索したい特徴</div>
+        </div>
+        <div class="cell">
+          <div class="k">Key</div>
+          <div class="v">記憶のインデックス</div>
+        </div>
+        <div class="cell">
+          <div class="k">Value</div>
+          <div class="v">取り出したい情報</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="tag">Architecture</div>
+      <div class="num">04 / 11</div>
+      <p class="eyebrow">4つのメモリ型</p>
+      <h2 class="title">線形・MLP・注意 <em>比較</em></h2>
+      <p class="lead">対象は、線形層、MLP（ReLUやGLU/SwiGLU系）、そして自己注意（softmax）。同じ尺度で、容量がどれだけ増えるかを見積もります。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Linear（外積型）</div>
+          <div class="v mono">capacity ~ d_k</div>
+        </div>
+        <div class="cell">
+          <div class="k">Attention（softmax）</div>
+          <div class="v mono">capacity ~ exp（主張）</div>
+        </div>
+      </div>
+      <p class="lead small" style="margin-top:14px;">MLPは中間：非線形ゲートで低類似度の寄与を強く抑え、多項式的に増えるとされます。</p>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="tag">Evidence</div>
+      <div class="num">05 / 11</div>
+      <p class="eyebrow">外積メモリの限界</p>
+      <h2 class="title">容量は <em>dₖ</em> に支配</h2>
+      <p class="lead">外積（outer product）型では、干渉がランダムに合算されるため、容量は概ねキー次元 <span class="mono">d_k</span> で決まりやすく、早期に限界へ近づきます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">目安</div>
+          <div class="v mono">M ≈ d_k</div>
+        </div>
+        <div class="cell">
+          <div class="k">理由</div>
+          <div class="v">キーが完全に直交しないため、誤った方向の混入が増える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="tag">Distinction</div>
+      <div class="num">06 / 11</div>
+      <p class="eyebrow">ホワイトニングで2倍</p>
+      <h2 class="title">最適線形で <em>改善</em></h2>
+      <p class="lead">外積の“読み出し”を単純にしない工夫として、最適な線形回帰（ホワイトニング込み）を入れると容量が約2倍に改善します。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">容量</div>
+          <div class="v mono">~ 2 d_k</div>
+        </div>
+        <div class="cell">
+          <div class="k">直観</div>
+          <div class="v"> <span class="mono">KᵀK</span> の逆で共分散の偏りを打ち消し、類似度の混線を抑える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Process">
+      <div class="tag">Process</div>
+      <div class="num">07 / 11</div>
+      <p class="eyebrow">MLPはゲートで選別</p>
+      <h2 class="title">ReLU系で <em>遮断</em></h2>
+      <p class="lead">MLPの非線形（ReLUや二乗・高次）では、類似度が小さい記憶の寄与が強烈に減り、干渉の増え方が抑えられます。その結果、容量は多項式的に増えると説明されます。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">Squared ReLU</div>
+          <div class="v mono">~ 2,700（d_k=64）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Cubed ReLU</div>
+          <div class="v mono">~ 35,000</div>
+        </div>
+        <div class="cell">
+          <div class="k">機構</div>
+          <div class="v">低類似度の重みを急減させ干渉を圧縮</div>
+        </div>
+      </div>
+      <p class="lead small" style="margin-top:14px;">GLU/SwiGLU系も「ゲートで混ざりを抑える」方向で同様の見立てになります。</p>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="tag">Comparison</div>
+      <div class="num">08 / 11</div>
+      <p class="eyebrow">どこまで伸びる？</p>
+      <h2 class="title">容量の伸び率 <em>序列</em></h2>
+      <p class="lead">外積（線形）→最適線形→MLP（多項式）→自己注意（指数寄り）という順で、干渉抑制が強くなり容量が大きく増える、という全体像です。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">Linear</div>
+          <div class="v mono">~ d_k →（最適線形で）~ 2 d_k</div>
+        </div>
+        <div class="cell">
+          <div class="k">MLP / Attention</div>
+          <div class="v mono">MLP：多項式 / 注意：指数的に伸びうる</div>
+        </div>
+      </div>
+      <p class="lead small" style="margin-top:14px;">測る指標は一貫して <span class="mono">干渉/信号</span>（比≈1が破綻目安）です。</p>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="tag">Evidence</div>
+      <div class="num">09 / 11</div>
+      <p class="eyebrow">softmaxは指数で消す</p>
+      <h2 class="title">自己注意の <em>暴力性</em></h2>
+      <p class="lead">自己注意では類似度が指数関数で変換されるため、わずかに低い類似度でも急激に重みが落ち、干渉がさらに激減します。その結果、容量は指数的に伸び得ると主張されます。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">例（提示値）</div>
+          <div class="v mono">β=√d_k → ~ 1,200,000（d_k=64）</div>
+        </div>
+        <div class="cell">
+          <div class="k">β（スケール）</div>
+          <div class="v">長文脈ではβをログスケール等で調整する発想が重要</div>
+        </div>
+      </div>
+      <p class="lead small" style="margin-top:14px;">英: β scaling／日: βスケーリング。βを無限に大きくするとsoftmaxがargmaxに近づき、安定性や学習上の問題が起きやすい点が注意点です。</p>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="tag">Distinction</div>
+      <div class="num">10 / 11</div>
+      <p class="eyebrow">ランダム仮定の壁</p>
+      <h2 class="title">理論＝実性能で <em>ない</em></h2>
+      <p class="lead">容量見積もりは「キー・バリュー記憶がランダムベクトルとして配置される」という仮定に依存します。学習済みモデルでは意味構造が形成されるため、理論値をそのまま実性能へ置き換えにくい、と本稿は明示しています。</p>
+      <div class="grid2">
+        <div class="cell">
+          <div class="k">限界（仮定）</div>
+          <div class="v">ランダム配置 vs 学習でできる意味的配置</div>
+        </div>
+        <div class="cell">
+          <div class="k">限界（観測）</div>
+          <div class="v">単層容量は多層・多ヘッド・残差・正規化の合成性能を直接表さない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Closing">
+      <div class="tag">Closing</div>
+      <div class="num">11 / 11</div>
+      <p class="eyebrow">設計指針として読む</p>
+      <h2 class="title">鍵は <em>混ざりの制御</em></h2>
+      <p class="lead">層ごとの容量差を生む主因は、低類似度の記憶をどれだけ“混ざらせないか”。干渉を減らす（選別する）、共分散を扱う（ホワイトニング的発想）、βを制御する——が設計の直観になります。</p>
+      <div class="closing-centre">
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">選別</div>
+            <div class="v">MLPゲートで低類似度を抑制</div>
+          </div>
+          <div class="cell">
+            <div class="k">前処理</div>
+            <div class="v">最適線形で類似度の偏りを補正</div>
+          </div>
+          <div class="cell">
+            <div class="k">指数重み</div>
+            <div class="v">softmaxで干渉を急減（βは調整）</div>
+          </div>
+        </div>
+        <p class="lead small" style="margin-top:16px;">※容量増は誤情報の混入リスクも変えうるため、安全面の評価は別途必要です。</p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2412.06538v1" target="_blank" rel="noreferrer noopener">Understanding Factual Recall in Transformers via Associative Memories</a></h2>
+<p class="reference-note">First, the quantity H​dhHd\_{h} must be larger than S+RS+R. This corresponds to self-attention having sufficient capacit…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://hazyresearch.stanford.edu/blog/2026-07-22-mlps-are-hebbians" target="_blank" rel="noreferrer noopener">🧠 MLPs are Hebbian Memories: A Simple Recipe for Fact-Storing Transformers · Hazy Research</a></h2>
+<p class="reference-note">Transformer capacity scaling. Under bounded attention noise, Transformer blocks with our MLP construction achieve optima…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://neurips.cc/virtual/2024/103479" target="_blank" rel="noreferrer noopener">NeurIPS Understanding Factual Recall in Transformers via Associative Memories</a></h2>
+<p class="reference-note">parameter count. We next introduce a synthetic factual recall task, and prove that a transformer with a single layer of …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://guangxuanx.com/blog/attn-capacity.html" target="_blank" rel="noreferrer noopener">The Memory Capacity of Attention</a></h2>
+<p class="reference-note">Note: This analysis follows the excellent framework presented in &quot;Understanding Transformer from the Perspective of Asso…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10849393" target="_blank" rel="noreferrer noopener">Short-term Hebbian learning can implement transformer-like attention</a></h2>
+<p class="reference-note">circuits more explicit. The connection between transformers and a writable memory has also been made in machine learning…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
