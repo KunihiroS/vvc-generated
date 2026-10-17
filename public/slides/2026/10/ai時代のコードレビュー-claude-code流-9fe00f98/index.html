@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>AI時代のコードレビュー（Claude Code流）</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      position: relative;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 6px;
+      padding: 56px 72px;
+      display:flex;
+      flex-direction: column;
+      overflow:hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .tag{
+      position:absolute;
+      top: 28px;
+      left: 36px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.14em;
+      font-size: 13px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      z-index:2;
+    }
+    .tag::before{
+      content:"";
+      width: 14px;
+      height: 10px;
+      border-top: 2px solid var(--rust);
+      border-left: 2px solid var(--rust);
+      transform: translateY(1px);
+      opacity: 0.95;
+    }
+    .slide-num{
+      position:absolute;
+      top: 28px;
+      right: 36px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      z-index:2;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+      margin-bottom: 10px;
+      z-index:2;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      margin: 0 0 14px 0;
+      z-index:2;
+      color: var(--ink);
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      z-index:2;
+    }
+
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0 0 0;
+      z-index:2;
+    }
+
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 14px;
+      z-index:2;
+      margin-top: 16px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px 12px;
+      background: rgba(0,0,0,0.05);
+      min-height: 78px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    .p{
+      z-index:2;
+      margin-top: 16px;
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.5;
+      max-width: 860px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.95em;
+      color: var(--ink);
+    }
+
+    .refs{
+      margin-top: 14px;
+      z-index:2;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 860px;
+    }
+    .ref{
+      border-top: 1px dashed var(--rule-strong);
+      padding-top: 10px;
+      color: var(--ink-2);
+      font-size: 19px;
+      line-height: 1.4;
+    }
+
+    .closing-note{
+      margin-top:auto;
+      padding-top: 18px;
+      z-index:2;
+      max-width: 880px;
+    }
+    .closing-note .small{
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1.5;
+      margin-top: 10px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; }
+      .tag{ left: 20px; top: 18px; }
+      .slide-num{ right: 20px; top: 18px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover">
+      <div class="tag">AI CODE REVIEW</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">人が読まない—壊れない</div>
+      <h2 class="title">AI時代の<i>コードレビュー</i></h2>
+      <div class="lead">
+        「AIが大量にPRを作る」現実で、レビューをゲートから“継続的な安全確認（スペルチェック）”へ置き換える設計思想。
+        （Claude Codeチームの流れ）
+      </div>
+      <div class="rule"></div>
+      <div class="p">
+        キーワード：<span class="mono">自動検出</span> / <span class="mono">人の判断</span> / <span class="mono">複数層</span> / <span class="mono">高速ロールバック</span>
+        <br/>（自動化は読む作業を減らし、復旧を速くする）
+      </div>
+    </section>
+
+    <section class="slide problem">
+      <div class="tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">従来レビューが破綻</div>
+      <h2 class="title">Diff依存の<i>限界</i></h2>
+      <div class="lead">
+        従来のコードレビューは、差分（diff）を人が読み、潜在バグやスタイル問題を“最後の関門”で止める設計だった。
+        しかしAIが大量にPRを出すと、その人手は追いつかず、手戻りやインシデントの増加リスクが出る。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">従来</div>
+          <div class="v">人が読んで承認＝品質の代理指標</div>
+        </div>
+        <div class="cell">
+          <div class="k">AI時代</div>
+          <div class="v">PR数が増え、読むための時間が足りない</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide metaphor">
+      <div class="tag">SHIFT</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">レビューの役割再定義</div>
+      <h2 class="title">「読む」から<i>守る</i>へ</h2>
+      <div class="lead">
+        レビューの目的を「人が読んだか」ではなく、
+        <span class="mono">壊れうること</span>（何が起こるか）を自動チェック＋人間判断の適切分担でカバーすることへ置き換える。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">目的①</div>
+          <div class="v">事前発見（先読み）<br/>＝<span class="mono">何が壊れるか</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">目的②</div>
+          <div class="v">文脈共有（context）<br/>＝<span class="mono">チームで理解を揃える</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide architecture">
+      <div class="tag">CONTINUOUS</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">ゲート→スペルチェック</div>
+      <h2 class="title">一回勝負を<i>やめる</i></h2>
+      <div class="lead">
+        画面上の承認に集中するのではなく、PR作成前から複数段階で検証し、必要な場合だけ人間が意思決定する。
+        レビューを“連続プロセス”として設計する。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">PR前</div>
+          <div class="v">AIが段階検証（検出）<br/><span style="color:var(--ink-3); font-size:15px;">（日本語：段階的検証 / だんかいてきけんしょう）</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">PR中</div>
+          <div class="v">必要箇所のみ人が判断（承認）</div>
+        </div>
+        <div class="cell">
+          <div class="k">マージ後</div>
+          <div class="v">ガードレールで安全性維持（復旧前提）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide enumeration">
+      <div class="tag">LAYERS</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">見逃し前提の多層</div>
+      <h2 class="title">層×層で<i>吸収</i></h2>
+      <div class="lead">
+        「どれかが全てを検出する」ではなく、後続の層と復旧手段で見逃しを吸収する。
+        CI・セキュリティ・マージキュー・機能フラグ・段階リリース・高速ロールバックを組み合わせる。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">自動チェック（例）</div>
+          <div class="v">lint / 型 / テスト / ビルド / セキュリティレビュー</div>
+        </div>
+        <div class="cell">
+          <div class="k">復旧手段</div>
+          <div class="v">リバート（revert）/ フラグ無効化 / マージキュー再実行</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="tag">WORKFLOW</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">低リスクは自動</div>
+      <h2 class="title">リスク別<i>分担</i></h2>
+      <div class="lead">
+        変更内容をリスク分類（例：Quick/Standard/Deep）し、承認人数や“必ず人が必要な領域”を変える。
+        これで人の注意を高リスクに集中できる。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">低リスク</div>
+          <div class="v">自動チェック＋セキュリティ通過なら人は不要</div>
+        </div>
+        <div class="cell">
+          <div class="k">中リスク</div>
+          <div class="v">人1人で承認（例）</div>
+        </div>
+        <div class="cell">
+          <div class="k">高リスク</div>
+          <div class="v">人2人などで厚く承認（例）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="tag">GUARDRAILS</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">削減を“安全”で証明</div>
+      <h2 class="title">revert/障害率を<i>監視</i></h2>
+      <div class="lead">
+        「人の関与を減らしたから良い」ではなく、
+        revertやインシデント率が増えていないかを安全柵（ガードレール）として監視する。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">人間工数（例）</div>
+          <div class="v">PRあたりの人間承認回数 / コメント数 / 滞留時間</div>
+        </div>
+        <div class="cell">
+          <div class="k">品質の指標</div>
+          <div class="v">revert頻度 / インシデント率 / ノイズによる手戻り</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide comparison">
+      <div class="tag">OLD vs NEW</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">代理指標の置換</div>
+      <h2 class="title">「読了」→「壊れ方」</h2>
+      <div class="lead">
+        従来は人が差分を読んでいることが品質保証の“代理指標”になりがちだった。
+        新設計は、自動が得意な検出は自動に任せ、人が必要な判断にだけ人を使う。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">従来型</div>
+          <div class="v">人が読んだか？（ゲート型）</div>
+        </div>
+        <div class="cell">
+          <div class="k">Claude Code型</div>
+          <div class="v">何が壊れうるか？（検出＋復旧を前提）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide evidence">
+      <div class="tag">AI REVIEW IMPROVE</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">AIも学習し続ける</div>
+      <h2 class="title">eval化して<i>日次改善</i></h2>
+      <div class="lead">
+        AIレビューの精度改善は“導入して終わり”ではなく、
+        過去の障害・リバートを <span class="mono">eval（評価データ）</span> として日次で再学習・再スコアリングする。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">改善の材料</div>
+          <div class="v">障害 / リバート事例</div>
+        </div>
+        <div class="cell">
+          <div class="k">制御するもの</div>
+          <div class="v">ノイズ（誤検知） / 収束しない反復レビュー</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide distinction">
+      <div class="tag">FAQ THEME</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">ノイズと責任境界</div>
+      <h2 class="title">誤検知は<i>運用で管理</i></h2>
+      <div class="lead">
+        AIレビューが増えると誤検知（ノイズ）が問題になるため、修正したか／意図的か等で分類し、誤報頻度も観測して優先順位をつける。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">分類</div>
+          <div class="v">人の反応で整理（修正/判断）</div>
+        </div>
+        <div class="cell">
+          <div class="k">観測</div>
+          <div class="v">「きれいなPR」での誤報頻度</div>
+        </div>
+        <div class="cell">
+          <div class="k">収束</div>
+          <div class="v">レビューラウンドの無限増加を抑制</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide process">
+      <div class="tag">WHAT IF MISS</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">見逃しても巻き戻す</div>
+      <h2 class="title">最小時間で<i>元に戻す</i></h2>
+      <div class="lead">
+        それでも見逃しがあった場合に備え、
+        機能フラグ・段階リリース・マージキュー再実行・高速ロールバックで検知から復旧までを短くする。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">切り替え</div>
+          <div class="v">機能フラグで無効化（Feature Flag）</div>
+        </div>
+        <div class="cell">
+          <div class="k">復旧</div>
+          <div class="v">高速ロールバック（revert）＋再実行</div>
+        </div>
+      </div>
+      <div class="p" style="margin-top:14px;">
+        （運用前提：締め付けだけに依存せず“サーキットブレーカー”的自動化も構想）
+      </div>
+    </section>
+
+    <section class="slide closing">
+      <div class="tag">TAKEAWAY</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">要点は一文で</div>
+      <h2 class="title">壊れる確率を<i>設計で下げる</i></h2>
+      <div class="lead">
+        低リスクは自動で流し、高リスクは人の判断を厚くし、ミスは早期検知して素早く巻き戻す。
+        さらにrevert/障害率とevalで継続改善する。
+      </div>
+      <div class="closing-note">
+        <div class="rule"></div>
+        <div class="p" style="margin-top:14px; max-width: 920px;">
+          このモデルは「人が読む時間」を削るのではなく、<span class="mono">復旧を速くする</span>ことで実質負担を下げる発想。
+          <span style="color:var(--ink-3); font-size:18px;">（日本語補助：安全柵＝あんぜんさく / 継続改善＝けいぞくかいぜん）</span>
+        </div>
+        <div class="refs">
+          <div class="ref">
+            <b style="color:var(--ink); font-weight:600;">References（要約元）</b><br/>
+            ・Claude Codeの運用方針（GitHub Actions等のPR連動で自動レビューを返す仕組みの紹介）<br/>
+            ・本文で言及される「層としての多段検証」「CI/セキュリティ/マージキュー/機能フラグ/段階リリース/高速ロールバック」<br/>
+            ・過去履歴：AI生成の高速運用に対する品質優先の必要性と、今回の“ガードレール運用”への落とし込み
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.anthropic.com/zh-TW/docs/claude-code/github-actions?ref=ethanhuang13.plus" target="_blank" rel="noreferrer noopener">Claude Code GitHub Actions - Claude Code Docs</a></h2>
+<p class="reference-note">Claude Code 將認證儲存為儲存庫密鑰，API 金鑰命名為 `ANTHROPIC_API_KEY`，或訂閱令牌命名為 `CLAUDE_CODE_OAUTH_TOKEN`。 Claude Code 然後推送包含您選擇的工作流程檔案的分…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noreferrer noopener">Overview - Claude Code Docs</a></h2>
+<p class="reference-note"># Overview
+
+Claude Code is an agentic coding tool that reads your codebase, edits files, runs commands, and integrates w…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/claude-code?e45d281a_page=1" target="_blank" rel="noreferrer noopener">Claude Code by Anthropic | AI Coding Agent, Terminal, IDE</a></h2>
+<p class="reference-note">Claude Code can handle routine work like bug fixes and testing, and larger jobs like refactors and new features that are…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/claude-code?ref=portkey.ai" target="_blank" rel="noreferrer noopener">Claude Code by Anthropic | AI Coding Agent, Terminal, IDE</a></h2>
+<p class="reference-note">Claude Code can handle routine work like bug fixes and testing, and larger jobs like refactors and new features that are…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/claude-code" target="_blank" rel="noreferrer noopener">Claude Code by Anthropic | AI Coding Agent, Terminal, IDE</a></h2>
+<p class="reference-note">Claude Code can handle routine work like bug fixes and testing, and larger jobs like refactors and new features that are…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
