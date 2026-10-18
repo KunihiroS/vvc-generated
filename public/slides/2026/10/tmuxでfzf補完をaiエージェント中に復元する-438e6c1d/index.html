@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tmuxでfzf補完をAIエージェント中に復元する</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: block;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      margin: 18px auto;
+      background: var(--paper);
+      border: 20px solid rgba(0,0,0,0);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      position: relative;
+      padding: 20px;
+      overflow: hidden;
+      border-color: var(--rule);
+      outline: 1px solid var(--rule);
+      outline-offset: -1px;
+    }
+    .inner{
+      position: absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+      background: rgba(0,0,0,0.06);
+    }
+
+    .topbar{
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 4px;
+      position: relative;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:-18px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 10px;
+      height: 2px;
+      background: var(--rust);
+      box-shadow: 0 0 0 3px rgba(232,129,74,0.15);
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      line-height: 1.1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 70px;
+      line-height: 0.95;
+      margin-top: -4px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.45;
+      margin-top: 2px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+    .content{
+      margin-top: auto;
+      width: 100%;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      width: 100%;
+      align-items: stretch;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.06);
+      padding: 14px 16px;
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell strong{
+      font-family: "Noto Serif JP", serif;
+      font-size: 20px;
+      color: var(--ink);
+      font-weight: 600;
+      display:block;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+    .cell p{
+      margin:0;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      width: 100%;
+      align-items: stretch;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .pillrow{
+      display:flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .pill{
+      border: 1px solid var(--rule);
+      padding: 8px 12px;
+      background: rgba(0,0,0,0.06);
+      color: var(--ink-2);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
+    .jp{
+      color: var(--ink-4);
+      font-size: 15px;
+      margin-left: 6px;
+      font-style: italic;
+    }
+
+    .refs{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .refitem{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.06);
+    }
+    .refitem .rtitle{
+      font-size: 18px;
+      color: var(--ink);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .refitem .rurl{
+      font-size: 17px;
+      color: var(--ink-2);
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 820px){
+      .inner{ padding: 44px 28px; inset: 14px; }
+      .slide{ padding: 0; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 19px; }
+      .grid2{ gap: 12px; }
+      .grid3{ gap: 10px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">キー入力の行き先を設計し直す</div>
+        <div class="title">tmuxで<em>fzf</em>補完復元</div>
+        <div class="lead">AIコーディングエージェント中でも、いつもの fzf（例：CTRL-T相当）でパスやハッシュを高速入力できるようにします。</div>
+        <div class="content">
+          <div class="pillrow" aria-label="Highlights">
+            <div class="pill">tmux → fzf → 入力へ書き戻し <span class="jp">(insertion)</span></div>
+            <div class="pill">floating pane <span class="jp">(浮動ペイン)</span></div>
+            <div class="pill">参照対象：画面/scrollback <span class="jp">(履歴)</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">fzfが“効かない”理由</div>
+        <div class="title"><em>入力</em>が奪われる</div>
+        <div class="lead">通常のシェルではキー入力がシェルへ届き、fzf の統合（CTRL-Tなど）が動きます。ところがAIエージェント操作中は、キー入力がシェルではなくエージェント側に渡ってしまい、連携が失敗します。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="cell">
+              <div class="label">通常（shell連携）</div>
+              <strong>キー → fzf 起動</strong>
+              <p>シェルが入力を受け取り、fzf の候補選択結果をカーソル位置へ挿入します。</p>
+            </div>
+            <div class="cell">
+              <div class="label">AIエージェント中</div>
+              <strong>キー → エージェント</strong>
+              <p>キーがシェルに届かないため、fzf 統合が“発火”しません。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">tmuxが“鍵番”になる</div>
+        <div class="title">tmuxが<em>先回り</em></div>
+        <div class="lead">tmux を挟む発想は「キーの受け取り順序を固定する」ことです。まず tmux がキーを捕捉し、fzf を floating ペインで開き、選択結果を元の入力欄へ戻します。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="label">i</div>
+              <strong>tmuxが捕捉</strong>
+              <p>ペイン内で何が動いていても、tmux側のショートカットを優先。</p>
+            </div>
+            <div class="cell">
+              <div class="label">ii</div>
+              <strong>fzfをfloating</strong>
+              <p>tmux-fzf-complete が fzf を別レイヤで起動。</p>
+            </div>
+            <div class="cell">
+              <div class="label">iii</div>
+              <strong>書き戻し</strong>
+              <p>選択した候補を、AI入力欄のカーソルへ“挿入”します。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">tmux-fzf-completeの役割</div>
+        <div class="title">体験を<em>シェル並み</em>へ</div>
+        <div class="lead">tmux-fzf-complete により、AIエージェントのプロンプト入力中でも tmux が先にキーを受け、fzf を floating ペインとして呼び出せます。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="cell">
+              <div class="label">Key flow</div>
+              <strong>tmux → fzf → 挿入</strong>
+              <p class="mono">選択結果は「元ペインの入力欄」へキー入力として返送。</p>
+            </div>
+            <div class="cell">
+              <div class="label">要点</div>
+              <strong>統合の安定性</strong>
+              <p>エージェントUIに左右されにくくなり、「いつでもCTRL-T的操作」が維持されます。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">“次の入力”を作る</div>
+        <div class="title">出力を<em>材料</em>にする</div>
+        <div class="lead">AIエージェントが出したパス/URL/文章を、そのまま fzf の候補にして次のプロンプトへ再利用します。コピペではなくキーボード中心の編集体験になります。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="cell">
+              <div class="label">fzfでの参照</div>
+              <strong>ALT-F/D/U/P/S</strong>
+              <p>カテゴリ別に「ファイル/ディレクトリ/URL/パス/文章」へ切り替えて探索。</p>
+            </div>
+            <div class="cell">
+              <div class="label">文章の扱い</div>
+              <strong>折り返しを復元</strong>
+              <p>インデントを除き、引用しやすい形へ整えて戻す（コピペより再利用が速い）。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">速度が効く場面</div>
+        <div class="title">手入力を<em>減らす</em></div>
+        <div class="lead">この仕組みは、ファイルパスやコミットハッシュなどの手入力負担を下げ、レビュー指示・追記・参照の往復回数を削減します。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="label">入力対象</div>
+              <strong>パス/URL</strong>
+              <p>画面上の候補を即検索して挿入。</p>
+            </div>
+            <div class="cell">
+              <div class="label">入力対象</div>
+              <strong>文章</strong>
+              <p>引用しやすい復元で次のプロンプトへ。</p>
+            </div>
+            <div class="cell">
+              <div class="label">入力対象</div>
+              <strong>Git参照</strong>
+              <p>コミット/ブランチ/タグ/リモートへ。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Enumeration</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">Gitオブジェクト補完</div>
+        <div class="title">fzf-git.shで<em>レビュー</em>が速い</div>
+        <div class="lead">fzf-git.sh により、コミットハッシュやブランチ/タグ/リモート等の Git オブジェクトを tmux 側から補完できます。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="cell">
+              <div class="label">tmux側ショートカット</div>
+              <strong>PREFIX g</strong>
+              <p>シェルの CTRL-G 相当として扱い、Gitカテゴリ補完へ。</p>
+            </div>
+            <div class="cell">
+              <div class="label">例</div>
+              <strong>g h / g p</strong>
+              <p class="mono">PREFIX g h：commit hashes / PREFIX g p：GitHub PR（pr.fzfがPATHにある場合）</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">floating/popupの差</div>
+        <div class="title">tmux 3.7以降が<em>条件</em></div>
+        <div class="lead">floating pane の挙動は tmux 3.7 以降で必要とされます。旧バージョンでは popup になる場合があり、体験が完全に同一ではない可能性があります。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="cell">
+              <div class="label">必要</div>
+              <strong>tmux 3.7+</strong>
+              <p>floating ペインとして fzf を安定起動。</p>
+            </div>
+            <div class="cell">
+              <div class="label">注意</div>
+              <strong>旧版は差分</strong>
+              <p>popup挙動などで、挿入体験が変わることがあり得る。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">alt-screenで候補が減る</div>
+        <div class="title">scrollbackは<em>命</em></div>
+        <div class="lead">エージェントがフルスクリーン描画（alt-screen）を行うと、tmux の scrollback が保持されず、fzf が参照できる範囲が狭まります。候補の網羅性が落ちるので設定調整が必要です。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="cell">
+              <div class="label">何が起きる</div>
+              <strong>scrollback消失</strong>
+              <p>fzfが参照できるテキストが「現在表示分」に限定されやすい。</p>
+            </div>
+            <div class="cell">
+              <div class="label">対策</div>
+              <strong>alt-screen調整</strong>
+              <p>Claude Code / Codex で alt-screen を無効化、または履歴保持に寄せる。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">“効率化”の中身</div>
+        <div class="title">何が良くなる？</div>
+        <div class="lead">単に別ツールを使うのではなく、「キー入力の受け渡し」を設計して、生産性のボトルネックを戻します。</div>
+        <div class="content">
+          <div class="grid3">
+            <div class="cell">
+              <div class="label">Practical</div>
+              <strong>日常の短縮</strong>
+              <p>各ペインで tmux キーバインドが一貫。</p>
+            </div>
+            <div class="cell">
+              <div class="label">Technical</div>
+              <strong>依存条件</strong>
+              <p>tmux 3.7+、fzf 0.74.0以降、Ruby等が絡む。</p>
+            </div>
+            <div class="cell">
+              <div class="label">Strategic</div>
+              <strong>出力→入力ループ</strong>
+              <p>大きな出力を検索し、次の指示へ変換。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">導入時の落とし穴</div>
+        <div class="title"><em>検証</em>が必要</div>
+        <div class="lead">環境差（端末の描画方式、キーバインド競合、Ruby必要条件、fzf最小要件など）で挙動が変わる可能性があります。特に「挿入先が正しいか」「書式が意図通りか」を確認してください。</div>
+        <div class="content">
+          <div class="grid2">
+            <div class="cell">
+              <div class="label">リスク</div>
+              <strong>キー競合</strong>
+              <p>誤挿入や意図しない起動につながる恐れ。</p>
+            </div>
+            <div class="cell">
+              <div class="label">情報制約</div>
+              <strong>参照範囲</strong>
+              <p>scrollbackが保持できないと補完精度が下がる。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">References</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参照先（要点）</div>
+        <div class="title"><em>参考</em>リンク</div>
+        <div class="lead">このスライドはユーザー提示文の要点圧縮です。実装に必要な詳細は各プロジェクト/ドキュメントで確認してください。</div>
+        <div class="content">
+          <div class="refs">
+            <div class="refitem">
+              <div class="rtitle">tmux (floating pane / 3.7+)</div>
+              <div class="rurl">https://github.com/tmux/tmux</div>
+            </div>
+            <div class="refitem">
+              <div class="rtitle">fzf (CTRL-T系統合の背景)</div>
+              <div class="rurl">https://github.com/junegunn/fzf</div>
+            </div>
+            <div class="refitem">
+              <div class="rtitle">tmux-fzf-complete</div>
+              <div class="rurl">（プロジェクト名に基づく）tmux-fzf-complete のリポジトリ/README</div>
+            </div>
+            <div class="refitem">
+              <div class="rtitle">fzf-git.sh（Gitオブジェクト補完）</div>
+              <div class="rurl">（プロジェクト内 README）fzf-git.sh と tmux キーバインド（PREFIX g）</div>
+            </div>
+            <div class="refitem">
+              <div class="rtitle">Claude Code / Codex の alt-screen 設定</div>
+              <div class="rurl">各エディタ/クライアントのドキュメント（scrollback保持・alt-screen）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.pedroalonso.net/blog/remote-ai-dev-workflow-claude-code-tmux-4090" target="_blank" rel="noreferrer noopener">My Remote AI Dev Workflow: Claude Code + tmux + a 4090 - Pedro Alonso</a></h2>
+<p class="reference-note">```
+
+Full TUI for git: see diffs, stage hunks, commit, rebase, push — all with keyboard shortcuts. It works perfectly in…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://markmcb.com/cli/tmux-zsh-fzf-ui" target="_blank" rel="noreferrer noopener">CLI with zsh, fzf, and tmux - Mark McBride</a></h2>
+<p class="reference-note">```
+# MOUSE # Enable mouse support by default, but make it easy to turn on/off set-option -g mouse on bind-key m set-opt…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://joshmedeski.com/projects/tmux-fzf-url" target="_blank" rel="noreferrer noopener">tmux-fzf-url | Josh Medeski</a></h2>
+<p class="reference-note">🔗 Screen scraping — pulls every URL out of the visible pane, no selecting or copying required.
+ 🔍 Fuzzy filtering — pipe…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/@volodymyrpotiichuk/how-to-automate-the-launch-of-your-terminal-processes-fzf-tmux-teamocil-781e32520ff9" target="_blank" rel="noreferrer noopener">How to automate the launch of your terminal processes (fzf + tmux + teamocil) | by Volodymyr Potiichuk | Medium</a></h2>
+<p class="reference-note">FZF (Fuzzy finder) is a command-line application that allows you to turn any list into an interactive menu with support …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/legal-entities/india/tmux-private-limited/__up6DyJbYvhp4Ow6rzMnQy97v5V-9DjKk8vNV_eyf7a8" target="_blank" rel="noreferrer noopener">TMUX PRIVATE LIMITED - 2026 Company Profile - Tracxn</a></h2>
+<p class="reference-note">| INC-33 eMOA | Incorporation | Jul 22, 2022 | [...] TMUX PRIVATE LIMITED is a Private Limited Company and was incorpora…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
