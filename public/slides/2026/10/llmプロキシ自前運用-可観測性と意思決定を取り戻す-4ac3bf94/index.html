@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLMプロキシ自前運用：可観測性と意思決定を取り戻す</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Serif JP", serif;
+      line-height: 1.35;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 0 48px;
+    }
+
+    .slide {
+      position: relative;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 20px;
+      overflow: hidden;
+      border-radius: 8px;
+      inset: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide-inner {
+      flex: 1;
+      border: 1px solid var(--rule);
+      padding: 34px 34px 26px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding-left: 12px;
+      border-left: 3px solid rgba(232, 129, 74, 0.75);
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--ink-3);
+      font-size: 22px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 4px;
+      margin-bottom: 6px;
+      letter-spacing: 0.01em;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 68px;
+      line-height: 0.95;
+      margin: 0 0 14px;
+      color: var(--ink);
+    }
+
+    .title em {
+      font-style: italic;
+      color: var(--rust-deep);
+    }
+
+    .lead {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink-2);
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule);
+      margin: 14px 0 18px;
+    }
+
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-bottom: 6px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .card {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .card h4 {
+      margin: 0 0 8px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .card .val {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 20px;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .card .sub {
+      margin-top: 8px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .listish {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .pair .block {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .k {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      font-size: 14px;
+      color: var(--ink-3);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      margin-bottom: 10px;
+    }
+
+    .v {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 20px;
+      color: var(--ink);
+    }
+
+    .jp {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+      margin-top: 6px;
+      line-height: 1.35;
+    }
+
+    .reflist {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .ref {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .ref .t {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 20px;
+      color: var(--ink);
+      margin: 0 0 8px;
+    }
+    .ref .d {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+      margin: 0;
+      line-height: 1.45;
+    }
+
+    .closing {
+      margin-top: auto;
+      border-top: 1px solid var(--rule);
+      padding-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .slide-inner { padding: 26px 18px 16px; }
+      .title { font-size: 44px; }
+      .lead { font-size: 18px; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .grid-3 { grid-template-columns: 1fr; }
+      .pair { grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">観測できる設計へ</div>
+        <h1 class="title">LLM <em>プロキシ</em></h1>
+        <p class="lead">自前運用（own proxy / 自組みプロキシ）で、黒箱になりがちなLLMを「何が起きているか」まで見える化し、意思決定とデバッグを速くする。</p>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">黒箱の代償</div>
+        <h2 class="title"><em>見えない</em>意思決定</h2>
+        <p class="lead">サブスクリプションのフロント（チャット画面・管理画面）だけだと、LLMの実挙動やコストの時系列、エンジニア向け粒度のログが不足しがちだ。</p>
+        <div class="content">
+          <div class="grid-2" style="margin-top: 10px;">
+            <div class="card">
+              <h4>足りないもの</h4>
+              <p class="val">時系列トークン / 呼び出し粒度</p>
+              <div class="sub">改善（コスト・品質）に必要な“比較”が難しくなる。</div>
+            </div>
+            <div class="card">
+              <h4>危険な誤解</h4>
+              <p class="val">proof of work だけ</p>
+              <div class="sub">「それっぽい証拠」では、原因切り分けに届かない。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">運転席と整備記録</div>
+        <h2 class="title">計測は <em>ハンドル</em></h2>
+        <p class="lead">プロキシ（proxy / 制御層）は、あなたのアプリとLLMの間に立ち、ログ取得・認証・ルーティング・モデル切替を制御する“運転席”になる。</p>
+        <div class="content">
+          <div class="grid-3">
+            <div class="card">
+              <h4>提供元UI</h4>
+              <p class="val">眺めるだけ</p>
+              <div class="sub">何が起きたかが足りない。</div>
+            </div>
+            <div class="card">
+              <h4>自前プロキシ</h4>
+              <p class="val">観測できる</p>
+              <div class="sub">いつ・誰が・何を呼んだか。</div>
+            </div>
+            <div class="card">
+              <h4>結果</h4>
+              <p class="val">直せる</p>
+              <div class="sub">改善サイクルが速くなる。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">単一の制御点</div>
+        <h2 class="title">自前 <em>proxy</em> が束ねる</h2>
+        <p class="lead">自分の管理下に置くことで、複数プロバイダ／複数モデルを単一エンドポイントから扱い、ログと責任範囲を設計できる。</p>
+
+        <div class="content">
+          <div class="grid-2">
+            <div class="card">
+              <h4>ルーティング</h4>
+              <p class="val">呼び先を決める</p>
+              <div class="sub">モデル切替を“アプリ改修”から切り離す。</div>
+            </div>
+            <div class="card">
+              <h4>可観測性</h4>
+              <p class="val">観測点を設計</p>
+              <div class="sub">どのキーが、いつ、どのモデルを呼んだか。</div>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <p class="lead" style="max-width:none; font-size:20px;">
+            重要: 自前は特定製品の推奨ではなく、「必要に応じて改造できる管理下」を指す（ベンダー依存を弱める）。
+            <span style="color: var(--ink-3); font-size:18px;">（自分で作る/作り替える余地）</span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: evidence -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">現場の疑問に応える</div>
+        <h2 class="title">疑問へ <em>即応</em></h2>
+        <p class="lead">プロキシ側で観測点を持てると、例えばコーディング中のキャッシュミスのような“現場の引っかかり”を短時間で特定できる。</p>
+
+        <div class="content">
+          <div class="grid-2">
+            <div class="card">
+              <h4>例：原因切り分け</h4>
+              <p class="val">キャッシュ失敗の検出</p>
+              <div class="sub">呼び出し条件・応答・ステータスを照合。</div>
+            </div>
+            <div class="card">
+              <h4>例：改善の設計</h4>
+              <p class="val">次の最適化が打てる</p>
+              <div class="sub">測ってから調整できるので反復が速い。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: enumeration -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Enumeration</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">得られる価値</div>
+        <h2 class="title"><em>4</em>つの武器</h2>
+        <p class="lead">自前プロキシは、可観測性・運用柔軟性・セキュリティ・責任分界を“設計として”持ち帰らせる。</p>
+
+        <div class="content">
+          <div class="grid-2">
+            <div class="card">
+              <h4>i. 可観測性（Observability）</h4>
+              <p class="val">時系列と粒度あるログ</p>
+              <div class="sub">コスト最適化・品質改善・障害切り分け。</div>
+            </div>
+            <div class="card">
+              <h4>ii. 運用柔軟性（Flex）</h4>
+              <p class="val">モデル/プロバイダ切替</p>
+              <div class="sub">アプリ土台の作り直しを減らす。</div>
+            </div>
+            <div class="card">
+              <h4>iii. セキュリティ（Security）</h4>
+              <p class="val">仮想APIキー（virtual keys）</p>
+              <div class="sub">鍵の散逸を抑え、監査もしやすい。</div>
+            </div>
+            <div class="card">
+              <h4>iv. 責任分界（Accountability）</h4>
+              <p class="val">インフラ主導権</p>
+              <div class="sub">運用と説明責任を自分側に寄せる。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: distinction -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">“画面”と“制御”</div>
+        <h2 class="title">統計ではなく <em>設計</em></h2>
+        <p class="lead">同じ“利用ログっぽい画面”でも、意思決定に使える粒度（時系列・呼び出し状況・ステータス）かどうかが本質的に違う。</p>
+
+        <div class="content">
+          <div class="pair">
+            <div class="block">
+              <div class="k">提供元UI（例）</div>
+              <div class="v">見えるが足りない</div>
+              <div class="jp">データが要約中心／粒度が浅い／エンジニアが追えない。</div>
+            </div>
+            <div class="block">
+              <div class="k">自前プロキシ</div>
+              <div class="v">必要な観測点を持つ</div>
+              <div class="jp">ルーティング・鍵・ステータスを横断して追跡できる。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: comparison -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">選択の軸</div>
+        <h2 class="title">自前 vs 依存 <em>コスト</em></h2>
+        <p class="lead">自前運用は負担が増える一方で、切替・監査・デバッグの自由度が上がる。どちらが得かは要件と規模で変わる。</p>
+
+        <div class="content">
+          <div class="grid-2">
+            <div class="card">
+              <h4>自前（メリット）</h4>
+              <p class="val">計測・切替・鍵管理</p>
+              <div class="sub">“意思決定に効くログ”を確保。</div>
+            </div>
+            <div class="card">
+              <h4>自前（デメリット）</h4>
+              <p class="val">監視/運用責任が増える</p>
+              <div class="sub">セキュリティパッチ、障害対応、保管コスト。</div>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="card">
+            <h4>注意</h4>
+            <p class="val">記事は総コストの定量比較をしていない</p>
+            <div class="sub">チーム体制・法令/監査・データ保持期間・SLA要件で最適解が揺れる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: process -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">導入の手順</div>
+        <h2 class="title">先に <em>定義</em> する</h2>
+        <p class="lead">実装に入る前に、ログ項目・粒度、運用コスト、代替案、セキュリティ/監査適合を固めるのが現実的。</p>
+
+        <div class="content">
+          <div class="grid-3">
+            <div class="card">
+              <h4>i. ログ設計</h4>
+              <p class="val">必要項目と粒度</p>
+              <div class="sub">キー/モデル/ステータス/タイムライン。</div>
+            </div>
+            <div class="card">
+              <h4>ii. 見積り</h4>
+              <p class="val">工数・リスク</p>
+              <div class="sub">監視、障害対応、スケーリング。</div>
+            </div>
+            <div class="card">
+              <h4>iii. 比較</h4>
+              <p class="val">提供元/代替ツール</p>
+              <div class="sub">OTel等も含め、要件で現実評価。</div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 14px;">
+            <h4>iv. 合否</h4>
+            <p class="val">監査・セキュリティ要件</p>
+            <div class="sub">データ保持期間、責任分界、権限設計まで確認。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: distinction -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">仮想APIキー</div>
+        <h2 class="title">鍵は <em>分ける</em></h2>
+        <p class="lead">仮想APIキーは、用途（ユーザー/エージェント/ジョブ）ごとに管理できる鍵体系を作り、漏えい時の被害範囲を縮小する発想。</p>
+
+        <div class="content">
+          <div class="grid-2">
+            <div class="card">
+              <h4>狙い</h4>
+              <p class="val">漏えいの影響を限定</p>
+              <div class="sub">主キーを直に広げない。</div>
+            </div>
+            <div class="card">
+              <h4>効果</h4>
+              <p class="val">監査がしやすい</p>
+              <div class="sub">「どの用途が何を呼んだか」を追える。</div>
+            </div>
+          </div>
+          <div class="card">
+            <h4>用語</h4>
+            <p class="val">virtual API keys（仮想APIキー）</p>
+            <div class="sub">英語（virtual API keys / 仮想APIキー）+ 日本語をセットで運用するイメージ。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11: closing -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">結論</div>
+        <h2 class="title">見える化が <em>前提</em></h2>
+        <p class="lead">大規模LLMは黒箱化しがちだが、自分のプロキシを運用することで計測・可観測性・運用柔軟性を取り戻し、改善と責任を前に進められる。</p>
+
+        <div class="closing">
+          <div class="grid-2">
+            <div class="card">
+              <h4>あなたが持つべきもの</h4>
+              <p class="val">ログ / ルーティング / 鍵運用</p>
+              <div class="sub">意思決定に使える粒度で。</div>
+            </div>
+            <div class="card">
+              <h4>判断基準</h4>
+              <p class="val">要件・規模・監査</p>
+              <div class="sub">自前が常に正解ではない。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: references -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">References</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参考（方向性の裏付け）</div>
+        <h2 class="title">観測ツールの例</h2>
+        <p class="lead">可観測性（Observability）やLLMトレーシング、API観測の文脈で、自己ホスト型・軽量プロキシ型などが紹介されている。</p>
+
+        <div class="content">
+          <div class="reflist">
+            <div class="ref">
+              <p class="t">OpenObserve</p>
+              <p class="d">自己ホストでLLMトレーシングやコスト追跡、ログ/メトリクス/インフラテレメトリを統合する観測の選択肢として言及される。</p>
+            </div>
+            <div class="ref">
+              <p class="t">Confident AI</p>
+              <p class="d">プロダクショントレースに加えて、評価や品質に応じたアラート/異常検知をワークフローとしてまとめる点が挙げられる。</p>
+            </div>
+            <div class="ref">
+              <p class="t">Helicone</p>
+              <p class="d">軽量なAPI観測として、APIプロキシのログやトークン追跡、利用監視に強みがあるとされる。</p>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="card">
+            <h4>読み方</h4>
+            <p class="val">“ツールの比較”ではなく“測れる設計”が主題</p>
+            <div class="sub">記事の主張（可観測性と意思決定）に沿って、どの範囲を自分で制御するかを考えるための例。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openobserve.ai/blog/llm-observability-tools" target="_blank" rel="noreferrer noopener">Top Open Source LLM Observability Tools in 2026: OpenObserve, Langfuse &amp; Helicone</a></h2>
+<p class="reference-note">:   OpenObserve is the best open source LLM observability tool in 2026 for teams that also need unified infrastructure m…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.confident-ai.com/knowledge-base/compare/llm-monitoring-vs-observability-top-tools-2026" target="_blank" rel="noreferrer noopener">LLM Monitoring vs Observability: Top Tools for 2026 - Confident AI</a></h2>
+<p class="reference-note">Confident AI is the best LLM monitoring and observability tool in 2026 because it combines production traces, research-b…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openobserve.ai/blog/product-update-march-2026" target="_blank" rel="noreferrer noopener">OpenObserve March 2026 Update: AI Assistant, LLM Observability &amp; v0.70.0</a></h2>
+<p class="reference-note">A comprehensive comparison of open source Kubernetes monitoring tools in 2026: OpenObserve, Prometheus + Grafana, Victor…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.truefoundry.com/blog/llm-observability-tools" target="_blank" rel="noreferrer noopener">10 Best LLM Observability Tools in 2026</a></h2>
+<p class="reference-note">Helicone supports alerts on usage spikes or failures and integrates with external logging tools. It’s open-source and se…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.braintrust.dev/articles/best-llm-monitoring-tools-2026" target="_blank" rel="noreferrer noopener">Best LLM monitoring tools in 2026 (tested &amp; reviewed) - Articles - Braintrust</a></h2>
+<p class="reference-note">Langfuse dashboard
+
+Langfuse is an open-source LLM observability platform that logs traces and sessions. It captures nes…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
