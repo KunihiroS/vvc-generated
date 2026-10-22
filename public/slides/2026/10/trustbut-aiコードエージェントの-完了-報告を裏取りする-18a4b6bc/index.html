@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>trustbut — AIコードエージェントの「完了」報告を裏取りする</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 6px;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border: 1px solid rgba(240, 232, 216, 0.12);
+    }
+
+    .slide-tag {
+      position: absolute;
+      top: 26px;
+      left: 28px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 12px;
+      border-left: 3px solid var(--rust);
+    }
+
+    .slide-num {
+      position: absolute;
+      top: 26px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-size: 74px;
+      font-weight: 500;
+      margin: 0 0 12px 0;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title em {
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.6;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      max-width: 760px;
+    }
+
+    .grid {
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+      align-items: start;
+      width: 100%;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border-top: 1px solid rgba(240, 232, 216, 0.18);
+      padding-top: 10px;
+    }
+
+    .kicker {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--rust);
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .text {
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 19px;
+      color: var(--ink);
+    }
+
+    .refs {
+      margin-top: 18px;
+      border-top: 1px solid rgba(240, 232, 216, 0.18);
+      padding-top: 16px;
+      color: var(--ink-2);
+      font-size: 20px;
+      line-height: 1.6;
+    }
+
+    /* Keep 16:9 scaling friendly on narrow screens */
+    @media (max-width: 720px) {
+      .slide { padding: 34px 26px; }
+      .title { font-size: 48px; }
+      .lead { font-size: 18px; }
+      .slide-tag { top: 18px; left: 18px; }
+      .slide-num { top: 18px; right: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" role="region" aria-label="Cover">
+      <div class="slide-tag">trustbut</div>
+      <div class="slide-num">02 / 16</div>
+
+      <div class="eyebrow">信じる前に検証する（信頼×証拠）</div>
+      <h1 class="title"><em>信じる</em>だけでは終わらせない</h1>
+      <p class="lead">AIコーディングエージェントの「完了」報告を、ベースコミットも含めて再実行し、差分が本当に“証明”されているかをレシート形式で裏取りします。</p>
+    </section>
+
+    <section class="slide" role="region" aria-label="Problem">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+
+      <div class="eyebrow">緑が多いほど危険</div>
+      <h1 class="title">自己申告の罠</h1>
+      <p class="lead">エージェントは「テストは全部パス」と言えますが、テストのスキップ・アサーション削除・型チェック無効化・<span class="mono">.only</span> などで“見かけ上の成功”を作れる余地があります。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">Risk（リスク）</div>
+          <div class="text">報告が正しいとは限らない／検証の質が不明</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">Need（必要）</div>
+          <div class="text">「なぜ通ったか」を差分証拠で確認したい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="Metaphor">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 16</div>
+
+      <div class="eyebrow">裁判は二段階</div>
+      <h1 class="title">before/after法廷</h1>
+      <p class="lead">trustbutは、変更HEADで通ったかだけでなく、同じテストがベースコミットではどうだったか（fail-before）まで追います。<br>（信じるが、検証する＝<span class="mono">fail-before / pass-after</span>）</p>
+    </section>
+
+    <section class="slide" role="region" aria-label="Core idea">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+
+      <div class="eyebrow">核心は「証明」</div>
+      <h1 class="title">差分が要求</h1>
+      <p class="lead">「変更を証明するテスト」が、新規/変更テストであり、ベースでは失敗してHEADで成功するならPASSと判定します。逆に証明できない場合はWARN、テスト偽装や実失敗はFAILです。</p>
+
+      <div class="grid three" aria-label="PASS WARN FAIL summary">
+        <div class="cell">
+          <div class="kicker">PASS（合格）</div>
+          <div class="text">同じテストが fail-before → pass-after</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">WARN（要注意）</div>
+          <div class="text">証明不足／スキップ・削除・黙殺が疑わしい</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">FAIL（不合格）</div>
+          <div class="text">テスト失敗／<span class="mono">.only</span> 等でfocused</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="Evidence signals">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">06 / 16</div>
+
+      <div class="eyebrow">偽装の兆候を読む</div>
+      <h1 class="title">証拠として検出</h1>
+      <p class="lead">結果が緑でも、検証が消されていないかを“差分から逆算”して見ます。スキップや黙殺は、合格ではなく証拠不足として扱われます。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">削る/避ける（CUT）</div>
+          <div class="text">テストのスキップ：<span class="mono">.skip</span>／<span class="mono">it.only</span></div>
+        </div>
+        <div class="cell">
+          <div class="kicker">誤魔化す（HIDE）</div>
+          <div class="text"><span class="mono">@ts-ignore</span>、<span class="mono">eslint-disable</span>、カバレッジ除外</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="Stop hook integration">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">07 / 16</div>
+
+      <div class="eyebrow">doneを止める</div>
+      <h1 class="title">Stop hook</h1>
+      <p class="lead">trustbutはレシート（PASS/WARN/FAIL）をエージェントに返し、FAILなら“done”をブロックして修正を促します。監視ではなく改善ループ化が狙いです。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">入力（agent）</div>
+          <div class="text">変更＋「完了」主張（テスト成功の報告）</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">出力（trustbut）</div>
+          <div class="text">ベース/HEAD再実行レシートで進行可否</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="Why deterministic">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">08 / 16</div>
+
+      <div class="eyebrow">LLM判断を外す</div>
+      <h1 class="title">ローカル完結</h1>
+      <p class="lead">オンラインLLMやサーバ依存を避け、同じコミットでは同じ結果が返る（決定論的）ことを重視します。これにより監査可能性と再現性を高めます。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">不確実性を削減</div>
+          <div class="text">モデルに「合否」を委ねない（実行ベース）</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">運用障壁を低減</div>
+          <div class="text">ローカルCLIとして導入しやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="Controls">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">09 / 16</div>
+
+      <div class="eyebrow">運用パラメータ</div>
+      <h1 class="title">速さと厳しさ</h1>
+      <p class="lead">全再実行（full）だけでは負荷が増えるため、変更テストのみを再実行する<span class="mono"> --quick</span>、ゲートの厳格度を調整する<span class="mono"> --strict</span>などの方針が示されています。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">--quick（高速化）</div>
+          <div class="text">変更されたテストのみ再実行</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">--strict（厳密化）</div>
+          <div class="text">WARNも扱いを厳密にしやすい運用設計</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="Examples">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">10 / 16</div>
+
+      <div class="eyebrow">“通った”の意味が変わる</div>
+      <h1 class="title">単なるPASS→証明</h1>
+      <p class="lead">HEADでテストが通っても、ベースで既に通っていたなら「変更の必然性」が弱い＝証明になりません。trustbutはこの差を判定の中心に置きます。</p>
+
+      <div class="grid two" aria-label="pass-before or pass-after logic">
+        <div class="cell">
+          <div class="kicker">証明になる</div>
+          <div class="text mono">ベース：FAIL ／ HEAD：PASS</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">証明にならない</div>
+          <div class="text mono">ベース：PASS ／ HEAD：PASS</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="FAQ">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">11 / 16</div>
+
+      <div class="eyebrow">よくある疑問（要点）</div>
+      <h1 class="title">FAQ要約</h1>
+      <p class="lead">trustbutの主張は「外部送信なし・差分証拠・WARNは質の問題」と整理できます。測定結果はパイロットであり、過信せず段階導入するのが前提です。</p>
+
+      <div class="grid three" aria-label="FAQ grid">
+        <div class="cell">
+          <div class="kicker">Q1 送信しますか</div>
+          <div class="text">コアはローカルCLI（LLM/サーバ不要）</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">Q2 WARNの理由</div>
+          <div class="text">証明不足／スキップ等が疑わしい</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">Q5 信用度</div>
+          <div class="text">パイロット測定の示唆（最終確証ではない）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="Measured pilot">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">12 / 16</div>
+
+      <div class="eyebrow">導入判断のために</div>
+      <h1 class="title">暫定的な示唆</h1>
+      <p class="lead">trustbut-index のパイロットでは、201件の実運用PRで“明確に危険なスイート破壊”が常に多いわけではない一方、「変更が証明されていない」ケースが一定数見えた点が焦点です。</p>
+
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">観測</div>
+          <div class="text">スイート破壊は必ずしも頻発しない</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">焦点</div>
+          <div class="text">証明不足（WARN寄り）が一定数</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" role="region" aria-label="References">
+      <div class="slide-tag">references</div>
+      <div class="slide-num">13 / 16</div>
+
+      <div class="eyebrow">参考（Read & Verify）</div>
+      <h1 class="title">参照先</h1>
+      <p class="lead">本資料の記述は README中心で、詳細なアルゴリズムや追加の既知失敗例は文書外の情報（issue等）と併せて確認する前提で読むと安全です。</p>
+
+      <div class="refs">
+        <div class="mono">• trustbut / trustbut-index（README、公式ドキュメント）</div>
+        <div class="mono">• agent receipts v1（レシートの標準化に関する説明）</div>
+        <div class="mono">• Claude Code / Codex / Gemini CLI / OpenCode の hook統合（Stop hookの文脈）</div>
+        <div class="mono">• 関連する品質レイヤ系の独立検証の考え方（“LLM合否ではなく実行ベース”の一般論）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.morphllm.com/best-ai-coding-agents-2026" target="_blank" rel="noreferrer noopener">Best AI Coding Agents (September 2026): Scored Leaderboard and Coding Agent Benchmark</a></h2>
+<p class="reference-note">It scores agent plus model pairs on three benchmarks weighted equally: DeepSWE v1.1 (113 tasks), Terminal-Bench 4.0 (66 …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2602.08915v1" target="_blank" rel="noreferrer noopener">Comparing AI Coding Agents: A Task-Stratified Analysis of Pull Request Acceptance</a></h2>
+<p class="reference-note">Sensitivity Analysis: Aligned Time Windows.
+To address concerns about temporal comparability, we repeated our analysis u…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aiinqa.com/ai-in-qa-issue-24" target="_blank" rel="noreferrer noopener">AI in QA - Issue #24</a></h2>
+<p class="reference-note">passproof: Block Agent Claims of Passing Tests Without Runner Output  
+ AziizBg (GitHub)  
+ Tiny CLI hook that blocks co…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://momentic.ai/blog/quality-layer-for-ai-generated-code" target="_blank" rel="noreferrer noopener">What Is the Quality Layer for AI-Generated Code?</a></h2>
+<p class="reference-note">Anthropic warns that  Claude stops when the work looks done  unless it can run a check that returns pass or fail. An ind…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://futurumgroup.com/insights/why-ai-coding-agents-need-an-independent-review-layer-trust-not-output-is-the-bottleneck" target="_blank" rel="noreferrer noopener">Coding Agents Need Independent Review</a></h2>
+<p class="reference-note">The News: Qodo has published a technical and strategic case for separating AI code generation from AI code review ( &quot;Why…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
