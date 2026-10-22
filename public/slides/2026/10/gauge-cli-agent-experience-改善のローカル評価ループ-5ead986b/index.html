@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gauge CLI：Agent Experience 改善のローカル評価ループ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.55;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 8px;
+      inset: 0;
+      width: 100%;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 28px;
+      left: 32px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 12px;
+      height: 1px;
+      background: var(--rule-strong);
+      display:inline-block;
+      transform: translateY(0px);
+    }
+    .slide-num{
+      position:absolute;
+      top: 28px;
+      right: 32px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+    }
+    .title{
+      margin: 0 0 12px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      font-size: 72px;
+      line-height: 1.02;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .lead{
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin-top: 10px;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0 18px;
+      max-width: 900px;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 14px;
+      width: 100%;
+      margin-top: 16px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 14px;
+      border-radius: 8px;
+      min-height: 72px;
+    }
+    .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .v{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .jp{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 300;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      max-width: 900px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 450;
+      background: rgba(240, 232, 216, 0.06);
+      border: 1px solid rgba(240, 232, 216, 0.14);
+      padding: 2px 8px;
+      border-radius: 999px;
+      display:inline-block;
+      line-height: 1.6;
+    }
+    .nowrap{ white-space: nowrap; }
+    @media (max-width: 860px){
+      .slide{ padding: 42px 28px; }
+      .slide::before{ inset: 14px; }
+      .slide-tag{ left: 20px; top: 18px; }
+      .slide-num{ right: 20px; top: 18px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .card .v, .card .jp, .small, .mono{ font-size: 16px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">Gauge CLI</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">ローカルで測る</div>
+      <h1 class="title">Agent Experience <em>改善</em></h1>
+      <div class="lead">Gauge CLIは、AIコーディングエージェントがユーザーの製品で詰まる場所を“実行ベース”で特定し、修正→再テストで前進させる仕組みです。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">詰まりは見えない</div>
+      <h2 class="title"><em>失敗</em>が起きる</h2>
+      <div class="lead">AIエージェントの失敗は「なぜダメだったか」が人間のレビューだけでは追いにくく、仕様誤解・ツール選択ミス・古いAPI参照などとして後から表面化します。</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">症状</div>
+          <div class="v">コマンド詰まり／非推奨へ寄る</div>
+          <div class="jp">（Command stuck）</div>
+        </div>
+        <div class="card">
+          <div class="k">原因</div>
+          <div class="v">理解ズレ／道具選びミス／意図ワークフロー断絶</div>
+          <div class="jp">（Tool choice / Workflow break）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">登山の最適化</div>
+      <h2 class="title">Hillclimbing <em>ループ</em></h2>
+      <div class="lead">Gauge CLIは、テスト→分析→修正→再テストを短いサイクルで回し、“たまたま直った”ではなく詰まりの解消を確認します。</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">I</div>
+          <div class="v">Test（実行）</div>
+          <div class="jp">同条件でセッションを回す</div>
+        </div>
+        <div class="card">
+          <div class="k">II</div>
+          <div class="v">Evidence→Fix→Re-test</div>
+          <div class="jp">根拠を基に変更して検証</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">ローカルDockerで再現</div>
+      <h2 class="title">実行→分析 <em>一体</em></h2>
+      <div class="lead">Gauge CLIは固定されたDocker環境（runtimeをピン留め）で、エージェントがSkill/CLI/SDK/MCP/API/ドキュメント等を使う様子を実際に走らせます。</div>
+      <div class="grid3">
+        <div class="card">
+          <div class="k">入力</div>
+          <div class="v">ユーザー製品</div>
+          <div class="jp">Skill / CLI / SDK / MCP / Doc…</div>
+        </div>
+        <div class="card">
+          <div class="k">実行</div>
+          <div class="v">ローカルDocker</div>
+          <div class="jp">再現性を確保</div>
+        </div>
+        <div class="card">
+          <div class="k">出力</div>
+          <div class="v">Finding / Judgment</div>
+          <div class="jp">詰まりの根拠込み</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">ログではなく根拠</div>
+      <h2 class="title">Evidence <em>中心</em></h2>
+      <div class="lead">Gaugeが集めるのは単なるログではなく、成果だけでなく“詰まりが発生した根拠”をEvidenceとして整理し、Findingと判断に落とします。</div>
+      <div class="grid3">
+        <div class="card">
+          <div class="k">成果</div>
+          <div class="v">Success（達成）</div>
+          <div class="jp">タスク完了できるか</div>
+        </div>
+        <div class="card">
+          <div class="k">根拠</div>
+          <div class="v">Evidence（証拠）</div>
+          <div class="jp">どこで詰まったか</div>
+        </div>
+        <div class="card">
+          <div class="k">評価</div>
+          <div class="v">Finding / Judgment</div>
+          <div class="jp">改善の手がかり</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">Agent Experienceを分類</div>
+      <h2 class="title">詰まりの <em>カテゴリ</em></h2>
+      <div class="lead">コマンド詰まり・古いAPIへの依存・ツール選択ミス・制限の誤認・複数コマンドにまたがる意図ワークフローの不理解などを“よくある失敗”として捉えます。</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">例</div>
+          <div class="v">対話コマンドがブロックする</div>
+          <div class="jp">（Interaction loop）</div>
+        </div>
+        <div class="card">
+          <div class="k">例</div>
+          <div class="v">スキルが使われない／存在しない制限を断言</div>
+          <div class="jp">（Tool/Skill mismatch）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">テスト→修正→再検証</div>
+      <h2 class="title">介入の <em>検証</em></h2>
+      <div class="lead">修正は、エージェントが遭遇する要素（スキル内容・エラー文・ヘルプ・コード・ドキュメント等）に対して行い、関連ケースを再実行して改善を確認します。</div>
+      <div class="grid3">
+        <div class="card">
+          <div class="k">変更対象</div>
+          <div class="v">Skill / CLI / Doc</div>
+          <div class="jp">説明・制約・例</div>
+        </div>
+        <div class="card">
+          <div class="k">変更例</div>
+          <div class="v">誤った指示の修正</div>
+          <div class="jp">古いAPIパターンを更新</div>
+        </div>
+        <div class="card">
+          <div class="k">確認</div>
+          <div class="v">同条件で再テスト</div>
+          <div class="jp">詰まりが消えたか</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">ローカルとHosted</div>
+      <h2 class="title">運用は <em>分岐</em></h2>
+      <div class="lead">ローカルはPC側でDockerを回し、SQLiteベースで判断します。Hostedはマネージド実行で共有結果や自動分析が進みますが、境界条件もあります。</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">Local</div>
+          <div class="v">Docker + SQLite</div>
+          <div class="jp">ファイル証拠を扱う</div>
+        </div>
+        <div class="card">
+          <div class="k">Hosted</div>
+          <div class="v">共有・自動ジャッジ</div>
+          <div class="jp">セッション継続など</div>
+        </div>
+      </div>
+      <div class="small">例：保存済みeval/preferenceのdry-runなどがローカル限定といった差があるため、導入計画で前提を揃える必要があります。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">アカウント不要</div>
+      <h2 class="title">導入障壁 <em>低め</em></h2>
+      <div class="lead">ローカル実行はGaugeアカウント不要とされ、企業内環境やセキュリティ要件がある現場でも試しやすい設計です。</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">メリット</div>
+          <div class="v">まず社内で検証可能</div>
+          <div class="jp">（ローカルで完結）</div>
+        </div>
+        <div class="card">
+          <div class="k">注意</div>
+          <div class="v">Hostedは別途要件あり</div>
+          <div class="jp">workspace / クレジット等</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">イベント正規化</div>
+      <h2 class="title">再現比較の <em>基盤</em></h2>
+      <div class="lead">Claude Code、Codex、Pi、OpenCodeのイベントを正規化して分析に用いるため、同じ評価フレームで追跡しやすくなります。</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">対象</div>
+          <div class="v">Claude Code / Codex / Pi / OpenCode</div>
+          <div class="jp">（各イベント）</div>
+        </div>
+        <div class="card">
+          <div class="k">狙い</div>
+          <div class="v">共通フォーマットで追跡</div>
+          <div class="jp">（標準化）</div>
+        </div>
+      </div>
+      <div class="small">外部エージェントの細かな挙動差が完全にゼロになるわけではないため、解釈は実データも合わせて行うのが安全です。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">テレメトリ把握</div>
+      <h2 class="title">データ取り扱い <em>要確認</em></h2>
+      <div class="lead">デフォルトではテレメトリ収集がありますが、プロンプトやファイル内容などを除外する方針と無効化手段が示されています。</div>
+      <div class="grid3">
+        <div class="card">
+          <div class="k">収集</div>
+          <div class="v">コマンド名・時刻・CLIバージョン・乱数ID</div>
+          <div class="jp">メタデータ中心</div>
+        </div>
+        <div class="card">
+          <div class="k">除外</div>
+          <div class="v">引数／プロンプト／ファイル内容／識別子など</div>
+          <div class="jp">と説明</div>
+        </div>
+        <div class="card">
+          <div class="k">無効化</div>
+          <div class="v"><span class="mono">gauge telemetry disable</span></div>
+          <div class="jp"><span class="mono">GAUGE_TELEMETRY_DISABLED=1</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">期待値を揃えて導入</div>
+      <h2 class="title">まず前提を <em>確認</em></h2>
+      <div class="lead">Gauge CLIは、Agent Experienceの“詰まり”を根拠付きで見える化し、修正の因果を近づける評価ループとして有望です。導入前にローカル/Hosted差分・判断基準・テレメトリ方針を確認してテスト設計に落としてください。</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">確認①</div>
+          <div class="v">Local/Hostedの境界</div>
+          <div class="jp">できること・できないこと</div>
+        </div>
+        <div class="card">
+          <div class="k">確認②</div>
+          <div class="v">データ取り扱い</div>
+          <div class="jp">テレメトリ無効化と監査</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/gauge-sh/gauge-cli" target="_blank" rel="noreferrer noopener">GitHub - gauge-sh/gauge-cli: :dog: Home for the open-source Gauge CLI. Hillclimb your Skills, CLI, SDK, MCP, API, or Docs to make something agents want! · GitHub</a></h2>
+<p class="reference-note">## Quickstart
+
+Gauge is designed to be used by your coding agent. Point it at this repository and ask it to get started,…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://futureagi.com/blog/agent-cli-developer-experience-2026" target="_blank" rel="noreferrer noopener">Agent CLI Developer Experience 2026</a></h2>
+<p class="reference-note">``` [...] ``` [...] Four properties matter:</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.withgauge.com/agents/cli" target="_blank" rel="noreferrer noopener">Gauge | Agent-Led Growth | Gauge Agents CLI</a></h2>
+<p class="reference-note">## FAQs
+
+Yes. @withgauge/cli is the official npm package for Gauge Agents from withgauge.com. It installs the gauge comm…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=50170201" target="_blank" rel="noreferrer noopener">Show HN: Gauge CLI – Open-Source Hillclimbing for Agent Experience | Hacker News</a></h2>
+<p class="reference-note">Locally, the Gauge CLI uses Docker containers to run agent harnesses (you can bring your own subscriptions). It finds wh…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://zylos.ai/research/2026-02-21-ai-agent-cli-frameworks" target="_blank" rel="noreferrer noopener">AI Agent CLI Frameworks: Terminal-Native Agent Runtimes | Zylos Research</a></h2>
+<p class="reference-note">The 2026 Guide to Coding CLI Tools: 15 AI Agents Compared — Tembo
+ From IDE Helpers to CLI Agents — Medium
+ AI Coding To…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
