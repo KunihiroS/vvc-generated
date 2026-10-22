@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM協調で勝つ：会話がポケモン2v2に与える影響</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --cream:#14110d;
+      --paper:#1c1813;
+      --ink:#f0e8d8;
+      --ink-2:#d4ccbc;
+      --ink-3:#948b7c;
+      --ink-4:#645c50;
+      --rust:#e8814a;
+      --rust-deep:#c9683a;
+      --rule:rgba(240, 232, 216, 0.10);
+      --rule-strong:rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--cream);
+      color:var(--ink);
+      font-family:"Noto Serif JP", serif;
+    }
+    .deck{
+      width:min(1120px, calc(100vw - 48px));
+      margin:0 auto;
+      padding:24px 0 56px;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+    .slide{
+      width:100%;
+      aspect-ratio:16 / 9;
+      background:var(--paper);
+      border:1px solid rgba(240, 232, 216, 0.10);
+      box-shadow:0 24px 64px -24px rgba(0,0,0,0.6);
+      padding:56px 72px;
+      position:relative;
+      overflow:hidden;
+      inset:0;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      left:18px; right:18px; top:18px; bottom:18px;
+      border:1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:16px;
+    }
+    .slide-tag{
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      font-size:14px;
+      letter-spacing:0.18em;
+      color:var(--rust);
+      text-transform:uppercase;
+      padding-left:14px;
+      position:relative;
+      line-height:1.1;
+      margin-top:2px;
+      white-space:nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0; top:0.25em;
+      width:8px; height:10px;
+      border-left:2px solid var(--rust);
+      border-top:2px solid var(--rust);
+      border-bottom:2px solid transparent;
+      border-right:2px solid transparent;
+      transform:translateY(-1px);
+      opacity:0.95;
+    }
+    .slide-num{
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      color:var(--ink-2);
+      letter-spacing:0.02em;
+      font-size:18px;
+      white-space:nowrap;
+      margin-top:0px;
+      opacity:0.95;
+    }
+
+    .eyebrow{
+      margin-top:22px;
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      color:var(--rust);
+      font-size:22px;
+      line-height:1.15;
+    }
+    .title{
+      margin-top:6px;
+      font-size:64px;
+      line-height:1.0;
+      font-weight:500;
+      font-family:"Cormorant Garamond","Noto Serif JP",serif;
+      letter-spacing:0.01em;
+    }
+    .title .jp{
+      font-family:"Noto Serif JP",serif;
+      font-weight:600;
+      font-style:normal;
+      color:var(--ink);
+      font-size:54px;
+    }
+    .title .em{
+      color:var(--rust);
+      font-style:italic;
+      font-weight:500;
+      font-family:"Cormorant Garamond", serif;
+    }
+
+    .lead{
+      margin-top:18px;
+      font-size:22px;
+      line-height:1.55;
+      color:var(--ink);
+      max-width:760px;
+    }
+
+    .divider{
+      height:1px;
+      background:var(--rule);
+      margin:18px 0 0;
+    }
+
+    .grid{
+      margin-top:18px;
+      display:grid;
+      gap:14px;
+      width:100%;
+    }
+    .grid.two{grid-template-columns:1fr 1fr}
+    .grid.three{grid-template-columns:1fr 1fr 1fr}
+    .cell{
+      border:1px solid var(--rule);
+      padding:14px 14px;
+      background:rgba(0,0,0,0.06);
+      border-radius:10px;
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight:600;
+      font-size:13px;
+      letter-spacing:0.08em;
+      color:var(--ink-3);
+      text-transform:uppercase;
+    }
+    .cell .v{
+      margin-top:8px;
+      font-size:20px;
+      line-height:1.45;
+      color:var(--ink);
+      font-family:"Noto Serif JP", serif;
+      font-weight:400;
+    }
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:18px;
+      color:var(--ink-2);
+    }
+
+    .footer-note{
+      position:absolute;
+      left:72px; right:72px; bottom:34px;
+      display:flex;
+      justify-content:space-between;
+      gap:16px;
+      color:var(--ink-3);
+      font-size:14px;
+      opacity:0.9;
+      pointer-events:none;
+    }
+    .jp-gloss{
+      display:inline-block;
+      padding:2px 8px;
+      margin-left:10px;
+      border:1px solid var(--rule);
+      border-radius:999px;
+      color:var(--ink-3);
+      font-size:14px;
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing:0.02em;
+      background:rgba(0,0,0,0.06);
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover slide">
+      <div class="topbar">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="eyebrow">会話で協調が変わる？</div>
+      <div class="title"><span class="em">LLM</span>協調</div>
+      <div class="title" style="margin-top:-10px;"><span class="jp">ポケモン2v2</span>と自由会話</div>
+      <div class="lead">
+        Pokémon Showdownの2v2で、複数LLMが「会話（チームチャット）」をどれだけ使うと勝率が伸びるかを定量化する研究報告です。
+        <span class="jp-gloss">free talk（自由会話）</span>
+      </div>
+      <div class="footer-note">
+        <div>読み物：研究の要点を1メッセージ/1スライドで圧縮</div>
+        <div>統一16:9カード</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem slide">
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="eyebrow">2v2は“連携必須”</div>
+      <div class="title">同時行動</div>
+      <div class="lead">
+        ダブルバトル（2v2）は各側が2体を同時に動かすため、相方とターゲット分担や前提共有がないと不利になりやすいです。
+        さらに相手の型（セット）は隠れており、ダメージにはランダム性もあります。
+      </div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">難しさ</div>
+          <div class="v">相手型が隠れる / ランダム / 同時ターゲット</div>
+        </div>
+        <div class="cell">
+          <div class="k">評価したいこと</div>
+          <div class="v">会話で相方の誤りを修正し、意思決定を同期できるか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="architecture slide">
+      <div class="topbar">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="eyebrow">チームチャットの比較</div>
+      <div class="title">設計</div>
+      <div class="lead">
+        各ターン、エージェントは「英語平文の戦況要約」と「自分の合法手リスト」を読み、相方へ送るか送らないかを条件別に比較します。
+        <span class="jp-gloss">multi-agent（多エージェント）</span>
+      </div>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">送る/送らない</div>
+          <div class="v">戦況要約の共有有無</div>
+        </div>
+        <div class="cell">
+          <div class="k">制御方式</div>
+          <div class="v">別モデル同士 vs 単一モデルが2体制御</div>
+        </div>
+        <div class="cell">
+          <div class="k">比較軸</div>
+          <div class="v">勝率とコスト（トークン）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="evidence slide">
+      <div class="topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="eyebrow">勝率は“自由会話”が最大</div>
+      <div class="title">64%</div>
+      <div class="lead">
+        最大ダメージ志向ボットへの対戦で、自由会話は64%勝ち、無会話は42%に落ちました。
+        <span class="jp-gloss">win rate（勝率）</span>
+      </div>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">自由会話</div>
+          <div class="v"><span class="mono">64%</span>（最高）</div>
+        </div>
+        <div class="cell">
+          <div class="k">無会話</div>
+          <div class="v"><span class="mono">42%</span>（最低）</div>
+        </div>
+        <div class="cell">
+          <div class="k">中間（往復）</div>
+          <div class="v"><span class="mono">52%</span>（1メッセージずつ）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="distinction slide">
+      <div class="topbar">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="eyebrow">“少し話す”だけでも効く</div>
+      <div class="title">52%</div>
+      <div class="lead">
+        自由会話ほどではないものの、「1メッセージずつ」でも52%で無会話（42%）を上回ります。
+        協調には大量の会話が必須というより、最小共有が価値を持つ可能性があります。
+      </div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">無会話</div>
+          <div class="v">前提・修正が同期しにくい</div>
+        </div>
+        <div class="cell">
+          <div class="k">1メッセージ往復</div>
+          <div class="v">目標/前提/修正の“短い合意”が可能</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="comparison slide">
+      <div class="topbar">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="eyebrow">単一モデル2体制御は上がる</div>
+      <div class="title">54%</div>
+      <div class="lead">
+        2体を1つのモデルが同時に制御する方式でも54%と改善します。
+        ただし、別モデル同士が自由会話する64%には届きません。
+      </div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">単一モデル制御</div>
+          <div class="v"><span class="mono">54%</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">自由会話（別モデル）</div>
+          <div class="v"><span class="mono">64%</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="metaphor slide">
+      <div class="topbar">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="eyebrow">“頭脳統合”だけでは足りない</div>
+      <div class="title">相互検証</div>
+      <div class="lead">
+        改善の主因は「1人で両方を計画」ではなく、会話を通じた相互理解・誤り修正・意思決定の整合だと推測されています。
+        <span class="jp-gloss">mutual verification（相互検証）</span>
+      </div>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">会話あり</div>
+          <div class="v">前提ミスを“指摘→修正→同期”</div>
+        </div>
+        <div class="cell">
+          <div class="k">会話なし</div>
+          <div class="v">見落としが残り、分担がズレる</div>
+        </div>
+        <div class="cell">
+          <div class="k">単一統合</div>
+          <div class="v">内部では整うが“相方観点”が検証しにくい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="process slide">
+      <div class="topbar">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="eyebrow">コストは自由会話が重い</div>
+      <div class="title">978k</div>
+      <div class="lead">
+        自由会話は1戦あたり必要なプロンプトトークン数が増え、無会話より約3.8倍高い（978k vs 259k）です。
+        勝率だけでなく計算資源とのトレードオフが論点になります。
+      </div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">自由会話</div>
+          <div class="v"><span class="mono">978k</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">無会話</div>
+          <div class="v"><span class="mono">259k</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="enumeration slide">
+      <div class="topbar">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="eyebrow">モデル差を測れるか</div>
+      <div class="title">目盛り</div>
+      <div class="lead">
+        相手モデル規模が大きいほど勝率が近づく傾向（2B:96%、9B:74%）が確認され、ベンチマークとしての利用可能性が示唆されます。
+        <span class="jp-gloss">benchmark（ベンチマーク）</span>
+      </div>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">相手 2B</div>
+          <div class="v"><span class="mono">96%</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">相手 9B</div>
+          <div class="v"><span class="mono">74%</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">最大ダメージボット</div>
+          <div class="v"><span class="mono">64%</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="evidence slide">
+      <div class="topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="eyebrow">ログ例：相性ミスの修正</div>
+      <div class="title">前提の修正</div>
+      <div class="lead">
+        提示されたターンでは、相手のタイプ相性の誤りが会話で修正され、その後の行動が固まっていく様子が示されています。
+        会話は“命令”より“整合させる器”として働いている可能性があります。
+      </div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">起きること</div>
+          <div class="v">相性推定の誤り → 修正 → ターゲット分担</div>
+        </div>
+        <div class="cell">
+          <div class="k">意味</div>
+          <div class="v">協調性能が“話すことで上がる”説明に合う</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="distinction slide">
+      <div class="topbar">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="eyebrow">今は因果が混ざってる</div>
+      <div class="title">切り分け</div>
+      <div class="lead">
+        勝率差の原因が「会話そのもの」か「推論回数増加（コスト増）」かは、厳密には分離できていません。
+        次段階で“会話の効果”と“相方の選択を見たことの効果”を分ける計画があります。
+      </div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">必要な分解</div>
+          <div class="v">会話 vs 観測（共有された手/前提）</div>
+        </div>
+        <div class="cell">
+          <div class="k">必要な追加</div>
+          <div class="v">推論回数増の副作用を制御する比較</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="process slide">
+      <div class="topbar">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="eyebrow">今後の道筋</div>
+      <div class="title">RL・リーダーボード</div>
+      <div class="lead">
+        リーダーボード化やRL学習で協調行動を促進する計画が述べられています。
+        ただし学習が進むほど勝ち筋の模倣に寄りやすく、協調の本質（相互検証・合意・分担）を目標に組み込む必要があります。
+      </div>
+      <div class="divider"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">次の計測</div>
+          <div class="v">ターゲット分担/誤り修正の頻度</div>
+        </div>
+        <div class="cell">
+          <div class="k">次の設計</div>
+          <div class="v">リーダーボード化</div>
+        </div>
+        <div class="cell">
+          <div class="k">次の学習</div>
+          <div class="v">RL（強化学習）で協調目標を最適化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide" aria-label="comparison slide">
+      <div class="topbar">
+        <div class="slide-tag">Opinion</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="eyebrow">読みどころ：説得力と限界</div>
+      <div class="title">強み/課題</div>
+      <div class="lead">
+        強みは、協調を「タスク配管」ではなく会話による合意形成として扱い、同一条件で比較している点です。
+        一方で試合数・信頼区間など統計情報がなく、会話が何を改善したかの定量解析が未提示です。
+      </div>
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">勝率×条件固定で再現性/比較可能性</div>
+        </div>
+        <div class="cell">
+          <div class="k">限界</div>
+          <div class="v">統計の明示不足 / 要因（何が効いたか）の分解不足</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 14 -->
+    <section class="slide" aria-label="closing slide">
+      <div class="topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="eyebrow">要点まとめ：1行で</div>
+      <div class="title">会話が勝つ</div>
+      <div class="lead">
+        自由会話は勝率を大きく押し上げる（64% vs 42%）一方、トークンコストも増える（978k vs 259k）ため、性能と計算資源の両立設計が次の焦点です。
+      </div>
+
+      <div class="divider"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">関連観点</div>
+          <div class="v">
+            vLLMのKVキャッシュ領域見積り（推論コスト・速度とトークン/ループ設計の関係）
+          </div>
+        </div>
+        <div class="cell">
+          <div class="k">関連研究の方向</div>
+          <div class="v">
+            協調MARL / 推論時の議論・検証 / ベンチマークから学習へ（AAAI・arXiv系の文脈）
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <div>※本スライドはユーザー提示文の要約であり、厳密な書誌情報（著者・年）は未確定です</div>
+        <div>—</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/Qwen3.8-27B.html" target="_blank" rel="noreferrer noopener">Qwen3.8-27B - vLLM Ascend</a></h2>
+<p class="reference-note">&quot;The future of AI is a rapidly evolving landscape with breakthroughs in natural language understanding, multimodal reaso…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://ojs.aaai.org/index.php/AAAI/article/view/40487/44448" target="_blank" rel="noreferrer noopener">LLM Collaboration with Multi-Agent Reinforcement Learning</a></h2>
+<p class="reference-note">There has been some recent work on coordinating multi-ple LLMs. Some approaches implement coordination at the inference …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2508.04652v3" target="_blank" rel="noreferrer noopener">LLM Collaboration with Multi-Agent Reinforcement Learning</a></h2>
+<p class="reference-note">There has been some recent work on coordinating multiple LLMs. Some approaches implement coordination at the inference s…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://proceedings.iclr.cc/paper_files/paper/2026/file/f3da4165893c2465fd7e8df453c41ffa-Paper-Conference.pdf" target="_blank" rel="noreferrer noopener">STRONGER-MAS: MULTI-AGENT REINFORCEMENT ...</a></h2>
+<p class="reference-note">14 Published as a conference paper at ICLR 2026 A EXTENDED COMPARISON OF RL TRAINING FOR LLM-BASED MAS To complement the…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tyk.io/learning-center/ai-agent-frameworks-a-developers-guide-to-production" target="_blank" rel="noreferrer noopener">AI Agent Frameworks: A Guide to Production</a></h2>
+<p class="reference-note">LLM token costs: How efficient is the framework’s reasoning loop? Verbose internal monologues or chatty multi-agent syst…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
