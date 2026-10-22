@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>攻撃対象領域削減—到達可能性で未知リスクも下げる</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 16px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      border-radius: 0px;
+      position: relative;
+      overflow: hidden;
+      border-style: inset;
+      border-width: 20px;
+      border-color: var(--rule);
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      border: 1px solid rgba(240,232,216,0.06);
+    }
+
+    .slideTopRule{
+      position:absolute;
+      left: 56px;
+      right: 72px;
+      top: 38px;
+      height: 1px;
+      background: var(--rule);
+    }
+    .slideTag{
+      position:absolute;
+      top: 28px;
+      left: 56px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 0;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .slideTag::before{
+      content:"";
+      width: 10px;
+      height: 10px;
+      border-top: 2px solid var(--rust);
+      border-left: 2px solid var(--rust);
+      transform: rotate(45deg);
+      margin-right: 6px;
+    }
+    .slideNum{
+      position:absolute;
+      top: 24px;
+      right: 72px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: 0.95;
+      font-size: 22px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+      letter-spacing: 0.01em;
+    }
+    .titleRow{
+      display:flex;
+      gap: 14px;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 0.95;
+      margin: 0;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.35;
+      margin-top: 10px;
+    }
+
+    .grid2, .grid3{
+      width: 100%;
+      border-top: 1px solid var(--rule);
+      margin-top: 18px;
+      padding-top: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      background: rgba(28,24,19,0.35);
+      min-height: 84px;
+    }
+    .cellLabel{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cellText{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+    .small{
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .refs{
+      margin-top: 16px;
+      border-top: 1px solid var(--rule);
+      padding-top: 16px;
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .refItem{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      background: rgba(28,24,19,0.35);
+    }
+    .refTitle{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--ink-2);
+      margin-bottom: 6px;
+    }
+    .refDesc{
+      font-family:"Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    @media (max-width: 720px){
+      .slide{
+        padding: 44px 22px;
+        border-width: 12px;
+      }
+      .slideTag{ left: 22px; }
+      .slideNum{ right: 22px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; max-width: none; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="slideTag">COVER</div>
+      <div class="slideNum">01 / 12</div>
+      <div class="eyebrow">攻撃面を狭める</div>
+      <div class="titleRow">
+        <h1 class="title"><em>到達</em>で守る</h1>
+      </div>
+      <div class="lead">Claude（大規模言語モデル）を用いて、コードの「攻撃対象領域」を自動分析し、到達可能性を下げることで未知の脆弱性リスクも低減する発想をまとめます。</div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">PROBLEM</div>
+      <div class="slideNum">02 / 12</div>
+      <div class="eyebrow">未知は残る</div>
+      <div class="titleRow">
+        <h1 class="title">直しても<span style="color:var(--rust)"><em>終わらない</em></span></h1>
+      </div>
+      <div class="lead">既知の脆弱性を個別に修正しても、攻撃経路や設定の組み合わせは無数に増え続けます。結果として「まだ見つかっていない問題」が被害に直結し得ます。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="cellLabel">Key idea</div>
+          <div class="cellText">未発見＝存在しない、ではない</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">Defense gap</div>
+          <div class="cellText">修正だけではスケールしない</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">METAPHOR</div>
+      <div class="slideNum">03 / 12</div>
+      <div class="eyebrow">ゲート設計</div>
+      <div class="titleRow">
+        <h1 class="title">攻撃者の道を<span style="color:var(--rust)"><em>短く</em></span></h1>
+      </div>
+      <div class="lead">脆弱性そのものをゼロにできなくても、攻撃者が到達できるコードや機能の範囲を小さくすれば、悪用の確率と深刻さを同時に下げられます。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="cellLabel">入口</div>
+          <div class="cellText">認証前 / 状態遷移前の処理</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">経路</div>
+          <div class="cellText">デフォルトで到達できるが未使用のコード</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">分岐</div>
+          <div class="cellText">設定相互作用で安全が静かに崩れる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">ARCHITECTURE</div>
+      <div class="slideNum">04 / 12</div>
+      <div class="eyebrow">何を探す？</div>
+      <div class="titleRow">
+        <h1 class="title">3つの<span style="color:var(--rust)"><em>類型</em></span></h1>
+      </div>
+      <div class="lead">攻撃対象領域を「到達可能性」というレンズで分解し、分析軸を3つに整理して探索します。LLMが何を根拠に疑うかが明確になります。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="cellLabel">①デフォルト</div>
+          <div class="cellText">到達できるが、本来使われないコード</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">②相互作用</div>
+          <div class="cellText">設定の組み合わせで制御が無効化</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">③早期到達</div>
+          <div class="cellText">認証前・プロトコル状態遷移前の実行</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">EVIDENCE</div>
+      <div class="slideNum">05 / 12</div>
+      <div class="eyebrow">規模の主張</div>
+      <div class="titleRow">
+        <h1 class="title">25プロジェクト<span style="color:var(--rust)"><em>500万行</em></span></h1>
+      </div>
+      <div class="lead">研究では、25のオープンソースプロジェクト（合計500万行超）に対して、Claudeが攻撃対象領域を縮小する観点で到達可能性を調べたと報告されています。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="cellLabel">発見数</div>
+          <div class="cellText"><span class="mono">493件</span>の「問題」</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">狙い</div>
+          <div class="cellText">未知も含めた被害の深刻さを下げる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">DISTINCTION</div>
+      <div class="slideNum">06 / 12</div>
+      <div class="eyebrow">ゲート型でも漏れる</div>
+      <div class="titleRow">
+        <h1 class="title">「認証がある」でも<span style="color:var(--rust)"><em>安心</em></span>できない</h1>
+      </div>
+      <div class="lead">ゲート型（認証後に機能提供する前提）のプロジェクトでも、認証前に不要な到達が多数見つかったとされます。直感が崩れる点が実務的に重要です。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="cellLabel">示唆</div>
+          <div class="cellText">状態記録・分岐・迂回（設定/経路）を再定義</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">確認観点</div>
+          <div class="cellText">認証前に「何が実行されるか」を優先監査</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">DISTINCTION</div>
+      <div class="slideNum">07 / 12</div>
+      <div class="eyebrow">相互作用は静か</div>
+      <div class="titleRow">
+        <h1 class="title">エラーも警告もなく<span style="color:var(--rust)"><em>崩れる</em></span></h1>
+      </div>
+      <div class="lead">設定相互作用では、エラーや警告が出ず、ドキュメントにも期待挙動が明記されないまま、セキュリティ制御が無効化され得る組み合わせが多数あったと述べられています。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="cellLabel">原因</div>
+          <div class="cellText">前提の組み合わせが互いを壊す</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">観測</div>
+          <div class="cellText">失敗が「静か」に起きる</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">対策</div>
+          <div class="cellText">組み合わせ拒否 / 順序依存排除</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">EVIDENCE</div>
+      <div class="slideNum">08 / 12</div>
+      <div class="eyebrow">実例：OpenSSH</div>
+      <div class="titleRow">
+        <h1 class="title">チェック順序で<span style="color:var(--rust)"><em>到達が激減</em></span></h1>
+      </div>
+      <div class="lead">OpenSSHでは、デフォルト構成でも到達可能だった実験的署名処理（ML-DSA-44）が、設定チェックの前に実行されてしまう問題が修正されたとされます。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="cellLabel">起点</div>
+          <div class="cellText">設定チェック前に処理が走る</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">効果</div>
+          <div class="cellText">到達可能コードを大きく削減（~4,500行）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">PROCESS</div>
+      <div class="slideNum">09 / 12</div>
+      <div class="eyebrow">提案→裏取り</div>
+      <div class="titleRow">
+        <h1 class="title">検知は仮説、<span style="color:var(--rust)"><em>検証</em></span>が鍵</h1>
+      </div>
+      <div class="lead">各指摘は動的トレースで裏取りし、デフォルト挙動を変えないためにテスト（回帰試験等）で同一性を要求する方針が含まれます。</div>
+      <div class="grid3">
+        <div class="cell">
+          <div class="cellLabel">i. 検知</div>
+          <div class="cellText">LLMが到達経路を候補化</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">ii. 反証/確認</div>
+          <div class="cellText">動的トレースで到達を確認</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">iii. 保護</div>
+          <div class="cellText">回帰テストでデフォルト同一性</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">COMPARISON</div>
+      <div class="slideNum">10 / 12</div>
+      <div class="eyebrow">修正と違う</div>
+      <div class="titleRow">
+        <h1 class="title">「脆弱性修正」より<span style="color:var(--rust)"><em>到達縮小</em></span></h1>
+      </div>
+      <div class="lead">このアプローチは、特定のCVEを潰すだけでなく、攻撃者が“そこに行けるか”を変えることで、複数のリスクを同時に減らす狙いです。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="cellLabel">従来</div>
+          <div class="cellText">脆弱性ごとに修正（未知は後回しになりがち）</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">本方針</div>
+          <div class="cellText">到達可能性を下げる（未知でも悪用されにくくする）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">DISTINCTION</div>
+      <div class="slideNum">11 / 12</div>
+      <div class="eyebrow">限界もある</div>
+      <div class="titleRow">
+        <h1 class="title">万能ではない<span style="color:var(--rust)"><em>前提</em></span></h1>
+      </div>
+      <div class="lead">誤検出率、見逃し、修正後に攻撃者の実用的到達が本当に減るか、導入コストやテストのカバー範囲は追加情報が必要です。さらにゲート設計は性能・互換性・運用負荷も生み得ます。</div>
+      <div class="grid2">
+        <div class="cell">
+          <div class="cellLabel">品質</div>
+          <div class="cellText">評価設計・失敗例・精度指標が不明</div>
+        </div>
+        <div class="cell">
+          <div class="cellLabel">運用</div>
+          <div class="cellText">性能/互換性/設定理解のコスト</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slideTag">CLOSING</div>
+      <div class="slideNum">12 / 12</div>
+      <div class="eyebrow">まとめ</div>
+      <div class="titleRow">
+        <h1 class="title">到達を減らし<span style="color:var(--rust)"><em>検証可能に</em></span></h1>
+      </div>
+      <div class="lead">攻撃対象領域の縮小（到達可能性のゲーティング）を、検知→裏取り（動的トレース）→回帰テストへ落とし込むことで、実装プロセスに組み込みやすい防御戦略になり得ます。</div>
+      <div class="refs">
+        <div class="refItem">
+          <div class="refTitle">Checklist（導入の勘所）</div>
+          <div class="refDesc">
+            <span class="mono">検知 → 提案 → 動的トレース裏取り → 回帰テスト → 安全性再検証</span> を人が理解し、受け入れ基準を定める。
+            <span style="display:inline-block; margin-left:10px; font-size:0.95em; color:var(--ink-2);">（検証可能性＝black box回避）</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cellcog.ai/blog/anthropic-attack-surface-reduction" target="_blank" rel="noreferrer noopener">Claude Cut OpenSSH&#39;s Attack Surface: Anthropic&#39;s Method | CellCog</a></h2>
+<p class="reference-note">| Release | Date | What changed |
+ --- 
+| 10.4 | Before the report | ML-DSA parsing reachable before the configuration c…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.openssh.org/releasenotes.html" target="_blank" rel="noreferrer noopener">OpenSSH: Release Notes</a></h2>
+<p class="reference-note">OpenSSH 10.5 was released on 2026-08-11. It is available from the mirrors listed at  OpenSSH is a 100% complete SSH prot…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aiweekly.co/alerts/anthropics-claude-surfaces-493-issues-in-25-oss-projects" target="_blank" rel="noreferrer noopener">Anthropic&#39;s Claude Surfaces 493 Issues in 25 OSS Projects | AI Weekly</a></h2>
+<p class="reference-note">## TL;DR
+
+ Anthropic&#39;s Frontier Red Team ran Claude across 25 open-source projects totaling over five million lines of C…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://linuxsecurity.com/news/security-projects/anthropic-ai-vulnerability-scanner-open-source" target="_blank" rel="noreferrer noopener">Anthropic OSS Scanner AI Code Vulnerability Announcement</a></h2>
+<p class="reference-note">Open-source maintainers can now apply for free security scans from Anthropic.
+
+Announced on Oct 8, 2026, OSS Scanner is …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://unit42.paloaltonetworks.com/rce-vulnerabilities-in-ai-python-libraries" target="_blank" rel="noreferrer noopener">Remote Code Execution With Modern AI/ML Formats and Libraries</a></h2>
+<p class="reference-note">Salesforce has acknowledged this issue, released a CVE record CVE-2026-22584, rated High severity, and issued a fix on J…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
