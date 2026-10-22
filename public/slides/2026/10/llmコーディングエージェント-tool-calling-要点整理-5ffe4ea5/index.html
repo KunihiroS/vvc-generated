@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLMコーディングエージェント（tool calling）要点整理</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.12);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
+      padding: 20px;
+      border-style: solid;
+      border-color: var(--rule);
+    }
+    .frame{
+      height: 100%;
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      padding: 36px 36px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 14px;
+      position: relative;
+      line-height: 1.1;
+      margin-top: 4px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 3px;
+      bottom: 3px;
+      width: 4px;
+      background: rgba(232, 129, 74, 0.85);
+      border-radius: 6px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      opacity: 0.95;
+      white-space: nowrap;
+      padding-top: 2px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.98;
+      margin-top: -2px;
+      margin-bottom: 4px;
+      letter-spacing: 0.01em;
+    }
+    .title .em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 2px;
+      white-space: pre-wrap;
+    }
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin-top: 10px;
+      margin-bottom: 6px;
+    }
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+      margin-top: 6px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.02);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .footnote{
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.35;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    .jp{
+      font-size: 20px;
+      color: var(--ink);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+    @media (max-width: 720px){
+      .frame{ padding: 26px 20px 18px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .slide{ border-radius: 14px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide" aria-label="Cover">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Overview</div>
+          <div class="slide-num">02 / 17</div>
+        </div>
+        <div class="eyebrow">最小実装の設計思想</div>
+        <div class="title">LLM<span class="em">×</span>ツール呼び出し</div>
+        <div class="lead">
+          LLMを「コーディングエージェント」として動かす要点を、Python 1ファイルの最小構成に沿って整理する。
+          往復ループ（モデル⇄ツール実行）と、安全のための失敗設計が中心。
+        </div>
+        <div class="footnote">Bilingual（用語）: coding agent（コーディングエージェント） / tool calling（ツール呼び出し）</div>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide" aria-label="Problem framing">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 17</div>
+        </div>
+        <div class="eyebrow">口だけだと無理</div>
+        <div class="title">“実行”が要る</div>
+        <div class="lead">
+          ただ質問するだけのチャットでは、調査・編集・テスト実行まで完結できない。
+          そこで「ツールを呼んで結果を返す」仕組みが必要になる。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">モデル側</div>
+            <div class="v">ツール呼び出し要求（指示）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ホスト側</div>
+            <div class="v">実処理（ファイル/コマンド）＋結果返却</div>
+          </div>
+        </div>
+        <div class="footnote">Key idea: モデルは直接PC処理をしない（分離でデバッグ容易）。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3: architecture -->
+    <section class="slide" aria-label="Core architecture">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">04 / 17</div>
+        </div>
+        <div class="eyebrow">1ターン=1往復</div>
+        <div class="title">ツールループ</div>
+        <div class="lead">
+          各ステップは「HTTPリクエスト1回」。モデルの応答にtool callがあれば、ホストが該当関数を実行して会話に追記し、再度APIへ投げる。
+        </div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">会話入力 → モデル応答</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">tool call 判定</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">実行結果を tool/role で返す</div>
+          </div>
+        </div>
+        <div class="footnote">tool_call_idが欠けると次のAPIリクエストが拒否される（ループ継続性に直結）。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4: evidence -->
+    <section class="slide" aria-label="Example evidence">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">05 / 17</div>
+        </div>
+        <div class="eyebrow">FizzBuzz修正</div>
+        <div class="title">読む→直す→確かめる</div>
+        <div class="lead">
+          例としてFizzbuzzのバグ（range上限の取り違え）を、read_file→テスト実行→edit_file→再テストで直す流れを示している。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">観察</div>
+            <div class="v">read_file（コード確認）</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証</div>
+            <div class="v">run bash（tests実行）</div>
+          </div>
+          <div class="cell">
+            <div class="k">修正</div>
+            <div class="v">edit_file（old→new置換）</div>
+          </div>
+          <div class="cell">
+            <div class="k">再検証</div>
+            <div class="v">テスト再実行</div>
+          </div>
+        </div>
+        <div class="footnote">失敗時はエラー内容を会話に返し、モデルが次の手を考え直せる。</div>
+      </div>
+    </section>
+
+    <!-- Slide 5: distinction -->
+    <section class="slide" aria-label="Edit safety design">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">06 / 17</div>
+        </div>
+        <div class="eyebrow">曖昧を拒否</div>
+        <div class="title">edit_fileの要件</div>
+        <div class="lead">
+          edit_fileは「oldがファイル内にちょうど1回存在」を要求する。diffの見た目合わせより安全に“誤編集”を抑える。
+        </div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">条件</div>
+            <div class="v">oldが完全一致</div>
+          </div>
+          <div class="cell">
+            <div class="k">条件</div>
+            <div class="v">出現回数=1</div>
+          </div>
+          <div class="cell">
+            <div class="k">方針</div>
+            <div class="v">曖昧なら失敗→やり直し</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: diff（差分） / exact-match（完全一致）</div>
+      </div>
+    </section>
+
+    <!-- Slide 6: process -->
+    <section class="slide" aria-label="Failure handling">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">07 / 17</div>
+        </div>
+        <div class="eyebrow">失敗を材料に</div>
+        <div class="title">ツール失敗の返し方</div>
+        <div class="lead">
+          run_toolは例外を捕捉し、エラー文字列を会話メッセージとして返す。モデルは“失敗理由”を読んで次の探索や修正に移れる。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">例</div>
+            <div class="v">tests/がない → 実行失敗</div>
+          </div>
+          <div class="cell">
+            <div class="k">対処</div>
+            <div class="v">探索の起点を（.）に切替</div>
+          </div>
+        </div>
+        <div class="footnote">プロンプトに“頑張れ”ではなく、観測（Observe）を返す設計。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7: architecture -->
+    <section class="slide" aria-label="Safety mechanisms">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Safety</div>
+          <div class="slide-num">08 / 17</div>
+        </div>
+        <div class="eyebrow">制限と確認</div>
+        <div class="title">安全策の要点</div>
+        <div class="lead">
+          safe_pathでワークスペース外のファイルアクセスを拒否し、書き込みやbash実行には確認プロンプトを挟む。
+          ただし“最小限”であり万能ではない。
+        </div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">ファイル</div>
+            <div class="v">safe_path（外部拒否）</div>
+          </div>
+          <div class="cell">
+            <div class="k">操作</div>
+            <div class="v">write/editは確認</div>
+          </div>
+          <div class="cell">
+            <div class="k">実行</div>
+            <div class="v">bashは確認（--yesで無効化）</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: sandbox（隔離環境）/ confirmation（確認）</div>
+      </div>
+    </section>
+
+    <!-- Slide 8: distinction -->
+    <section class="slide" aria-label="Tool design importance">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">09 / 17</div>
+        </div>
+        <div class="eyebrow">モデルより設計</div>
+        <div class="title">鍵はツール設計</div>
+        <div class="lead">
+          信頼性を支えるのは“賢いプロンプト”ではなく、ツール側の堅牢性（曖昧編集の拒否、失敗の返却、安全なパス制限、確認）である。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">信頼性</div>
+            <div class="v">edit_fileの厳格ルール</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用</div>
+            <div class="v">失敗を会話へ注入</div>
+          </div>
+          <div class="cell">
+            <div class="k">安全</div>
+            <div class="v">safe_path + 確認プロンプト</div>
+          </div>
+          <div class="cell">
+            <div class="k">継続</div>
+            <div class="v">tool_call_idの整合</div>
+          </div>
+        </div>
+        <div class="footnote">“デモ”で終わらないための最小条件がここにある。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9: comparison -->
+    <section class="slide" aria-label="Gated vs --yes">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">10 / 17</div>
+        </div>
+        <div class="eyebrow">--yesは危険</div>
+        <div class="title">GATEDと誤運用</div>
+        <div class="lead">
+          確認（GATED）があることで事故を抑えるが、--yesで省略すると書き込みやbash実行の抑止が弱くなる。
+          bashはホスト権限で動くため、誤指示の被害が直撃する。
+        </div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">通常</div>
+            <div class="v">確認あり（止められる）</div>
+          </div>
+          <div class="cell">
+            <div class="k">--yes</div>
+            <div class="v">確認が省略</div>
+          </div>
+          <div class="cell">
+            <div class="k">結果</div>
+            <div class="v">危険度が上がる（特にbash）</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: risk（リスク） / hazard（危険）</div>
+      </div>
+    </section>
+
+    <!-- Slide 10: enumeration -->
+    <section class="slide" aria-label="Missing production features">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Limits</div>
+          <div class="slide-num">11 / 17</div>
+        </div>
+        <div class="eyebrow">本番未対応</div>
+        <div class="title">未実装の“運用部品”</div>
+        <div class="lead">
+          教育用の最小構成であり、本番に必要な要素（ストリーミング、リトライ、永続セッション、割り込みCtrl-C、権限制御の詳細など）は未実装。
+        </div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">実行体験</div>
+            <div class="v">ストリーミングなし</div>
+          </div>
+          <div class="cell">
+            <div class="k">耐障害</div>
+            <div class="v">リトライ/中断処理不足</div>
+          </div>
+          <div class="cell">
+            <div class="k">安全運用</div>
+            <div class="v">セッション/権限の統制が薄い</div>
+          </div>
+        </div>
+        <div class="footnote">結論: “仕組み理解”には強いが、“安全に委任”する完成品ではない。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11: process -->
+    <section class="slide" aria-label="Web tools dependencies">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Web</div>
+          <div class="slide-num">12 / 17</div>
+        </div>
+        <div class="eyebrow">外部情報の注意</div>
+        <div class="title">web_search/fetch_url</div>
+        <div class="lead">
+          web機能はddgs依存で検索結果が空になることがあるためリトライする。
+          fetch_urlはHTMLを雑に整形してテキスト抽出し、長さや非テキストを制限する前提になっている。
+        </div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k">依存</div>
+            <div class="v">ddgs（検索）</div>
+          </div>
+          <div class="cell">
+            <div class="k">挙動</div>
+            <div class="v">空結果 → リトライ</div>
+          </div>
+          <div class="cell">
+            <div class="k">制限</div>
+            <div class="v">ページ長/非テキスト拒否</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">文脈消費と誤混入を抑える</div>
+          </div>
+        </div>
+        <div class="footnote">Bilingual: context（文脈）/ leakage（漏洩）</div>
+      </div>
+    </section>
+
+    <!-- Slide 12: closing -->
+    <section class="slide" aria-label="Takeaway">
+      <div class="frame">
+        <div class="topline">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 17</div>
+        </div>
+        <div class="eyebrow">再現するなら</div>
+        <div class="title">ツール×失敗設計</div>
+        <div class="lead">
+          この教材の本質は、モデルの“知能”より、ツール呼び出しループと失敗の扱い（曖昧拒否・エラー返却・safe_path・確認）にある。
+          学習後に流用するなら、監査ログ・差分プレビュー・権限分離・強いサンドボックスを足してから判断すべきだ。
+        </div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k">学ぶ</div>
+            <div class="v">ループの最小構造</div>
+          </div>
+          <div class="cell">
+            <div class="k">守る</div>
+            <div class="v">安全は“運用”で効く</div>
+          </div>
+          <div class="cell">
+            <div class="k">足す</div>
+            <div class="v">本番用のガードレール</div>
+          </div>
+        </div>
+        <div class="footnote">Referencesは次のスライド不要（このデッキは要点圧縮のみ）。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://sidbharath.com/blog/build-a-coding-agent-python-tutorial" target="_blank" rel="noreferrer noopener">Build a Coding Agent in Python: Step-by-Step Tutorial</a></h2>
+<p class="reference-note">Each phase builds on the previous one, and you’ll have working software at every step.
+
+## Phase 1: Minimum Viable Agent…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/ghuntley/how-to-build-a-coding-agent" target="_blank" rel="noreferrer noopener">GitHub - ghuntley/how-to-build-a-coding-agent: A workshop that teaches you how to build your own coding agent. Similar to Roo code, Cline, Amp, Cursor, Windsurf or OpenCode. · GitHub</a></h2>
+<p class="reference-note">| Name | | Name | Last commit message | Last commit date |
+ ---  --- 
+| prompts | | prompts |  |  |
+| .envrc | | .envrc …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/ag2ai/ag2/blob/main/README.md" target="_blank" rel="noreferrer noopener">ag2/README.md at main · ag2ai/ag2 · GitHub</a></h2>
+<p class="reference-note">### Tools
+
+Agents gain significant utility through tools, which extend their capabilities with external data, APIs, or f…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://alicelabs.ai/en/insights/best-ai-agent-frameworks-2026" target="_blank" rel="noreferrer noopener">Best AI Agent Frameworks 2026: Alice Labs Top 10 Ranked</a></h2>
+<p class="reference-note">An AI agent framework is a software library that provides primitives for building LLM-powered agents: tool calling, mult…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.chainguard.dev/unchained/this-shit-is-hard-the-complexities-of-fixing-python-library-security-issues-at-scale" target="_blank" rel="noreferrer noopener">This Shit is Hard: The complexities of fixing Python library security issues at scale</a></h2>
+<p class="reference-note">It is really, really, easy to prompt an AI to “take this patch file and backport it to this version of the codebase.” An…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
