@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM × 形式検証：機械語レベルの大規模「クラッシュ不能」</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide-header{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 36px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events: none;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      pointer-events: none;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 46px;
+      height: 1px;
+      background: var(--rust);
+      box-shadow: 0 0 0 0 rgba(0,0,0,0);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 30px;
+      color: var(--rust);
+      opacity: 0.95;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .content{
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      top: 92px;
+      bottom: 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0;
+      line-height: 1.15;
+    }
+
+    .title{
+      font-size: 74px;
+      line-height: 1.02;
+      margin: -2px 0 0 0;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+    .title .em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.45;
+      margin: 0;
+      font-weight: 300;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin-top: 8px;
+    }
+
+    .grid-2, .grid-3{
+      margin-top: 6px;
+      width: 100%;
+      display: grid;
+      gap: 14px 14px;
+      align-items: stretch;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 16px 16px;
+      background: rgba(0,0,0,0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 84px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .cell .jp{
+      font-size: 16px;
+      color: var(--ink-3);
+      font-weight: 300;
+      margin-top: -6px;
+    }
+
+    table{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      border: 1px solid var(--rule);
+    }
+    th, td{
+      border-bottom: 1px solid var(--rule);
+      border-right: 1px solid var(--rule);
+      padding: 12px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th:last-child, td:last-child{ border-right: none; }
+    tr:last-child td{ border-bottom: none; }
+    thead th{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      font-size: 13px;
+      color: var(--ink-3);
+      background: rgba(0,0,0,0.06);
+    }
+    .note{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    @media (max-width: 820px){
+      .slide{ padding: 44px 34px; border-width: 14px; }
+      .slide-header{ left: 34px; right: 34px; top: 26px; }
+      .content{ left: 34px; right: 34px; top: 80px; bottom: 44px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-header">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">AIが“機械語”を検証へ</p>
+        <div class="title">LLMが <span class="em">検証</span> を回す</div>
+        <p class="lead">LLM（Claude）がRISC-Vの実バイナリに対して、条件付きで「クラッシュしない」ことを大規模に証明しはじめています。</p>
+        <div class="rule"></div>
+        <p class="note">形式手法（formal verification / <span style="font-style: italic;">形式検証</span>）を、テスト資産に接続して“再利用可能なワークフロー”に近づける試みです。</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-header">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">テストは“ゼロ”を保証しない</p>
+        <div class="title"><span class="em">壁</span>はここ</div>
+        <p class="lead">ファジングや回帰テストはバグを見つける確率を下げますが、「見つからない＝存在しない」とは言い切れません。</p>
+        <div class="grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">Test（テスト）</div>
+            <div class="v">発見確率を上げる</div>
+            <div class="jp">確実な全探索ではない</div>
+          </div>
+          <div class="cell">
+            <div class="k">Proof（証明）</div>
+            <div class="v">条件を“必ず”満たす</div>
+            <div class="jp">ただし前提が重要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-header">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">仕様は“地図”</p>
+        <div class="title"><span class="em">地図</span>がズレると</div>
+        <p class="lead">証明は強力ですが、仕様やCPU/OSの形式モデル（実行意味論）が現実をどれだけ写すかで価値が決まります。</p>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">仕様（spec）</div>
+            <div class="v">何を守るか定義</div>
+            <div class="jp">入力制約・性質</div>
+          </div>
+          <div class="cell">
+            <div class="k">機械モデル（model）</div>
+            <div class="v">どの環境で成立？</div>
+            <div class="jp">CPU/OS/実行形態</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-header">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">OSS-Fuzz→証明仕様</p>
+        <div class="title"><span class="em">変換</span>が核心</div>
+        <p class="lead">研究はOSS-Fuzzの多数の入口（クラッシュ検出のエントリポイント）を、「入力が一定未満ならクラッシュしない」という形式仕様へ変換しました。</p>
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">入口</div>
+            <div class="v">OSS-Fuzz エントリ</div>
+            <div class="jp">探索対象</div>
+          </div>
+          <div class="cell">
+            <div class="k">仕様化</div>
+            <div class="v">“常に通る”条件</div>
+            <div class="jp">証明可能な形へ</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証</div>
+            <div class="v">定理として保証</div>
+            <div class="jp">条件付きの安全</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-header">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">証明し、直し、再証明</p>
+        <div class="title"><span class="em">ループ</span>閉結</div>
+        <p class="lead">証明で反例（クラッシュ等）が出ると、Claudeがバグを修正し、仕様を再生成して再度証明を成立させるサイクルを回しました。</p>
+        <table aria-label="loop table">
+          <thead>
+            <tr>
+              <th>ステップ</th>
+              <th>目的</th>
+              <th>成果</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><i style="color: var(--rust); font-style: italic;">i</i></td>
+              <td>仕様を作る</td>
+              <td>入力制約つきの性質へ</td>
+            </tr>
+            <tr>
+              <td><i style="color: var(--rust); font-style: italic;">ii</i></td>
+              <td>証明を試す</td>
+              <td>クラッシュしないこと（条件付き）</td>
+            </tr>
+            <tr>
+              <td><i style="color: var(--rust); font-style: italic;">iii</i></td>
+              <td>失敗を修正</td>
+              <td>修正後に再度成立</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-header">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">数が“実務級”</p>
+        <div class="title">規模 <span class="em">239</span> 入口</div>
+        <p class="lead">RISC-V向けにコンパイルされた実バイナリで、123ライブラリの239エントリポイントを対象に、条件に基づくクラッシュ不能を示しました。</p>
+        <div class="grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">対象</div>
+            <div class="v">123 OSS-Fuzz ライブラリ</div>
+            <div class="jp">239 エントリポイント</div>
+          </div>
+          <div class="cell">
+            <div class="k">証明コード</div>
+            <div class="v">Rocqで約1.8億行</div>
+            <div class="jp">通常ケースで数十万行</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-header">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">成立条件は明確</p>
+        <div class="title">前提 <span class="em">は</span> ここ</div>
+        <p class="lead">保証は万能ではなく、単一スレッド静的バイナリ、固定メモリ予算、musl libc、Linuxの形式モデルなどの前提に依存します。</p>
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">実行形態</div>
+            <div class="v">単一スレッド・静的バイナリ</div>
+            <div class="jp">入力制約と整合</div>
+          </div>
+          <div class="cell">
+            <div class="k">環境</div>
+            <div class="v">musl libc・Linux OSモデル</div>
+            <div class="jp">意味論に含める</div>
+          </div>
+          <div class="cell">
+            <div class="k">入力規模</div>
+            <div class="v">例：64MB未満</div>
+            <div class="jp">“未満なら安全”</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-header">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“証明済み”≠“バグゼロ”</p>
+        <div class="title"><span class="em">注意</span>が要る</div>
+        <p class="lead">証明器が検証したのは「仕様と整合した範囲での性質」です。仕様が現実の脅威や運用を包含していないと、期待ほど安全になりません。</p>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">保証される</div>
+            <div class="v">定義した性質（例：クラッシュしない）</div>
+            <div class="jp">条件付きの安全</div>
+          </div>
+          <div class="cell">
+            <div class="k">保証されない</div>
+            <div class="v">仕様外の入力/環境/別脆弱性</div>
+            <div class="jp">残余リスク</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-header">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">“探索”から“全保証”へ</p>
+        <div class="title">近づくのは <span class="em">何</span>？</div>
+        <p class="lead">この流れの狙いは、ファジングが見つけるかもしれないクラッシュを、形式的に「存在しない（条件内）」へ寄せることです。</p>
+        <div class="grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">ファジング</div>
+            <div class="v">“見つかる可能性”を下げる</div>
+            <div class="jp">探索は有限</div>
+          </div>
+          <div class="cell">
+            <div class="k">形式検証</div>
+            <div class="v">“指定条件下では必ず”を証明</div>
+            <div class="jp">全探索に近い保証</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-header">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">信頼境界を小さく</p>
+        <div class="title">Rocqで <span class="em">整合</span>確認</div>
+        <p class="lead">巨大な証明コードでも、最終的に信頼すべき対象をRISC-V/ Linuxの形式モデル、証明された定理、Rocqのチェッカー等に絞ってチェック可能にする、と主張されています。</p>
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">信頼対象</div>
+            <div class="v">形式モデル（RISC-V/ Linux）</div>
+            <div class="jp">現実との一致が前提</div>
+          </div>
+          <div class="cell">
+            <div class="k">信頼対象</div>
+            <div class="v">定理の中身</div>
+            <div class="jp">仕様の核</div>
+          </div>
+          <div class="cell">
+            <div class="k">信頼対象</div>
+            <div class="v">証明チェッカー（Rocq）</div>
+            <div class="jp">整合性を機械的に確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-header">
+        <div class="slide-tag">My Take</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">導入の勘所</p>
+        <div class="title"><span class="em">万能</span>にしない</div>
+        <p class="lead">まずは、メモリ安全やクラッシュ不能のように仕様化しやすく、運用前提が明確な範囲から段階導入するのが現実的です。</p>
+        <div class="grid-2" style="margin-top:10px;">
+          <div class="cell">
+            <div class="k">有望</div>
+            <div class="v">依存ライブラリ／重要入口／共通基盤</div>
+            <div class="jp">再利用で累積効果</div>
+          </div>
+          <div class="cell">
+            <div class="k">次の課題</div>
+            <div class="v">x86/ARM、マルチスレッド、呼び出し側契約</div>
+            <div class="jp">モデルギャップの縮小</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-header">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <p class="eyebrow">ロードマップは“条件付き”</p>
+        <div class="title"><span class="em">要点</span>まとめ</div>
+        <p class="lead">LLMがテスト資産（OSS-Fuzz）から形式仕様へ変換し、証明・修正・再証明のループで大規模にクラッシュ不能を示しはじめています。</p>
+        <div class="grid-3" style="margin-top:6px;">
+          <div class="cell">
+            <div class="k">核</div>
+            <div class="v">ファジング→仕様→証明</div>
+            <div class="jp">探索から保証へ</div>
+          </div>
+          <div class="cell">
+            <div class="k">強み</div>
+            <div class="v">信頼境界を絞ってチェック</div>
+            <div class="jp">チェッカー活用</div>
+          </div>
+          <div class="cell">
+            <div class="k">限界</div>
+            <div class="v">前提（モデル/環境/仕様）依存</div>
+            <div class="jp">現実適合が鍵</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.lavx.hu/article/anthropic-shows-llms-can-formally-verify-assembly-code-at-scale-across-123-open-source-libraries" target="_blank" rel="noreferrer noopener">Anthropic shows LLMs can formally verify assembly code at scale across 123 open-source libraries | LavX News</a></h2>
+<p class="reference-note">Share this article
+
+Anthropic and Theorem used Claude to prove memory-safety properties in RISC-V binaries from OSS-Fuzz…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2605.03822v2" target="_blank" rel="noreferrer noopener">KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code</a></h2>
+<p class="reference-note">Proof Generation Beyond Rust.
+LLM-based proof generation has also been studied for theorem provers such as Rocq (Team, 2…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.sifive.com/blog/llm-optimization-and-deployment-on-sifive-intellig" target="_blank" rel="noreferrer noopener">LLM Optimization and Deployment on SiFive RISC-V Intelligence Products</a></h2>
+<p class="reference-note">Recent Posts
+
+View All
+
+SiFive Perspective: RISC-V SPMP Specification Ratification is a Leap Forward for Embedded Securi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.succinct.xyz/formal-verification-with-claude" target="_blank" rel="noreferrer noopener">An Experiment in Formal Verification with Claude</a></h2>
+<p class="reference-note">In retrospect, we would recommend writing the trusted base by hand and using the LLM only for proofs.
+
+### Claude did no…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://riscv.org/blog/from-simulation-bottlenecks-to-formal-confidence-leveraging-formal-for-exhaustive-risc-v-verification" target="_blank" rel="noreferrer noopener">From Simulation Bottlenecks to Formal Confidence: Leveraging Formal for Exhaustive RISC-V Verification - RISC-V International</a></h2>
+<p class="reference-note">For a design with just 100 input variables (or bits), we would need: 2100 ≈ 1.27 × 1030 runs – which would take over 40 …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
