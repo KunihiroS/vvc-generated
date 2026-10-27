@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Workers AI / SGLang: クロスリクエストKVキャッシュ露出（要約スライド）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      border-radius: 8px;
+      overflow: hidden;
+      border-image: none;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .slide-inner {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .topbar{
+      display:flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 2px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.22em;
+      font-size: 14px;
+      font-style: italic;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+
+    .slide-tag::before{
+      content:"";
+      width: 28px;
+      height: 2px;
+      background: var(--rust);
+      transform: translateY(2px);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      opacity: 0.95;
+      font-size: 26px;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 4px;
+      line-height: 1.1;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      line-height: 0.96;
+      margin-top: -4px;
+      color: var(--rust);
+      font-style: italic;
+      max-width: 900px;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: -4px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin-top: 8px;
+      margin-bottom: 2px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.08);
+      min-height: 70px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      white-space: nowrap;
+    }
+
+    .text{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .monoish{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .closing-em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    @media (max-width: 920px){
+      .slide{
+        padding: 44px 44px;
+      }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid.two{ grid-template-columns: 1fr; }
+      .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1: Cover -->
+    <section class="slide" aria-label="Cover">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">glowbox</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">クロスリクエスト露出の全体像</div>
+        <div class="title">KVキャッシュ</div>
+        <div class="lead">
+          Workers AI（GLM-5.3）で、SGLangが扱うKVキャッシュ（Key-Value / 短縮：KV）が別顧客の情報と混ざる可能性が一時的に発生した事象を、技術要因と対策まで整理します。<br/>
+          （日本語補助：<span class="monoish">クロスリクエスト</span> = 別リクエスト間）
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">事象の核</div>
+            <div class="text">拒否（rejection）が安全に遮断されず、decodeが古いKVページを参照し得た</div>
+          </div>
+          <div class="card">
+            <div class="label">鍵となる条件</div>
+            <div class="text">KVプール（681,280）＜モデル想定コンテキスト長（1,048,576）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2: Problem -->
+    <section class="slide" aria-label="Problem">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">なぜ“混ざる”のか</div>
+        <div class="title">所有権が崩れる</div>
+        <div class="lead">
+          LLMの推論では、性能のためGPUメモリ上の中間表現（KVキャッシュ）を再利用しますが、所有権（誰のデータか）とライフタイム管理（いつ安全に捨てるか）が崩れると、別リクエストの残データが読まれるリスクがあります。<br/>
+          これは“メモリバグ”というより“安全な失敗（fail-safe）の欠落”が関係します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">KVキャッシュ（KV）</div>
+            <div class="small">次トークン生成で使う中間表現。繰り返し計算を避けるためGPUメモリに保持・再利用される。</div>
+          </div>
+          <div class="card">
+            <div class="label">露出（exposure）</div>
+            <div class="small">本来は別顧客のはずのKVページを、誤って参照してしまう状態。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3: Timeline -->
+    <section class="slide" aria-label="Timeline">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">いつ・どれだけ</div>
+        <div class="title">限定的に発生</div>
+        <div class="lead">
+          Cloudflareは、2026/8/27〜9/9の間に一部レスポンスでクロス顧客情報が混ざり得る状態を公表し、9/9に修正を反映して復旧しました。確認影響は合計155件で、条件は「681,280トークン超」に限定されました。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">期間</div>
+            <div class="text">2026/08/27–09/09</div>
+          </div>
+          <div class="card">
+            <div class="label">影響件数</div>
+            <div class="text">155件</div>
+          </div>
+          <div class="card">
+            <div class="label">トリガ条件</div>
+            <div class="text">681,280トークン超</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4: Core causes -->
+    <section class="slide" aria-label="Core causes">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">二重のズレ</div>
+        <div class="title">設定×拒否</div>
+        <div class="lead">
+          原因は2つが重なったことです。第一に、KVプールがモデル想定のコンテキスト長より小さく、拒否されるはずの境界条件が成立しました。第二に、SGLangの拒否処理がdecodeへ安全に伝播せず、古いKVページ参照が起き得ました。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">要因(1) 設定ミス</div>
+            <div class="text">KVプール（681,280） &lt; コンテキスト長（1,048,576）</div>
+          </div>
+          <div class="card">
+            <div class="label">要因(2) エンジン不具合</div>
+            <div class="text">拒否が後段（decode）に正しく止まらない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5: Prefill vs decode -->
+    <section class="slide" aria-label="Prefill decode">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">分業で速くする</div>
+        <div class="title">プリフィル/デコード</div>
+        <div class="lead">
+          推論は大まかに「プリフィル（入力文の処理）」と「デコード（次トークン生成）」に分かれます。性能のためにこの分業を分散し、KVキャッシュを引き渡す設計が、整合性の難しさも同時に持ちます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">Prefill（入力処理）</div>
+            <div class="small">KVを作り、以後のトークン生成で参照される中間表現を準備する。</div>
+          </div>
+          <div class="card">
+            <div class="label">Decode（生成）</div>
+            <div class="small">次トークンを選ぶ際に、KVキャッシュ（中間表現）を参照する。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6: RDMA transfer -->
+    <section class="slide" aria-label="RDMA transfer">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">渡し方が要点</div>
+        <div class="title">KVのRDMA転送</div>
+        <div class="lead">
+          disaggregated（分散）モードでは、RDMAなどでプリフィル側のKVキャッシュをdecode側へ引き渡すことがあります。その際、転送が失敗したり拒否が起きたときに“同じ経路制御”になってしまうと、古いKVページを読んでしまう余地が生まれます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">狙い</div>
+            <div class="text">転送オーバーヘッド削減</div>
+          </div>
+          <div class="card">
+            <div class="label">依存</div>
+            <div class="text">整合性（誰のKVか）</div>
+          </div>
+          <div class="card">
+            <div class="label">落とし穴</div>
+            <div class="text">拒否/失敗が安全に遮断されない</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7: Why token threshold -->
+    <section class="slide" aria-label="Why token threshold">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">なぜ長文だけ</div>
+        <div class="title">681,280トークン超</div>
+        <div class="lead">
+          KVプールがコンテキスト長より小さいため、長文（681,280トークン超）では境界を越え、拒否（rejection）が発火します。しかし拒否がdecodeへ安全に伝播されず、そこで初めて古いKVページ参照が成立し得たため、影響は長文に限定されました。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">境界条件</div>
+            <div class="text">KVプール 681,280 &lt; コンテキスト長 1,048,576</div>
+          </div>
+          <div class="card">
+            <div class="label">結果</div>
+            <div class="text">拒否→decodeの安全停止が崩れたケースだけ露出</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8: Rejection path -->
+    <section class="slide" aria-label="Rejection path">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">“止まるはず”が止まらない</div>
+        <div class="title">拒否経路の不整合</div>
+        <div class="lead">
+          本来、拒否されたリクエストはクライアントへエラーを返して終了すべきです。ところが分散推論では、finishedかどうかの経路判断が絡み、拒否情報がfinished扱いにならず、decodeが古いKVページを参照する経路が成立しました。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">期待</div>
+            <div class="small">rejection → 後段（decode）で確実に停止</div>
+          </div>
+          <div class="card">
+            <div class="label">実際</div>
+            <div class="small">rejection情報が安全に伝播せず、decodeが過去KVを参照</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9: Fix strategy -->
+    <section class="slide" aria-label="Fix strategy">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">恒久対策は二層</div>
+        <div class="title">設定＋fail-safe</div>
+        <div class="lead">
+          復旧後は、設定面とエンジン面の双方で対策を反映しました。設定整合性（KVプールとコンテキスト長）を機械的に検証し、さらに拒否経路・転送整合性・遅延解放や転送バッチ上限など境界を強化する方向に進めています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">対策(1)</div>
+            <div class="text">起動ログでプール検証（HTTPだけでは不十分）</div>
+          </div>
+          <div class="card">
+            <div class="label">対策(2)</div>
+            <div class="text">拒否経路の安全化（hand-off前に遮断）</div>
+          </div>
+          <div class="card">
+            <div class="label">対策(3)</div>
+            <div class="text">転送/解放境界の強化</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10: Practical checks -->
+    <section class="slide" aria-label="Practical checks">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">enumeration</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">運用者の次アクション</div>
+        <div class="title">検証を制度化</div>
+        <div class="lead">
+          出力（文章）やHTTPコードの確認だけでは整合性を保証できません。KVプールとコンテキスト長を“機械的に一致検証”し、拒否・エラー経路でも後段が動かないことをログとテストで担保します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">i. 起動時</div>
+            <div class="text">KVプールサイズとモデル想定コンテキスト長の一致チェック</div>
+          </div>
+          <div class="card">
+            <div class="label">ii. 実行時</div>
+            <div class="text">rejection/エラー経路がdecodeへ到達しないことを確認</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11: Security stance -->
+    <section class="slide" aria-label="Security stance">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">セキュリティ観点</div>
+        <div class="title">fail-safeが本丸</div>
+        <div class="lead">
+          KV露出は機密性の侵害に直結するため、「起き得る」状態をゼロに近づける必要があります。悪用の証拠は確認されなかったとされますが、次のバグ形は同じとは限らないため、読み取り時検証（形式手法や検証原理）へ進む姿勢が重要です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="label">観測</div>
+            <div class="small">意図的悪用の証拠は見つからず（ただし評価範囲は本文から完全には不明）</div>
+          </div>
+          <div class="card">
+            <div class="label">方向性</div>
+            <div class="small">RDMA転送の整合性を“設計原理”として保証（読み取り時検証など）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12: References -->
+    <section class="slide" aria-label="References">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">References</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参照の置き場</div>
+        <div class="title">読むための要点</div>
+        <div class="lead">
+          本デッキはユーザー提示文を圧縮要約したものです。詳細確認の起点として、以下の観点に沿って一次情報（Cloudflareの報告、SGLangのリリースノート）を当たってください。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="card">
+            <div class="label">i. Cloudflare報告</div>
+            <div class="small">期間、影響件数155件、トリガ（681,280トークン超）、拒否経路の挙動</div>
+          </div>
+          <div class="card">
+            <div class="label">ii. SGLang v0.5.22+</div>
+            <div class="small">KVキャッシュのメモリ安全性修正との整合、推奨バージョン</div>
+          </div>
+          <div class="card">
+            <div class="label">iii. 運用設計</div>
+            <div class="small">起動ログでの整合検証、拒否/エラー経路のテスト粒度、RDMA整合性</div>
+          </div>
+        </div>
+        <div style="margin-top: 14px;" class="small">
+          日本語用語：<span class="monoish">rejection</span>=拒否（エラー化）、<span class="monoish">decode</span>=デコード（生成段）、<span class="monoish">prefill</span>=プリフィル（入力処理）、<span class="monoish">KV cache</span>=KVキャッシュ。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.lmsys.org/blog/2026-10-26-cf-security" target="_blank" rel="noreferrer noopener">SGLang security update: improving request isolation - LMSYS Org</a></h2>
+<p class="reference-note">On September 9, 2026, Cloudflare notified us of cross-request KV cache exposure in its GLM-5.3 deployment on Workers AI.…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/sgl-project/sglang/releases" target="_blank" rel="noreferrer noopener">Releases · sgl-project/sglang · GitHub</a></h2>
+<p class="reference-note">## To upgrade
+
+SGLang now requires Python 3.11 or newer.
+
+```
+uv pip install --prerelease=allow sglang==0.5.22
+```
+
+| Pl…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.cloudflare.com/smaller-faster-safer-models" target="_blank" rel="noreferrer noopener">Smaller, faster, safer: running Kimi and GLM at scale | Cloudflare Blog</a></h2>
+<p class="reference-note">All our experiments and production traffic are running and benchmarked with SGLang, an open-source inference serving fra…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://developers.cloudflare.com/changelog/product/workers-ai" target="_blank" rel="noreferrer noopener">Workers AI Changelog | Cloudflare Docs</a></h2>
+<p class="reference-note">Workers AI and AI Gateway now provide a unified path for accessing models and managing inference traffic. Use the same A…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ibl.ai/blog/glm-53-flash-hybrid-attention-kv-cache-self-hosting" target="_blank" rel="noreferrer noopener">GLM-5.3-Flash: Why a 4.44x Smaller KV Cache Changes…</a></h2>
+<p class="reference-note">ibl.ai EngineeringSeptember 7, 2026### Self-Hosted LLM Providers: Ollama vs vLLM vs TGI vs LocalAI
+
+A practical guide to…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
