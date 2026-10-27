@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Cerebras WSEでトリリオン級モデルを展開する</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.45;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      position: relative;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      padding: 56px 72px;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+    .slide-top{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      font-size: 14px;
+      line-height: 1;
+      text-transform: uppercase;
+      padding: 0;
+      margin: 0;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 26px;
+      line-height: 1;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 14px 0 8px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: 72px;
+      font-weight: 500;
+      margin: 0 0 12px;
+      letter-spacing: 0.01em;
+      line-height: 0.95;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+    }
+    .divider{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0;
+      width: 100%;
+    }
+    .grid{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.08);
+      padding: 14px 14px;
+      border-radius: 2px;
+      min-height: 68px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .value{
+      font-size: 20px;
+      color: var(--ink-2);
+      font-weight: 400;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      margin: 0;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink-2);
+    }
+    .emph{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+    ul{ margin: 0; padding-left: 18px; }
+    .bottom-note{
+      position:absolute;
+      left: 56px;
+      right: 56px;
+      bottom: 26px;
+      color: var(--ink-4);
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: 0.02em;
+    }
+    @media (max-width: 520px){
+      .slide{ padding: 36px 22px; }
+      .slide::before{ inset: 12px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .bottom-note{ left: 22px; right: 22px; bottom: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" style="padding-bottom:72px;">
+      <div class="slide-top">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">WSEで“トリリオン級”を展開</div>
+      <h1 class="title"><em>ウェハ</em>・スケール推論</h1>
+      <p class="lead">Cerebras WSE-3T の「オンチップSRAM 44GB」と、層分割＋パイプラインで、約3Tパラメータ級モデルを高速に回す考え方を整理します（Kimi K3を例に）。</p>
+      <div class="bottom-note">用語：KVキャッシュ（key/value）/ Dense（フルアテンション）/ 線形アテンション</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">重みだけでは足りない</div>
+      <h2 class="title">ボトルネックは<em>状態</em></h2>
+      <p class="lead">GPUでは weights（重み）だけでなく、推論時の中間状態—特に KVキャッシュ—がメモリと帯域を支配しがちです。Cerebrasでも「オンチップ44GB」に載らない要素が出ます。</p>
+      <div class="divider"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">GPUの典型</div>
+          <div class="value">weights / KV が大きい</div>
+          <p class="small">オンチップで収まらず、転送が遅さに直結。</p>
+        </div>
+        <div class="card">
+          <div class="label">WSEの制約</div>
+          <div class="value">ウェハSRAM 44GB</div>
+          <p class="small">単一ウェハに “モデルを丸ごと” は難しいケース。</p>
+        </div>
+      </div>
+      <div class="bottom-note">結論：設計は weights だけでなく、KVキャッシュ中心へ。</div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">パーツ分けして流す</div>
+      <h2 class="title">層は<em>区画</em>、流れは<em>パイプ</em></h2>
+      <p class="lead">モデルを層（layer）単位で分け、ウェハ間は主に activations（活性値）を受け渡してパイプライン実行します。重みの移動を最小化するのが要点です。</p>
+      <div class="divider"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">各ウェハ</div>
+          <div class="value">SRAM内に層を配置</div>
+          <p class="small">“層が丸ごと載る”前提が効く。</p>
+        </div>
+        <div class="card">
+          <div class="label">ウェハ間</div>
+          <div class="value">activationsを通信</div>
+          <p class="small">重みは基本そのまま。</p>
+        </div>
+        <div class="card">
+          <div class="label">狙い</div>
+          <div class="value">超低遅延＋高スループット</div>
+          <p class="small">tokens/秒を稼ぐ設計。</p>
+        </div>
+      </div>
+      <div class="bottom-note">鍵：転送コストを “状態中心” に寄せる。</div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">denseと線形で必要量が違う</div>
+      <h2 class="title">違いは<em>KV</em>の増え方</h2>
+      <p class="lead">線形アテンションは相対的に固定サイズ状態で済みやすい一方、dense（フル）アテンションはトークン数に応じて KVキャッシュが増えやすい、と整理します。</p>
+      <div class="divider"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">線形アテンション（Linear）</div>
+          <div class="value">固定サイズ寄り</div>
+          <p class="small">コンテキスト長への依存が小さめ。</p>
+        </div>
+        <div class="card">
+          <div class="label">denseアテンション（Dense/Full）</div>
+          <div class="value">KVキャッシュが支配</div>
+          <p class="small">キー/バリューを保持し再利用。</p>
+        </div>
+      </div>
+      <div class="bottom-note">配置戦略に直結：denseはKV領域を確保、線形はまとめて載せる。</div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">容量見積もり→ウェハ数へ</div>
+      <h2 class="title">4bit/8bitの前提で<em>算定</em></h2>
+      <p class="lead">記事の前提では、weightsは 4bit量子化、KVキャッシュは 8bit。層ごとの必要容量から、各ウェハ（SRAM 44GB）に載るかを見積もり、必要ウェハ数を決めます。</p>
+      <div class="divider"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">前提①</div>
+          <div class="value mono">weights = 4bit</div>
+          <p class="small">層サイズを圧縮して搭載性を上げる。</p>
+        </div>
+        <div class="card">
+          <div class="label">前提②</div>
+          <div class="value mono">KV = 8bit</div>
+          <p class="small">同時実行を制限する主要因。</p>
+        </div>
+        <div class="card">
+          <div class="label">ウェハ条件</div>
+          <div class="value mono">SRAM = 44GB</div>
+          <p class="small">層が丸ごと入る設計が目標。</p>
+        </div>
+      </div>
+      <div class="bottom-note">数値（例：1ウェハあたり約16GB級の層見積もり）は記事の設計例として扱う。</div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">“重み移動なし”が効く</div>
+      <h2 class="title">通るのは<em>activations</em></h2>
+      <p class="lead">層配置がうまくいくと、各ウェハのSRAMに層が収まり、ウェハ間で動くのは主に中間結果（activations）になります。重み転送を避けられるため待ち時間が小さくなる、という説明です。</p>
+      <div class="divider"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">載るとき</div>
+          <div class="value">層がウェハ内完結</div>
+          <p class="small">weightsは基本その場。</p>
+        </div>
+        <div class="card">
+          <div class="label">通信するとき</div>
+          <div class="value">activations中心</div>
+          <p class="small">状態の受け渡しで前へ進む。</p>
+        </div>
+      </div>
+      <div class="bottom-note">前提：コンパイラが “層を丸ごと” 配置できること。</div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">パイプラインは常時稼働</div>
+      <h2 class="title">待ちの<em>穴</em>を埋める</h2>
+      <p class="lead">単一リクエストを順番に流すとステージがアイドルになり得ます。そこで複数リクエストを同時に投入し、パイプラインを常時満たしてスループットを確保します。</p>
+      <div class="divider"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">誤解①</div>
+          <div class="value">バッチ1で逐次</div>
+          <p class="small">ステージが交互に空く。</p>
+        </div>
+        <div class="card">
+          <div class="label">方針</div>
+          <div class="value">複数投入</div>
+          <p class="small">ステージごとに別リクエスト処理。</p>
+        </div>
+        <div class="card">
+          <div class="label">調整</div>
+          <div class="value">マイクロバッチ</div>
+          <p class="small">遅延とスループットのバランス。</p>
+        </div>
+      </div>
+      <div class="bottom-note">ポイント：パイプライン並列 ≠ 逐次処理。</div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">同時実行数の天井</div>
+      <h2 class="title">concurrencyは<em>KV</em>で決まる</h2>
+      <p class="lead">同時リクエスト数（concurrency）の上限は主に KVキャッシュのオンチップ割当で決まる、と記事は述べています。dense層が必要とするKV量を見て、1リクエストあたりの消費→最大同時数へ進みます。</p>
+      <div class="divider"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">入力</div>
+          <div class="value">要求サイズ（例：256k）</div>
+          <p class="small">プロンプト長がKV消費に影響。</p>
+        </div>
+        <div class="card">
+          <div class="label">設計変数</div>
+          <div class="value">4bit/8bit、dense配置</div>
+          <p class="small">コンパイラの層配置も効く。</p>
+        </div>
+      </div>
+      <div class="bottom-note">Dense層のKVが “同時性の制限因子” になりやすい。</div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">単一ウェハ vs 分割＋パイプ</div>
+      <h2 class="title">“載せる”より<em>“分けて流す”</em></h2>
+      <p class="lead">単一ウェハに全てを詰める発想だと限界があります。分割してパイプライン化し、activations中心の受け渡しと、dense/線形のメモリ特性差を使う方が成立しやすい、という構図です。</p>
+      <div class="divider"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">単一ウェハ</div>
+          <div class="value">44GBに収める難度</div>
+          <p class="small">weights＋KVが同時に爆発しやすい。</p>
+        </div>
+        <div class="card">
+          <div class="label">提案方式</div>
+          <div class="value">層分割＋パイプライン</div>
+          <p class="small">層を丸ごと配置し、通信をactivations中心に。</p>
+        </div>
+      </div>
+      <div class="bottom-note">一般化の条件：層配置が成立し、KVの割当が運用上許容できること。</div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">拡張の見通し</div>
+      <h2 class="title">ウェハ増で余地が増える</h2>
+      <p class="lead">この方式はより大きなモデルにも拡張でき、ウェハが増えるほど weights と request state（要求に伴う状態）を収める余地が増える、とまとめられています。結果として、より多くの層を配置しやすくなります。</p>
+      <div class="divider"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">小さいモデル</div>
+          <div class="value">ウェハ数を抑制</div>
+          <p class="small">同時性はKVで調整。</p>
+        </div>
+        <div class="card">
+          <div class="label">大きいモデル</div>
+          <div class="value">分割が増える</div>
+          <p class="small">パイプライン段数も増加。</p>
+        </div>
+        <div class="card">
+          <div class="label">制約</div>
+          <div class="value">KVが最終ボトルネック</div>
+          <p class="small">concurrency天井が先に来る。</p>
+        </div>
+      </div>
+      <div class="bottom-note">“できる”と“同程度に速い”は別問題：前提依存あり。</div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">批判的まとめ：前提が多い</div>
+      <h2 class="title">再現性は<em>条件次第</em></h2>
+      <p class="lead">算定（ウェハ数・同時数）が成立するかは、平均リクエスト長や dense/線形の配分、量子化設定、アテンション実装、スケジューリングなどの前提に強く依存します。したがって“設計上の目安”として読むのが安全です。</p>
+      <div class="divider"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">不足しがち</div>
+          <div class="value">式の追検証・詳細条件</div>
+          <p class="small">数式が画像依存だと再計算しづらい。</p>
+        </div>
+        <div class="card">
+          <div class="label">運用リスク</div>
+          <div class="value">長文集中でqueue増</div>
+          <p class="small">ピーク時はKV上限が効いて待ちが出やすい。</p>
+        </div>
+      </div>
+      <div class="bottom-note">導入時は：同一条件ベンチマーク＋ワークロード分布（長文比率）を要確認。</div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">次に読むための軸</div>
+      <h2 class="title"><em>Key</em> takeaways & 参照</h2>
+      <p class="lead">この記事の理解に最も効く論点は「KVキャッシュ中心のメモリ制約」「dense/線形の層配置」「activations中心のウェハ間パイプライン」「concurrencyはKV天井」です。</p>
+      <div class="divider"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">理解チェック</div>
+          <div class="value">i) KVが天井？</div>
+          <p class="small">concurrencyは主にKV割当で決まる。</p>
+        </div>
+        <div class="card">
+          <div class="label">設計チェック</div>
+          <div class="value">ii) 層は丸ごと載る？</div>
+          <p class="small">重み移動が減って低遅延に寄与。</p>
+        </div>
+      </div>
+      <div style="height:10px;"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">用語</div>
+          <div class="value">KVキャッシュ（KV Cache）</div>
+          <p class="small">key/valueを保持し次トークン生成へ。</p>
+        </div>
+        <div class="card">
+          <div class="label">用語</div>
+          <div class="value">dense / full（フルアテンション）</div>
+          <p class="small">KVが増えやすく同時性に直撃。</p>
+        </div>
+        <div class="card">
+          <div class="label">用語</div>
+          <div class="value">linear（線形アテンション）</div>
+          <p class="small">固定サイズ寄りの状態で設計。</p>
+        </div>
+      </div>
+      <div class="bottom-note">
+        参照軸：Cerebras WSE（SRAM帯域・低遅延・ウェハ間通信の前提）／DenseとLinearのKV消費／パイプライン並列とマイクロバッチ。
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.cerebras.ai/blog/ultrafast-frontier-inference-cerebras-deep-dive-at-hot-chips-2026" target="_blank" rel="noreferrer noopener">Ultrafast Frontier Inference | Cerebras Hot Chips 2026</a></h2>
+<p class="reference-note">The scale is visible in today’s rack designs. NVIDIA specifies 260 terabytes per second of rack-level NVLink bandwidth f…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.spheron.network/blog/cerebras-vs-nvidia-h100-inference-2026" target="_blank" rel="noreferrer noopener">Cerebras vs NVIDIA H100: Wafer-Scale vs GPU for LLM Inference (2026 Decision Guide)</a></h2>
+<p class="reference-note">| Spec | Cerebras WSE-3 | NVIDIA H100 SXM5 |
+ --- 
+| Architecture | Wafer-Scale | Hopper |
+| Compute cores | 900,000 AI …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.theregister.com/systems/2026/08/19/cerebras-cs-4-rack-systems-juice-their-dinner-plate-sized-ai-chips-for-every-last-drop-of-ai-perf/5289286" target="_blank" rel="noreferrer noopener">Cerebras CS-4 rack systems juice chips for every last drop of AI performance</a></h2>
+<p class="reference-note">How much higher does it clock? By our estimate, Cerebras is now running the silicon at 2.8 GHz, up from 1.4 GHz last gen…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.cerebras.ai/cs4" target="_blank" rel="noreferrer noopener">Cerebras CS-4 | Fastest AI Inference System</a></h2>
+<p class="reference-note">CS-4 runs on WSE-3 Turbo—the world’s largest and fastest AI processor. Its four trillion transistors and 900,000 AI core…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2503.11698v1" target="_blank" rel="noreferrer noopener">A Comparison of the Cerebras Wafer-Scale Integration Technology with Nvidia GPU-based Systems for Artificial Intelligence</a></h2>
+<p class="reference-note">However, in WSE-3 architecture, the compute and memory are decoupled, and the memory capacity of a single CS-3 scales fr…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
