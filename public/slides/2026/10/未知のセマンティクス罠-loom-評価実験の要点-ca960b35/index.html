@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>未知のセマンティクス罠：Loom 評価実験の要点</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      position: relative;
+      overflow:hidden;
+      padding: 56px 72px;
+      inset: auto;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+    .topbar{
+      position: relative;
+      z-index: 2;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 20px;
+      margin-bottom: 10px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: .16em;
+      color: var(--rust);
+      font-size: 18px;
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 14px;
+      line-height: 1.05;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+      position: relative;
+      z-index: 2;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.0;
+      margin: 10px 0 10px;
+      position: relative;
+      z-index: 2;
+    }
+    .title em{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      max-width: 760px;
+      position: relative;
+      z-index: 2;
+    }
+    .rule{
+      height:1px;
+      width:100%;
+      background: var(--rule);
+      margin: 18px 0 14px;
+      position: relative;
+      z-index: 2;
+    }
+    .label-row{
+      position: relative;
+      z-index: 2;
+      display:flex;
+      flex-wrap:wrap;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .chip{
+      border: 1px solid var(--rule-strong);
+      color: var(--ink-2);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: .02em;
+      background: rgba(0,0,0,0.05);
+      white-space: nowrap;
+    }
+    .grid{
+      position: relative;
+      z-index: 2;
+      display:grid;
+      gap: 14px;
+      margin-top: 14px;
+      grid-template-columns: 1fr 1fr;
+      width: 100%;
+      align-items: start;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.05);
+      min-height: 64px;
+    }
+    .card h4{
+      margin:0 0 6px 0;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      color: var(--ink-2);
+      font-size: 14px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .card p{
+      margin:0;
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.45;
+      font-weight: 300;
+      max-width: 100%;
+    }
+    .grid-3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .grid-1{
+      grid-template-columns: 1fr;
+    }
+    .footnote{
+      position:absolute;
+      bottom: 20px;
+      left: 24px;
+      right: 24px;
+      z-index: 2;
+      color: var(--ink-4);
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      display:flex;
+      justify-content:space-between;
+      gap: 20px;
+      align-items:flex-end;
+    }
+    .jp{
+      font-family: "Noto Serif JP", serif;
+      color: var(--ink-2);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    @media (max-width: 820px){
+      .slide{ padding: 44px 28px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .slide-tag{ font-size: 15px; }
+      .slide-num{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">未知のセマンティクスは、文章で測れない</div>
+      <div class="title"><em>Loom</em>評価実験</div>
+      <div class="lead">コーディングエージェントに未知の環境を任せたとき、「動く説明」より「検証可能な前提と観測」が安全性に効くことを示す報告です。</div>
+      <div class="rule"></div>
+      <div class="label-row">
+        <div class="chip">unknown semantics / 未知意味論</div>
+        <div class="chip">access control / アクセス制御</div>
+        <div class="chip">deferred failure / 評価待ち失敗</div>
+      </div>
+      <div class="footnote"><span>Reading deck</span><span>16:9 cards</span></div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">自信ある説明、でも危ない</div>
+      <div class="title"><em>見抜け</em>るか</div>
+      <div class="lead">Loom のような小型言語では、外見が分かりやすくても内部の意味（セマンティクス）が罠になります。</div>
+      <div class="rule"></div>
+      <div class="grid">
+        <div class="card">
+          <h4>評価の核心</h4>
+          <p>エージェントが危険を「認識し、説明し、設計/コードで回避」できるか。</p>
+        </div>
+        <div class="card">
+          <h4>不足しているもの</h4>
+          <p>尤度の高い文章や筋の良い説明だけでは、正しいと判定できない。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>“success” ≠ “safe”</span><span class="jp">成功≠安全</span></div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">取引は成功/失敗が鍵</div>
+      <div class="title"><em>状態</em>は戻る</div>
+      <div class="lead">スマートコントラクトは、失敗なら状態が戻り、成功なら反映されます。この前提がセマンティクス罠で揺らぎます。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <h4>期待</h4>
+          <p>失敗 → ロールバック。</p>
+        </div>
+        <div class="card">
+          <h4>罠の発想</h4>
+          <p>「失敗が起きた」と見えるまでコミットさせる。</p>
+        </div>
+        <div class="card">
+          <h4>結果</h4>
+          <p>本来作れない値/権限が通過する。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>Runtime semantics matters</span><span>実行時意味論が本体</span></div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">実装させるもの</div>
+      <div class="title">Asset と <em>AMM</em></div>
+      <div class="lead">エージェントには、資産（asset）を扱うインターフェースと、それを用いた定数積スワップ（AMM 的な swap）の実装が求められます。</div>
+      <div class="rule"></div>
+      <div class="grid">
+        <div class="card">
+          <h4>狙い</h4>
+          <p>状態遷移・呼び出し解決・権限が絡む箇所で、罠が露出するようにする。</p>
+        </div>
+        <div class="card">
+          <h4>追加要件</h4>
+          <p>アクセス制御（認証）も実装対象に含め、署名者や権限の取り扱いを検査する。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>goal: avoid interface-matched attacks</span><span>インターフェース適合攻撃を想定</span></div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">動いても、全てドレイン</div>
+      <div class="title"><em>失敗</em>の裏取り</div>
+      <div class="lead">エージェントがセマンティクス罠を見落とした契約は、適応された攻撃（grader がインターフェースに合わせて改変）で実際に全てドレインされました。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <h4>外見</h4>
+          <p>実装は「正しそう」に見える。</p>
+        </div>
+        <div class="card">
+          <h4>攻撃側</h4>
+          <p>インターフェース適合で罠を突く。</p>
+        </div>
+        <div class="card">
+          <h4>観測</h4>
+          <p>資産がドレインされ、危険が顕在化。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>text likelihood ≠ runtime safety</span><span>文章のもっともらしさ≠安全</span></div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">enumeration</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">3種類のランタイム危険</div>
+      <div class="title">何が <em>罠</em>か</div>
+      <div class="lead">評価は「3種類の危険（署名者保持・ディスパッチ差し替え・deferred failure）を正しく認識できたか」を見ます。</div>
+      <div class="rule"></div>
+      <div class="grid">
+        <div class="card">
+          <h4>(i) signer / 権限</h4>
+          <p>想定外に signer や権限が保持される。</p>
+        </div>
+        <div class="card">
+          <h4>(ii) dispatch / 解決</h4>
+          <p>動的ディスパッチの解決が差し替え可能。</p>
+        </div>
+        <div class="card">
+          <h4>(iii) deferred failure</h4>
+          <p>失敗（panic）が「評価されるまで」失敗せず、そのままコミットし得る。</p>
+        </div>
+        <div class="card">
+          <h4>スコア</h4>
+          <p>完全認識のみ加算、部分認識は加点なし。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>認識の完全性が鍵</span><span class="jp">認識≠推測</span></div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">“高努力”は万能ではない</div>
+      <div class="title">effort上げても <em>固定</em></div>
+      <div class="lead">effort（max effort など）を上げても、特定の危険（例：dispatch差し替えや deferred failure）では改善が一貫しないモデルがありました。</div>
+      <div class="rule"></div>
+      <div class="grid">
+        <div class="card">
+          <h4>観測</h4>
+          <p>試行回数増でも、疑うべき方向がないと成果が伸びない。</p>
+        </div>
+        <div class="card">
+          <h4>示唆</h4>
+          <p>必要なのは計算量より「前提化された検証設計」。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>more tokens ≠ better safety</span><span>増量≠安全化</span></div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">ASSUMPTIONS.md が実験を呼ぶ</div>
+      <div class="title">前提ログで <em>検証</em></div>
+      <div class="lead">ASSUMPTIONS.md（ランタイム前提を列挙し、根拠を文書/実験で書く）を求めると、認識率が上がり、実験計画・実行が増えたと報告されています。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <h4>書くもの</h4>
+          <p>前提（runtime assumptions）</p>
+        </div>
+        <div class="card">
+          <h4>根拠</h4>
+          <p>文書 or 実験</p>
+        </div>
+        <div class="card">
+          <h4>効果</h4>
+          <p>未記述の危険差異を見つける</p>
+        </div>
+      </div>
+      <div class="footnote"><span>assumptions → tests → insights</span><span>前提→テスト→洞察</span></div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">dispatch で設計が変わる</div>
+      <div class="title">失敗回避の <em>実験</em></div>
+      <div class="lead">dispatch 実例では、前提ログや検証を通じてモデルが設計を変える様子が描写されています。説明要求より「検証設計要求」が効きうる、という方向性が示唆されています。</div>
+      <div class="rule"></div>
+      <div class="grid">
+        <div class="card">
+          <h4>なぜ効く</h4>
+          <p>仕様に書かれていない挙動差を、観測で潰しに行ける。</p>
+        </div>
+        <div class="card">
+          <h4>限界</h4>
+          <p>それでも実務レベルの厳密安全が自動達成されるとは限らない。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>verification matters, not just intention</span><span>意図より検証</span></div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">危険に気づいても直らないことがある</div>
+      <div class="title">丸めバグが <em>提出</em>へ</div>
+      <div class="lead">定数積スワップの価格式には丸め方向のバグがありましたが、最終提出に修正版が入らなかったとも述べられています。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <h4>兆候</h4>
+          <p>トレーダーが 1 トークン得をするラウンドトリップ。</p>
+        </div>
+        <div class="card">
+          <h4>問題</h4>
+          <p>気づき→修正の意思決定が難しい。</p>
+        </div>
+        <div class="card">
+          <h4>示唆</h4>
+          <p>修正優先度・仕様扱い・テスト強制が必要。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>recognition ≠ remediation</span><span class="jp">認識≠修正</span></div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">実務向け結論</div>
+      <div class="title"><em>自信</em>より検証</div>
+      <div class="lead">未知課題で信頼性を上げる鍵は、「前提を検証可能に明文化し、実験で確かめる」アプローチです。ただし一般化と安全完全性は別問題として残ります。</div>
+      <div class="rule"></div>
+      <div class="grid">
+        <div class="card">
+          <h4>効いたこと</h4>
+          <p>ASSUMPTIONS.md による前提ログ→実験増→未記述危険の発見。</p>
+        </div>
+        <div class="card">
+          <h4>残る課題</h4>
+          <p>モデル/ハーネス多様性・他脆弱性クラス・網羅性は限定的。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>combine: logs + tests + attacks + review</span><span class="jp">ログ＋テスト＋攻撃＋レビュー</span></div>
+    </section>
+
+    <!-- References -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">このデッキの根拠</div>
+      <div class="title">参照点 <em>要約</em></div>
+      <div class="lead">本スライドは、ユーザー提示の報告要約（Summary/Points/FAQ/My opinion）と、deferred failure の危険性に関する説明の整合をもとに圧縮しています。</div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <h4>deferred failure</h4>
+          <p>panic が「評価されたとき」失敗扱い→評価前にコミットし得る。</p>
+        </div>
+        <div class="card">
+          <h4>dispatch差し替え</h4>
+          <p>解決ヒントにより既存実装が上書きされ、mutable reference 等で操作が増える。</p>
+        </div>
+        <div class="card">
+          <h4>丸めバグ</h4>
+          <p>価格計算の丸め方向ミスが最終提出に反映されなかった事例。</p>
+        </div>
+      </div>
+      <div class="footnote"><span>Loom / Move類似の文脈</span><span class="jp">未知セマンティクス評価</span></div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.csongor.co.uk/loom" target="_blank" rel="noreferrer noopener">It&#39;s a trap: testing coding agents on a language with surprising semantics | Csongor Kiss</a></h2>
+<p class="reference-note">This last one was inspired by frustrating debugging sessions in Haskell. Loom’s `panic` produces a deferred failure. It …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://users.ece.utexas.edu/~gligoric/papers/MarinovETAL26PrEx.pdf" target="_blank" rel="noreferrer noopener">Predicting Program Exit Code with LLMs and Programming ...</a></h2>
+<p class="reference-note">LMPL ’26, Oakland, CA, USA © 2026 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-2986-7/2026/10  LLMs and Pr…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ilyasergey.net/assets/pdf/papers/next-700-contract-languages.pdf" target="_blank" rel="noreferrer noopener">The Next 700 Smart Contract Languages</a></h2>
+<p class="reference-note">The fact that third-party smart contracts cannot be trusted has another im-portant implication on the design of the impl…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.jdcs.ir/article_247249_5baf2ee676f607d916cb03a512ba9a54.pdf" target="_blank" rel="noreferrer noopener">Programming Languages in Blockchain: A Comprehensive ...</a></h2>
+<p class="reference-note">2026 Abstract Smart contract programming languages represent a critical frontier in blockchain technology, demanding rig…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cecchetti.sites.cs.wisc.edu/papers/scif.pdf" target="_blank" rel="noreferrer noopener">A Language for Smart Contracts with Secure Control Flow ...</a></h2>
+<p class="reference-note">6 Evaluation Evaluating a new programming language is not easy, particular a language with strong security claims. Despi…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
