@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLMでBNのCPTを初期化する：確率知識抽出</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      letter-spacing: 0.01em;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 18px;
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      pointer-events: none;
+    }
+    .top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      position: relative;
+      z-index: 2;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.22em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-top: 2px solid var(--rust);
+      width: fit-content;
+      margin-top: -2px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 14px;
+      position: relative;
+      z-index: 2;
+    }
+    .title{
+      margin: 8px 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 0.95;
+      position: relative;
+      z-index: 2;
+    }
+    .jp-title{
+      margin: 0 0 12px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 44px;
+      color: var(--ink);
+      line-height: 1.05;
+      position: relative;
+      z-index: 2;
+    }
+    .lead{
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.45;
+      position: relative;
+      z-index: 2;
+    }
+    .content{
+      position: relative;
+      z-index: 2;
+      margin-top: 16px;
+    }
+    .grid2, .grid3{
+      display:grid;
+      gap: 14px 18px;
+      width: 100%;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(240,232,216,0.03);
+    }
+    .kicker{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      border-top: 1px solid var(--rule-strong);
+      padding-top: 8px;
+    }
+    .txt{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+    .equ{
+      border: 1px dashed rgba(240,232,216,0.22);
+      background: rgba(240,232,216,0.03);
+      padding: 10px 12px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+    .twoLine{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    a{ color: var(--ink); text-decoration: underline; text-decoration-color: rgba(232,129,74,0.6); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="top">
+        <div class="slide-tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">LLM × CPT</div>
+      <div class="title">Bayes</div>
+      <div class="jp-title">確率知識の抽出でBNを初期化</div>
+      <div class="lead">
+        LLMから「条件付き確率」を引き出し、ベイズネットのCPT（Conditional Probability Table）へ反映する枠組みを整理します。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">Target</div>
+            <div class="txt">BNの事前分布（expert-driven prior）</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Core</div>
+            <div class="txt">確率分布抽出 + 擬似カウント結合（EDP）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">データ不足</div>
+      <div class="title">Prior</div>
+      <div class="jp-title">専門家確保が難しい</div>
+      <div class="lead">
+        医療・金融などではデータが不足しがちで、CPTの精度は推論の信頼性に直結するためprior設計が重要になります。
+      </div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="kicker">BN</div>
+            <div class="txt">因果の有向グラフ + CPT</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Need</div>
+            <div class="txt">専門家priorでCPT初期化</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Cost</div>
+            <div class="txt">集約・適格性評価がコスト高</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="top">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">確率の語り部</div>
+      <div class="title">LLM</div>
+      <div class="jp-title">「確率専門家」として使う</div>
+      <div class="lead">
+        LLMを「確率分布の専門家」とみなし、条件付き確率を引き出してBNのパラメータ化に使えるかを検証します。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">Ask</div>
+            <div class="txt">親の状態に応じた各状態の確率</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Use</div>
+            <div class="txt">CPTの行（条件付き分布）として格納</div>
+          </div>
+        </div>
+        <div class="small twoLine">
+          <div>Key idea: <span class="equ">confidence</span> ではなく、BNに直結する <span class="equ">確率分布</span> を生成する。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">二段階パイプライン</div>
+      <div class="title">EDP</div>
+      <div class="jp-title">抽出 → 擬似カウント結合</div>
+      <div class="lead">
+        まずBN構造が既知としてCPTの確率分布を抽出し、次にEDP（Expert-Driven Priors）で観測カウントへ結合します。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">Stage 1</div>
+            <div class="txt"><span style="font-style:italic;">FullDist</span> / <span style="font-style:italic;">SepState</span> でCPT初期値を抽出</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Stage 2</div>
+            <div class="txt">LLM確率 → 擬似カウント → 更新CPT（EDP）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Strategies">
+      <div class="top">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">出し方の差</div>
+      <div class="title">Dist</div>
+      <div class="jp-title">FullDist vs SepState</div>
+      <div class="lead">
+        FullDistは全状態を一度に出す方式、SepStateは状態ごとに分けて出す方式で、実験ではSepStateが安定・高精度になりやすい結果です。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">FullDist</div>
+            <div class="txt">1クエリで全状態の分布を出力</div>
+            <div class="small">生成の自己回帰的影響で後続が歪む可能性</div>
+          </div>
+          <div class="card">
+            <div class="kicker">SepState</div>
+            <div class="txt">状態ごとの確率を個別に抽出</div>
+            <div class="small">概ね低いKL誤差と良好な安定性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="EDP">
+      <div class="top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">信じ方を制御</div>
+      <div class="title">EDP</div>
+      <div class="jp-title">擬似カウント化で結合</div>
+      <div class="lead">
+        LLMのprior確率 <span class="mono">qᵢ</span> を擬似カウント <span class="mono">α qᵢ</span> に変換し、データのカウント <span class="mono">cᵢ</span> と足し合わせて事後 <span class="mono">pᵢ</span> を計算します。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">変換</div>
+            <div class="txt"><span class="mono">qᵢ → α qᵢ</span></div>
+            <div class="small">αは「LLMをどれだけ信じるか」を決める</div>
+          </div>
+          <div class="card">
+            <div class="kicker">合成</div>
+            <div class="txt"><span class="mono">cᵢ + α qᵢ → pᵢ</span></div>
+            <div class="small">少数データでpriorが効きやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">評価はKLと下流</div>
+      <div class="title">KL</div>
+      <div class="jp-title">BN全体の近さで測る</div>
+      <div class="lead">
+        公開BN80個（医療〜金融）で、LLM推定品質をBN全体のKLダイバージェンスで測定し、さらに下流分類（Macro F1）でも確認しています。
+      </div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="kicker">Data</div>
+            <div class="txt">公開BN 80</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Metric</div>
+            <div class="txt">BN KLダイバージェンス</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Downstream</div>
+            <div class="txt">Macro F1（分類精度）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Results1">
+      <div class="top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">データなしでも</div>
+      <div class="title">Sep</div>
+      <div class="jp-title">一様より一貫して改善</div>
+      <div class="lead">
+        SepStateで抽出した確率分布は、一様分布（uniform prior）よりも一貫して良い方向に働くことが示されました。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">Comparison</div>
+            <div class="txt">SepState vs Uniform</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Result</div>
+            <div class="txt">KL改善の一貫性</div>
+            <div class="small">確率分布抽出設計が性能に直結</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Results2">
+      <div class="top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">少数データで効く</div>
+      <div class="title">α</div>
+      <div class="jp-title">3〜30サンプルが鍵</div>
+      <div class="lead">
+        EDPにより、データが少ない場合（3〜30サンプル程度）でもKL誤差が大きく改善し、Macro F1も向上しました。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">Regime</div>
+            <div class="txt">少数データ：3〜30</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Gain</div>
+            <div class="txt">KL誤差↑（改善）・Macro F1↑</div>
+            <div class="small">ML（MLE）やLLM単独より目立つ改善</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Risks">
+      <div class="top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">万能ではない</div>
+      <div class="title">Bias</div>
+      <div class="jp-title">十分データでは逆効果も</div>
+      <div class="lead">
+        十分なデータがある状況では、priorがバイアスとして働き得て、改善が統計的に有意にならない場合もあると注意されています。
+      </div>
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <div class="kicker">When</div>
+            <div class="txt">データが十分</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Risk</div>
+            <div class="txt">priorが誤差を増やす可能性</div>
+            <div class="small">「無条件に信用しない」運用が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="My takeaways">
+      <div class="top">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">読んだ後の要点</div>
+      <div class="title">Use</div>
+      <div class="jp-title">事前分布初期化として有望</div>
+      <div class="lead">
+        強みは「確率分布の抽出」だけでなく、EDPで擬似カウント結合し、KLと下流タスクで同時に検証した点です。
+      </div>
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div class="kicker">Strength</div>
+            <div class="txt">KL + Macro F1で整合</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Practical</div>
+            <div class="txt">少数データで改善が効く</div>
+          </div>
+          <div class="card">
+            <div class="kicker">Caution</div>
+            <div class="txt">構造既知・バイアス監査が前提</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          重要：α（信頼度）とバイアス監査・妥当性検証はセット。安全クリティカル用途では初期推定として扱うべきです。
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="References">
+      <div class="top">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">参考文献</div>
+      <div class="title">List</div>
+      <div class="jp-title">一次情報・関連</div>
+      <div class="lead">
+        このデッキは、ユーザー提示の要約内容を主に圧縮して整理しています。原典は以下のタイトルを手がかりに参照してください。
+      </div>
+      <div class="content">
+        <div class="refs">
+          <div class="card">
+            <div class="kicker">Paper</div>
+            <div class="txt">
+              Extracting Probabilistic Knowledge from Large Language Models for Bayesian Network Parameterization
+            </div>
+          </div>
+          <div class="card">
+            <div class="kicker">Concepts</div>
+            <div class="txt">
+              Bayesian Network（BN）, Conditional Probability Table（CPT）, KL-Divergence, Linear pooling
+            </div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          注：詳細な実装・数式・実験設定は原論文で確認してください。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2505.15918v1" target="_blank" rel="noreferrer noopener">Extracting Probabilistic Knowledge from Large Language Models for Bayesian Network Parameterization</a></h2>
+<p class="reference-note">We introduce two distinct frameworks for estimating the parameters of a BN. Our first approach, Extracting Probabilistic…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://aclanthology.org/2026.findings-acl.167.pdf" target="_blank" rel="noreferrer noopener">Verifiable Parameterization of Bayesian Networks from ...</a></h2>
+<p class="reference-note">Selection of Appropriate Statistical Methods for Data Analysis. Annals of Cardiac Anaesthesia, 22(3):297.
+3410 Aliakbar …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2505.15918v3" target="_blank" rel="noreferrer noopener">Extracting Probabilistic Knowledge from Large Language ...</a></h2>
+<p class="reference-note">Sep 15, 2026 — These findings confirm that using LLM predictions as expert-driven priors improves the performance and ro…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2508.08300v1" target="_blank" rel="noreferrer noopener">LLM-BI: Towards Fully Automated Bayesian Inference with Large Language Models</a></h2>
+<p class="reference-note">|  |  |  |  |  |  |  |  |
+ ---  ---  ---  --- |
+| Model 1: Manual Priors | | | | | | | |
+| Parameter | mean | mode | sd …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2505.15918v2" target="_blank" rel="noreferrer noopener">Extracting Probabilistic Knowledge from Large Language ...</a></h2>
+<p class="reference-note">Aug 10, 2025 — In this work, we demonstrate that modern LLMs can effectively produce conditional probabilities to be use…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
