@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PromptBN / ReActBN — LLM中心のベイズネット構造学習</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .wrap{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      position: relative;
+      background: var(--paper);
+      border: 20px solid rgba(240,232,216,0.07);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 0;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      overflow: hidden;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      border-radius: 2px;
+    }
+
+    .inner{
+      height: 100%;
+      width: 100%;
+      padding: 56px 72px;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-left: 14px;
+      border-left: 3px solid var(--rust);
+      margin-top: 2px;
+      white-space:nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-3);
+      white-space:nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+      line-height: 1.1;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 70px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      line-height: 1.0;
+      margin-top: -6px;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 72px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: 2px;
+    }
+
+    .rule{
+      margin-top: 6px;
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+    }
+
+    .grid{
+      margin-top: 6px;
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule-strong);
+      background: rgba(240,232,216,0.03);
+      padding: 14px 14px;
+      border-radius: 3px;
+      min-height: 64px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      color: var(--ink-4);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display:flex;
+      align-items:center;
+      gap: 8px;
+    }
+    .dot{
+      width: 7px;
+      height: 7px;
+      border-radius: 10px;
+      background: var(--rust);
+      display:inline-block;
+    }
+    .value{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .jpgloss{
+      color: var(--ink-3);
+      font-style: italic;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+
+    .footnote{
+      margin-top:auto;
+      padding-top: 8px;
+      border-top: 1px solid var(--rule);
+      font-size: 14px;
+      color: var(--ink-3);
+      display:flex;
+      justify-content:space-between;
+      gap: 12px;
+      align-items:flex-end;
+    }
+    .footnote b{ color: var(--ink-2); font-weight: 500; }
+    .nowrap{ white-space: nowrap; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+  <div class="wrap">
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Cover slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+
+        <div class="eyebrow">LLMでBN構造を“生成＋改善”</div>
+        <div class="title"><em>PromptBN</em> <span class="jp">/ ReActBN</span></div>
+
+        <div class="lead">
+          ベイズネット（BN）のDAG構造学習を、LLM中心の設計で実現する二段階枠組みです。
+          <span class="small">データなし→データありへ拡張</span>
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Phase I</div>
+            <div class="value">PromptBN（データなし）<span class="jpgloss">prompt生成</span></div>
+            <div class="small">メタデータからDAGを単発生成し、整合性を検証</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Phase II</div>
+            <div class="value">ReActBN（データあり）<span class="jpgloss">反復探索</span></div>
+            <div class="small">局所操作を探索し、BIC等でLLMが方針選択</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>Key idea:</b> “生成器”から“意思決定主体”へ</div>
+          <div class="nowrap">BN構造学習のボトルネック同時処理</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Problem framing slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+
+        <div class="eyebrow">構造学習は難所だ</div>
+        <div class="title"><em>制約</em> と <em>データ</em></div>
+
+        <div class="lead">
+          BN構造学習は、本来データに基づく統計的推定が重要ですが、データが少ないと精度が落ちやすく、専門家知識の手作業も大変です。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Non-technical pain</div>
+            <div class="value">データ不足</div>
+            <div class="small">サンプル少→誤推定・不安定化</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Core technical constraint</div>
+            <div class="value">非閉路（DAG）<span class="jpgloss">非循環</span></div>
+            <div class="small">LLMは閉路を出し得る→検証が要る</div>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Practical cost</div>
+            <div class="value">LLMクエリ数</div>
+            <div class="small">LLM-onlyは照会回数が増えがち</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Format risk</div>
+            <div class="value">形式矛盾</div>
+            <div class="small">出力が仕様違反になり得る</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Causal validity</div>
+            <div class="value">正しい依存関係</div>
+            <div class="small">整合性（形式）≠因果の正確性</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>Question:</b> LLMは矛盾なくDAGを作れるか</div>
+          <div class="nowrap">さらに統計で直せるか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Core idea slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+
+        <div class="eyebrow">“生成→検証→改善”</div>
+        <div class="title">二段階 <em>ワークフロー</em></div>
+
+        <div class="lead">
+          PromptBNで最初のDAGを作り、閉路や形式不整合を検証して再生成します。
+          その後ReActBNで統計スコア（例：BIC）により局所改善します。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid three" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Step I</div>
+            <div class="value">単発生成（O(1)）<span class="jpgloss">単発</span></div>
+            <div class="small">メタデータ→DAG候補</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Step II</div>
+            <div class="value">二重整合検証＋DAG検証<span class="jpgloss">整合</span></div>
+            <div class="small">形式一致が崩れたら再生成</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Step III</div>
+            <div class="value">ReAct探索で統計改善<span class="jpgloss">探索</span></div>
+            <div class="small">辺操作×BICで方針決定</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>核心:</b> LLMを単なる前処理役にしない</div>
+          <div class="nowrap">“どこをどう変えるか”を推論</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Architecture of PromptBN slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+
+        <div class="eyebrow">PromptBN（データなし）</div>
+        <div class="title"><em>閉路ゼロ</em> へ寄せる</div>
+
+        <div class="lead">
+          変数のメタデータ（名称・説明・分布情報）だけを入力に、LLMでBN DAGを単発生成します。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> 入力</div>
+            <div class="value">変数メタデータ</div>
+            <div class="small">名称／説明／分布情報など</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 出力</div>
+            <div class="value">BN DAG（辺集合）</div>
+            <div class="small">閉路がないことを検証</div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label"><span class="dot"></span> 二重整合</div>
+            <div class="value">ノード中心＋エッジ中心</div>
+            <div class="small">出力形式を2表現で揃える</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> DAG制約</div>
+            <div class="value">非閉路検証<span class="jpgloss">DAG</span></div>
+            <div class="small">条件を満たさなければ再生成</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>利点:</b> LLM呼び出し回数がO(1)</div>
+          <div class="nowrap">LLM-onlyのクエリ負担を抑制</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="PromptBN output format consistency slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+
+        <div class="eyebrow">“形式が合うまで”止めない</div>
+        <div class="title">二重照合 <em>＋</em> 再生成</div>
+
+        <div class="lead">
+          LLM生成は形式違反を含み得るため、二つの表現形式が一致するかを確認し、さらにDAG制約を満たすかを見ます。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid three" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> i</div>
+            <div class="value">ノード中心表現</div>
+            <div class="small">各ノードの親集合などの表現</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> ii</div>
+            <div class="value">エッジ中心表現</div>
+            <div class="small">辺（u→v）集合としての表現</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> iii</div>
+            <div class="value">一致性＋非閉路検証</div>
+            <div class="small">不合格ならLLMに再生成させる</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>狙い:</b> “整合性（形式）”を手続きで担保</div>
+          <div class="nowrap">LLMの出力ゆらぎを吸収</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Architecture of ReActBN slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+
+        <div class="eyebrow">ReActBN（データあり）</div>
+        <div class="title"><em>探索</em> で統計改善</div>
+
+        <div class="lead">
+          PromptBNの初期DAGを出発点に、辺の追加・削除・反転などの局所操作を探索し、BIC等の構造スコアで評価します。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Candidate generation</div>
+            <div class="value">局所操作の候補<span class="jpgloss">辺操作</span></div>
+            <div class="small">追加／削除／反転など</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Scoring</div>
+            <div class="value">BICなどの統計スコア</div>
+            <div class="small">複雑さの罰則を含む</div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label"><span class="dot"></span> LLM role</div>
+            <div class="value">Reason＋Actで意思決定</div>
+            <div class="small">候補（top-k）から次の一手を選択</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Goal</div>
+            <div class="value">貪欲“だけ”でなく探索を柔軟化</div>
+            <div class="small">探索の偏りを抑えうる設計</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>要点:</b> 統計評価×LLM推論を循環</div>
+          <div class="nowrap">局所改善を“方針”で制御</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Comparison between PromptBN and ReActBN slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+
+        <div class="eyebrow">役割分担が明確</div>
+        <div class="title">PromptBN × ReActBN</div>
+
+        <div class="lead">
+          データなしでは“生成＋検証”で初期構造を作り、データありでは“統計スコアに基づく反復探索”で精度を押し上げます。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> PromptBN</div>
+            <div class="value">データなし<span class="jpgloss">0 data</span></div>
+            <div class="small">O(1)クエリでDAG生成→二重整合＋閉路検証</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> ReActBN</div>
+            <div class="value">データあり<span class="jpgloss">observed</span></div>
+            <div class="small">初期DAGから辺操作探索→BIC等でLLMが行動選択</div>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label"><span class="dot"></span> 統計寄与</div>
+            <div class="value">弱め（主にメタ知識）</div>
+            <div class="small">形式検証中心</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 検証の種類</div>
+            <div class="value">形式一致＋DAG</div>
+            <div class="small">“矛盾を減らす”</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 改善の方向</div>
+            <div class="value">反復でスコア向上</div>
+            <div class="small">“候補を選ぶ”</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>メッセージ:</b> 生成と統計改善を分業</div>
+          <div class="nowrap">最初から全部をLLMに任せない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Experimental evidence slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+
+        <div class="eyebrow">ベンチで確認</div>
+        <div class="title"><em>一般化</em> と <em>最高水準</em></div>
+
+        <div class="lead">
+          AsiaやCancerなどのクラシックに加え、blockchain / covid / disputed3 などのBN集合でも評価し、PromptBNはデータなしの一般化、ReActBNはデータありの高精度を狙う役割分担が示されています。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> PromptBN</div>
+            <div class="value">データなしでも強い<span class="jpgloss">zero-data</span></div>
+            <div class="small">メタデータ→整合DAG</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> ReActBN</div>
+            <div class="value">データありで最高水準<span class="jpgloss">data-driven</span></div>
+            <div class="small">BIC等で局所改善</div>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label"><span class="dot"></span> datasets</div>
+            <div class="value">10データセット</div>
+            <div class="small">クラシック＋新しめBN</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> robustness</div>
+            <div class="value">OOD寄りも視野</div>
+            <div class="small">低データ・外れ気味で評価</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> what it supports</div>
+            <div class="value">“分業”の妥当性</div>
+            <div class="small">生成→統計改善の流れが機能</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>見取り図:</b> 生成は初期化、反復は最適化</div>
+          <div class="nowrap">—そのため性能の伸び方が自然</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Distinction: anti-memorization and metadata experiments slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+
+        <div class="eyebrow">暗記依存を疑う</div>
+        <div class="title">汚染テスト <em>（再現性の敵）</em></div>
+
+        <div class="lead">
+          LLMに特定のBNが含まれていると、テンプレ暗記で解けてしまう可能性があります。
+          論文はメタデータを制限・攪乱して性能がどう変わるかを見ています。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> リスク</div>
+            <div class="value">データ暗記（汚染）</div>
+            <div class="small">事前学習由来の偶然一致もあり得る</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 対策</div>
+            <div class="value">メタデータ制限・攪乱<span class="jpgloss">ノイズ</span></div>
+            <div class="small">情報を壊しても性能が崩れにくいか確認</div>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label"><span class="dot"></span> 解釈</div>
+            <div class="value">単なる暗記より関係推論</div>
+            <div class="small">メタ知識で依存を組み立てる可能性</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 限界</div>
+            <div class="value">完全排除は不可</div>
+            <div class="small">非公開学習データの混入は不明</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 意味</div>
+            <div class="value">“どれだけ頑健か”を測る</div>
+            <div class="small">導入判断の材料になる</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>ポイント:</b> 明確な因果同定保証ではない</div>
+          <div class="nowrap">形式整合と統計整合の違いに注意</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Distinction: model choice impact slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+
+        <div class="eyebrow">“LLMなら何でもOK”ではない</div>
+        <div class="title">モデル差が <em>効く</em></div>
+
+        <div class="lead">
+          PromptBNの性能はo3、gpt-4.1、gemini等で一様ではないと報告されています。
+          強い推論モデルが常に最良とは限りません。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> 観測</div>
+            <div class="value">LLM選択が結果に影響</div>
+            <div class="small">出力整形能力・生成能力が絡む</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 意味</div>
+            <div class="value">設計はLLM依存</div>
+            <div class="small">“万能テンプレ”では成立しない</div>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Examples</div>
+            <div class="value">o3 / gpt-4.1</div>
+            <div class="small">モデル群の比較文脈</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Examples</div>
+            <div class="value">gemini</div>
+            <div class="small">同条件でも差が出る</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Takeaway</div>
+            <div class="value">モデル選定が実務上重要</div>
+            <div class="small">検証込みで決める</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>運用観点:</b> PromptBNの整合性維持はLLM品質に左右される</div>
+          <div class="nowrap">→試行と評価が必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Limitations and FAQ-style clarifications slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+
+        <div class="eyebrow">誤解しやすい点</div>
+        <div class="title">5つの <em>FAQ要約</em></div>
+
+        <div class="lead">
+          入力データがないのに推定できる理由、閉路、BICの役割、O(1)の意味、暗記の限界を押さえます。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> 1</div>
+            <div class="value">データなしでも推定？</div>
+            <div class="small">メタデータからLLMが潜在知識で依存を推論</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 2</div>
+            <div class="value">閉路は起きない？</div>
+            <div class="small">起き得る→二重整合とDAG検証で弾く</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 3</div>
+            <div class="value">BICを使う理由</div>
+            <div class="small">データ適合＋複雑さ罰則の統計スコア</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 4</div>
+            <div class="value">“O(1)”は計算時間？</div>
+            <div class="small">主にLLM API呼び出し回数（計算はCPU側もあり得る）</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> 5</div>
+            <div class="value">暗記は完全排除？</div>
+            <div class="small">完全には無理→攪乱で依存の程度を推定</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>注意:</b> 形式整合でも因果の真実は別問題</div>
+          <div class="nowrap">外部妥当性テストや専門家レビューが必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Closing slide">
+      <div class="inner">
+        <div class="topline">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+
+        <div class="eyebrow">導入判断の要点</div>
+        <div class="title"><em>LLM中心</em> で前進</div>
+
+        <div class="lead">
+          この手法の価値は、非閉路制約・データ不足・LLM高コスト照会を、生成検証と統計改善の設計で同時に扱う点にあります。
+          一方で成功要因（メタデータ品質、モデル選定、探索コスト、暗記以外の要因）は追加検証が必要です。
+        </div>
+
+        <div class="rule"></div>
+
+        <div class="grid two" style="margin-top:14px;">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Strengths</div>
+            <div class="value">形式検証＋統計統合＋クエリ抑制</div>
+            <div class="small">PromptBNで整合、ReActBNで改善</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Watch-outs</div>
+            <div class="value">“因果の正しさ”は保証されない</div>
+            <div class="small">探索計算・モデル差・暗記可能性を評価</div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="label"><span class="dot"></span> Practical recommendation</div>
+            <div class="value">メタデータ設計とモデル検証を先に</div>
+            <div class="small">データなし性能と再現性を確認</div>
+          </div>
+          <div class="card">
+            <div class="label"><span class="dot"></span> Next step</div>
+            <div class="value">外部妥当性テストへ接続<span class="jpgloss">検証</span></div>
+            <div class="small">専門家レビューや追加統計で裏取り</div>
+          </div>
+        </div>
+
+        <div class="footnote">
+          <div><b>一言:</b> LLMを“生成者”から“意思決定者”へ</div>
+          <div class="nowrap">それがPromptBN / ReActBNの設計思想</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/Bayesian_statistics" target="_blank" rel="noreferrer noopener">Bayesian statistics - Wikipedia</a></h2>
+<p class="reference-note">Bayesian statistics (/ˈbeɪziən/ BAY-zee-ən or /ˈbeɪʒən/ BAY-zhən) is a theory in the field of statistics based on the Ba…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.geeksforgeeks.org/data-science/bayesian-inference-1" target="_blank" rel="noreferrer noopener">Bayesian Inference - GeeksforGeeks</a></h2>
+<p class="reference-note">Computational Complexity: In some Bayesian methods can be computationally expensive in cases that are involved in MCMC o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://en.wikipedia.org/wiki/Bayesian_probability" target="_blank" rel="noreferrer noopener">Bayesian probability - Wikipedia</a></h2>
+<p class="reference-note">in the field of machine learning. [...] General
+
+ What links here
+ Related changes
+ Upload file
+ Permanent link
+ Page in…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.nature.com/articles/s43586-020-00001-2" target="_blank" rel="noreferrer noopener">Bayesian statistics and modelling | Nature Reviews Methods Primers</a></h2>
+<p class="reference-note">### Advertising &amp; partnerships
+
+### Professional development
+
+### Regional websites
+
+Springer Nature
+
+© 2026 Springer Na…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.merriam-webster.com/dictionary/Bayesian" target="_blank" rel="noreferrer noopener">BAYESIAN Definition &amp; Meaning - Merriam-Webster</a></h2>
+<p class="reference-note">The scientists were inspired by Bayesian experimental design, in which researchers interpret decision-making by estimati…</p>
+</article>
+</div>
+</section>
+</body>
+</html>
