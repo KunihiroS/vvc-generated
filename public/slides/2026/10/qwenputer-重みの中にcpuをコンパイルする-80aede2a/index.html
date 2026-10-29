@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Qwenputer — 重みの中にCPUをコンパイルする</title>
+  <meta name="description" content="QwenputerがGated DeltaNet状態をRAM化し、RISC-V CPUをモデルの重み内部で実行する仕組み、証拠、限界、安全性への含意を整理したリーディングデック。">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--cream);
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .deck {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: min(48px, 4vw);
+      padding: min(64px, 5.4vw) 0 min(96px, 8vw);
+    }
+
+    .slide {
+      position: relative;
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      box-sizing: border-box;
+      margin: 0 auto;
+      padding: min(56px, 5vw) min(72px, 6.43vw);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: var(--paper);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      isolation: isolate;
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: min(20px, 1.8vw);
+      border: 1px solid var(--rule);
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .slide-top {
+      position: absolute;
+      top: min(29px, 2.58vw);
+      left: min(72px, 6.43vw);
+      right: min(72px, 6.43vw);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 3;
+    }
+
+    .slide-tag {
+      display: flex;
+      align-items: center;
+      gap: min(11px, 0.98vw);
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(11px, 0.98vw);
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: 0.19em;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before {
+      content: "";
+      width: min(30px, 2.68vw);
+      height: 1px;
+      background: var(--rust);
+    }
+
+    .slide-num {
+      color: var(--ink-3);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(17px, 1.52vw);
+      font-style: italic;
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: 0.06em;
+    }
+
+    .intro {
+      position: relative;
+      z-index: 2;
+      margin-top: min(8px, 0.72vw);
+    }
+
+    .eyebrow {
+      margin: 0 0 min(6px, 0.54vw);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(22px, 1.97vw);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1.05;
+      letter-spacing: 0.02em;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-size: min(54px, 4.82vw);
+      font-weight: 500;
+      line-height: 0.99;
+      letter-spacing: -0.035em;
+    }
+
+    h1 em,
+    h2 em {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .compact-title {
+      font-size: min(48px, 4.28vw);
+      line-height: 1.03;
+    }
+
+    .lead {
+      max-width: min(760px, 67.86vw);
+      margin: min(12px, 1.07vw) 0 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(22px, 1.97vw);
+      font-weight: 300;
+      line-height: 1.58;
+      letter-spacing: 0.005em;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      min-height: 0;
+      margin-top: min(24px, 2.14vw);
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4 {
+      display: grid;
+      gap: min(14px, 1.25vw);
+      height: 100%;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      min-width: 0;
+      padding: min(16px, 1.43vw) min(18px, 1.61vw);
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.018);
+    }
+
+    .card.rust-edge {
+      border-top-color: var(--rust);
+    }
+
+    .card .label,
+    .mini-label {
+      display: block;
+      margin: 0 0 min(7px, 0.63vw);
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(10px, 0.89vw);
+      font-weight: 500;
+      line-height: 1.15;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .card h3 {
+      margin: 0 0 min(7px, 0.63vw);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(18px, 1.61vw);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(14px, 1.25vw);
+      font-weight: 300;
+      line-height: 1.62;
+    }
+
+    .card strong,
+    .callout strong,
+    .matrix strong {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .latin {
+      font-family: "Inter Tight", sans-serif;
+    }
+
+    .rust {
+      color: var(--rust);
+    }
+
+    .roman {
+      display: block;
+      margin-bottom: min(7px, 0.63vw);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(25px, 2.23vw);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 1;
+    }
+
+    .callout {
+      padding: min(14px, 1.25vw) min(18px, 1.61vw);
+      border-left: min(2px, 0.18vw) solid var(--rust);
+      background: rgba(240, 232, 216, 0.018);
+      color: var(--ink-2);
+      font-size: min(15px, 1.34vw);
+      line-height: 1.55;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: min(22px, 1.97vw);
+      align-items: stretch;
+      height: 100%;
+    }
+
+    .flow-step {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      padding: min(15px, 1.34vw);
+      border: 1px solid var(--rule);
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: min(-19px, -1.69vw);
+      transform: translateY(-52%);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(26px, 2.32vw);
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .flow-step b {
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(16px, 1.43vw);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .flow-step span {
+      margin-top: min(7px, 0.63vw);
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: min(11px, 0.98vw);
+      line-height: 1.45;
+    }
+
+    .equation {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: min(17px, 1.52vw);
+      border: 1px solid var(--rule-strong);
+      color: var(--ink);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(20px, 1.79vw);
+      font-weight: 300;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+
+    .equation .accent {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: 1.3em;
+      font-style: italic;
+    }
+
+    .memory-layout {
+      display: grid;
+      grid-template-columns: 0.86fr 1.14fr;
+      gap: min(18px, 1.61vw);
+      height: 100%;
+    }
+
+    .memory-bank {
+      display: grid;
+      grid-template-rows: repeat(5, 1fr);
+      gap: min(5px, 0.45vw);
+    }
+
+    .memory-row {
+      display: grid;
+      grid-template-columns: 0.3fr 1fr;
+      align-items: center;
+      border: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(12px, 1.07vw);
+    }
+
+    .memory-row .address {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-right: 1px solid var(--rule);
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(18px, 1.61vw);
+      font-style: italic;
+    }
+
+    .memory-row .value {
+      padding: 0 min(12px, 1.07vw);
+      letter-spacing: 0.08em;
+    }
+
+    .memory-row.active {
+      border-color: var(--rust);
+      background: rgba(232, 129, 74, 0.04);
+    }
+
+    .stack {
+      display: grid;
+      gap: min(10px, 0.89vw);
+      align-content: start;
+    }
+
+    .token-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: min(7px, 0.63vw);
+      align-items: center;
+    }
+
+    .token {
+      padding: min(7px, 0.63vw) min(10px, 0.89vw);
+      border: 1px solid var(--rule-strong);
+      color: var(--ink-2);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(12px, 1.07vw);
+      letter-spacing: 0.04em;
+    }
+
+    .token.accent {
+      border-color: var(--rust);
+      color: var(--rust);
+    }
+
+    .trace {
+      display: grid;
+      grid-template-columns: 0.55fr 1.45fr;
+      height: 100%;
+      border: 1px solid var(--rule);
+    }
+
+    .trace-labels,
+    .trace-values {
+      display: grid;
+      grid-template-rows: repeat(4, 1fr);
+    }
+
+    .trace-labels div,
+    .trace-values div {
+      display: flex;
+      align-items: center;
+      padding: 0 min(14px, 1.25vw);
+      border-bottom: 1px solid var(--rule);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(12px, 1.07vw);
+    }
+
+    .trace-labels div:last-child,
+    .trace-values div:last-child {
+      border-bottom: 0;
+    }
+
+    .trace-labels {
+      border-right: 1px solid var(--rule);
+      color: var(--rust);
+      letter-spacing: 0.08em;
+    }
+
+    .trace-values {
+      color: var(--ink-2);
+    }
+
+    .big-stat {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: min(18px, 1.61vw);
+      border: 1px solid var(--rule);
+    }
+
+    .big-stat .number {
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-size: min(48px, 4.28vw);
+      font-style: italic;
+      font-weight: 500;
+      line-height: 0.9;
+    }
+
+    .big-stat .unit {
+      margin-top: min(7px, 0.63vw);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(15px, 1.34vw);
+      font-weight: 500;
+    }
+
+    .big-stat .note {
+      margin-top: min(5px, 0.45vw);
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(11px, 0.98vw);
+      line-height: 1.5;
+    }
+
+    .matrix {
+      display: grid;
+      height: 100%;
+      border-top: 1px solid var(--rule);
+      border-left: 1px solid var(--rule);
+    }
+
+    .matrix.three {
+      grid-template-columns: 0.72fr repeat(3, 1fr);
+    }
+
+    .matrix.two {
+      grid-template-columns: 0.72fr repeat(2, 1fr);
+    }
+
+    .matrix > div {
+      display: flex;
+      align-items: center;
+      padding: min(9px, 0.8vw) min(12px, 1.07vw);
+      border-right: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(12px, 1.07vw);
+      line-height: 1.45;
+    }
+
+    .matrix .head {
+      color: var(--ink);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: min(11px, 0.98vw);
+      font-weight: 500;
+      letter-spacing: 0.06em;
+    }
+
+    .matrix .row-head {
+      color: var(--ink-3);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: min(10px, 0.89vw);
+      font-weight: 500;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .verdict {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: min(18px, 1.61vw);
+      height: 100%;
+    }
+
+    .verdict-panel {
+      padding: min(18px, 1.61vw);
+      border: 1px solid var(--rule);
+    }
+
+    .verdict-panel.confirmed {
+      border-top-color: var(--rust);
+    }
+
+    .verdict-panel h3 {
+      margin: 0 0 min(12px, 1.07vw);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(18px, 1.61vw);
+      font-weight: 500;
+    }
+
+    .verdict-item {
+      display: grid;
+      grid-template-columns: min(28px, 2.5vw) 1fr;
+      gap: min(9px, 0.8vw);
+      padding: min(8px, 0.71vw) 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .verdict-item .roman {
+      margin: 0;
+      font-size: min(20px, 1.79vw);
+    }
+
+    .verdict-item p {
+      margin: 0;
+      color: var(--ink-2);
+      font-size: min(13px, 1.16vw);
+      line-height: 1.52;
+    }
+
+    .cover {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .cover .slide-top,
+    .closing .slide-top {
+      text-align: left;
+    }
+
+    .cover .cover-center,
+    .closing .closing-center {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .cover .eyebrow,
+    .closing .eyebrow {
+      font-size: min(25px, 2.23vw);
+    }
+
+    .cover h1 {
+      max-width: min(900px, 80.36vw);
+      margin: 0 auto;
+      font-size: min(78px, 6.96vw);
+      line-height: 0.96;
+    }
+
+    .cover .lead,
+    .closing .lead {
+      max-width: min(800px, 71.43vw);
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .cover-meta {
+      display: flex;
+      justify-content: center;
+      gap: min(10px, 0.89vw);
+      margin-top: min(26px, 2.32vw);
+    }
+
+    .cover-meta span {
+      padding: min(7px, 0.63vw) min(12px, 1.07vw);
+      border: 1px solid var(--rule-strong);
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      font-size: min(10px, 0.89vw);
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .cover-thesis {
+      max-width: min(760px, 67.86vw);
+      margin: min(24px, 2.14vw) auto 0;
+      padding-top: min(18px, 1.61vw);
+      border-top: 1px solid var(--rule);
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(14px, 1.25vw);
+      line-height: 1.65;
+    }
+
+    .closing {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .closing h2 {
+      max-width: min(880px, 78.57vw);
+      margin: 0 auto;
+      font-size: min(68px, 6.07vw);
+      line-height: 0.98;
+    }
+
+    .decision-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: min(12px, 1.07vw);
+      max-width: min(860px, 76.79vw);
+      margin: min(28px, 2.5vw) auto 0;
+      text-align: left;
+    }
+
+    .decision-row .card {
+      padding: min(14px, 1.25vw);
+    }
+
+    .reference-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: min(12px, 1.07vw) min(18px, 1.61vw);
+      height: 100%;
+    }
+
+    .reference {
+      display: grid;
+      grid-template-columns: min(30px, 2.68vw) 1fr;
+      gap: min(11px, 0.98vw);
+      padding: min(12px, 1.07vw) min(14px, 1.25vw);
+      border: 1px solid var(--rule);
+    }
+
+    .reference .roman {
+      margin: 0;
+      font-size: min(22px, 1.97vw);
+    }
+
+    .reference h3 {
+      margin: 0 0 min(4px, 0.36vw);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(14px, 1.25vw);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .reference p {
+      margin: 0;
+      color: var(--ink-3);
+      font-family: "Noto Serif JP", serif;
+      font-size: min(11px, 0.98vw);
+      line-height: 1.55;
+    }
+
+    .fine-print {
+      position: absolute;
+      right: min(72px, 6.43vw);
+      bottom: min(34px, 3.04vw);
+      left: min(72px, 6.43vw);
+      z-index: 2;
+      color: var(--ink-4);
+      font-family: "Inter Tight", "Noto Serif JP", sans-serif;
+      font-size: min(9px, 0.8vw);
+      line-height: 1.4;
+      letter-spacing: 0.03em;
+    }
+
+    @media print {
+      body {
+        background: var(--cream);
+      }
+
+      .deck {
+        gap: 0;
+        padding: 0;
+      }
+
+      .slide {
+        width: 100vw;
+        page-break-after: always;
+        break-after: page;
+        box-shadow: none;
+      }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <main class="deck" aria-label="Qwenputer reading deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide cover" aria-labelledby="slide-01-title">
+      <div class="slide-top">
+        <div class="slide-tag">Field Note</div>
+        <div class="slide-num">02 / 27</div>
+      </div>
+      <div class="cover-center">
+        <p class="eyebrow">Model as Machine</p>
+        <h1 id="slide-01-title">重みの中に<br><em>CPU</em>をコンパイルする</h1>
+        <p class="lead">Qwenputerは、RISC-V計算機とRAMをQwenの内部構造へ埋め込み、forward passの最中に命令を実行する実験です。</p>
+        <div class="cover-meta" aria-label="主要技術">
+          <span>Qwen 3.5 4B</span>
+          <span>Gated DeltaNet</span>
+          <span>RV32IM</span>
+        </div>
+        <p class="cover-thesis">中心的な主張は、Pythonサンドボックスを呼ぶことではありません。<strong>計算の実行主体そのものを、モデル外部から重み内部へ移す</strong>ことです。</p>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-02-title">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Execution Boundary</p>
+        <h2 id="slide-02-title">これは<em>ツール呼び出し</em>ではない</h2>
+        <p class="lead">通常のツール利用では計算を外部環境へ委託します。QwenputerはCPU論理と作業メモリをモデル内に置き、forward pass内で進めます。</p>
+      </div>
+      <div class="content grid-2">
+        <article class="card">
+          <span class="label">Conventional Tool Use</span>
+          <h3>モデル → 外部Python → 結果</h3>
+          <p>モデルはコードや引数を生成し、サンドボックスやAPIが計算します。実行主体と状態はモデルの外側です。</p>
+          <div class="token-line" style="margin-top:min(16px,1.43vw)">
+            <span class="token">LLM</span>
+            <span class="rust">→</span>
+            <span class="token accent">Python</span>
+            <span class="rust">→</span>
+            <span class="token">Result</span>
+          </div>
+        </article>
+        <article class="card rust-edge">
+          <span class="label">Qwenputer</span>
+          <h3>モデル内CPU → 内部RAM → 実行トレース</h3>
+          <p>CPU回路はコンパイル済み重み、RAMはGated DeltaNet状態です。RvChatは起動・入出力を仲介しますが、計算エンジンではありません。</p>
+          <div class="token-line" style="margin-top:min(16px,1.43vw)">
+            <span class="token">Forward Pass</span>
+            <span class="rust">→</span>
+            <span class="token accent">CPU + RAM</span>
+            <span class="rust">→</span>
+            <span class="token">Trace</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-03-title">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">04 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Prerequisite Map</p>
+        <h2 id="slide-03-title">理解に必要な<em>四つ</em>の部品</h2>
+        <p class="lead">新規性は単独の技術ではなく、生成モデル・線形RNN状態・連想記憶・CPU仕様を接続した点にあります。</p>
+      </div>
+      <div class="content grid-4">
+        <article class="card">
+          <span class="roman">i</span>
+          <span class="label">Transformer</span>
+          <h3>次トークン生成</h3>
+          <p>入力と既生成列から、次に出すトークンの確率を計算します。</p>
+        </article>
+        <article class="card">
+          <span class="roman">ii</span>
+          <span class="label">Gated DeltaNet</span>
+          <h3>持続する状態</h3>
+          <p>注意機構の代わりに、更新可能な行列状態を時系列で保持します。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iii</span>
+          <span class="label">Fast Weights</span>
+          <h3>キーで読み書き</h3>
+          <p>one-hotキーとクエリにより、状態内の特定行を選択します。</p>
+        </article>
+        <article class="card rust-edge">
+          <span class="roman">iv</span>
+          <span class="label">RISC-V ISA</span>
+          <h3>CPUの仕様</h3>
+          <p>命令、レジスタ、演算、メモリ動作を定義する契約です。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-04-title">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">05 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Token Generation</p>
+        <h2 id="slide-04-title">Transformerは<em>反復</em>して出力する</h2>
+        <p class="lead">forward passは、現在の入力から次トークン分布を計算する一回の通過です。生成では、その通過をトークンごとに繰り返します。</p>
+      </div>
+      <div class="content">
+        <div class="flow">
+          <div class="flow-step">
+            <b>入力列</b>
+            <span>Prompt + generated tokens</span>
+          </div>
+          <div class="flow-step">
+            <b>モデル層</b>
+            <span>Attention / DeltaNet / FFN</span>
+          </div>
+          <div class="flow-step">
+            <b>ロジット</b>
+            <span>Next-token scores</span>
+          </div>
+          <div class="flow-step">
+            <b>次トークン</b>
+            <span>Decode one symbol</span>
+          </div>
+          <div class="flow-step">
+            <b>再入力</b>
+            <span>Repeat forward pass</span>
+          </div>
+        </div>
+      </div>
+      <div class="fine-print">Qwenputerでは、この生成ループが文章だけでなく、CPUの状態遷移を表す実行トレースも進めます。</div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-05-title">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">06 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Persistent State</p>
+        <h2 id="slide-05-title">DeltaNetは<em>状態</em>を持つ</h2>
+        <p class="lead">Gated DeltaNetは、過去のキーと値を行列状態へ圧縮しながら更新する線形RNN系の仕組みです。</p>
+      </div>
+      <div class="content grid-2">
+        <div class="stack">
+          <div class="equation" aria-label="概念的な状態更新式">
+            S<sub>t</sub> <span class="accent">&nbsp;←&nbsp;</span> gate(S<sub>t−1</sub>) + write(k<sub>t</sub>, v<sub>t</sub>, β<sub>t</sub>)
+          </div>
+          <div class="callout"><strong>概念式：</strong>ゲートが既存状態の保持・減衰を決め、キー、値、書き込み強度βが更新内容を決めます。</div>
+        </div>
+        <div class="grid-3">
+          <article class="card">
+            <span class="roman">i</span>
+            <h3>固定形状</h3>
+            <p>状態行列の寸法は、コンテキスト長とともに増え続けません。</p>
+          </article>
+          <article class="card">
+            <span class="roman">ii</span>
+            <h3>選択更新</h3>
+            <p>キーに応じて、状態の一部へ値を関連付けます。</p>
+          </article>
+          <article class="card rust-edge">
+            <span class="roman">iii</span>
+            <h3>保持制御</h3>
+            <p>ゲートにより、情報を残すか忘れるかを調整します。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-06-title">
+      <div class="slide-top">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">07 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">State as Memory</p>
+        <h2 id="slide-06-title">連想状態を<em>RAM</em>へ変える</h2>
+        <p class="lead">one-hotキーが行番号を一意に選び、書き込み強度とゲートが上書き・保持を制御します。曖昧な類似検索ではなく、明示アドレスとして使える設計です。</p>
+      </div>
+      <div class="content memory-layout">
+        <div class="memory-bank" aria-label="状態行列の行">
+          <div class="memory-row">
+            <span class="address">00</span>
+            <span class="value">0010 1101</span>
+          </div>
+          <div class="memory-row active">
+            <span class="address">01</span>
+            <span class="value">1011 0001</span>
+          </div>
+          <div class="memory-row">
+            <span class="address">02</span>
+            <span class="value">0000 0111</span>
+          </div>
+          <div class="memory-row">
+            <span class="address">03</span>
+            <span class="value">1110 0100</span>
+          </div>
+          <div class="memory-row">
+            <span class="address">04</span>
+            <span class="value">0101 1010</span>
+          </div>
+        </div>
+        <div class="grid-2">
+          <article class="card">
+            <span class="label">Write</span>
+            <h3>one-hotキーで行を選ぶ</h3>
+            <p><span class="latin rust">k = [0,1,0,0,0]</span> なら行01を指定。βを上書きに適した強度へ設定し、新しい値を格納します。</p>
+          </article>
+          <article class="card rust-edge">
+            <span class="label">Read</span>
+            <h3>one-hotクエリで行を読む</h3>
+            <p><span class="latin rust">q = [0,1,0,0,0]</span> により、同じ行の値を選択的に取り出します。</p>
+          </article>
+          <article class="card">
+            <span class="label">Retention</span>
+            <h3>ゲートで内容を維持</h3>
+            <p>不要な減衰を抑え、命令間でレジスタ値やメモリ内容を残します。</p>
+          </article>
+          <article class="card">
+            <span class="label">Capacity</span>
+            <h3>固定サイズという制約</h3>
+            <p>長文とともに伸びませんが、利用できる行数と値幅は設計時に固定されます。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-07-title">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">08 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Addressed Operations</p>
+        <h2 id="slide-07-title">読み書きは<em>三段階</em>で進む</h2>
+        <p class="lead">アドレス、値、命令境界を表すトークンが、内部状態への操作を明示します。</p>
+      </div>
+      <div class="content grid-3">
+        <article class="card">
+          <span class="roman">i</span>
+          <span class="label">ADDR</span>
+          <h3>対象を指定</h3>
+          <p>メモリアドレスや対象レジスタを選び、one-hotキー／クエリへ対応させます。</p>
+          <div class="token-line" style="margin-top:min(13px,1.16vw)">
+            <span class="token accent">ADDR</span>
+            <span class="token">0x0040</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="roman">ii</span>
+          <span class="label">VAL</span>
+          <h3>値を転送</h3>
+          <p>格納する値、または読み出した結果をトークン化し、状態更新へ接続します。</p>
+          <div class="token-line" style="margin-top:min(13px,1.16vw)">
+            <span class="token accent">VAL</span>
+            <span class="token">0x0000002A</span>
+          </div>
+        </article>
+        <article class="card rust-edge">
+          <span class="roman">iii</span>
+          <span class="label">STEP</span>
+          <h3>状態遷移を確定</h3>
+          <p>命令の終了を示し、プログラムカウンタや次の内部状態へ進みます。</p>
+          <div class="token-line" style="margin-top:min(13px,1.16vw)">
+            <span class="token accent">STEP</span>
+            <span class="token">PC + 4</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-08-title">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">09 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Circuit Compilation</p>
+        <h2 id="slide-08-title">CPU回路を<em>重み</em>へ落とす</h2>
+        <p class="lead">CPU仕様として定義した論理を、注意ヘッド、FFN、DeltaNetヘッドなどの層断片へ変換します。</p>
+      </div>
+      <div class="content">
+        <div class="flow">
+          <div class="flow-step">
+            <b>RISC-V仕様</b>
+            <span>Instructions &amp; semantics</span>
+          </div>
+          <div class="flow-step">
+            <b>CPU回路</b>
+            <span>Registers, ALU, control</span>
+          </div>
+          <div class="flow-step">
+            <b>コンパイラ</b>
+            <span>Circuit → model fragments</span>
+          </div>
+          <div class="flow-step">
+            <b>生成重み</b>
+            <span>Heads, FFN, Delta state</span>
+          </div>
+          <div class="flow-step">
+            <b>チェックポイント</b>
+            <span>Qwen + embedded CPU</span>
+          </div>
+        </div>
+      </div>
+      <div class="fine-print">ここでの「コンパイル」は、CPU動作を自然言語から学習させることではなく、既知の回路をモデル演算へ写像することを指します。</div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-09-title">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">10 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Tokens as Trace</p>
+        <h2 id="slide-09-title">生成列が<em>実行トレース</em>になる</h2>
+        <p class="lead">CPUの各状態遷移は、意味を割り当てられたトークン列としてデコードされます。文章生成の時間軸が、そのまま命令実行の時間軸になります。</p>
+      </div>
+      <div class="content grid-2">
+        <div class="trace" aria-label="命令実行トレース例">
+          <div class="trace-labels">
+            <div>FETCH</div>
+            <div>DECODE</div>
+            <div>EXECUTE</div>
+            <div>COMMIT</div>
+          </div>
+          <div class="trace-values">
+            <div>PC 0x1000 → instruction word</div>
+            <div>opcode / rs1 / rs2 / rd</div>
+            <div>ALU result or memory access</div>
+            <div>VAL → register · STEP → next PC</div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="token-line">
+            <span class="token accent">ADDR</span>
+            <span class="token">0x0040</span>
+            <span class="token accent">VAL</span>
+            <span class="token">0x0000002A</span>
+            <span class="token accent">STEP</span>
+          </div>
+          <div class="callout"><strong>一命令は数decoded tokens相当。</strong>形式が明示される一方、通常のCPUに比べて実行は大幅に遅くなります。</div>
+          <article class="card">
+            <span class="label">Interpretation</span>
+            <h3>トークンは説明文ではない</h3>
+            <p>トークン列の意味解釈がDeltaNet状態を更新し、レジスタ、RAM、プログラムカウンタを前進させます。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-10-title">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">11 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Whole System</p>
+        <h2 id="slide-10-title">全体像は<em>五層</em>で読める</h2>
+        <p class="lead">外部ドライバは入力を整えますが、命令の意味処理とメモリ更新はコンパイル済みモデル内部にあります。</p>
+      </div>
+      <div class="content">
+        <div class="flow">
+          <div class="flow-step">
+            <b>ユーザー要求</b>
+            <span>Problem or program</span>
+          </div>
+          <div class="flow-step">
+            <b>RvChat</b>
+            <span>Driver &amp; protocol</span>
+          </div>
+          <div class="flow-step">
+            <b>Qwenデコーダ</b>
+            <span>Forward-pass execution</span>
+          </div>
+          <div class="flow-step">
+            <b>CPU + RAM</b>
+            <span>Compiled logic + Delta state</span>
+          </div>
+          <div class="flow-step">
+            <b>結果トークン</b>
+            <span>Trace and answer</span>
+          </div>
+        </div>
+      </div>
+      <div class="fine-print">したがって「完全にgenerate()だけで扱える」わけではありません。しかし、RvChatの存在はCPU計算を外部サンドボックスで行うことと同義ではありません。</div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-11-title">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">12 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Instruction Contract</p>
+        <h2 id="slide-11-title">埋め込まれたのは<em>RV32IM</em></h2>
+        <p class="lead">RISC-Vの32-bit整数命令を基礎に、乗除算と追加演算を扱う構成です。単なる四則演算器より、プログラム実行に近い仕様を狙っています。</p>
+      </div>
+      <div class="content grid-4">
+        <article class="card rust-edge">
+          <span class="label">RV32I</span>
+          <h3>基本整数命令</h3>
+          <p>レジスタ演算、分岐、ロード／ストアなど、32-bit CPUの基礎です。</p>
+        </article>
+        <article class="card">
+          <span class="label">M Extension</span>
+          <h3>乗算・除算</h3>
+          <p>整数乗算、除算、剰余を追加し、数値処理の範囲を広げます。</p>
+        </article>
+        <article class="card">
+          <span class="label">Zba</span>
+          <h3>アドレス生成支援</h3>
+          <p>Web上のプロジェクト説明では、Zba拡張を含む構成とされています。</p>
+        </article>
+        <article class="card">
+          <span class="label">Bignum</span>
+          <h3>多倍長演算</h3>
+          <p>bignumコプロセッサも追加され、大きな整数の処理を補助します。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-12-title">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">13 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Reported Validation</p>
+        <h2 id="slide-12-title">主張を支える<em>四つ</em>の検証</h2>
+        <p class="lead">プロジェクトは、公式テスト、参照実装との一致、長時間実行、出力再照合を報告しています。数値は独立再現ではなく、公開説明に基づきます。</p>
+      </div>
+      <div class="content grid-4">
+        <div class="big-stat">
+          <span class="number">Pass</span>
+          <span class="unit">riscv-tests</span>
+          <span class="note">対応範囲の公式テストを通過したとの報告。</span>
+        </div>
+        <div class="big-stat">
+          <span class="number">Match</span>
+          <span class="unit">QEMU整合</span>
+          <span class="note">参照エミュレータと一致する挙動を確認。</span>
+        </div>
+        <div class="big-stat">
+          <span class="number">≈18M</span>
+          <span class="unit">命令フルラン</span>
+          <span class="note">約1,800万命令を誤りなく実行したとの主張。</span>
+        </div>
+        <div class="big-stat">
+          <span class="number">0</span>
+          <span class="unit">再照合の不一致</span>
+          <span class="note">出力位置を再確認し、不一致ゼロと報告。</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-13-title">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">14 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Numerical Reliability</p>
+        <h2 id="slide-13-title">狙いは<em>確定的計算</em>の内製化</h2>
+        <p class="lead">言語モデルが桁列を推測する代わりに、内部CPUが定義済みの命令意味論で計算します。数値ベンチでは、外部Python利用時と同等または近い改善が報告されています。</p>
+      </div>
+      <div class="content grid-3">
+        <article class="card">
+          <span class="roman">i</span>
+          <span class="label">Token Arithmetic</span>
+          <h3>言語として推測</h3>
+          <p>通常の生成では、計算結果も次トークン予測です。桁数や分布外入力で誤りやすくなります。</p>
+        </article>
+        <article class="card rust-edge">
+          <span class="roman">ii</span>
+          <span class="label">Internal CPU</span>
+          <h3>命令として実行</h3>
+          <p>加算、乗算、分岐、メモリ操作をCPU仕様に沿って進め、途中状態を保持します。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iii</span>
+          <span class="label">Evidence Limit</span>
+          <h3>改善幅の範囲は未確定</h3>
+          <p>提供資料には全ベンチの条件や詳細数値がなく、汎用性の判断には追加再現が必要です。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-14-title">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">15 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Beyond Working Memory</p>
+        <h2 id="slide-14-title">RAMから<em>簡易FS</em>へ拡張する</h2>
+        <p class="lead">Qwenputerは、ハッシュでスロットを選ぶファイル保存操作も試しています。状態を引き継ぐ構成では、会話をまたぐ事実保持率が改善したと報告されています。</p>
+      </div>
+      <div class="content grid-2">
+        <div class="grid-3">
+          <article class="card">
+            <span class="label">put</span>
+            <h3>新規保存</h3>
+            <p>キーと内容をスロットへ格納。</p>
+          </article>
+          <article class="card">
+            <span class="label">append</span>
+            <h3>追記</h3>
+            <p>既存内容へ情報を追加。</p>
+          </article>
+          <article class="card">
+            <span class="label">get</span>
+            <h3>読み出し</h3>
+            <p>キーから保存内容を取得。</p>
+          </article>
+          <article class="card">
+            <span class="label">list</span>
+            <h3>一覧</h3>
+            <p>利用中の項目を列挙。</p>
+          </article>
+          <article class="card">
+            <span class="label">delete</span>
+            <h3>削除</h3>
+            <p>指定項目を無効化。</p>
+          </article>
+          <article class="card rust-edge">
+            <span class="label">hash</span>
+            <h3>スロット配置</h3>
+            <p>名前をハッシュし、格納先を決定。</p>
+          </article>
+        </div>
+        <div class="stack">
+          <div class="equation">name <span class="accent">&nbsp;→&nbsp;</span> hash(name) <span class="accent">&nbsp;→&nbsp;</span> memory slot</div>
+          <div class="callout"><strong>重要な区別：</strong>これは無制限の永続ストレージではありません。容量、衝突処理、状態の保存・復元方法は運用設計に依存します。</div>
+          <article class="card">
+            <span class="label">Implication</span>
+            <h3>計算機能から再利用可能な記憶へ</h3>
+            <p>内部状態を演算の作業領域だけでなく、名前付き情報を後から取得する基盤として扱う方向性です。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-15-title">
+      <div class="slide-top">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">16 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Memory Models</p>
+        <h2 id="slide-15-title">三種類の<em>記憶</em>は別物</h2>
+        <p class="lead">KVキャッシュ、DeltaNet RAM、外部データベースは、伸び方・アドレス方式・永続性が異なります。</p>
+      </div>
+      <div class="content">
+        <div class="matrix three" aria-label="記憶方式の比較">
+          <div class="head"></div>
+          <div class="head">KV CACHE</div>
+          <div class="head rust">DELTANET RAM</div>
+          <div class="head">EXTERNAL STORE</div>
+
+          <div class="row-head">形状</div>
+          <div>文脈長とともに増加</div>
+          <div><strong>固定形状の状態行列</strong></div>
+          <div>別システムで拡張可能</div>
+
+          <div class="row-head">参照</div>
+          <div>注意重みによる内容参照</div>
+          <div><strong>one-hotによる行指定</strong></div>
+          <div>キー、SQL、検索API</div>
+
+          <div class="row-head">更新</div>
+          <div>通常は過去トークンを保持</div>
+          <div><strong>選択行を読み書き</strong></div>
+          <div>外部プログラムが更新</div>
+
+          <div class="row-head">永続性</div>
+          <div>セッション／キャッシュ依存</div>
+          <div>状態の保存運用に依存</div>
+          <div><strong>耐久保存を設計可能</strong></div>
+
+          <div class="row-head">主な制約</div>
+          <div>長文ほどメモリ負荷増</div>
+          <div>容量と値幅が固定</div>
+          <div>外部境界と権限管理</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-16-title">
+      <div class="slide-top">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">17 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Tool Boundary</p>
+        <h2 id="slide-16-title">Pythonとの違いは<em>実行場所</em></h2>
+        <p class="lead">両者とも計算精度を補えますが、信頼境界、状態の所在、監査方法が変わります。</p>
+      </div>
+      <div class="content">
+        <div class="matrix two" aria-label="外部PythonとQwenputerの比較">
+          <div class="head"></div>
+          <div class="head">EXTERNAL PYTHON</div>
+          <div class="head rust">QWENPUTER</div>
+
+          <div class="row-head">計算主体</div>
+          <div>サンドボックス、プロセス、API</div>
+          <div><strong>コンパイル済みモデル重み</strong></div>
+
+          <div class="row-head">作業状態</div>
+          <div>外部メモリとファイル</div>
+          <div><strong>Gated DeltaNet状態</strong></div>
+
+          <div class="row-head">接続方式</div>
+          <div>ツール呼び出しプロトコル</div>
+          <div>RvChat + 実行トークン規約</div>
+
+          <div class="row-head">利点</div>
+          <div>高速、成熟、分離しやすい</div>
+          <div>内部構造として制御・検証を議論可能</div>
+
+          <div class="row-head">主な代償</div>
+          <div>外部依存と境界管理</div>
+          <div><strong>速度、サイズ、特殊ドライバ</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-17-title">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">18 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Operational Friction</p>
+        <h2 id="slide-17-title">ボトルネックは<em>明確</em>に残る</h2>
+        <p class="lead">研究としての独創性と、一般利用に耐える性能は別評価です。現状はサイズ、速度、起動方法、評価範囲に制約があります。</p>
+      </div>
+      <div class="content grid-4">
+        <div class="big-stat">
+          <span class="number">18.8</span>
+          <span class="unit">GB checkpoint</span>
+          <span class="note">ベースモデルのおよそ2倍とされる容量。</span>
+        </div>
+        <article class="card rust-edge">
+          <span class="roman">ii</span>
+          <span class="label">Latency</span>
+          <h3>命令が遅い</h3>
+          <p>一命令に数decoded tokensを使うため、CPUとしてのスループットは低くなります。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iii</span>
+          <span class="label">Driver</span>
+          <h3>RvChatが必要</h3>
+          <p>一般的なgenerate()だけで、すべての起動・入出力を扱う設計ではありません。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iv</span>
+          <span class="label">Coverage</span>
+          <h3>評価範囲が限定</h3>
+          <p>大規模プログラム、例外、境界条件、長期状態運用の全容は未確定です。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-18-title">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">19 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Evidence Boundary</p>
+        <h2 id="slide-18-title">分かったことと<em>未決</em>のこと</h2>
+        <p class="lead">成果は「具体的な計算機をモデル内に構成できる」という存在証明を強くします。しかし、汎用性や安全性まで自動的に証明するものではありません。</p>
+      </div>
+      <div class="content verdict">
+        <div class="verdict-panel confirmed">
+          <h3>この実験が支えること</h3>
+          <div class="verdict-item">
+            <span class="roman">i</span>
+            <p>Gated DeltaNet状態を、明示的にアドレス指定できるRAMとして設計できる。</p>
+          </div>
+          <div class="verdict-item">
+            <span class="roman">ii</span>
+            <p>CPU回路をモデル層へ変換し、実行トレースを生成列として進められる。</p>
+          </div>
+          <div class="verdict-item">
+            <span class="roman">iii</span>
+            <p>RV32IMテスト、QEMU照合、長時間フルランによる検証方針が示された。</p>
+          </div>
+        </div>
+        <div class="verdict-panel">
+          <h3>まだ判断できないこと</h3>
+          <div class="verdict-item">
+            <span class="roman">i</span>
+            <p>多様な計算・推論タスクへ、同じ信頼性で一般化できるか。</p>
+          </div>
+          <div class="verdict-item">
+            <span class="roman">ii</span>
+            <p>大規模プログラム、複雑な制御フロー、長期運用で安定するか。</p>
+          </div>
+          <div class="verdict-item">
+            <span class="roman">iii</span>
+            <p>敵対的入力や状態悪用を含む状況で、監視器として安全に機能するか。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-19-title">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">20 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Safety Implications</p>
+        <h2 id="slide-19-title">構造化は<em>安全性</em>そのものではない</h2>
+        <p class="lead">内部CPUは監視や再現性の新しい足場になり得ます。同時に、コンパイラ、状態、入出力規約という新しい攻撃面も生みます。</p>
+      </div>
+      <div class="content grid-3">
+        <article class="card rust-edge">
+          <span class="label">Promise</span>
+          <h3>形式的な観測点</h3>
+          <p>アドレス更新、命令境界、レジスタ遷移が明示されれば、自然言語推論より監査しやすい可能性があります。</p>
+        </article>
+        <article class="card">
+          <span class="label">Threat Model</span>
+          <h3>誰が何を操作できるか</h3>
+          <p>入力、ドライバ、状態復元、重み、コンパイラのうち、攻撃者が触れられる範囲を定義する必要があります。</p>
+        </article>
+        <article class="card">
+          <span class="label">Failure Surface</span>
+          <h3>状態の悪用と隠蔽</h3>
+          <p>未監査の状態領域、ハッシュ衝突、トレース外の経路、観測不能な中間表現を検証すべきです。</p>
+        </article>
+      </div>
+      <div class="fine-print">「重み内部だから改ざんされにくい」という期待は、コンパイル過程・配布物・実行環境を含む信頼連鎖が検証されて初めて成立します。</div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-20-title">
+      <div class="slide-top">
+        <div class="slide-tag">Enumeration</div>
+        <div class="slide-num">21 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Research Agenda</p>
+        <h2 id="slide-20-title">次に必要な<em>四つ</em>の評価</h2>
+        <p class="lead">価値を確定するには、動作デモから、効率・網羅性・攻撃耐性・透明性を測る段階へ進む必要があります。</p>
+      </div>
+      <div class="content grid-4">
+        <article class="card rust-edge">
+          <span class="roman">i</span>
+          <h3>効率</h3>
+          <p>命令あたりのトークン数、実時間、消費電力、重み増加量を外部CPUと比較する。</p>
+        </article>
+        <article class="card">
+          <span class="roman">ii</span>
+          <h3>網羅性</h3>
+          <p>例外、境界値、長時間プログラム、複雑な分岐、メモリ圧力を含めて再現する。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iii</span>
+          <h3>攻撃耐性</h3>
+          <p>敵対的入力、状態汚染、ドライバ改変、隠れチャネルに対する挙動を測る。</p>
+        </article>
+        <article class="card">
+          <span class="roman">iv</span>
+          <h3>透明性</h3>
+          <p>回路から層への対応、コンパイラの正当性、配布重みの再生成可能性を公開する。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="slide closing" aria-labelledby="slide-21-title">
+      <div class="slide-top">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">22 / 27</div>
+      </div>
+      <div class="closing-center">
+        <p class="eyebrow">Balanced Verdict</p>
+        <h2 id="slide-21-title">説得力ある<em>実験</em><br>実用性と安全性は未決</h2>
+        <p class="lead">Qwenputerは、モデルを「計算について話すもの」から「内部で計算機を動かすもの」へ押し広げます。現時点では製品機能より、検証可能な内部計算を研究する基盤として読むのが妥当です。</p>
+        <div class="decision-row">
+          <article class="card rust-edge">
+            <span class="label">Use Now</span>
+            <h3>研究・再現実験</h3>
+            <p>内部状態、回路コンパイル、形式的監視の研究対象として価値が高い。</p>
+          </article>
+          <article class="card">
+            <span class="label">Watch Next</span>
+            <h3>効率と汎用化</h3>
+            <p>命令トークン削減、並列化、多様なプログラム評価が次の焦点。</p>
+          </article>
+          <article class="card">
+            <span class="label">Do Not Assume</span>
+            <h3>即時の安全性</h3>
+            <p>内部実行という構造だけで、改ざん耐性や監視可能性は保証されない。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-labelledby="slide-22-title">
+      <div class="slide-top">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">23 / 27</div>
+      </div>
+      <div class="intro">
+        <p class="eyebrow">Sources &amp; Scope</p>
+        <h2 id="slide-22-title">参照範囲と<em>証拠方針</em></h2>
+        <p class="lead">本デックは提供された要約・論点・Web検索メモを圧縮したものです。プロジェクト報告の数値は、独立再現済みの事実と区別して記述しています。</p>
+      </div>
+      <div class="content reference-list">
+        <article class="reference">
+          <span class="roman">i</span>
+          <div>
+            <h3>Divyansh Agrawal — Qwenputer</h3>
+            <p>プロジェクト／GitHubリポジトリの説明。CPU論理の重みへの直接埋め込み、RV32IM、Zba、bignum、ライセンス情報の一次参照。</p>
+          </div>
+        </article>
+        <article class="reference">
+          <span class="roman">ii</span>
+          <div>
+            <h3>Qwen 3.5 4B documentation</h3>
+            <p>ベースモデル、デコーダ構造、Gated DeltaNetを含むモデル側の技術的前提。</p>
+          </div>
+        </article>
+        <article class="reference">
+          <span class="roman">iii</span>
+          <div>
+            <h3>Gated DeltaNet / Fast Weights</h3>
+            <p>線形RNN状態、ゲート付き更新、キー・クエリによる連想記憶を理解するための技術的背景。</p>
+          </div>
+        </article>
+        <article class="reference">
+          <span class="roman">iv</span>
+          <div>
+            <h3>RISC-V RV32IM specification</h3>
+            <p>32-bit整数命令、M拡張、レジスタ・メモリ・制御フローの意味論を定めるISA参照。</p>
+          </div>
+        </article>
+        <article class="reference">
+          <span class="roman">v</span>
+          <div>
+            <h3>riscv-tests</h3>
+            <p>RISC-V実装の命令動作を確認するテスト群。Qwenputerの適合性主張に使われたとされる評価基盤。</p>
+          </div>
+        </article>
+        <article class="reference">
+          <span class="roman">vi</span>
+          <div>
+            <h3>QEMU reference behavior</h3>
+            <p>実行結果の照合対象となるエミュレータ。Qwenputer側の状態遷移との一致が報告されている。</p>
+          </div>
+        </article>
+      </div>
+      <div class="fine-print">Evidence note — 「約1,800万命令」「18.8GB」「再照合の不一致ゼロ」「数値ベンチ改善」はプロジェクト側の報告として扱い、未提示の条件や数値を補完していません。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">24 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/divagr18/qwenputer" target="_blank" rel="noreferrer noopener">GitHub - divagr18/qwenputer: A computer, compiled into the weights of a language model. An exact CPU inside Qwen3.5-4B, with Gated DeltaNet state as RAM. · GitHub</a></h2>
+<p class="reference-note">```
+@software agrawal2026qwenputer author{Agrawal, Divyansh}{} title{{Qwenputer}: a computer compiled into the weights o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">25 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://startupfortune.com/a-developer-compiled-a-working-risc-v-cpu-into-a-4b-parameter-models-weights" target="_blank" rel="noreferrer noopener">A developer compiled a working RISC-V CPU into a 4B parameter model&#39;s weights - Startup Fortune</a></h2>
+<p class="reference-note">Most of the time when people say an AI model can &quot;run&quot; something, they mean it generated code that then runs somewhere e…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">26 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://divagr.com/blog/qwenputer" target="_blank" rel="noreferrer noopener">Qwenputer: a fully functioning, deterministic RISC-V CPU inside Qwen3.5 - Divyansh Agrawal</a></h2>
+<p class="reference-note">Qwen hands a multiplication to the RISC-V CPU inside its own weights; the CPU&#39;s RAM is Gated DeltaNet state
+
+Qwen hands …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://aireleasetracker.com/model/qwen/qwen3.5" target="_blank" rel="noreferrer noopener">Qwen3.5 — Benchmarks, Specs &amp; Release Date</a></h2>
+<p class="reference-note">Qwen3.5 is an AI model released by Qwen on Monday, Feb 16 2026, 13 days after Qwen3-Coder-Next. It is an open-weight mod…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">27 / 27</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://trilogyai.substack.com/p/deep-dive-qwen-35-brings-native-multimodality" target="_blank" rel="noreferrer noopener">[Deep Dive] Qwen 3.5 Brings Native Multimodality and Long Context to Small Open Models</a></h2>
+<p class="reference-note">The “gated” component adds two learned, input-dependent gates: a decay gate that controls how much of the previous state…</p>
+</article>
+</div>
+</section>
+</main>
+</body>
+</html>
