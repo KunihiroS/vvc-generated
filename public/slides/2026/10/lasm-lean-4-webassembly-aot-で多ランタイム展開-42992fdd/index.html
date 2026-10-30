@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lasm / Lean 4 → WebAssembly AOT で多ランタイム展開</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 22px 0 60px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 26px;
+      left: 28px;
+      right: 28px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 16px;
+      pointer-events:none;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink-3);
+      letter-spacing: .12em;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .slide-tag .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 92px;
+      margin-left: 10px;
+      flex: 0 0 auto;
+    }
+
+    .slide-title{
+      margin: 0 0 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 70px;
+      line-height: 1.05;
+      color: var(--ink);
+      letter-spacing: .01em;
+    }
+    .slide-title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      font-weight: 300;
+    }
+
+    .num{
+      position:absolute;
+      top: 22px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 28px;
+      pointer-events:none;
+    }
+
+    .content{
+      position: relative;
+      padding-top: 26px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+      height: 100%;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px;
+      font-style: italic;
+      color: var(--rust);
+      margin-top: 18px;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      align-items:start;
+      margin-top: 10px;
+      width: 100%;
+      max-width: 900px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px 14px;
+      align-items:start;
+      margin-top: 10px;
+      width: 100%;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink-3);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 12px;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+    .cell .v{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 300;
+    }
+
+    .two-lines{
+      white-space: pre-line;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    /* keep slides 16:9; scale down with viewport, not aspect */
+    @media (max-width: 780px){
+      .slide{ padding: 38px 22px; }
+      .slide:before{ inset: 14px; }
+      .slide-title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .slide-tag .rule{ display:none; }
+      .slide-tag{ top: 20px; left: 18px; right: 18px; }
+      .num{ top: 16px; right: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 Cover -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">LASM <span class="rule"></span></div>
+      <div class="num">01 / 11</div>
+      <div class="content">
+        <div class="eyebrow">LeanをAOTで配る</div>
+        <h1 class="slide-title"><em>Lasm</em> in Production</h1>
+        <p class="lead">Lean 4のプログラムをWebAssemblyへ事前（AOT）コンパイルし、Node・サーバレス・Edge・WASI・ブラウザへ展開するための開発基盤です。</p>
+      </div>
+    </section>
+
+    <!-- 2 Problem -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">Problem <span class="rule"></span></div>
+      <div class="num">02 / 11</div>
+      <div class="content">
+        <div class="eyebrow">証明と実行のズレ</div>
+        <h2 class="slide-title"><em>安心</em>の範囲</h2>
+        <p class="lead">「Leanで証明した性質」と「デプロイ後の実行時に本当に同じ振る舞いが起きるか」は別問題です。特にサーバレス/Edge/ブラウザでは、実行環境の制約が増え、境界の前提が崩れやすくなります。</p>
+      </div>
+    </section>
+
+    <!-- 3 Core idea -->
+    <section class="slide" aria-label="core idea">
+      <div class="slide-tag">Core Idea <span class="rule"></span></div>
+      <div class="num">03 / 11</div>
+      <div class="content">
+        <div class="eyebrow">AOTで閉じる</div>
+        <h2 class="slide-title">実行時に<em>Lean</em>を要請しない</h2>
+        <p class="lead">Lasmは、デプロイ後にLeanモジュールのロード・評価・コンパイル等を行わない設計を中核にします。つまり「AOT成果物だけ」で振る舞いを完結させ、運用の不確実性を減らします。</p>
+      </div>
+    </section>
+
+    <!-- 4 Architecture -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">Architecture <span class="rule"></span></div>
+      <div class="num">04 / 11</div>
+      <div class="content">
+        <div class="eyebrow">多ランタイム接続</div>
+        <h2 class="slide-title">One Code <em>Many</em> Runtimes</h2>
+        <p class="lead">同一のLeanコードベースを、Nodeサーバからサーバレス関数・Edge・WASI・ブラウザまで現実のホストへ載せることを目指します。</p>
+
+        <div class="grid2" role="table" aria-label="runtime targets">
+          <div class="cell">
+            <div class="k">Node（サーバ）</div>
+            <div class="v">ファイル/ソケット/プロセス等、比較的リッチな機能が使える前提。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Edge / ブラウザ / WASI</div>
+            <div class="v">単一スレッド、プロセス/ソケットなし等、IO前提が変わる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 Trust model -->
+    <section class="slide" aria-label="trust model">
+      <div class="slide-tag">Trust <span class="rule"></span></div>
+      <div class="num">05 / 11</div>
+      <div class="content">
+        <div class="eyebrow">証明は強いが全てではない</div>
+        <h2 class="slide-title"><em>分割</em>された保証</h2>
+        <p class="lead">Lasmの信頼モデルは「証明できる部分」と「テスト/前提で担保する部分」を分けます。Conduit（RealWorld）では、その境界が明示されています。</p>
+
+        <div class="grid2" role="table" aria-label="proven vs tested">
+          <div class="cell">
+            <div class="k">証明（Proof）</div>
+            <div class="v">117の定理など、認可/検証/整合性（モデルに沿う性質）を保証。</div>
+          </div>
+          <div class="cell">
+            <div class="k">未証明領域</div>
+            <div class="v">SQLやJSONテキスト、並行性、JSランタイム統合などはテスト寄り。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 Conduit evidence -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">Evidence <span class="rule"></span></div>
+      <div class="num">06 / 11</div>
+      <div class="content">
+        <div class="eyebrow">Conduitの数字</div>
+        <h2 class="slide-title">117 <em>theorems</em></h2>
+        <p class="lead">ConduitはLeanでの形式的保証を、API仕様（認可・ページング・検証）やデータ表現（JSON/Markdown安全性）に反映します。</p>
+
+        <div class="grid3" role="table" aria-label="conduit guarantees">
+          <div class="cell">
+            <div class="k">Auth</div>
+            <div class="v">認可（authorization）の整合性を定理化。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Paging</div>
+            <div class="v">ページング（ページ分割）仕様の検証。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Safe Text</div>
+            <div class="v">JSON/Markdownの安全性をモデル化。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 AOT constraints -->
+    <section class="slide" aria-label="aot constraints">
+      <div class="slide-tag">AOT Rules <span class="rule"></span></div>
+      <div class="num">07 / 11</div>
+      <div class="content">
+        <div class="eyebrow">後から動かない</div>
+        <h2 class="slide-title">実行時の<em>禁止</em></h2>
+        <p class="lead">READMEでは、デプロイ後に「Leanのモジュールロード・評価/コンパイル・REPL的挙動・カーネル利用・プラグイン動的ロード」等を行わない（禁止）方針が明記されています。</p>
+
+        <div class="grid2" role="table" aria-label="runtime forbidden actions">
+          <div class="cell">
+            <div class="k">No Runtime Lean</div>
+            <div class="v">実行時にコンパイラ/評価器へ依存しない。</div>
+          </div>
+          <div class="cell">
+            <div class="k">AOT Completeness</div>
+            <div class="v">成果物だけで性質を維持する前提。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 Runtime constraints differences -->
+    <section class="slide" aria-label="runtime constraints differences">
+      <div class="slide-tag">Constraints <span class="rule"></span></div>
+      <div class="num">08 / 11</div>
+      <div class="content">
+        <div class="eyebrow">同じコードでも前提が違う</div>
+        <h2 class="slide-title"><em>ホスト差</em>が設計を決める</h2>
+        <p class="lead">Nodeはスレッド/ファイル/ソケット/プロセス等を含み、Edgeやブラウザ等は単一スレッドで制約が大きい、といった差があります。したがってIOの前提を先に設計する必要があります。</p>
+
+        <div class="grid2" role="table" aria-label="host differences">
+          <div class="cell">
+            <div class="k">Node</div>
+            <div class="v">比較的自由なIO（例：ファイル/ソケット/プロセス）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Edge / Browser / WASI</div>
+            <div class="v">単一スレッド中心・プロセス/ソケットなし・ファイル制約。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 JS boundary cost -->
+    <section class="slide" aria-label="js boundary cost">
+      <div class="slide-tag">JS Boundary <span class="rule"></span></div>
+      <div class="num">09 / 11</div>
+      <div class="content">
+        <div class="eyebrow">型境界とコスト</div>
+        <h2 class="slide-title">@[js] が<em>性能</em>にも効く</h2>
+        <p class="lead">Leanからnpm関数を呼ぶときは@[js]でバインディングを宣言します。各呼び出しは境界を跨ぐため、細粒度の呼び出しが性能に影響し得ます（計測例として24µs）。</p>
+
+        <div class="grid2" role="table" aria-label="binding and performance">
+          <div class="cell">
+            <div class="k">宣言（Binding）</div>
+            <div class="v">型変換・呼び出し境界を明示し、整合性チェックへ。</div>
+          </div>
+          <div class="cell">
+            <div class="k">設計（Coarse-grain）</div>
+            <div class="v">多回呼びを避け、粗粒度にまとめる工夫が重要。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 Decision support -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">Decision <span class="rule"></span></div>
+      <div class="num">10 / 11</div>
+      <div class="content">
+        <div class="eyebrow">導入判断の軸</div>
+        <h2 class="slide-title">向く / 向かない</h2>
+        <p class="lead">Lasmは「証明可能な仕様を中心に据え、外部境界をテストと前提で管理する」場面に強いです。逆に、動的評価や柔軟なランタイム拡張を前提にする設計とは相性が悪くなります。</p>
+
+        <div class="grid2" role="table" aria-label="fit and not fit">
+          <div class="cell">
+            <div class="k">向く</div>
+            <div class="v two-lines">
+              仕様（認可/検証/整合性）をLeanで定式化して保証したい。<br/>
+              AOTで完結し、境界（SQL/JSON/並行性）も管理できる。
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">向かない</div>
+            <div class="v two-lines">
+              実行時にLeanを評価・拡張したい（REPL/動的コンパイル等）。<br/>
+              JS境界の細粒度呼び出しが支配的なアーキテクチャ。
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 Closing + references -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">Closing <span class="rule"></span></div>
+      <div class="num">11 / 11</div>
+      <div class="content">
+        <div class="eyebrow">要点まとめ</div>
+        <h2 class="slide-title">AOT×<em>境界</em>設計</h2>
+        <p class="lead">Lasmは、Leanの厳密さをWeb/サーバレスの現実に持ち込むための基盤で、実行時にLeanを使わないAOT方針と、証明/テストの信頼境界を前提として設計されます。</p>
+
+        <div class="grid3" role="table" aria-label="takeaways">
+          <div class="cell">
+            <div class="k">① 安心の作り方</div>
+            <div class="v">証明できる性質は証明し、境界は分割して扱う。</div>
+          </div>
+          <div class="cell">
+            <div class="k">② 運用の不確実性</div>
+            <div class="v">実行時Lean排除で、動的崩れのリスクを抑える。</div>
+          </div>
+          <div class="cell">
+            <div class="k">③ 性能の現実</div>
+            <div class="v">JS境界（@[js]）の呼び出しコストを意識する。</div>
+          </div>
+        </div>
+
+        <div class="cell" style="margin-top: 10px; max-width: 900px;">
+          <div class="k">References / 参照（原情報）</div>
+          <div class="v">
+            Lasm のREADME・Conduit（RealWorld）プロジェクト・README内の設計方針/制約/計測言及（AOT方針、証明数、未証明領域、Node/Edge/ブラウザ/WASI差、@[js]境界コスト等）。
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://news.ycombinator.com/item?id=50299004" target="_blank" rel="noreferrer noopener">Show HN: Lasm – Write formally verified webapps in Lean for Node/serverless/edge</a></h2>
+<p class="reference-note">because it is a general purpose programming language with formal verification built directly into it. You can build gene…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://rocketreach.co/lean-node-startup-studio-profile_b4500b58fc7bc698" target="_blank" rel="noreferrer noopener">lean node startup studio Information</a></h2>
+<p class="reference-note">Title: lean node startup studio Information
+Image 5: lean node startup studio. # lean node startup studio Information. V…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/venture-capital/leannode/__1sh6nnvfXkfS1ajXbrP7izMt-LVctAV1VOgv3midhHk" target="_blank" rel="noreferrer noopener">Lean Node - 2026 Investor Profile, Portfolio, Team &amp; Investment Trends - Tracxn</a></h2>
+<p class="reference-note">JavaScript is disabled in your browser. enable it to enjoy the full features of Tracxn.
+
+Tracxn.com
+Android
+Apple
+Chrome…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/venture-capital/lean-node/__1sh6nnvfXkfS1ajXbrP7izMt-LVctAV1VOgv3midhHk" target="_blank" rel="noreferrer noopener">Lean Node - 2026 Investor Profile, Portfolio, Team &amp; Investment Trends - Tracxn</a></h2>
+<p class="reference-note">Title: Lean Node - 2026 Investor Profile, Portfolio, Team &amp; Investment Trends - Tracxn
+JavaScript is disabled in your br…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.lasm.org/" target="_blank" rel="noreferrer noopener">Home | Louisiana Art &amp; Science Museum</a></h2>
+<p class="reference-note">The Louisiana Art &amp; Science Museum has also received a 2023 Louisiana Cultural Care Fund Grant, which provides generous …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
