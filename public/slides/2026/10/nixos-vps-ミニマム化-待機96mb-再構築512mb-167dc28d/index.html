@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NixOS VPS ミニマム化：待機96MB/再構築512MB</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,300;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display:flex;
+      flex-direction:column;
+      gap: 22px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--paper);
+      outline: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 0;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: .14em;
+      color: var(--rust);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:0;
+      height: 100%;
+      width: 4px;
+      background: var(--rust);
+      opacity: .95;
+      border-radius: 2px;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 28px;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 2px 0 10px;
+      letter-spacing: .01em;
+      max-width: 100%;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      margin: 0 0 14px;
+      line-height: 1.05;
+      color: var(--ink);
+      font-style: italic;
+    }
+    .title .em{
+      color: var(--rust-deep);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      font-weight: 300;
+    }
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 18px;
+      align-content:start;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      padding: 14px 14px 12px;
+      border-radius: 10px;
+      min-height: 84px;
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .fine{
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.5;
+      margin-top: 14px;
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .split{
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .table{
+      width:100%;
+      border-collapse: collapse;
+      margin-top: 18px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      overflow:hidden;
+    }
+    .table th,.table td{
+      border-bottom: 1px solid var(--rule);
+      padding: 12px 14px;
+      text-align:left;
+      vertical-align: top;
+      font-size: 18px;
+      font-weight: 300;
+    }
+    .table th{
+      font-family:"Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 12px;
+      color: var(--ink-3);
+      font-weight: 600;
+      background: rgba(255,255,255,0.02);
+    }
+    .table tr:last-child td{ border-bottom:none; }
+    @media (max-width: 720px){
+      .slide{ padding: 40px 22px; border: 12px solid var(--paper); }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid-2,.grid-3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">Minimization</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">VPSで待機を削り切る</div>
+      <h1 class="title">NixOS <span class="em">ミニマム化</span></h1>
+      <p class="lead">待機時RAM約96MB・再構築（必要ならカーネル切替）を512MBで完走する、という目標に向けた構成最適化の記録です。<br><span style="color:var(--ink-3); font-size:18px; font-weight:300;">（要旨：何を削り、何が壊れ得るか）</span></p>
+    </section>
+
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">軽量化の代償</div>
+      <h1 class="title">トレードオフ</h1>
+      <p class="lead">NixOSは宣言的に制御できる一方、カーネル機能や常駐を削ると「安全性・互換性・将来のメンテ性」を損ねる可能性があります。<br>判断の軸は「本当に不要か／更新で前提が崩れないか」です。</p>
+    </section>
+
+    <section class="slide" aria-label="Core idea">
+      <div class="topbar">
+        <div class="slide-tag">Core</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">勝ち筋の定義</div>
+      <h1 class="title">再構築を通す</h1>
+      <p class="lead">この取り組みの中心は「待機が軽い」だけでなく、512MB環境でチャネル更新＋再構築（必要ならカーネル切替）を完走させる点です。<br>単発の性能ではなく、更新プロセスも“対象”にしています。</p>
+    </section>
+
+    <section class="slide" aria-label="Baseline">
+      <div class="topbar">
+        <div class="slide-tag">Baseline</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">最初はギリギリ</div>
+      <h1 class="title">1024MB</h1>
+      <div class="grid grid-2" style="margin-top:18px;">
+        <div class="cell">
+          <div class="k">初期状態（クラウド初期化込み）</div>
+          <div class="v">1024MBで「ギリギリ」。実測では288MB使用。</div>
+        </div>
+        <div class="cell">
+          <div class="k">リビルドの重さ</div>
+          <div class="v">同一リリース再構築で896MB相当が必要になり、512MBではOOM。</div>
+        </div>
+      </div>
+      <p class="fine">カーネルモジュール読み込みは89件からスタート。</p>
+    </section>
+
+    <section class="slide" aria-label="Key moves">
+      <div class="topbar">
+        <div class="slide-tag">Moves</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">削りの連結</div>
+      <h1 class="title">複合最適化</h1>
+      <p class="lead">改善は「常駐削減」だけでなく、THP/予約メモリ、カーネル機能の間引き、zram・vm調整、Nix評価GCまで連結して行われています。</p>
+      <div class="grid grid-3">
+        <div class="cell">
+          <div class="k">カーネル/メモリ</div>
+          <div class="v">THP無効、vmの水位/圧縮戦略調整</div>
+        </div>
+        <div class="cell">
+          <div class="k">常駐ユーザランド</div>
+          <div class="v">systemd-resolved/timesyncd/oomd等の停止</div>
+        </div>
+        <div class="cell">
+          <div class="k">Nix/ビルド</div>
+          <div class="v">nix-instantiate評価のGC（Boehm）最適化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="THP">
+      <div class="topbar">
+        <div class="slide-tag">Kernel</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">最大改善要因</div>
+      <h1 class="title">THP 無効</h1>
+      <p class="lead">transparent_hugepage無効化は“単発の最大級”の改善として挙げられています。<br>THP有効時、vm.min_free_kbytesが増え、通常使えない予約領域が膨らんで可用メモリが目減りするためです。</p>
+      <div class="grid grid-2" style="margin-top:16px;">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">実メモリだけでなく「OSが確保して使わせない領域」を減らす</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">理由があって本番でやらない場合もあり、ベンチ・監視が必要</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Module tree">
+      <div class="topbar">
+        <div class="slide-tag">Modules</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">間引くのは“ツリー”</div>
+      <h1 class="title">module ツリー縮小</h1>
+      <p class="lead">ブラックリストで起動時ロードを減らすだけでなく、system.modulesTreeを置き換える派生（trimmedModules）で、ディスク上のモジュールも縮小しudevの対象も減らす狙いがあります。<br>「設定」ではなく「成果物」への手を入れる点が大きいです。</p>
+    </section>
+
+    <section class="slide" aria-label="Runtime vs build">
+      <div class="topbar">
+        <div class="slide-tag">Runtime</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">待機＋再構築</div>
+      <h1 class="title">二段設計</h1>
+      <div class="grid grid-2" style="margin-top:18px;">
+        <div class="cell">
+          <div class="k">待機時</div>
+          <div class="v">常駐RAMを圧縮し、zram/zstd＋vm調整で“余白”を作る</div>
+        </div>
+        <div class="cell">
+          <div class="k">再構築時</div>
+          <div class="v">一時的なメモリ負荷に対して、圧縮領域へ逃がして完走を狙う</div>
+        </div>
+      </div>
+      <p class="fine">目的が「更新を通す」ため、ランタイムだけでなく一時メモリ設計が重要になります。</p>
+    </section>
+
+    <section class="slide" aria-label="Nix GC">
+      <div class="topbar">
+        <div class="slide-tag">Nix</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">評価時メモリも削る</div>
+      <h1 class="title">GC 調整</h1>
+      <p class="lead">nix-instantiateの評価でのピークを測り、Boehm GCパラメータで数百MB単位の削減を狙っています。<br>これは実行時だけでなく「ビルド/評価の一時メモリ」も対象にしている点が重要です。</p>
+    </section>
+
+    <section class="slide" aria-label="Results">
+      <div class="topbar">
+        <div class="slide-tag">Result</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">達成（512MB）</div>
+      <h1 class="title">待機96MB</h1>
+      <div class="grid grid-2" style="margin-top:18px;">
+        <div class="cell">
+          <div class="k">待機時</div>
+          <div class="v">512MB環境で約96MB使用。モジュール数も54に減少。</div>
+        </div>
+        <div class="cell">
+          <div class="k">更新/再構築</div>
+          <div class="v">チャネル更新＋（必要なら）カーネル切替でピーク371MB程度。OOMなしで完了。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Limits">
+      <div class="topbar">
+        <div class="slide-tag">Limit</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">万能ではない</div>
+      <h1 class="title">リリースジャンプ</h1>
+      <p class="lead">26.05→unstableのような重い更新では、512MBが厳しくOOMすることがあり、二度実行やより多いRAMが必要になり得ます。<br>軽量化は“余裕”を削っている裏返しでもある、という論旨です。</p>
+    </section>
+
+    <section class="slide" aria-label="FAQ and Safety">
+      <div class="topbar">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">導入の判断軸</div>
+      <h1 class="title">壊しどころ確認</h1>
+      <div class="grid grid-3" style="margin-top:18px;">
+        <div class="cell">
+          <div class="k">THP（透明巨大ページ）</div>
+          <div class="v">必ず安全/高速ではない。予約メモリ削減が利く一方、ワークロード次第。</div>
+        </div>
+        <div class="cell">
+          <div class="k">モジュール間引き</div>
+          <div class="v">必要機能が後で要ると起動失敗や疎通不良につながり得る。</div>
+        </div>
+        <div class="cell">
+          <div class="k">zram前提</div>
+          <div class="v">スワップなし設計は再構築目的に合うが、スラッシング時の限界がある。</div>
+        </div>
+      </div>
+      <p class="fine">結論：再現条件（クラウドDNS/ネットワーク、仮想化形態、更新方式、負荷）を切り分け、追加検証（メモリ推移/OOM/更新手順）を前提に。</p>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/config/zram.nix" target="_blank" rel="noreferrer noopener">nixpkgs/nixos/modules/config/zram.nix at master · NixOS/nixpkgs · GitHub</a></h2>
+<p class="reference-note">&#39;&#39;;
+
+};
+
+};
+
+};
+
+config = lib.mkIf cfg.enable {
+
+assertions = [
+
+{
+
+assertion = cfg.writebackDevice == null || cfg.swapD…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://nixos.org/manual/nixos/stable" target="_blank" rel="noreferrer noopener">NixOS Manual</a></h2>
+<p class="reference-note">You can also do this for specific profiles, e.g.
+
+```
+$ nix-env -p /nix/var/nix/profiles/per-user/eelco/profile --delete…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=lUB2rwDUm5A" target="_blank" rel="noreferrer noopener">How to Install and Customize NixOS Linux (2026 Edition) | Part 1</a></h2>
+<p class="reference-note">[2:06] type CF DISD SDA and we&#39;re going to go ahead and select GPT since we are on a UEFI system and for the first parti…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://wiki.nixos.org/wiki/Swap" target="_blank" rel="noreferrer noopener">Swap - Official NixOS Wiki</a></h2>
+<p class="reference-note">Swappiness controls how aggressively swap space is used, specifically how to free up memory when needed. By default, Lin…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.learnlinux.tv/nixos-review-the-most-powerful-linux-distro-in-2026" target="_blank" rel="noreferrer noopener">NixOS Review: The Most Powerful Linux Distro in 2026?</a></h2>
+<p class="reference-note">What is different is that only changes declared in your configuration file are guaranteed to be part of the system defin…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
