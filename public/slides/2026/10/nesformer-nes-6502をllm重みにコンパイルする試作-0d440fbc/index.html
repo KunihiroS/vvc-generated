@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>nesformer — NES 6502をLLM重みにコンパイルする試作</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--paper);
+      color:var(--ink);
+      font-family:"Noto Serif JP", serif;
+    }
+    .deck{
+      width:min(1120px, calc(100vw - 48px));
+      margin:0 auto;
+      padding:24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+    .slide{
+      position:relative;
+      aspect-ratio:16/9;
+      width:100%;
+      background:var(--paper);
+      border:20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding:56px 72px;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      overflow:hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; left:24px; right:24px; top:24px; bottom:24px;
+      border:1px solid var(--rule-strong);
+      pointer-events:none;
+      opacity:.55;
+    }
+    .slide-top{
+      position:relative;
+      z-index:2;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+    }
+    .slide-tag{
+      font-family:"Cormorant Garamond", serif;
+      color:var(--rust);
+      letter-spacing:0.18em;
+      font-style:italic;
+      font-size:16px;
+      font-weight:600;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      text-transform:uppercase;
+      white-space:nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      display:block;
+      width:26px;
+      height:1px;
+      background:var(--rust);
+      box-shadow:0 0 0 1px rgba(0,0,0,0);
+      opacity:.95;
+    }
+    .slide-num{
+      font-family:"Cormorant Garamond", serif;
+      color:var(--ink);
+      font-style:italic;
+      font-size:22px;
+      opacity:.95;
+      white-space:nowrap;
+    }
+    .eyebrow{
+      position:relative;
+      z-index:2;
+      margin-top:18px;
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      font-size:22px;
+      color:var(--rust);
+    }
+    .title{
+      position:relative;
+      z-index:2;
+      margin-top:10px;
+      font-size:74px;
+      line-height:0.98;
+      font-family:"Cormorant Garamond", serif;
+      font-weight:500;
+      font-style:italic;
+      color:var(--rust);
+    }
+    .title.jp{
+      font-family:"Noto Serif JP", serif;
+      font-style:normal;
+      font-weight:500;
+      color:var(--ink);
+      letter-spacing:0.01em;
+    }
+    .lead{
+      position:relative;
+      z-index:2;
+      margin-top:16px;
+      font-size:22px;
+      line-height:1.55;
+      max-width:760px;
+      color:var(--ink);
+    }
+    .hr{
+      position:relative;
+      z-index:2;
+      height:1px;
+      width:100%;
+      background:var(--rule);
+      margin-top:18px;
+    }
+
+    .grid{
+      position:relative;
+      z-index:2;
+      margin-top:18px;
+      width:100%;
+      display:grid;
+      gap:14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border:1px solid var(--rule-strong);
+      padding:14px 14px 12px;
+      background: rgba(0,0,0,0.06);
+    }
+    .card .k{
+      font-family:"Inter Tight", sans-serif;
+      font-size:14px;
+      color:var(--ink-3);
+      letter-spacing:0.06em;
+      text-transform:uppercase;
+    }
+    .card .v{
+      margin-top:8px;
+      font-size:20px;
+      color:var(--ink);
+      line-height:1.45;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size:19px;
+      color:var(--ink-2);
+      letter-spacing:0.01em;
+    }
+    .tight{ margin-top:10px; }
+    .small{ font-size:18px; }
+    .refs{
+      position:relative;
+      z-index:2;
+      margin-top:18px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .ref{
+      border:1px solid var(--rule);
+      padding:12px 14px;
+      background: rgba(0,0,0,0.05);
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+    }
+    .ref .n{
+      color:var(--rust);
+      font-style:italic;
+      font-family:"Cormorant Garamond", serif;
+      min-width:36px;
+    }
+    .ref .t{
+      color:var(--ink-2);
+      font-size:20px;
+      line-height:1.45;
+    }
+    @media (max-width: 520px){
+      .slide{ padding:40px 20px; border-width:12px; }
+      .title{ font-size:44px; }
+      .lead{ font-size:18px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+      .slide-tag{ font-size:13px; }
+      .slide-num{ font-size:18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover slide">
+      <div class="slide-top">
+        <div class="slide-tag">NESFORMER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">LLMで動かすNES</div>
+      <div class="title">nesformer</div>
+      <div class="lead">
+        NESの6502（2A03）相当をQwen3.5系LLMの重みに「コンパイル」し、実行ログをトークン予測で生成する試作の概要と限界を整理します。<br/>
+        （CPU命令と一部周辺の状態を“内部状態”へ写し込む発想が核です）
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">日本語 / English</div>
+          <div class="v">NES 6502 <span class="mono">(CPU)</span> → LLM内部 <span class="small">(重み・状態)</span></div>
+        </div>
+        <div class="card">
+          <div class="k">読み方</div>
+          <div class="v">どこが再現され、どこが未対応かを重点的に確認</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Problem slide">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">“エミュレート”の壁</div>
+      <div class="title jp">普通の実行方式</div>
+      <div class="lead">
+        通常のNESエミュレータは、回路や命令をソフトウェアで模倣しながら命令を実行します。<br/>
+        しかし、CPUログ生成やI/Oタイミングまで精密に合わせるには、実装コストと計算量が積み上がります。
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">従来（例）</div>
+          <div class="v">CPU命令を解釈 → 実行<br/>ROM/ RAM/レジスタ更新</div>
+        </div>
+        <div class="card">
+          <div class="k">狙い（本稿）</div>
+          <div class="v">“命令実行”をLLMの更新規則へ置換<br/>状態整合を取りに行く</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Metaphor slide">
+      <div class="slide-top">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">重みが“回路”</div>
+      <div class="title jp">推論＝実行</div>
+      <div class="lead">
+        ここでは、CPUの実行手順がLLMの重みにコンパイルされます。<br/>
+        そのためホスト側はPPU描画や入力などを補助しつつ、CPU分はLLMがトークンを1つずつ予測して進みます。
+      </div>
+      <div class="hr"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">入力</div>
+          <div class="v">コントローラ等</div>
+        </div>
+        <div class="card">
+          <div class="k">ホスト</div>
+          <div class="v">画面/タイミング（例：vblankのNMI）</div>
+        </div>
+        <div class="card">
+          <div class="k">LLM</div>
+          <div class="v">CPU実行ログ（トークン列）生成</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">DeltaNet = メモリ</div>
+      <div class="title jp">状態写像</div>
+      <div class="lead">
+        本質はGated DeltaNetの状態行列を“メモリ”のように使う写像です。<br/>
+        具体的に、DeltaNetの状態行（行列のセル）にCPUのメモリ（ROM/RAM/レジスタ等）を対応付けて更新します。
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">メモリ表現</div>
+          <div class="v">DeltaNet状態行列（例：128×128）<br/>→ CPUの参照先として運用</div>
+        </div>
+        <div class="card">
+          <div class="k">更新の見立て</div>
+          <div class="v">“状態セル更新”＝“マシンのメモリ更新”<br/>ワンホット参照で読み出し</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture details slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">何が重みに入るか</div>
+      <div class="title jp">重みとホストの分業</div>
+      <div class="lead">
+        CPUコア相当（6502実行）と、ROM/RAM/レジスタなどの状態更新が重みに反映されます。<br/>
+        一方でPPU/APUの完全再現や細かなタイミングは重みに含まれず、ホスト側で補助されます。
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">重み（主に）</div>
+          <div class="v">CPUの命令実行ログ生成<br/>メモリ更新規則（写像後）</div>
+        </div>
+        <div class="card">
+          <div class="k">ホスト（補助）</div>
+          <div class="v">PPU描画・vblank/NMIなど<br/>入力（コントローラ等）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">“一致”を追う</div>
+      <div class="title jp">段階的検証</div>
+      <div class="lead">
+        正確性は、参照CPUや既知ログ（例：nestest）との一致を段階的に確認した、とされています。<br/>
+        さらにゲーム側コードの多数箇所でトレースやフレームが一致する主張があります。
+      </div>
+      <div class="hr"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">参照CPU</div>
+          <div class="v">nesformer/cpu.py等との整合</div>
+        </div>
+        <div class="card">
+          <div class="k">ゴールデンログ</div>
+          <div class="v">nestestのトレース一致</div>
+        </div>
+        <div class="card">
+          <div class="k">ゲーム実行</div>
+          <div class="v">多数位置でのトレース/フレーム一致</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Distinction slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">ソフト模倣 vs 状態写像</div>
+      <div class="title jp">違いは“実行の置き場所”</div>
+      <div class="lead">
+        通常のエミュレータは命令を解釈してCPUを動かしますが、nesformerは実行規則をLLM側の状態更新へ寄せます。<br/>
+        結果として、CPUログ生成がトークン予測として表現されます。
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">従来エミュレータ</div>
+          <div class="v">命令解釈（software）<br/>→レジスタ/メモリ更新</div>
+        </div>
+        <div class="card">
+          <div class="k">nesformer</div>
+          <div class="v">命令実行を“重み化”<br/>→トークン予測でCPUログ更新</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Constraints slide">
+      <div class="slide-top">
+        <div class="slide-tag">Constraints</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">動く範囲は限定</div>
+      <div class="title jp">ROM / 周辺の制約</div>
+      <div class="lead">
+        対応は主にiNES mapper 0のNROM（例：iNES mapper 0）に限定され、MMC1/MMC3などのバンクスイッチmapperは未対応です。<br/>
+        そのためROMの種類が増えるほど、停止や未対応が起きやすくなります。
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">対応（主）</div>
+          <div class="v">NROM（iNES mapper 0）<br/>32KB制限など</div>
+        </div>
+        <div class="card">
+          <div class="k">未対応（例）</div>
+          <div class="v">MMC1 / MMC3（バンクスイッチ）<br/>ROM全体×状態保持の拡張が必要</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="PPU/APU slide">
+      <div class="slide-top">
+        <div class="slide-tag">Limits</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">PPU/APUは未完</div>
+      <div class="title jp">粒度と欠落</div>
+      <div class="lead">
+        PPU/APUは重みになく、PPUはスキャンライン単位での描画のみ再現されるため、中スキャンライン効果などが再現できません。<br/>
+        APUは音がないなど、体験面のギャップがあります。
+      </div>
+      <div class="hr"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">PPU</div>
+          <div class="v">スキャンライン単位<br/>中スキャンライン効果は不可</div>
+        </div>
+        <div class="card">
+          <div class="k">スプライト</div>
+          <div class="v">ゼロヒット/オーバーフロー近似など</div>
+        </div>
+        <div class="card">
+          <div class="k">APU</div>
+          <div class="v">サウンドなし</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Performance and safety slide">
+      <div class="slide-top">
+        <div class="slide-tag">Reality</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">遅い・前提あり</div>
+      <div class="title jp">実用距離</div>
+      <div class="lead">
+        実行速度は現実のNESより150〜290倍遅いとされ、研究・デモ中心の位置づけになります。<br/>
+        また安全面では、前提条件（入力経路・状態の読み込み）を誤ると不要な実行に繋がり得るため注意が必要です。
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">速度</div>
+          <div class="v"><span class="mono">150〜290×</span> 遅い<br/>（トークン予測コストが支配的）</div>
+        </div>
+        <div class="card">
+          <div class="k">安全</div>
+          <div class="v">“重み側で完結”でも、<br/>読み込み・実行前提の確認は必須</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Closing slide">
+      <div class="slide-top">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">研究価値は高い</div>
+      <div class="title jp">今の結論</div>
+      <div class="lead">
+        nesformerは「LLMを“マシン仕様”として扱う」方向性を、CPU命令ログとメモリ参照の整合まで到達させた点が強みです。<br/>
+        ただし、NROM限定・PPU/APU未完・速度低下など境界条件が多く、“NES全対応”ではありません。
+      </div>
+      <div class="hr"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">強み</div>
+          <div class="v">重み化＋状態写像（DeltaNetメモリ）<br/>段階的な一致検証</div>
+        </div>
+        <div class="card">
+          <div class="k">限界</div>
+          <div class="v">mapper非対応、PPU/APU精密度不足<br/>150〜290×遅い</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="References slide">
+      <div class="slide-top">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">参考（要点別）</div>
+      <div class="title jp">出典の当たり先</div>
+      <div class="lead">
+        以下は、あなたの提示文中で言及された“裏付け元”の方向性（プロジェクトREADME、既存解説、検索言及）です。リンクは環境により異なるため、まずはキーワードで辿るのが確実です。
+      </div>
+      <div class="refs">
+        <div class="ref">
+          <div class="n">i</div>
+          <div class="t">nesformer / README（どこまで正確か、どんなROMなら動くか、制約：NROM mapper 0、PPU/APU範囲、速度など）</div>
+        </div>
+        <div class="ref">
+          <div class="n">ii</div>
+          <div class="t">nestest（6502の参照ログ）と一致検証の記述（命令トレースの整合）</div>
+        </div>
+        <div class="ref">
+          <div class="n">iii</div>
+          <div class="t">DeltaNet（Gated DeltaNetの状態行列更新・固定サイズ状態、トークンごとの更新性に関する解説）</div>
+        </div>
+        <div class="ref">
+          <div class="n">iv</div>
+          <div class="t">Qwenputer系の既存手法（“Gated DeltaNet状態がメモリになる”という中核トリックの説明）</div>
+        </div>
+        <div class="ref">
+          <div class="n">v</div>
+          <div class="t">Qwen3.5/DeltaNet前提の関連ブログ（explainx.ai等：CPUログトークン予測、フレーム当たり数秒等の言及）</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/nesformer-nes-cpu-compiled-into-qwen3-5-4b-weights-super-mario-bros-qwenputer-2026" target="_blank" rel="noreferrer noopener">Nesformer: NES Emulator Inside Qwen3.5 Weights Explained | explainx.ai Blog | explainx.ai</a></h2>
+<p class="reference-note">Drew Breunig has released nesformer, a project that bakes a working Nintendo Entertainment System CPU into the weights o…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://deepwiki.com/zjykzj/llamafactory-lora-vllm/3.1-qwen3.5-architecture-deep-dive" target="_blank" rel="noreferrer noopener">Qwen3.5 Architecture Deep Dive | zjykzj/llamafactory-lora-vllm | DeepWiki</a></h2>
+<p class="reference-note">DeltaNet treats attention as a recursive state update, similar to an RNN, using a fixed-size state matrix docs/qwen3.5.m…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ayushdeva.com/qwen35-architecture.html" target="_blank" rel="noreferrer noopener">Inside Qwen3.5‑4B: Architecture &amp; Forward Pass · Ayush Deva</a></h2>
+<p class="reference-note">—
+
+—
+
+Figure 5. The DeltaNet state is a fixed ≈24 MB regardless of length, so it&#39;s invisible on this scale. The 4× gap i…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://note.com/kiyo_shin/n/nefc5c98015c5?hl=en" target="_blank" rel="noreferrer noopener">Detailed Explanation of the Qwen3.5-35B-A3B Architecture｜Kiyoyuki Shingu</a></h2>
+<p class="reference-note">Instead of simply adding information, it updates using the difference from the current memory content, allowing it to re…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://gist.github.com/justinchuby/0213aa253664fb72e9adb0089816de15" target="_blank" rel="noreferrer noopener">qwen3.5-gated-deltanet-analysis · GitHub</a></h2>
+<p class="reference-note">Sources:
+
+`src/transformers/models/qwen3_next/modular_qwen3_next.py`
+`src/transformers/models/qwen3_5/modular_qwen3_5.py…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
