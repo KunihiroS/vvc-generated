@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>VOLTA-AUTODOXER: LLMによる優先順位付け</title>
+  <style>
+    :root{
+      --cream:#14110d;
+      --paper:#1c1813;
+      --ink:#f0e8d8;
+      --ink-2:#d4ccbc;
+      --ink-3:#948b7c;
+      --ink-4:#645c50;
+      --rust:#e8814a;
+      --rust-deep:#c9683a;
+      --rule:rgba(240, 232, 216, 0.10);
+      --rule-strong:rgba(240, 232, 216, 0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--cream);
+      color:var(--ink);
+      font-family: "Noto Serif JP","Times New Roman",serif;
+    }
+    .deck{
+      width:min(1120px, calc(100vw - 48px));
+      margin:0 auto;
+      padding:24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+    .slide{
+      width:100%;
+      background:var(--paper);
+      border:1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      position:relative;
+      padding:56px 72px;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      overflow:hidden;
+      border-radius:2px;
+      box-sizing:border-box;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border:1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topline{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      margin-bottom:18px;
+      position:relative;
+      z-index:2;
+    }
+    .slide-tag{
+      font-family:"Cormorant Garamond", serif;
+      letter-spacing:0.12em;
+      font-size:18px;
+      font-style:italic;
+      color:var(--rust);
+      text-transform:uppercase;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      white-space:nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width:42px;
+      height:1px;
+      background:var(--rust);
+      opacity:0.9;
+    }
+    .slide-num{
+      font-family:"Cormorant Garamond", serif;
+      color:var(--ink-3);
+      font-style:italic;
+      font-size:28px;
+      letter-spacing:0.02em;
+      margin-top:-2px;
+      white-space:nowrap;
+    }
+    .eyebrow{
+      font-family:"Cormorant Garamond", serif;
+      font-style:italic;
+      color:var(--rust);
+      font-size:22px;
+      line-height:1.1;
+      margin:0 0 10px 0;
+      position:relative;
+      z-index:2;
+    }
+    .title{
+      font-family:"Cormorant Garamond","Noto Serif JP",serif;
+      font-style:normal;
+      font-weight:500;
+      font-size:72px;
+      margin:0 0 14px 0;
+      position:relative;
+      z-index:2;
+    }
+    .title em{
+      font-style:italic;
+      color:var(--rust);
+      font-family:"Cormorant Garamond",serif;
+      font-weight:600;
+    }
+    .lead{
+      font-family:"Noto Serif JP","Times New Roman",serif;
+      font-weight:300;
+      font-size:22px;
+      line-height:1.55;
+      max-width:760px;
+      margin:0;
+      position:relative;
+      z-index:2;
+    }
+    .rule{
+      height:1px;
+      background:var(--rule-strong);
+      margin:18px 0;
+      position:relative;
+      z-index:2;
+    }
+    .grid{
+      display:grid;
+      gap:14px;
+      position:relative;
+      z-index:2;
+      width:100%;
+      margin-top:10px;
+    }
+    .grid2{grid-template-columns: 1fr 1fr;}
+    .grid3{grid-template-columns: 1fr 1fr 1fr;}
+    .cell{
+      border:1px solid var(--rule);
+      background:rgba(0,0,0,0.12);
+      padding:14px 14px 16px;
+      border-radius:6px;
+      min-height:72px;
+    }
+    .cell .k{
+      font-family:"Inter Tight", "Noto Serif JP", sans-serif;
+      font-size:14px;
+      font-weight:600;
+      letter-spacing:0.02em;
+      color:var(--ink-3);
+      text-transform:uppercase;
+      margin-bottom:6px;
+    }
+    .cell .v{
+      font-family:"Noto Serif JP","Times New Roman",serif;
+      font-size:20px;
+      font-weight:400;
+      color:var(--ink);
+      line-height:1.45;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size:18px;
+      color:var(--ink-2);
+    }
+    .listlike{
+      width:100%;
+      margin-top:10px;
+      position:relative;
+      z-index:2;
+    }
+    .row{
+      border-top:1px solid var(--rule);
+      padding:12px 0;
+      display:flex;
+      gap:16px;
+      align-items:flex-start;
+    }
+    .row:first-child{border-top:none}
+    .row .idx{
+      font-family:"Cormorant Garamond",serif;
+      font-style:italic;
+      color:var(--rust);
+      min-width:34px;
+      margin-top:2px;
+      font-size:22px;
+    }
+    .row .txt{
+      font-size:20px;
+      line-height:1.55;
+      color:var(--ink);
+      flex:1;
+    }
+    .bilingual{
+      display:inline-block;
+      margin-left:10px;
+      color:var(--ink-3);
+      font-size:0.85em;
+      font-family:"Noto Serif JP","Times New Roman",serif;
+      font-weight:400;
+    }
+    @media (max-width: 720px){
+      .slide{ padding:28px 26px; }
+      .slide::before{ inset:12px; }
+      .title{ font-size:44px; }
+      .lead{ font-size:18px; }
+      .slide-num{ font-size:22px; }
+      .slide-tag{ font-size:15px; }
+      .eyebrow{ font-size:18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="topline">
+        <div class="slide-tag">FOCUS</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <p class="eyebrow">VOLTA × LLMで変わる実務</p>
+      <h1 class="title">被害者を <em>査定</em> する</h1>
+      <p class="lead">情報窃取マルウェア「VOLTA-AUTODOXER」は、盗んだ証拠をLLMに渡して“換金価値”で被害者をランク付けし、攻撃の優先順位を自動化します。</p>
+      <div class="rule"></div>
+      <div class="grid grid2">
+        <div class="cell">
+          <div class="k">核心</div>
+          <div class="v">盗取の後に <span style="font-style:italic;color:var(--rust)">分析</span> を機械化</div>
+        </div>
+        <div class="cell">
+          <div class="k">見どころ</div>
+          <div class="v">モデル拒否時の <span style="font-style:italic;color:var(--rust)">フォールバック</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <p class="eyebrow">窃取だけでは終わらない</p>
+      <h2 class="title">人手の <em>仕分け</em></h2>
+      <p class="lead">従来の情報窃取は「盗む」で止まりがちですが、次に必要なのは“誰が儲かるか”という評価・選別です。VOLTAはこの分析工程をLLMで代替しようとします。</p>
+      <div class="grid grid3 listlike">
+        <div class="cell">
+          <div class="k">前段：盗む</div>
+          <div class="v">資格情報 / Cookie / 決済 / セッショントークン</div>
+        </div>
+        <div class="cell">
+          <div class="k">中段：確かめる</div>
+          <div class="v">本人認証の痕跡を手掛かりに裏取り</div>
+        </div>
+        <div class="cell">
+          <div class="k">後段：決める</div>
+          <div class="v">“換金価値”で優先順位を付ける</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" >
+      <div class="topline">
+        <div class="slide-tag">META</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <p class="eyebrow">AIは脳、ではなく</p>
+      <h2 class="title"><em>工程</em> を置換</h2>
+      <p class="lead">重要なのは「AIで攻撃能力が魔法のように強化される」ことではなく、犯罪側が人間で行っていた分析・仕分けを“モデル呼び出し”に置き換える方向性です。</p>
+      <div class="grid grid2">
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">分析時間の圧縮・省力化</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">広く集めてから絞り込みを自動化（優先順位が速い）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">SCOPE</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <p class="eyebrow">盗取範囲が広い</p>
+      <h2 class="title">証拠の <em>束</em></h2>
+      <p class="lead">VOLTAはブラウザの保存情報に加え、各種ログイン手段・決済・暗号資産ウォレットなどを広範に収集し、LLMが評価できる“証拠バンドル”を作ります。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">Web</div>
+          <div class="v">ブラウザ資格情報 / Cookie / 決済情報</div>
+        </div>
+        <div class="cell">
+          <div class="k">アカウント</div>
+          <div class="v">Discord / Telegram / Steam / Roblox 等</div>
+        </div>
+        <div class="cell">
+          <div class="k">資産</div>
+          <div class="v">暗号資産ウォレット / Wi‑Fiプロファイル</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <p class="eyebrow">“認証済み”を悪用</p>
+      <h2 class="title">裏取りで <em>精度</em> 上げ</h2>
+      <p class="lead">盗んだセッショントークンを使い、Gmailの購買レシートやフードデリバリー注文履歴などを照合して、住所や属性・購買傾向まで強化する可能性が示されています。</p>
+      <div class="grid grid2">
+        <div class="cell">
+          <div class="k">例</div>
+          <div class="v">Gmail レシート検索 <span class="bilingual">（裏取り）</span></div>
+        </div>
+        <div class="cell">
+          <div class="k">価値</div>
+          <div class="v">推測 → 照合に近づき、意思決定が当たりやすくなる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">WORKFLOW</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <p class="eyebrow">ローカル整形→LLM送信</p>
+      <h2 class="title">Identity_Report.txt</h2>
+      <p class="lead">盗取データはローカルで整理され、<span class="mono">Identity_Report.txt</span>として構造化された後、LLM（OpenRouter経由）へPOSTされる流れです。</p>
+      <div class="listlike">
+        <div class="row">
+          <div class="idx">i</div>
+          <div class="txt">収集：資格情報・トークン・決済・ウォレット等を束ねる</div>
+        </div>
+        <div class="row">
+          <div class="idx">ii</div>
+          <div class="txt">整理：ローカルで構造化し <span class="mono">Identity_Report.txt</span> を生成</div>
+        </div>
+        <div class="row">
+          <div class="idx">iii</div>
+          <div class="txt">評価：LLMに渡して査定文を返させる</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">OUTPUT</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <p class="eyebrow">“いくら儲かる？”</p>
+      <h2 class="title">WHAT THEY’RE WORTH</h2>
+      <p class="lead">LLMは“forensic intelligence analyst”として、換金価値（低/中/高）やOPSEC（セキュリティ姿勢・パスワード衛生）を文章で出力し、引用（監査可能な根拠）付きのターゲット評価を作らせます。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">換金価値</div>
+          <div class="v">Low / Medium / High</div>
+        </div>
+        <div class="cell">
+          <div class="k">OPSEC</div>
+          <div class="v">守りの弱さ（パスワード衛生等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">根拠</div>
+          <div class="v">引用（auditable trail）で後続判断を高速化</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">ROBUST</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <p class="eyebrow">拒否は失敗しない</p>
+      <h2 class="title">マルチモデル <em>耐障害</em></h2>
+      <p class="lead">LLMが拒否する失敗モードに備え、Claude→Kimi→Geminiのようにフォールバック連鎖へ切り替えて、分析フェーズを落とさない設計が示されています。</p>
+      <div class="grid grid2">
+        <div class="cell">
+          <div class="k">問題</div>
+          <div class="v">モデルが「できない」と拒否し得る</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">拒否検知→別モデルへ切替（成功率を上げる）</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">OPS</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <p class="eyebrow">秘匿性と運用効率</p>
+      <h2 class="title">自己削除・<em>自前依存</em>低め</h2>
+      <p class="lead">自己削除で痕跡面を抑え、ルータやC2のような攻撃者所有インフラに依存しない運用効率が記述されています。結果として、運用リスクを下げ“量産化”しやすくなる可能性があります。</p>
+      <div class="grid grid2">
+        <div class="cell">
+          <div class="k">観測リスク</div>
+          <div class="v">痕跡を残しにくくする方向</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">インフラ負担を抑え、分析を回しやすくする</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">DEFENSE</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <p class="eyebrow">守りの優先度</p>
+      <h2 class="title"><em>トークン窃取前</em></h2>
+      <p class="lead">防御の要点は、トークン窃取・セッション悪用の“前段”を止めることです。侵害後は、自己削除により失われ得るログ（例：<span class="mono">volta_debug.txt</span>）の保全や、トークン失効・パスワード変更が重要になります。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">前段遮断</div>
+          <div class="v">Chromeの <span class="mono">--headless</span> 制御など（例：ABE復号経路遮断）</div>
+        </div>
+        <div class="cell">
+          <div class="k">侵害後</div>
+          <div class="v">ログ保全（<span class="mono">volta_debug.txt</span>）</div>
+        </div>
+        <div class="cell">
+          <div class="k">復旧</div>
+          <div class="v">トークン失効 / パスワード変更 / 暗号資産は即移行</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">LIMITS</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <p class="eyebrow">効果の断定は慎重に</p>
+      <h2 class="title">定量と誤作動の <em>検証</em></h2>
+      <p class="lead">本文はワークフローや出力項目を説明しますが、回収率・誤推定率などの定量は十分でない可能性があります。防御へ落とすには、プロセス起動、headless挙動、トークン異常、外部送信先などのテレメトリで追加検証が必要です。</p>
+      <div class="grid grid2">
+        <div class="cell">
+          <div class="k">不明点</div>
+          <div class="v">効果量（成功率・誤推定）や代替判断フロー</div>
+        </div>
+        <div class="cell">
+          <div class="k">防御の実測</div>
+          <div class="v">IoCとログを突き合わせて“工程単位”で確認</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <p class="eyebrow">次はどこがAI化される？</p>
+      <h2 class="title">セッション連鎖を <em>疑う</em></h2>
+      <p class="lead">VOLTAの潮流は「AIで文章を作る」よりも、「セッション悪用・二次照合・外部LLM送信」といった一連の犯罪工程を高速化することにあります。防御側は“AIっぽさ”ではなく、連鎖全体を疑い対策を前倒しで整えるべきです。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">観る</div>
+          <div class="v">トークン異常利用、ログ照合、外部送信</div>
+        </div>
+        <div class="cell">
+          <div class="k">止める</div>
+          <div class="v">窃取前にブレーキ（headless等の制御）</div>
+        </div>
+        <div class="cell">
+          <div class="k">備える</div>
+          <div class="v">モデル拒否でも回る設計＝運用冗長性を前提に検知</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://malware.news/t/appraisal-by-ai-model-driven-victim-prioritization-in-the-volta-infostealer/126919" target="_blank" rel="noreferrer noopener">Appraisal by AI: Model-driven victim prioritization in the VOLTA infostealer - Malware News - Malware Analysis, News and Indicators</a></h2>
+<p class="reference-note">## Countermeasures
+
+Much of the token-stealing capability of VOLTA relies on techniques to bypass App-Bound Encryption (…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.wired.com/story/kernel-panic-volta-autodoxer-ai-infostealer-malware" target="_blank" rel="noreferrer noopener">Spooky New Infostealer Malware Uses AI to ‘Autodox’ Victims | WIRED</a></h2>
+<p class="reference-note">Once all of this is done, the malware feeds its findings into AI tools for analysis using OpenRouter, a service that can…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://spycloud.com/blog/infostealers-bypass-new-chrome-security-feature" target="_blank" rel="noreferrer noopener">How Infostealer Malware Bypasses Chrome&#39;s App-Bound Encryption</a></h2>
+<p class="reference-note">At the time of publishing this article, the Application-Bound Encryption feature is enabled in the Windows version of Ch…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ai-tldr.dev/" target="_blank" rel="noreferrer noopener">New AI Releases Daily — Models, Tools &amp; Papers | AI/TLDR</a></h2>
+<p class="reference-note">Cisco Talos found VOLTA, a Windows infostealer that sends a profile of each victim to an LLM through OpenRouter. The mod…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/ryan-fetterman_today-cisco-talos-published-our-findings-activity-7522276238561005568-RVtg" target="_blank" rel="noreferrer noopener">Today Cisco Talos published our findings on VOLTA, a mature infostealer malware that uses remote AI models to assess how much you are worth, and how to prioritize stealing your assets.   Stolen… | Ryan Fetterman, D.Eng.</a></h2>
+<p class="reference-note">Today Cisco Talos published our findings on VOLTA, a mature infostealer malware that uses remote AI models to assess how…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
