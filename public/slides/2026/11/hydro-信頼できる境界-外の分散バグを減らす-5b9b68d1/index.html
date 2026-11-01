@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hydro: “信頼できる境界”外の分散バグを減らす</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      border-radius: 2px;
+      margin: 18px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .slide-grid{
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 2px;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      font-size: 18px;
+      font-weight: 600;
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 22px;
+      padding-top: 4px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: -2px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 74px;
+      line-height: 1.02;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      margin-top: -6px;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: -2px;
+      line-height: 1.35;
+    }
+
+    .content{
+      margin-top: auto;
+      padding-top: 6px;
+      width: 100%;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+      min-height: 86px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .text{
+      font-size: 19px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .ref-list{
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 12px 14px;
+      background: rgba(240,232,216,0.02);
+    }
+    .ref .rtitle{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      color: var(--ink-2);
+      margin-bottom: 6px;
+    }
+    .ref .rbody{
+      font-size: 18px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    @media (max-width: 900px){
+      .slide{
+        padding: 44px 44px;
+      }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .cell .text{ font-size: 16px; }
+      .label{ font-size: 12px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">COVER</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">AI時代の品質境界</div>
+        <div class="title"><em>Hydro</em>の狙い</div>
+        <div class="lead">AIコーディングエージェントが増やすPRの速さに対して、分散システムの「壊れ方」は複雑で、レビューやテストだけでは追いつきにくい。AWSのHydroは、コンパイラのように早期検出できる境界（zone of trust）を分散領域へ広げようとしています。</div>
+
+        <div class="content">
+          <div class="grid grid-2">
+            <div class="cell">
+              <div class="label">Key idea（要点）</div>
+              <div class="text">分散の性質を“型・検証”で表し、実行前に誤りを減らす。<br>（信頼できる境界の外の事故を小さくする）</div>
+            </div>
+            <div class="cell">
+              <div class="label">Why now（なぜ今）</div>
+              <div class="text">エージェントがコードだけでなくテストも書くため、「テストがあっても保証にならない」場面が増える。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">レビューがボトルネック</div>
+        <div class="title">巨大PRが <em>増える</em></div>
+        <div class="lead">エージェントが複数の部品を同時に動かすと、分割しづらい巨大PR（例：5000行級）が生まれやすい。結果として、ヒューマンレビューによる網羅的な検証が難しくなります。</div>
+
+        <div class="content">
+          <div class="grid grid-2">
+            <div class="cell">
+              <div class="label">症状</div>
+              <div class="text">レビューが追いつかず、変更点が大きくなるほど誤りが埋まりやすい。</div>
+            </div>
+            <div class="cell">
+              <div class="label">必要な方向</div>
+              <div class="text">人間の時間を“境界の外”に置かず、機械的に落とす検査を増やす。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">テストは万能じゃない</div>
+        <div class="title">“テストあり”が <em>保証</em>にならない</div>
+        <div class="lead">AIはコードとユニットテストを同時に作るため、テストがチームの期待仕様を正確に表すとは限りません。エージェントが“通すためのテスト”を書いたり、仕様解釈がズレたりすると、テストがあっても保証になりにくいのです。</div>
+
+        <div class="content">
+          <div class="grid grid-2">
+            <div class="cell">
+              <div class="label">失敗の型</div>
+              <div class="text">実装もテストも同じ誤解に合わせてしまう（テストが現実を縛れていない）。</div>
+            </div>
+            <div class="cell">
+              <div class="label">対策の方向</div>
+              <div class="text">仕様整合性を機械的に強制する“ガードレール”が要る。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">コンパイラの比喩</div>
+        <div class="title">信頼境界を <em>型</em>へ</div>
+        <div class="lead">Rustの借用チェッカーのように、実行前に一定のバグクラスを潰して即フィードバックを返す。Hydroは、その思想を分散システムの振る舞い（再送・順序・競合など）へ拡張しようとしています。<br><span style="font-size:18px;color:var(--ink-2);">（“zone of trust”＝信頼できる領域 / 信頼できない領域の境界を明確にする）</span></div>
+
+        <div class="content">
+          <div class="grid grid-2">
+            <div class="cell">
+              <div class="label">Rust的発想</div>
+              <div class="text">コンパイル時に誤りを検出 → 修正コストを下げる。</div>
+            </div>
+            <div class="cell">
+              <div class="label">分散への拡張</div>
+              <div class="text">分散の性質を型システムで追跡し、エージェントの誤りに早期警告。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">分散振る舞いをエンコード</div>
+        <div class="title">型で <em>振る舞い</em>を縛る</div>
+        <div class="lead">Hydroの説明は「分散の振る舞いをエンドツーエンドで型にエンコードする」。注文どおりの順序保証や、再送（リトライ）の安全性といった性質を、型が追跡して誤りをコンパイル時に減らします。</div>
+
+        <div class="content">
+          <div class="grid grid-3">
+            <div class="cell">
+              <div class="label">分散性質</div>
+              <div class="text">順序保証 / 送達・タイミングの揺らぎ</div>
+            </div>
+            <div class="cell">
+              <div class="label">検証タイミング</div>
+              <div class="text">コンパイル時・機械的検証（実行前に警告）</div>
+            </div>
+            <div class="cell">
+              <div class="label">狙い</div>
+              <div class="text">エージェント起点の誤りを早期フィードバック</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">再送の安全を守る</div>
+        <div class="title">“障害後リトライ”を <em>正しく</em></div>
+        <div class="lead">Hydroは特に「障害後にメッセージを再送しても正しく動く」ことを保証するチェックを進めています。分散では再送・冪等性・競合状態が現実に起きるため、ここを早期検出対象にする価値が大きいのです。</div>
+
+        <div class="content">
+          <div class="grid grid-3">
+            <div class="cell">
+              <div class="label">リトライ（再送）</div>
+              <div class="text">障害後、同じ要求が繰り返される前提</div>
+            </div>
+            <div class="cell">
+              <div class="label">冪等性（idempotence）</div>
+              <div class="text">二重実行しても副作用が重複しない</div>
+            </div>
+            <div class="cell">
+              <div class="label">典型バグ</div>
+              <div class="text">レース / 状態競合 / 意図しない順序</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">“万能”ではない</div>
+        <div class="title">コンパイルOKでも <em>意味</em>は別</div>
+        <div class="lead">コンパイラ的チェックは有効ですが、Rustが通っても意味的に間違うことはあります。つまりHydroのコンパイル時（またはそれに近い）検出は、重要要件の全てを網羅するわけではありません。</div>
+
+        <div class="content">
+          <div class="grid grid-2">
+            <div class="cell">
+              <div class="label">限界</div>
+              <div class="text">型・機械検証で抑えられない“仕様の意味”の誤解</div>
+            </div>
+            <div class="cell">
+              <div class="label">必要な前提</div>
+              <div class="text">別手段（統合テスト、運用観点の監査など）との役割分担</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">導入で効く“チェック”</div>
+        <div class="title">早期フィードバック <em>設計</em></div>
+        <div class="lead">記事の流れは「エージェントが誤る前に、機械的に警告する」へ寄っています。PRの大きさやレビュー遅延を吸収するために、分散バグの頻出パターンを検証対象として汎用ガードレール化する検討が中心です。</div>
+
+        <div class="content">
+          <div class="grid grid-2">
+            <div class="cell">
+              <div class="label">焦点（例）</div>
+              <div class="text">冪等性（再送）をガードレールとして一般化できるかを探る。</div>
+            </div>
+            <div class="cell">
+              <div class="label">期待効果</div>
+              <div class="text">誤り修正の手戻りを減らし、レビュー負荷の上限を押し下げる。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">運用も検証する</div>
+        <div class="title">Infinityで <em>実行コスト</em>を下げる</div>
+        <div class="lead">Hydro単体だけでなく、エージェント実行ランタイムInfinityも公開されています。待機時にエージェントをサスペンドし、CIや外部ツール待ちの間のリソース消費を抑える設計です。</div>
+
+        <div class="content">
+          <div class="grid grid-2">
+            <div class="cell">
+              <div class="label">サスペンド（suspend）</div>
+              <div class="text">アイドル時の実行を止め、再開は“結果が来たら”行う。</div>
+            </div>
+            <div class="cell">
+              <div class="label">理由</div>
+              <div class="text">大量のエージェント運用を現実的にする（効率がボトルネックになる）。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">大量同時のヒント</div>
+        <div class="title">Raspberry Piで <em>75,000</em></div>
+        <div class="lead">Infinityの同時実行ベンチマークでは、Raspberry Pi 5上で75,000並列エージェントが言及されています。idle時のメモリ増分は約100 KB/agentで、会話履歴が大きい点にも触れられています。</div>
+
+        <div class="content">
+          <div class="grid grid-3">
+            <div class="cell">
+              <div class="label">規模</div>
+              <div class="text">75,000並列</div>
+            </div>
+            <div class="cell">
+              <div class="label">メモリ増分</div>
+              <div class="text">約100 KB / agent（idle時）</div>
+            </div>
+            <div class="cell">
+              <div class="label">注意</div>
+              <div class="text">会話履歴が効くため、条件依存で結果は変わり得る</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">CLOSING</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">私見：役割分担が鍵</div>
+        <div class="title"><em>方向性</em>は強い</div>
+        <div class="lead">AI開発時代の品質保証を“再設計”する方向性として説得力があります。特に再送・冪等性のような頻出性質を早期検出しようとする点は実務的価値が高い一方、コンパイルが万能でないことを前提に多層防御が必要です。</div>
+
+        <div class="content">
+          <div class="grid grid-3">
+            <div class="cell">
+              <div class="label">Good</div>
+              <div class="text">早期フィードバックで手戻りを減らす</div>
+            </div>
+            <div class="cell">
+              <div class="label">Watch</div>
+              <div class="text">意味的誤りは残る（統合品質が別途必要）</div>
+            </div>
+            <div class="cell">
+              <div class="label">Need</div>
+              <div class="text">導入・運用条件の評価（ベンチマークの再現性）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-grid">
+        <div class="topbar">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">参照の置き場</div>
+        <div class="title">Sources</div>
+        <div class="lead">この要約は、提示された記事要約・FAQ・私見、ならびにご指定の「Webおよび過去履歴」メモに基づく整理です（元記事URLまでは与えられていません）。</div>
+
+        <div class="content">
+          <div class="ref-list">
+            <div class="ref">
+              <div class="rtitle">AWS Hydro（概要）</div>
+              <div class="rbody">Hydroが分散振る舞いを型システムでエンコードし、順序保証・再送（リトライ）などをコンパイル時に追跡するという説明。</div>
+            </div>
+            <div class="ref">
+              <div class="rtitle">Infinity（ランタイム）</div>
+              <div class="rbody">待機時のサスペンド設計と、大量同時実行ベンチマーク（Raspberry Pi 5で75,000並列、idle時約100 KB/agent）に関する言及。</div>
+            </div>
+            <div class="ref">
+              <div class="rtitle">参考概念（用語）</div>
+              <div class="rbody">zone of trust（信頼できる境界）、冪等性（idempotence）、再送（retry / リトライ）、競合状態（race condition / state競合）。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://daily.dev/posts/aws-s-hydro-team-wants-the-compiler-to-catch-coding-agents-mistakes-9bjxh52vg" target="_blank" rel="noreferrer noopener">AWS’s Hydro team wants the compiler to catch coding...</a></h2>
+<p class="reference-note">checker catches race conditions. The same team built Infinity, an agent runtime that suspends idle agents, with a benchm…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://thenewstack.io/ai-agents-compiler-guardrails" target="_blank" rel="noreferrer noopener">AWS&#39;s Hydro team wants the compiler to catch coding agents&#39; mistakes - The New Stack</a></h2>
+<p class="reference-note">The same team also built Infinity, an open-source agent runtime AWS announced on October 23. It suspends an agent while …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=aCEp98i5ShU" target="_blank" rel="noreferrer noopener">AWS&#39;s Hydro team wants the compiler to catch coding agents&#39; mistakes</a></h2>
+<p class="reference-note"># AWS&#39;s Hydro team wants the compiler to catch coding agents&#39; mistakes
+## Channel: The New Stack
+9.99K subscribers
+3 lik…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://aws.amazon.com/blogs/opensource/introducing-infinity-a-runtime-for-extreme-agent-concurrency" target="_blank" rel="noreferrer noopener">Introducing Infinity: a runtime for extreme agent concurrency | AWS Open Source Blog</a></h2>
+<p class="reference-note">Today, we’re releasing Infinity under the Apache 2.0 open source license as part of the Hydro project, a collaborative e…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://hydro.run/" target="_blank" rel="noreferrer noopener">Hydro - a Rust framework for correct and performant distributed systems</a></h2>
+<p class="reference-note">## Hydro catches distributed bugs at compile time
+
+Hydro encodes distributed behavior in the type system, end-to-end: ev…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
