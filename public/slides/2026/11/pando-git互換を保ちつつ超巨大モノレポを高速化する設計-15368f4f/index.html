@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pando: Git互換を保ちつつ超巨大モノレポを高速化する設計</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0px;
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 14px;
+      border: 20px solid rgba(240, 232, 216, 0);
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      text-transform: uppercase;
+      padding-top: 4px;
+      line-height: 1.1;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 26px;
+      color: var(--ink-2);
+      letter-spacing: 0.01em;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      line-height: 1.05;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.0;
+      margin-top: -2px;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 2px;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 4px;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .grid3{
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(240, 232, 216, 0.03);
+      padding: 14px 14px;
+      min-height: 86px;
+      display:flex;
+      flex-direction: column;
+      gap: 6px;
+      justify-content: flex-start;
+    }
+    .cell .label{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+    }
+    .cell .text{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    .cell .text em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .twoLineTitle{
+      font-size: 56px;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 44px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 12 -->
+    <section class="slide" aria-label="Cover">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="eyebrow">超巨大モノレポの勝ち筋</div>
+      <div class="title">Git互換で<br><em>Pando</em></div>
+      <div class="lead">OpenAIは、増え続けるコミットとAIエージェントを前提に、Gitバックエンド「Pando」を設計し、プッシュのレイテンシを大幅に改善した。</div>
+      <div class="rule"></div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">焦点</div>
+          <div class="text">サーバ実装の刷新（ツール置換ではない）</div>
+        </div>
+        <div class="cell">
+          <div class="label">方針</div>
+          <div class="text">Gitクライアント/プロトコル互換を維持</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 12 -->
+    <section class="slide" aria-label="Problem">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="eyebrow">遅さの正体</div>
+      <div class="title"><em>Git</em>が遅い？</div>
+      <div class="lead">OpenAIは「Gitそのものの限界」ではなく、従来のGitサーバが抱える設計上のボトルネックを問題視した。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">従来の重さ</div>
+          <div class="text">リポジトリ全体での更新調整コスト</div>
+        </div>
+        <div class="cell">
+          <div class="label">従来の重さ</div>
+          <div class="text">クライアントごとの高コストな再圧縮・再パック</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 12 -->
+    <section class="slide" aria-label="Core idea">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="eyebrow">再利用の設計</div>
+      <div class="title">毎回作らない</div>
+      <div class="lead">Pandoは、必要なものを「毎回作り直す」のではなく、既存のパックをより再利用して配信する発想に寄せている。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">鍵①</div>
+          <div class="text">ブランチごとに整合性を扱う</div>
+        </div>
+        <div class="cell">
+          <div class="label">鍵②</div>
+          <div class="text">既存パックを選び、配信へ最短化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 12 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="eyebrow">互換を守る骨格</div>
+      <div class="title">Git互換のまま</div>
+      <div class="lead">開発者は標準のGit操作を続けられる。Pandoの中身は刷新しても、外から見える振る舞いはGit側に寄せる。</div>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="label">入力</div>
+          <div class="text">通常のGitクライアント</div>
+        </div>
+        <div class="cell">
+          <div class="label">調停</div>
+          <div class="text">サーバがプッシュ/フェッチを最適化</div>
+        </div>
+        <div class="cell">
+          <div class="label">出力</div>
+          <div class="text">プロトコル互換を維持</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 12 -->
+    <section class="slide" aria-label="Push speed">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="eyebrow">待ちを減らす</div>
+      <div class="title">プッシュを速くする</div>
+      <div class="lead">従来サーバは並行ブランチで待ちが発生しやすいが、Pandoはブランチ単位で扱い、無関係な更新同士を引き離す。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">従来</div>
+          <div class="text">リポジトリ全体の更新順調整がボトルネック</div>
+        </div>
+        <div class="cell">
+          <div class="label">Pando</div>
+          <div class="text">ブランチ独立で相互待ちを抑制</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 12 -->
+    <section class="slide" aria-label="Pack reuse and packfile-uri">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="eyebrow">パック配信の肝</div>
+      <div class="title">計算と転送を圧縮</div>
+      <div class="lead">fetchでは、不足オブジェクトから新パックを作る必要が出がちだが、Pandoは既存パック選択と配信方式で負担を下げる。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">要点</div>
+          <div class="text"><span class="mono">packfile-uri</span>で別経路にリンク</div>
+        </div>
+        <div class="cell">
+          <div class="label">要点</div>
+          <div class="text">ストア済みパックを選択して配信を効率化</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 12 -->
+    <section class="slide" aria-label="Validation and metadata store">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="eyebrow">安全性を前倒し</div>
+      <div class="title">検証と記録</div>
+      <div class="lead">パックのストリーミング検証に加え、メタデータストアでブランチの先端（tip）や依存関係を記録する。</div>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="label">高速検証</div>
+          <div class="text">ストリーミング検証</div>
+        </div>
+        <div class="cell">
+          <div class="label">整合の軸</div>
+          <div class="text">ブランチ先端（tip）</div>
+        </div>
+        <div class="cell">
+          <div class="label">依存管理</div>
+          <div class="text">依存関係の記録</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 12 -->
+    <section class="slide" aria-label="Caching and hit rate">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="eyebrow">キャッシュで勝つ</div>
+      <div class="title">地域キャッシュ</div>
+      <div class="lead">地域キャッシュのhit率は99%超。cloneやfetchでの再計算・再転送を大きく削減できる。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">効果</div>
+          <div class="text">同一地域の要求に対し再利用が増える</div>
+        </div>
+        <div class="cell">
+          <div class="label">指標</div>
+          <div class="text"><em>hit率 99%超</em></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 12 -->
+    <section class="slide" aria-label="Performance summary and numbers">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="eyebrow">結果の一言</div>
+      <div class="title"><em>5倍</em>改善の意味</div>
+      <div class="lead">プッシュのレイテンシは約5倍改善。さらにペタバイト級/日といった規模感でも回せる前提を示した。</div>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="label">改善</div>
+          <div class="text">プッシュ遅延 約5倍改善</div>
+        </div>
+        <div class="cell">
+          <div class="label">スループット</div>
+          <div class="text">ペタバイト級/日</div>
+        </div>
+        <div class="cell">
+          <div class="label">根拠の型</div>
+          <div class="text">再利用＋キャッシュ＋検証</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 12 -->
+    <section class="slide" aria-label="Compatibility and tradeoffs">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="eyebrow">互換の代償</div>
+      <div class="title">わずかな時点ズレ</div>
+      <div class="lead">複数ブランチを同時に参照すると、軽微な時間差が出る可能性がある。とはいえワークフロー次第で許容し得るとされる。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">可能性</div>
+          <div class="text">参照時の軽微な時点ズレ</div>
+        </div>
+        <div class="cell">
+          <div class="label">狙い</div>
+          <div class="text">特定ブランチ内の更新順を優先する運用</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 12 -->
+    <section class="slide" aria-label="Open source upstream">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="eyebrow">公開範囲の線引き</div>
+      <div class="title">Pandoは非公開</div>
+      <div class="lead">Pando本体はオープンソース化せず、代わりにGit側に必要な改善を還元する方針。並列ダウンロードや再開など、クライアント改良にも触れる。</div>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="label">非公開</div>
+          <div class="text">バックエンドPando本体</div>
+        </div>
+        <div class="cell">
+          <div class="label">還元</div>
+          <div class="text">Git本体への改善</div>
+        </div>
+        <div class="cell">
+          <div class="label">例</div>
+          <div class="text">並列/途中転送の後処理・再開</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 12 -->
+    <section class="slide" aria-label="Takeaways references-style">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="eyebrow">持ち帰るべき要点</div>
+      <div class="title">思想は再利用と待ち削減</div>
+      <div class="lead">Pandoの要諦は、ブランチ単位の相互待ち削減、パックの再利用、ストリーミング検証、メタデータ管理、地域キャッシュを組み合わせて、Git互換のままスケールを押し上げる点にある。</div>
+      <div class="grid">
+        <div class="cell">
+          <div class="label">適用の観点</div>
+          <div class="text">自組織のボトルネックが「サーバ設計」かを切り分ける</div>
+        </div>
+        <div class="cell">
+          <div class="label">注意</div>
+          <div class="text">「5倍」等は条件依存。データ特性と測定条件を確認する</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://thenewstack.io/openai-pando-git-backend" target="_blank" rel="noreferrer noopener">OpenAI built itself a new Git backend, too - The New Stack</a></h2>
+<p class="reference-note">OpenAI is obviously an early adopter of agentic coding tools. Compared to the first quarter of 2024, the quarterly commi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/theo/status/2083351331675480438" target="_blank" rel="noreferrer noopener">Theo - t3.gg on X: &quot;OpenAI works in a single giant monorepo on GitHub. Seems like they’re running into git perf issues at their size and velocity. Super cool to see them upstreaming fixes to git itself&quot; / X</a></h2>
+<p class="reference-note">07/31/2026
+
+  happy friday we&#39;ve continued our work on git here at @OpenAI. performance, correctness, &amp; testing improvem…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=3hTmlcK7lLc" target="_blank" rel="noreferrer noopener">Leveraging AI to ensure Git Monorepo performance under heavy workloads</a></h2>
+<p class="reference-note">### Description
+612 views
+Posted: 2024-10-21
+Git monorepos that are under heavy load quickly become inefficient or even
+…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tavily.com/knowledge/company/p4PyTakV77G9" target="_blank" rel="noreferrer noopener">OpenAI</a></h2>
+<p class="reference-note"># OpenAI
+ID: p4PyTakV77G9
+Website: www.openai.com
+Headquarters: San Francisco, CA, United States
+LinkedIn: www.linkedin.…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://markhuang.ai/news/openai-git-empty-diff-is-the-news" target="_blank" rel="noreferrer noopener">OpenAI Forked Git. The Empty Diff Is the News | markhuang.ai</a></h2>
+<p class="reference-note">The skeptical reading is the one I find persuasive today. The presence of old branches, Rust files, or a large commit hi…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
