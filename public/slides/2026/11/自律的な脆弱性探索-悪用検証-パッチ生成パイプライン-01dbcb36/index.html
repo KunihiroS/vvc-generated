@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>自律的な脆弱性探索・悪用検証・パッチ生成パイプライン</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      padding: 22px 0 44px;
+      align-items: center;
+    }
+
+    .slide{
+      width: min(1120px, calc(100vw - 48px));
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      border: 1px solid rgba(240, 232, 216, 0.06);
+      pointer-events:none;
+    }
+
+    .topbar{
+      position: relative;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.14em;
+      font-weight: 600;
+      color: var(--ink-2);
+      font-size: 12px;
+      text-transform: uppercase;
+      padding-left: 12px;
+      border-left: 3px solid var(--rust);
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-3);
+      font-size: 22px;
+      font-style: italic;
+      letter-spacing: 0.02em;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      line-height: 1.05;
+    }
+
+    .title{
+      font-size: 68px;
+      margin: 0 0 14px 0;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.01em;
+      line-height: 0.98;
+      color: var(--ink);
+    }
+    .title .em{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+      text-decoration: none;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      line-height: 1.45;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 0 0;
+      width: 72%;
+      opacity: 0.9;
+    }
+
+    .grid{
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 14px;
+      max-width: 900px;
+    }
+    .grid3{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .cell{
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      background: rgba(0,0,0,0.08);
+      padding: 14px 14px;
+      border-radius: 8px;
+      min-height: 64px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      line-height: 1.2;
+    }
+    .cell .v{
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--ink-2);
+      line-height: 1.25;
+    }
+    .cell .v em{
+      color: var(--rust);
+      font-style: italic;
+    }
+
+    .list-grid{
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      max-width: 980px;
+    }
+
+    .item{
+      border-left: 3px solid rgba(232,129,74,0.35);
+      padding-left: 12px;
+    }
+    .item .h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .item .b{
+      font-size: 21px;
+      font-weight: 400;
+      color: var(--ink-2);
+      line-height: 1.25;
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .monoish{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: 0.01em;
+    }
+
+    .footer-note{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 40px;
+      color: var(--ink-4);
+      font-size: 14px;
+      line-height: 1.3;
+      opacity: 0.95;
+    }
+
+    @media (max-width: 820px){
+      .slide{ padding: 44px 46px; border-width: 14px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+      .list-grid{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .footer-note{ left: 46px; right: 46px; bottom: 28px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <p class="eyebrow">自動化された脆弱性パイプライン</p>
+      <h1 class="title"><span class="em">発見→悪用検証</span>→修正</h1>
+      <p class="lead">Linuxカーネルに対し、隔離環境で「見つける→再現する→悪用可能性評価→パッチ生成」までを工程化し、LPEエクスプロイトを<strong>948件</strong>生成した報告。</p>
+      <div class="rule"></div>
+      <div class="footer-note">用語：LPE=Local Privilege Escalation（ローカル権限昇格）。コストはAPIクレジットの換算。</div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <p class="eyebrow">スケールしない“手作業”</p>
+      <h2 class="title"><span class="em">候補</span>は多い</h2>
+      <p class="lead">脆弱性研究は、候補段階で誤検知が混ざりやすく、隔離環境での再現・PoC作成・原因確認までを手で回すと時間と工数が爆発する。</p>
+      <div class="rule"></div>
+      <div class="list-grid">
+        <div class="item">
+          <div class="h">ボトルネック</div>
+          <div class="b">選別 → 動的検証 → 結果の裏取り</div>
+        </div>
+        <div class="item">
+          <div class="h">防御側の要求</div>
+          <div class="b">「危ない」ことを再現で確かめてから優先順位を決めたい</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <p class="eyebrow">一連の工程化</p>
+      <h2 class="title">5段階<span class="em">パイプライン</span></h2>
+      <p class="lead">全体は5段階：発見→動的検証→悪用可能性評価→パッチ生成→人間の最終レビュー。中核にサイバーモデルを用いる。</p>
+      <div class="rule"></div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v">発見（候補生成）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">動的検証（隔離環境で再現）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">悪用可能性評価（PoC/LPEへ）</div>
+        </div>
+        <div class="cell">
+          <div class="k">iv</div>
+          <div class="v">パッチ生成（修正案作成）</div>
+        </div>
+        <div class="cell" style="grid-column: span 2;">
+          <div class="k">v</div>
+          <div class="v">人間レビュー（因果・説明責任・誤認の排除）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <p class="eyebrow">数で見る成果</p>
+      <h2 class="title">再現率<span class="em">74.7%</span></h2>
+      <p class="lead">候補2,308件から隔離環境で1,724件を動的に再現（約74.7%）。情報漏えいPoCは291件、LPEは948件生成と報告。</p>
+      <div class="rule"></div>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">候補</div>
+          <div class="v"><em>2,308</em>件</div>
+        </div>
+        <div class="cell">
+          <div class="k">再現</div>
+          <div class="v"><em>1,724</em>件（74.7%）</div>
+        </div>
+        <div class="cell">
+          <div class="k">情報漏えい</div>
+          <div class="v"><em>291</em>件</div>
+        </div>
+        <div class="cell" style="grid-column: span 3;">
+          <div class="k">LPEエクスプロイト</div>
+          <div class="v"><em>948</em>件（未権限→root）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <p class="eyebrow">コストは約$120万</p>
+      <h2 class="title">APIクレジット<span class="em">$1.213M</span></h2>
+      <p class="lead">総コストはAPIクレジットで約$1,213,430。LPEエクスプロイト1件あたりの平均換算はおおむね$1,279。</p>
+      <div class="rule"></div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">総コスト</div>
+          <div class="v"><em>$1,213,430</em></div>
+        </div>
+        <div class="cell">
+          <div class="k">LPE件数</div>
+          <div class="v"><em>948</em>件</div>
+        </div>
+        <div class="cell" style="grid-column: span 2;">
+          <div class="k">単価換算</div>
+          <div class="v">平均で約<em>$1,279/件</em></div>
+        </div>
+      </div>
+      <div class="footer-note">APIクレジットは上限見積もりの可能性や、ハーネス工学での低減余地がある前提。</div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <p class="eyebrow">“仮想価値”の試算</p>
+      <h2 class="title">バウンティ換算<span class="em">$18.9M〜$66.3M</span></h2>
+      <p class="lead">既存のバグバウンティ（例：Pwn2Own/TyphoonPWNの金額）を仮に当てはめると、948件のLPEの仮想価値は$18.9M〜$66.3Mになり得る。</p>
+      <div class="rule"></div>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">最低レンジ</div>
+          <div class="v"><em>$18.9M</em></div>
+        </div>
+        <div class="cell">
+          <div class="k">最大レンジ</div>
+          <div class="v"><em>$66.3M</em></div>
+        </div>
+        <div class="cell">
+          <div class="k">含意</div>
+          <div class="v">防御が先回りすれば<span style="color:var(--ink-2);">攻撃期待値を下げられる</span></div>
+        </div>
+      </div>
+      <div class="footer-note">ただし採択・重複・最終判断の不確実性があり、保証ではない。</div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <p class="eyebrow">誤検知を“減らす”</p>
+      <h2 class="title">動的検証が<span class="em">鍵</span></h2>
+      <p class="lead">静的解析だけでは残りがちな誤検知を、隔離環境でPoC/期待挙動として再現することで、検証可能な成果へ寄せる。</p>
+      <div class="rule"></div>
+
+      <div class="list-grid">
+        <div class="item">
+          <div class="h">静的（推定）</div>
+          <div class="b">コードパスから“危なさ”を見積もる</div>
+        </div>
+        <div class="item">
+          <div class="h">動的（裏取り）</div>
+          <div class="b">KASAN等の隔離環境で挙動を再現し確認する</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <p class="eyebrow">情報漏えい vs LPE</p>
+      <h2 class="title">成果の<span class="em">種類</span></h2>
+      <p class="lead">扱った中心は情報漏えい（information leak）と、未権限ユーザがroot権限を得るLPE。どちらも“悪用の再現”が前提。</p>
+      <div class="rule"></div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">情報漏えい</div>
+          <div class="v">PoCで「読めてしまう」挙動を再現</div>
+        </div>
+        <div class="cell">
+          <div class="k">LPE</div>
+          <div class="v">ローカル実行で「未権限→root」を実現</div>
+        </div>
+        <div class="cell" style="grid-column: span 2;">
+          <div class="k">研究の焦点</div>
+          <div class="v">隔離環境で再現し、実際に悪用経路へ進める</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <p class="eyebrow">AIの“成功”は検証が必要</p>
+      <h2 class="title">誤認の<span class="em">例</span></h2>
+      <p class="lead">自律探索でroot取得に成功しても、原因が別の0-dayだったケースが指摘されている。だから人間の独立確認が不可欠。</p>
+      <div class="rule"></div>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">観測</div>
+          <div class="v">rootが取れた</div>
+        </div>
+        <div class="cell">
+          <div class="k">落とし穴</div>
+          <div class="v">“別の0-day”で達成</div>
+        </div>
+        <div class="cell">
+          <div class="k">対策</div>
+          <div class="v">因果の一致を独立確認</div>
+        </div>
+      </div>
+      <div class="footer-note">隔離・監視・ガードレールにより、結果の説明責任を担保する。</div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <p class="eyebrow">反復で品質を上げる</p>
+      <h2 class="title">パッチは<span class="em">一発ではない</span></h2>
+      <p class="lead">最初のパッチ生成は、余分な変更・性能影響・コーディング規約逸脱・変種の見落とし等を起こし得るため、反復と人間レビューが必要。</p>
+      <div class="rule"></div>
+
+      <div class="list-grid">
+        <div class="item">
+          <div class="h">自動生成の限界</div>
+          <div class="b">原因把握や副作用を完全に担保しにくい</div>
+        </div>
+        <div class="item">
+          <div class="h">改善の手筋</div>
+          <div class="b">反復（指示）＋レビューで品質を引き上げる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <p class="eyebrow">意思決定の要点</p>
+      <h2 class="title"><span class="em">守る側</span>の読み方</h2>
+      <p class="lead">この報告は“全自動で安全になる”という主張ではない。工程設計・測定・ガードレール・最新コード再評価の重要性を示す材料。</p>
+      <div class="rule"></div>
+
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">実用性</div>
+          <div class="v">候補→再現→PoC→エクスプロイト→修正を工程化</div>
+        </div>
+        <div class="cell">
+          <div class="k">安全性</div>
+          <div class="v">因果の誤認を示し、独立確認を要求</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">選別・検証時間がボトルネック、最新再評価が必要</div>
+        </div>
+        <div class="cell" style="grid-column: span 3;">
+          <div class="k">経済性</div>
+          <div class="v">APIコストとバウンティ換算を比較し、攻撃期待値を下げる投資検討の材料に</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <p class="eyebrow">結論</p>
+      <h2 class="title"><span class="em">スケール</span>し得るが、検証が主役</h2>
+      <p class="lead">強力なモデルが脆弱性探索・修正をスケールさせる可能性は示された。一方で、動的検証・悪用経路の因果確認・人間レビュー・ガードレールが不可欠。</p>
+      <div class="rule"></div>
+
+      <div class="grid">
+        <div class="cell">
+          <div class="k">示されたこと</div>
+          <div class="v">再現率74.7%、LPE948件、コスト規模の提示</div>
+        </div>
+        <div class="cell">
+          <div class="k">強調されたこと</div>
+          <div class="v">隔離条件や時間制約、採択不確実性を“条件付きの証拠”として読む</div>
+        </div>
+      </div>
+
+      <div class="footer-note">このスライドは提供テキストの要約であり、原典の詳細数値・定義の厳密性は原報をご確認ください。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://nuharbor.com/blog/ai-is-accelerating-exploits-in-2026" target="_blank" rel="noreferrer noopener">AI is Accelerating Exploits in 2026</a></h2>
+<p class="reference-note">Lastly, the cost figures make the shift concrete. Starting with a published CVE entry and access to the affected code re…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.sentinelone.com/vulnerability-database/cve-2026-98057" target="_blank" rel="noreferrer noopener">CVE-2026-98057: Linux Kernel Privilege Escalation Vulnerability</a></h2>
+<p class="reference-note">&gt; ### Critical Impact
+&gt;
+&gt; Missing validation of persistent ring buffer metadata (nr\_subbufs) could allow the kernel to …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aviatrix.ai/threat-research-center/linux-kernel-lpe-quartet-cve-2026-exploits" target="_blank" rel="noreferrer noopener">Linux Kernel Privilege Escalation Flaws: Four CVEs Exploited in 2026</a></h2>
+<p class="reference-note">In September 2026, security researcher Asim Manizada disclosed four Linux kernel vulnerabilities that enable local privi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://blog.qualys.com/vulnerabilities-threat-research/2026/05/20/cve-2026-46333-local-root-privilege-escalation-and-credential-disclosure-in-the-linux-kernel-ptrace-path" target="_blank" rel="noreferrer noopener">CVE-2026-46333: Local Root Privilege Escalation and Credential Disclosure in the Linux Kernel ptrace Path | Qualys</a></h2>
+<p class="reference-note">## Coordinated Disclosure and Why We Are Publishing Now
+
+Qualys followed responsible disclosure throughout. Qualys repor…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://labs.cloudsecurityalliance.org/research/csa-whitepaper-llm-exploit-automation-threat-landscape-20260" target="_blank" rel="noreferrer noopener">Automated Exploit Generation: LLMs Cross the Threshold – Lab Space</a></h2>
+<p class="reference-note">This whitepaper examines the research trajectory that brought us to this point, documents the real-world incidents that …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
