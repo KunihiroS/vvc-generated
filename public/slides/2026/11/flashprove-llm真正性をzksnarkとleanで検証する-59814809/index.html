@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FlashProve：LLM真正性をzkSNARKとLeanで検証する</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px 0;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow:hidden;
+    }
+    .inner{
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+      height: calc(100% - 40px);
+    }
+    .topbar{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap: 16px;
+      margin-bottom: 4px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-weight: 600;
+      font-size: 14px;
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      padding-left: 12px;
+      line-height: 1.1;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+      margin-top: -2px;
+      white-space:nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: -4px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 64px;
+      margin-top: -6px;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      margin-top: -2px;
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin-top: 6px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 600;
+      margin-top: 6px;
+    }
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 18px;
+      margin-top: 4px;
+      width: 100%;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px 16px;
+      margin-top: 4px;
+      width: 100%;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.06);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 15px;
+      color: var(--ink-2);
+      word-break: break-word;
+    }
+    .listGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 16px;
+      margin-top: 6px;
+    }
+    .li{
+      border-left: 3px solid var(--rust);
+      padding-left: 12px;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .footnote{
+      position:absolute;
+      left: 24px; right: 24px; bottom: 18px;
+      color: var(--ink-4);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.01em;
+    }
+    .centerHero{
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      flex-direction:column;
+      text-align:left;
+      padding-top: 22px;
+      gap: 8px;
+    }
+    .centerHero .title{
+      text-align:left;
+      font-size: 74px;
+      margin-top: 0;
+    }
+    @media (max-width: 860px){
+      .inner{ padding: 46px 48px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .cell .v{ font-size: 16px; }
+      .li{ font-size: 16px; }
+      .grid3{ grid-template-columns: 1fr; }
+      .grid2{ grid-template-columns: 1fr; }
+      .listGrid{ grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px){
+      .inner{ inset: 12px; padding: 40px 28px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1: cover -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">FlashProve / LLM Integrity</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+
+        <div class="centerHero" style="flex:1;">
+          <div class="eyebrow">検証できる「モデル真正性」</div>
+          <div class="title"><span>FlashProve</span> <em>zkSNARK</em></div>
+          <div class="lead">LLMの出力が「指定モデルの計算結果」であることを、重みを秘密にしたまま第三者が短い証拠で確認する試み。</div>
+          <div class="rule" style="width:100%; margin-top:10px;"></div>
+          <div class="label">キー語彙 / Keywords</div>
+          <div class="listGrid" style="margin-top:10px;">
+            <div class="li">モデル同一性（Model identity）</div>
+            <div class="li">短縮証明（zkSNARK / zk 短縮証明）</div>
+            <div class="li">形式検証（Lean）</div>
+            <div class="li">MoE（Mixture-of-Experts）</div>
+          </div>
+        </div>
+
+        <div class="footnote">読むだけで全体像がつかめるように、1スライド1メッセージで圧縮しています。</div>
+      </div>
+    </section>
+
+    <!-- Slide 2: problem -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">PROBLEM</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+
+        <div class="eyebrow">“見た目”は証拠にならない</div>
+        <div class="title"><em>出力</em>依存の限界</div>
+        <div class="lead">
+          ユーザーは応答文面だけでは「指定されたモデルが実際に実行されたか」「途中で改ざんされていないか」を確実に判断できません。品質は高くても、計算源のすり替えは検知しにくいのが現実です。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">何が起きる？</div>
+            <div class="v">サプライチェーン・ルーティング都合・攻撃者によるトークン改変 / モデル差し替え</div>
+          </div>
+          <div class="cell">
+            <div class="k">なぜ難しい？</div>
+            <div class="v">出力（テキスト）の統計的整合では「計算根拠」まで確定できない</div>
+          </div>
+        </div>
+
+        <div class="footnote">ここでの狙いは“もっと賢い推測”ではなく“数学的な真正性（integrity）”です。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3: metaphor -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">METAPHOR</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+
+        <div class="eyebrow">手紙に「封印の証明」</div>
+        <div class="title">暗号で <em>封</em>する</div>
+        <div class="lead">
+          通常は手紙（出力）を読むだけですが、FlashProveでは「その封（指定モデルの重み）を持つ計算で書いた」ことを、重みの中身なしで証明します。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">オフライン</div>
+            <div class="v">重みをコミット（指紋）</div>
+          </div>
+          <div class="cell">
+            <div class="k">オンライン</div>
+            <div class="v">入力→指定出力トークンを計算した証明</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証者</div>
+            <div class="v">CPUのみで短時間に成立確認</div>
+          </div>
+        </div>
+
+        <div class="footnote">重要：出力品質そのものではなく「計算源が指定通りか」を保証します。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4: architecture -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">ARCHITECTURE</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+
+        <div class="eyebrow">2段階のワークフロー</div>
+        <div class="title">コミット → <em>証明</em> → 検証</div>
+        <div class="lead">
+          FlashProveは、(1)モデル重みのコミットメント公開、(2)推論要求ごとの約19MB証明生成、(3)CPUで秒単位検証、という流れで「モデル同一性」を成立させます。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">オフライン</div>
+            <div class="v">重みのコミットメント（短い指紋のような情報）を公開。手元に重みは不要。</div>
+          </div>
+          <div class="cell">
+            <div class="k">オンライン</div>
+            <div class="v">入力に対し、公開コミットメントのモデルで所定トークン列が計算されたことを証明（約19MB）。</div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">検証（CPU）</div>
+            <div class="v">GPU不要で秒単位。検証コストが現実的。</div>
+          </div>
+          <div class="cell">
+            <div class="k">焦点</div>
+            <div class="v">整合性：指定モデルの計算結果であること（integrity）</div>
+          </div>
+        </div>
+
+        <div class="footnote">出力が“それっぽい”かではなく“指定通り計算されたか”に照準。</div>
+      </div>
+    </section>
+
+    <!-- Slide 5: evidence -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">EVIDENCE</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+
+        <div class="eyebrow">速度・サイズの要点</div>
+        <div class="title"><em>H100</em>で証明、CPUで確認</div>
+        <div class="lead">
+          発表では、Llama 4 Maverick（400B MoE）に対して、1GPU（H100）で毎秒110トークン相当、証明サイズ約19MB、検証はCPUで秒単位という数値が示されています。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">証明生成</div>
+            <div class="v">H100：~110トークン/秒相当</div>
+          </div>
+          <div class="cell">
+            <div class="k">証明サイズ</div>
+            <div class="v">約19MB</div>
+          </div>
+          <div class="cell">
+            <div class="k">検証</div>
+            <div class="v">CPUのみ：秒単位（報告値）</div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">改善幅</div>
+            <div class="v">推論へのオーバーヘッドを約70〜95倍に抑え、zkMLの実用性に近づく位置づけ</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">これらは研究発表ベース。実運用のモード差で変動し得ます。</div>
+          </div>
+        </div>
+
+        <div class="footnote">「速い検証」は監査・追跡の導入判断を助けます。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6: comparison -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">COMPARISON</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+
+        <div class="eyebrow">なぜ“以前”は重かった？</div>
+        <div class="title">zkMLの壁を <em>縮めた</em></div>
+        <div class="lead">
+          過去のzkMLは、証明作成・検証が桁違いに重いことが課題でした。FlashProveは、証明作成・検証の速度を大きく改善して“運用可能”側へ寄せています。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">従来のボトルネック</div>
+            <div class="v">zk計算が重く、生成/検証コストが高すぎる</div>
+          </div>
+          <div class="cell">
+            <div class="k">FlashProveの狙い</div>
+            <div class="v">証明作成・検証の速度改善で、実用に近づける</div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">結果（報告）</div>
+            <div class="v">推論へのオーバーヘッドを約70〜95倍に抑制（発表ベース）</div>
+          </div>
+          <div class="cell">
+            <div class="k">意味</div>
+            <div class="v">「理論だけ」ではなく「検証の回しやすさ」を重視</div>
+          </div>
+        </div>
+
+        <div class="footnote">ここでの“比較”は主にコスト構造（証明/検証）に焦点があります。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7: process -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">PROCESS</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+
+        <div class="eyebrow">何を“証明”するのか</div>
+        <div class="title">真正性の中身</div>
+        <div class="lead">
+          FlashProveが示すのは「返されたトークン列（少なくとも選んだ範囲）が、公開コミットメントに対応する指定モデルで入力から計算された」ことです。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="listGrid">
+          <div class="li"><span style="font-style:italic; color:var(--rust)">保証対象</span>：モデル重み（指定コミットメント）との整合</div>
+          <div class="li"><span style="font-style:italic; color:var(--rust)">保証対象</span>：入力→所定トークン（少なくとも選択範囲）</div>
+          <div class="li"><span style="font-style:italic; color:var(--rust)">非保証（重要）</span>：出力の“品質が高い”こと</div>
+          <div class="li"><span style="font-style:italic; color:var(--rust)">脅威モデル</span>：モデル差し替え/トークン改ざんで検証に失敗する設計</div>
+        </div>
+
+        <div class="footnote">ユーザーは重みを持たずとも、検証で合否を得られるのがポイント。</div>
+      </div>
+    </section>
+
+    <!-- Slide 8: distinction -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">DISTINCTION</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+
+        <div class="eyebrow">鍵となる設計思想</div>
+        <div class="title">健全性・ゼロ知識</div>
+        <div class="lead">
+          形式検証では、完全性・健全性・ゼロ知識といった性質をLeanで機械チェックします。ただし「健全性は検証器に依存、ゼロ知識は証明者に依存」など前提があります。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Leanで支える</div>
+            <div class="v">暗号プロトコルの主要性質（完全性/健全性/ゼロ知識）を機械可読に</div>
+          </div>
+          <div class="cell">
+            <div class="k">前提の意識</div>
+            <div class="v">性質は実装や検証器の前提に依存。設計と監査が重要</div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">脆い実装になりがちな暗号を、形式的根拠で補強する</div>
+          </div>
+          <div class="cell">
+            <div class="k">ただし注記</div>
+            <div class="v">高速コードとLean定式化・論文仕様の完全一致は保証しない、と明示</div>
+          </div>
+        </div>
+
+        <div class="footnote">暗号を“文章で理解”から“機械で確認”へ寄せるのが本質です。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9: distinction -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">LIMITS</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+
+        <div class="eyebrow">証明できる条件は限定</div>
+        <div class="title">貪欲・整数・短コンテキスト</div>
+        <div class="lead">
+          FlashProveの証明は、貪欲（greedy）デコードの整数モデルに基づくため、サンプリングや浮動小数の厳密一致には限界があります。また最大コンテキスト長は最大1,024トークンなどの制約があります。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">推論モード</div>
+            <div class="v">証明：整数モデルの貪欲選択（浮動小数・サンプリングとはギャップ）</div>
+          </div>
+          <div class="cell">
+            <div class="k">コンテキスト</div>
+            <div class="v">最大1,024トークン（研究プロトタイプとしての制約）</div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">一致の範囲</div>
+            <div class="v">“完全な一般性”を主張していない（適用条件を見極める必要）</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用上の注意</div>
+            <div class="v">証明が成立しても、あなたの推論設定と一致しているかは別途確認が必要</div>
+          </div>
+        </div>
+
+        <div class="footnote">制度・監査で使うなら「どのモードで一致するか」を契約/仕様で縛るべきです。</div>
+      </div>
+    </section>
+
+    <!-- Slide 10: comparison -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">SECURITY</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+
+        <div class="eyebrow">強いのは“改ざん耐性の検証”</div>
+        <div class="title">サイドチャネルは <em>範囲外</em></div>
+        <div class="lead">
+          証明はコミットメントに紐づくため、モデル差し替えやトークン改変に対して強い防御になります。一方で、証明生成時間などの観測を狙うサイドチャネル耐性は今回範囲外です。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">有効な攻撃</div>
+            <div class="v">指定モデル外での生成 / 改ざんされたトークン：検証に失敗しやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">未カバーの懸念</div>
+            <div class="v">サイドチャネル（時間・リソース消費）—ゼロ知識でも残り得る</div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">結論（誤解注意）</div>
+            <div class="v">“全方位の完全安全”ではない。運用環境で追加対策が必要</div>
+          </div>
+          <div class="cell">
+            <div class="k">現実的な姿勢</div>
+            <div class="v">脅威モデルを明確化し、適用範囲をポリシーで制限する</div>
+          </div>
+        </div>
+
+        <div class="footnote">ゼロ知識＝情報漏えいゼロ、ではなく“証明が漏らさない範囲”を厳密に理解する必要があります。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11: process -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">TAKEAWAY</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+
+        <div class="eyebrow">価値と注意点の整理</div>
+        <div class="title"><em>信頼</em>の焦点を移す</div>
+        <div class="lead">
+          FlashProveの価値は「出力がそれっぽい」から「出力が指定モデル計算に由来する」へ信頼の焦点を移した点にあります。実用化には、推論モード差・実装一致・サイドチャネル・コンテキスト上限などのギャップ評価が不可欠です。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">良い点</div>
+            <div class="v">重みを隠しつつ検証可能／Leanで性質を機械チェック／改ざん・すり替えに“検証で落ちる”設計方向</div>
+          </div>
+          <div class="cell">
+            <div class="k">評価すべき点</div>
+            <div class="v">整数・貪欲・短コンテキストへの依存／高速コードと定式化の一致の程度／サイドチャネルと運用フロー</div>
+          </div>
+        </div>
+
+        <div class="listGrid" style="margin-top:12px;">
+          <div class="li">今後の拡張：サンプリング/浮動小数への整合、コンテキスト長、実運用の成功率データ</div>
+          <div class="li">適用判断：推論設定を“証明できる範囲”に縛る（仕様化が鍵）</div>
+        </div>
+
+        <div class="footnote">“監査・規制・第三者検証”に接続できる基盤技術になり得ます。</div>
+      </div>
+    </section>
+
+    <!-- Slide 12: references/closing -->
+    <section class="slide">
+      <div class="inner">
+        <div class="topbar">
+          <div class="slide-tag">REFERENCES</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+
+        <div class="eyebrow">参照情報（要約）</div>
+        <div class="title"><em>出典</em>の地図</div>
+        <div class="lead">
+          本デッキは、提示された原稿要約（FlashProveの主張・制約・Leanの位置づけ）と、補助としてのWeb/履歴で確認できた数値（H100速度・証明サイズ・検証時間など）を統合して圧縮しています。
+        </div>
+
+        <div class="rule" style="width:100%; margin-top:8px;"></div>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Web検索（報告値）</div>
+            <div class="v">
+              Meta Llama 4 Maverick（400B MoE）で：<br/>
+              H100で約110トークン/秒相当、証明サイズ約19MB、検証はCPUで約17秒、オフラインコミットメント約39分等（報じられた内容）。
+            </div>
+          </div>
+          <div class="cell">
+            <div class="k">原稿（要点）</div>
+            <div class="v">
+              重要論点：モデル同一性の暗号証明、約19MBのzkSNARK、Lean形式検証、ただし研究プロトタイプゆえ実装一致や適用条件に制約あり。
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">比較（過去の流れ）</div>
+            <div class="v">過去の「Leanを用いた形式的検証」系の文脈と同様に、“理論の強さ＝実装の強さ”ではない境界を意識。</div>
+          </div>
+          <div class="cell">
+            <div class="k">次の確認先（推奨）</div>
+            <div class="v">サンプリング時の逸脱、サイドチャネル対策方針、実運用の証明アーカイブ/監査フロー。</div>
+          </div>
+        </div>
+
+        <div class="footnote">このHTMLは“読みやすさ優先”で圧縮しています。詳細は元の論文・資料で確認してください。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://daily.dev/posts/anthropic-open-sources-flashprove-a-system-for-proving-which-model-produced-an-output-0w15kpdqw" target="_blank" rel="noreferrer noopener">Anthropic open-sources FlashProve, a system for proving...</a></h2>
+<p class="reference-note">30% positive
+
+50% mixed
+
+20% skeptical
+
+Questions this post answers
+
+FlashProve produces proofs at 110 tokens per second…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.unite.ai/anthropic-releases-flashprove-for-cryptographic-ai-inference-proofs" target="_blank" rel="noreferrer noopener">Anthropic Releases FlashProve for Cryptographic AI Inference Proofs – Unite.AI</a></h2>
+<p class="reference-note">Anthropic released FlashProve on November 2, 2026: an open-source research prototype that uses cryptographic proofs to s…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.marktechpost.com/2026/11/03/anthropic-flashprove-provable-inference-zksnark" target="_blank" rel="noreferrer noopener">Anthropic Releases FlashProve: Cryptographic Proofs That a Reply Came From Committed Weights - MarkTechPost</a></h2>
+<p class="reference-note">## TL;DR
+
+ Size: Proves a 400B MoE model (~17B active per token); context capped at 1,024 tokens per request.
+ Runs on: …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/research/provable-inference" target="_blank" rel="noreferrer noopener">Progress on provable inference for large language models \ Anthropic</a></h2>
+<p class="reference-note">Today, we release FlashProve: an open-source performant prototype for provable inference. For a 400B-parameter mixture-o…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://cryptorank.io/news/feed/44175-ethereum-foundation-refocuses-to-security-over-speed-sets-strict-128-bit-rule-for-2026" target="_blank" rel="noreferrer noopener">Ethereum Foundation refocuses to security over speed – sets strict 128-bit rule for 2026 | featured Privacy | CryptoRank.io</a></h2>
+<p class="reference-note">Real-time proving is currently an off-chain benchmark, not an on-chain reality. The latency and cost numbers come from E…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
