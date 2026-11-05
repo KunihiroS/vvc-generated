@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>情報窃取スクリプト解析：構造と実害の確度</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: "Noto Serif JP", serif; }
+    a { color: inherit; }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+      overflow-x: hidden;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 0px;
+      margin: 20px 0;
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      inset: auto;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; left:20px; right:20px; top:20px; bottom:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      position:absolute; left:56px; right:72px; top:38px;
+      display:flex; align-items:flex-start; justify-content:space-between;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      font-weight: 700;
+      text-transform: uppercase;
+      padding-right: 12px;
+      border-top: 2px solid rgba(232,129,74,0.55);
+      padding-top: 6px;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      margin-top: 52px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      margin: 10px 0 14px;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 1.02;
+      letter-spacing: -0.01em;
+      font-style: italic;
+      color: var(--ink);
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 600;
+      font-style: normal;
+      font-size: 56px;
+      letter-spacing: 0.01em;
+    }
+
+    .lead{
+      max-width: 760px;
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.55;
+      font-weight: 300;
+      margin: 0;
+    }
+
+    .content {
+      position: absolute;
+      left: 72px; right: 72px;
+      top: 190px; bottom: 72px;
+      overflow: hidden;
+    }
+
+    .grid2, .grid3{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      align-items: start;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(28,24,19,0.30);
+      padding: 14px 14px;
+      min-height: 84px;
+    }
+    .card h4{
+      margin: 0 0 8px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .card p{
+      margin: 0;
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      background: rgba(240,232,216,0.06);
+      border: 1px solid rgba(240,232,216,0.14);
+      padding: 10px 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .refs{
+      position:absolute;
+      left: 72px; right: 72px;
+      top: 190px; bottom: 72px;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .refline{
+      border: 1px solid var(--rule);
+      padding: 14px;
+      background: rgba(28,24,19,0.30);
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 300;
+      overflow-wrap: anywhere;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+    }
+
+    /* Responsive: keep 16:9; just scale width */
+    @media (max-width: 720px){
+      .deck{ width: min(1120px, calc(100vw - 28px)); padding-top: 16px; }
+      .slide{ padding: 40px 22px; }
+      .topbar{ left:22px; right:22px; top:18px; }
+      .content{ left:22px; right:22px; top:150px; bottom:22px; }
+      .refs{ left:22px; right:22px; top:150px; bottom:22px; }
+      .title{ font-size: 46px; }
+      .title .jp{ font-size: 36px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 20px; margin-top: 36px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1. COVER -->
+    <section class="slide cover" aria-label="cover">
+      <div class="topbar">
+        <div class="slide-tag">Study deck</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="eyebrow">アダルト改ざん × stealer解析</div>
+      <div class="title">実害確度の見取り図</div>
+      <p class="lead">HTMLローダー→非表示iframe→複数JS→通信先、そして「意図」と「成立」を分けて追います（解析ベース）。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>検体 / Scope</h4>
+            <p>メインHTML + /rivo-stealer 配下 iframe + stealer-3.js〜stealer-8.js 等</p>
+          </div>
+          <div class="card">
+            <h4>焦点</h4>
+            <p>Cookie/Storage/フォーム/指紋/Web3/送信先（例：/api/steal）</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. PROBLEM -->
+    <section class="slide problem">
+      <div class="topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="eyebrow">「コード」≠「被害」</div>
+      <div class="title">静的に分かっても</div>
+      <p class="lead">JavaScriptは実行条件（iframe文脈・CSP・構文・非同期処理）で動作が変わります。だから実害確定には、実通信や実行成否の裏取りが必要です。</p>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <h4>見えること</h4>
+            <p>収集先（Cookie/Storage/指紋/Web3等）と送信先URL</p>
+          </div>
+          <div class="card">
+            <h4>見えにくいこと</h4>
+            <p>端末ごとの実行成功 / ReferenceError など停止点</p>
+          </div>
+          <div class="card">
+            <h4>決め手</h4>
+            <p>HTTP送信（本文/量/タイミング/ステータス）など観測証拠</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. METAPHOR -->
+    <section class="slide metaphor">
+      <div class="topbar">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="eyebrow">ローダーは段取り</div>
+      <div class="title">最初は隠す</div>
+      <p class="lead">攻撃は「最初から全部」ではなく、非表示iframeとDOM追加で機能を段階投入します。読む側は“どのコードが後から来るか”を追う必要があります。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>HTMLローダー</h4>
+            <p>非表示iframeを生成し、/rivo-stealer 配下を読み込み</p>
+          </div>
+          <div class="card">
+            <h4>段階的展開</h4>
+            <p>stealer-3.js〜stealer-8.jsなどを後から追加し役割分担</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. ARCHITECTURE -->
+    <section class="slide architecture">
+      <div class="topbar">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="eyebrow">機能の分業</div>
+      <div class="title">収集 → 送信</div>
+      <p class="lead">データ収集は単一手法に依存せず、Cookie/Storage/フォーム/キー入力/指紋といった経路を複数組み合わせます（冗長化）。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>ブラウザ側（例）</h4>
+            <p>localStorage・sessionStorage・IndexedDB列挙 / submit・定期フォーム読み / キーロギング</p>
+          </div>
+          <div class="card">
+            <h4>識別側（例）</h4>
+            <p>User-Agent / 画面情報 / フォント・Canvas（指紋）など</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. EVIDENCE -->
+    <section class="slide evidence">
+      <div class="topbar">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="eyebrow">通信の“当たり”</div>
+      <div class="title">POST観測</div>
+      <p class="lead">送信先として /api/steal、/api/beacon、/stealer-dashboard/api/handle-seed-phrase 等が想定されます。少なくとも /rec/batch へのPOSTでHTTP 200観測があったとされています。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>想定エンドポイント</h4>
+            <p class="small">/api/steal /api/beacon /stealer-dashboard/api/handle-seed-phrase</p>
+          </div>
+          <div class="card">
+            <h4>観測例</h4>
+            <p class="small">/rec/batch → POST（HTTP 200）</p>
+          </div>
+        </div>
+        <div style="height:14px;"></div>
+        <div class="mono">ただし「どのコードが、どんな本文を、誰の端末で送ったか」は提示情報だけでは完全に確定できない</div>
+      </div>
+    </section>
+
+    <!-- 6. ENUMERATION -->
+    <section class="slide enumeration">
+      <div class="topbar">
+        <div class="slide-tag">What stolen</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="eyebrow">収集項目は広い</div>
+      <div class="title">多層データ</div>
+      <p class="lead">情報窃取は“広く浅く”ではなく、“複数経路で重ねる”設計です。結果として、どれかが失敗しても別経路で成功しうる構図になります。</p>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <h4>I. ストレージ</h4>
+            <p>Cookie列挙 / localStorage・sessionStorage / IndexedDB走査</p>
+          </div>
+          <div class="card">
+            <h4>II. 入力</h4>
+            <p>フォーム内容の読み取り / submit捕捉 / キーロギング（一定件数・一定時間）</p>
+          </div>
+          <div class="card">
+            <h4>III. 指紋</h4>
+            <p>User-Agent・画面情報・フォント/Canvas等</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. WEB3 -->
+    <section class="slide comparison">
+      <div class="topbar">
+        <div class="slide-tag">Web3</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="eyebrow">ウォレット検出</div>
+      <div class="title">狙いは署名と資産</div>
+      <p class="lead">window.ethereum等の存在からMetaMask等を判別し、アカウント/チェーン変更イベントや署名関連のフックを試みます。加えて、シードフレーズ候補の検出・別API送信も見られます。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>検出・監視</h4>
+            <p>MetaMask / WalletConnect / WalletLink存在検知・チェーンID取得・変更イベント監視</p>
+          </div>
+          <div class="card">
+            <h4>入力の“種”</h4>
+            <p>シードフレーズ候補を検出し、/handle-seed-phrase 系へ送信</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. DISTINCTION -->
+    <section class="slide distinction">
+      <div class="topbar">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="eyebrow">意図と成立を分離</div>
+      <div class="title">Wallet Drainerは不確実</div>
+      <p class="lead">stealer-auto.jsには“偽MetaMask画面”を用いた資産移転（Wallet Drainer）意図が含まれます。ただし送金先アドレスやgas形式、approve扱いなどの不整合から、実運用で資産流出まで成立するかは不確実とされています。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>含まれる“意図”</h4>
+            <p>偽UI → RPC呼び出しの流れを試す（drainer）</p>
+          </div>
+          <div class="card">
+            <h4>成立を揺らす点</h4>
+            <p>送金先・パラメータ・gas形式・approve周りの不整合 / 承認フロー回避の困難</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. LIMITATIONS -->
+    <section class="slide evidence">
+      <div class="topbar">
+        <div class="slide-tag">Limitations</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="eyebrow">動作が保証されない</div>
+      <div class="title">書かれても止まる</div>
+      <p class="lead">stealer-7.js/stealer-8.jsには未定義変数、非同期処理の待機不足、構文エラー、アンチデバッグ整合不備など“実行不確実性”が指摘されています。攻撃チェーンの途中で破綻しうる点が重要です。</p>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <h4>構文・実行</h4>
+            <p>ReferenceError / 構文エラーで停止し得る</p>
+          </div>
+          <div class="card">
+            <h4>非同期</h4>
+            <p>await不足などでフック成立が不安定</p>
+          </div>
+          <div class="card">
+            <h4>アンチ解析</h4>
+            <p>呼び出し不整合が動作に影響する可能性</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. PROCESS -->
+    <section class="slide process">
+      <div class="topbar">
+        <div class="slide-tag">Method</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="eyebrow">確度を上げる見方</div>
+      <div class="title">“観測”で締める</div>
+      <p class="lead">この調査の結論は、意図（コード）と成立（実通信）を分け、追加証拠で確度評価を更新する方針です。防御側も同じ分離が有効です。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>ステップ ①</h4>
+            <p>ローダー/iframe/JS役割を特定（静的構造の把握）</p>
+          </div>
+          <div class="card">
+            <h4>ステップ ②</h4>
+            <p>通信先と“成功兆候”を追跡（本文/ヘッダ/量/ステータス）</p>
+          </div>
+        </div>
+        <div style="height:14px;"></div>
+        <div class="mono">URLが見えても、被害確定は本文・送信量・実行成否・発生元の特定が揃って初めて強くなる</div>
+      </div>
+    </section>
+
+    <!-- 11. TAKEAWAYS -->
+    <section class="slide closing">
+      <div class="topbar">
+        <div class="slide-tag">Takeaway</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="eyebrow">結論（短く）</div>
+      <div class="title">危険性は高い</div>
+      <p class="lead">情報窃取を意図したコード群の存在と、一部の通信観測は高確度です。一方で、情報流出量や資産流出を断定するには追加証拠が必要です。</p>
+
+      <div class="content">
+        <div class="grid2">
+          <div class="card">
+            <h4>高確度</h4>
+            <p>複数経路の窃取機能（Storage/入力/指紋/Web3） + 送信の兆候</p>
+          </div>
+          <div class="card">
+            <h4>追加が必要</h4>
+            <p>どの端末で・どのコードが・何を・どの量で送ったか（本文と成功状況）</p>
+          </div>
+        </div>
+        <div style="height:14px;"></div>
+        <div class="small">Bilingual（要点）: 意図（意図 / intent）と成立（成立 / execution) を分けて考える</div>
+      </div>
+    </section>
+
+    <!-- 12. REFERENCES -->
+    <section class="slide problem" aria-label="references">
+      <div class="topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="eyebrow">参照・前提</div>
+      <div class="title">調査メモの出典</div>
+      <p class="lead">このスライドは、ユーザー提示の調査メモ（HTML改ざん・stealer解析・通信観測の記述）を圧縮したものです。外部URLは提示されていないため、一般論の範囲で整理しています。</p>
+
+      <div class="refs">
+        <div class="refline"><span style="font-family: Inter Tight, sans-serif; color: var(--rust); font-weight: 700; letter-spacing:0.08em; text-transform:uppercase; font-size:12px;">Included</span> ローダー構造（/rivo-stealer iframe）・stealer-3.js〜stealer-8.js・/api/steal /api/beacon 等の記述</div>
+        <div class="refline"><span style="font-family: Inter Tight, sans-serif; color: var(--rust); font-weight: 700; letter-spacing:0.08em; text-transform:uppercase; font-size:12px;">Included</span> /rec/batch へのPOSTでHTTP 200観測の記述（ただし送信本文・発生元は未確定）</div>
+        <div class="refline"><span style="font-family: Inter Tight, sans-serif; color: var(--rust); font-weight: 700; letter-spacing:0.08em; text-transform:uppercase; font-size:12px;">Included</span> stealer-auto.jsの“偽MetaMask”意図と、資産流出成立の不確実性</div>
+        <div class="refline"><span style="font-family: Inter Tight, sans-serif; color: var(--rust); font-weight: 700; letter-spacing:0.08em; text-transform:uppercase; font-size:12px;">Included</span> stealer-7.js/stealer-8.jsの未定義変数・非同期待機不足・構文エラー等の指摘</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Peter-Mfitumukiza/wallet-stealer-defense" target="_blank" rel="noreferrer noopener">GitHub - Peter-Mfitumukiza/wallet-stealer-defense · GitHub</a></h2>
+<p class="reference-note">A defensive security skill for Claude Code that helps you detect, purge, and harden JavaScript/TypeScript repositories a…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/topics/stealer-undetectable" target="_blank" rel="noreferrer noopener">stealer-undetectable · GitHub Topics · GitHub</a></h2>
+<p class="reference-note">networking botnet apt analysis malware rat malware-research av bypass worm redteam infostealer stealer-undetectable
+
+ Up…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/topics/lumma-stealer" target="_blank" rel="noreferrer noopener">lumma-stealer · GitHub Topics · GitHub</a></h2>
+<p class="reference-note">ioc incident-response cybersecurity malware-analysis cti threat-intelligence malware-detection security-research redline…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/xFabiian/chatgpt-trial-stealer-analysis" target="_blank" rel="noreferrer noopener">GitHub - xFabiian/chatgpt-trial-stealer-analysis: Analysis, IOCs, detection rules, and removal scripts for the ChatGPT Plus Free Trial cross-platform info-stealer (macOS + Windows) · GitHub</a></h2>
+<p class="reference-note">### Stage 3
+
+Not available for static analysis. Generated dynamically by C2 per victim. Requires valid JWT and machine I…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Varaaa-arch/LummaC2-Stealer" target="_blank" rel="noreferrer noopener">GitHub - Varaaa-arch/LummaC2-Stealer: Unmasking the Lumma Stealer: How &#39;Fake CAPTCHA&#39; tricks users. A Cyber Kill Chain Perspective · GitHub</a></h2>
+<p class="reference-note">## Full Technical Article
+
+For a detailed step-by-step breakdown and mitigation strategies, please read the full report …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
