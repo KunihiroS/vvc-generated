@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>catlang: 圏論コンパイラがSQL（Postgres）へ写る</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1.5px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 16px;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      position:absolute;
+      left: 72px; right: 72px; top: 18px;
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      letter-spacing: .14em;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 46px;
+      height: 1px;
+      background: var(--rust);
+      opacity: .95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      opacity: .95;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.05;
+      margin-top: 34px;
+      letter-spacing: .02em;
+    }
+
+    .title{
+      font-size: 72px;
+      font-weight: 500;
+      margin: 0;
+      line-height: 1.0;
+      letter-spacing: -0.01em;
+      font-family: "Cormorant Garamond", serif;
+    }
+    .title .accent{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.55;
+      max-width: 760px;
+      margin-top: 8px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      width: 100%;
+      margin-top: 6px;
+    }
+
+    .grid{
+      margin-top: 10px;
+      width: 100%;
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 16px 18px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .card .v{
+      font-size: 20px;
+      color: var(--ink);
+      font-weight: 400;
+      line-height: 1.45;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .ref-list{
+      display: grid;
+      gap: 14px;
+      margin-top: 12px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      background: rgba(240, 232, 216, 0.02);
+    }
+    .ref-item .t{
+      font-size: 20px;
+      font-weight: 500;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .ref-item .s{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      margin-top: 6px;
+      line-height: 1.45;
+    }
+
+    .closing{
+      margin-top: auto;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 44px 18px; }
+      .topbar{ left: 18px; right: 18px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+      .slide-tag::before{ width: 34px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CATLANG</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">圏論 → 実行</div>
+      <h1 class="title">写像する <span class="accent">コンパイラ</span></h1>
+      <div class="lead">
+        catlangは、カテゴリ理論（型と矢印）の構造でプログラムを組み立て、コンパイラがそれをPostgresのSQLに変換して実行結果を得ます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">計算の核</div>
+          <div class="v">射合成 ⊗ 直積 ⊕ 余積（分岐）</div>
+        </div>
+        <div class="card">
+          <div class="k">実行の器</div>
+          <div class="v">巨大SELECT ＋ 再帰CTE（ループ）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">言葉を捨てる</div>
+      <h1 class="title"><span class="accent">実行</span>までが本題</h1>
+      <div class="lead">
+        圏論の美しい説明があっても、最後に「どのSQLを叩けば同じ振る舞いになるか」が曖昧だと、実装へ落ちません。
+      </div>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">型</div>
+          <div class="v">直積・余積の表現（表形式/NULL）</div>
+        </div>
+        <div class="card">
+          <div class="k">矢印</div>
+          <div class="v">合成・分解をSQLへ機械的対応</div>
+        </div>
+        <div class="card">
+          <div class="k">ループ</div>
+          <div class="v">cochoice → 再帰CTEへ写像</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CORE IDEA</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">中間表現</div>
+      <h1 class="title">ILは <span class="accent">射の式</span></h1>
+      <div class="lead">
+        catlangの中間表現（IL）は、変数名よりも「射の合成」「直積・余積の操作」「分岐」「cochoice」で計算を記述します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">例（直積）</div>
+          <div class="v mono">prj₁ / prj₂、合成（⨟）、△（直積の構築）</div>
+        </div>
+        <div class="card">
+          <div class="k">例（余積）</div>
+          <div class="v mono">inl / inr、▽（join）、分岐（▽）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">NO FUNCTION APPLY</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">関数適用を回避</div>
+      <h1 class="title">「渡す」ではなく <span class="accent">合成</span></h1>
+      <div class="lead">
+        catlangでは通常の「xを関数に渡す」発想（関数適用の($)）を避け、矢印合成・直積・余積の操作で計算を組み立てます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">考え方</div>
+          <div class="v">データ依存と分岐を、矢印と（直積/余積）で表す</div>
+        </div>
+        <div class="card">
+          <div class="k">副作用</div>
+          <div class="v">読みやすさは下がるが、名前消し→変換が簡単になる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EXAMPLE</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">countの罠</div>
+      <h1 class="title">常に <span class="accent">100</span> を返す</h1>
+      <div class="lead">
+        記事の例のcountは入力に依らず100を返しますが、内部では「n=abs(n-100)を調べ、条件で次の反復値を決める」遠回りな構造で書かれています。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">見かけ</div>
+          <div class="v">どの入力でも結果は100</div>
+        </div>
+        <div class="card">
+          <div class="k">実装</div>
+          <div class="v">ループ（cochoice）で反復し、最後に最終状態を抽出</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPILATION</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">脱糖 → IL</div>
+      <h1 class="title">名前を消して <span class="accent">射へ</span></h1>
+      <div class="lead">
+        ソースコードはdesugarされてILになります。ILでは変数名がほとんど登場せず、直積はprj₁/prj₂、余積はinl/inrとjoinで表されます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">直積（△）</div>
+          <div class="v mono">構築：△、分解：prj₁ / prj₂</div>
+        </div>
+        <div class="card">
+          <div class="k">余積（Either）</div>
+          <div class="v mono">構築：inl / inr、合流：join（▽）</div>
+        </div>
+        <div class="card">
+          <div class="k">結果</div>
+          <div class="v">「構造」がそのままSQL断片へ対応</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">LOOP</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">ループ＝cochoice</div>
+      <h1 class="title">cochoiceは <span class="accent">抜き差し</span></h1>
+      <div class="lead">
+        cochoiceは「Eitherの上の射を外して、最終的にLeftが返るまで反復する」操作として説明されます。これがSQLの再帰CTEに写像されます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">意味</div>
+          <div class="v">Left＝完了、Right＝継続（擬似コードでも再帰で回す）</div>
+        </div>
+        <div class="card">
+          <div class="k">実行</div>
+          <div class="v">再帰CTEで反復結果を表として積み上げる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DATA REPRESENTATION</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">Eitherを列へ</div>
+      <h1 class="title">余積を <span class="accent">NULL</span> で識別</h1>
+      <div class="lead">
+        Eitherの値はSQLの都合に合わせて（例として）複数列へフラット化し、「どちらの構築子か」をNULLの有無で管理します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">変換</div>
+          <div class="v">型 (Int, Either Int Int) → 3列の表現</div>
+        </div>
+        <div class="card">
+          <div class="k">論点</div>
+          <div class="v">NULLの伝播・3値論理・整合性が安全性ボトルネック</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">RISK</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">最後の行</div>
+      <h1 class="title">抽出に <span class="accent">hack</span></h1>
+      <div class="lead">
+        再帰CTEが返す行の「最終」を素直に決めにくいため、記事ではclock_timestampをstep列として使うハックが含まれます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">なぜ必要</div>
+          <div class="v">Postgresの順序/多重集合的性質のため、最終行が曖昧</div>
+        </div>
+        <div class="card">
+          <div class="k">将来の破綻</div>
+          <div class="v">行生成が増えるプリミティブ導入で意味が崩れる可能性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">何が強い</div>
+      <h1 class="title">変換の <span class="accent">変換</span> が楽</h1>
+      <div class="lead">
+        ILの操作が規則的で単純（合成・直積・余積・cochoice）だから、各操作に対応するSQLを割り当てれば、ターゲットをSQL以外へ広げやすいと主張されます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k i">i</div>
+          <div class="v">ILは「意味の単位」が小さく固定</div>
+        </div>
+        <div class="card">
+          <div class="k ii">ii</div>
+          <div class="v">バックエンドは機械的に対応表を作れる</div>
+        </div>
+        <div class="card">
+          <div class="k iii">iii</div>
+          <div class="v">名前消し（スタック/射）で転用性が上がる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">LIMITS</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">実用の壁</div>
+      <h1 class="title"><span class="accent">巨大SELECT</span>のコスト</h1>
+      <div class="lead">
+        SQL生成は「巨大なSELECT（さらに再帰CTE）」でループを表現するため、規模が大きくなると性能問題や最適化不足が現実的になります。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">性能</div>
+          <div class="v">インデックスやクエリプラン次第で再帰ステップが高コストになり得る</div>
+        </div>
+        <div class="card">
+          <div class="k">意味保存</div>
+          <div class="v">NULL表現やstepハックは、拡張で破綻するリスクがある</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">参照</div>
+      <h1 class="title"><span class="accent">根拠</span>のありか</h1>
+      <div class="lead">
+        元記事や補助情報（再帰CTEの性質、SQL側の順序・停止条件・性能注意）を起点にまとめています。
+      </div>
+      <div class="rule"></div>
+      <div class="ref-list">
+        <div class="ref-item">
+          <div class="t">Sandy Maguire: catlang 紹介記事（要約元）</div>
+          <div class="s">IL（射/直積/余積/cochoice）とSQL（巨大SELECT・再帰CTE）、count例、step列（clock_timestamp）の説明</div>
+        </div>
+        <div class="ref-item">
+          <div class="t">Postgres: 再帰CTE（WITH RECURSIVE）</div>
+          <div class="s">アンカー/再帰部の性質、停止条件、実行性能・インデックス注意</div>
+        </div>
+        <div class="ref-item">
+          <div class="t">カテゴリ理論の背景（直積閉圏・アロー記法）</div>
+          <div class="s">ラムダ計算と直積閉圏、Haskellのアロー記法が実装上arrへ退化しがちな論点</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://medium.com/@philmcc/postgresql-subquery-and-cte-optimization-a4020956171f" target="_blank" rel="noreferrer noopener">PostgreSQL Subquery and CTE Optimization</a></h2>
+<p class="reference-note">## Recursive CTEs
+
+Recursive CTEs are for hierarchical data: trees, graphs, transitive closures, category parents, repor…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.vincentschmalbach.com/how-to-query-a-category-tree-in-postgresql-with-a-recursive-cte" target="_blank" rel="noreferrer noopener">How to Query a Category Tree in PostgreSQL with a Recursive CTE - Vincent Schmalbach</a></h2>
+<p class="reference-note">Skip to content
+
+Currently Available: Need a skilled Software Developer for your next project?
+
+Hire Me Today
+
+Categorie…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.fusionbox.com/blog/detail/graph-algorithms-in-a-database-recursive-ctes-and-topological-sort-with-postgres/620" target="_blank" rel="noreferrer noopener">Postgresql with Recursive CTEs, and Graphing Algorithms</a></h2>
+<p class="reference-note">The core of a recursive CTE is the working table, an intermediate temporary table in the database. The first (non-recurs…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://datavidhya.com/learn/intermediate-sql/advanced-sql-topics/recursive-ctes" target="_blank" rel="noreferrer noopener">Recursive CTEs · Intermediate &amp; Advanced SQL | Data Vidhya</a></h2>
+<p class="reference-note">SELECT  e. id, e. parent_id, e. name, c. depth +  1  FROM employees e  FROM  employees e INNER JOIN cte_name c ON e.pare…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.sisense.com/blog/postgres-recursive-cte" target="_blank" rel="noreferrer noopener">Solve the Traveling Salesman Problem with Postgres Recursive</a></h2>
+<p class="reference-note">Recursive CTEs are more powerful – they reference themselves and allow you to explore hierarchical data. While that may …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
