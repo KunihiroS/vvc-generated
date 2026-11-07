@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude Agent Memory: 設計・運用・dreamingの役割</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .slide::after{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      width:100%;
+      margin-bottom: 18px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      font-size: 13px;
+      line-height: 1;
+      text-transform: uppercase;
+      padding-top: 2px;
+      border-top: 2px solid rgba(232,129,74,0.55);
+      width: fit-content;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 2px 0 10px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 68px;
+      margin: 0;
+      line-height: 1.02;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      margin: 14px 0 0;
+      max-width: 760px;
+    }
+    .rule{
+      width:100%;
+      height:1px;
+      background: var(--rule-strong);
+      margin: 18px 0 16px;
+    }
+    .grid{
+      display:grid;
+      gap: 12px;
+      width: 100%;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      border-radius: 14px;
+      padding: 14px 14px;
+      min-height: 92px;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight: 600;
+      color: var(--ink-2);
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .text{
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .closing-center{
+      margin-top: auto;
+      display:flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .closing-center .title{
+      font-size: 72px;
+    }
+    .refs{
+      margin-top: 10px;
+      width:100%;
+    }
+    .ref-item{
+      border-top: 1px solid var(--rule);
+      padding-top: 10px;
+      margin-top: 10px;
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--ink-2);
+    }
+    .ref-item b{
+      color: var(--ink);
+      font-weight: 600;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover slide">
+      <div class="slide-top">
+        <div class="slide-tag">Agent Memory</div>
+        <div class="slide-num">02 / 17</div>
+      </div>
+      <div class="eyebrow">アイドル時間で“夢”が効く</div>
+      <h1 class="title">Claudeの <em>agent memory</em></h1>
+      <div class="lead">
+        記憶は保存ではなく、整理・検証・表現設計・階層化まで含むシステムとして設計されるべきだ――という主張を、dreaming中心に圧縮します。
+      </div>
+      <div class="rule"></div>
+      <div class="small">（日本語補助）<span class="mono">dreaming＝夢のような再整理</span> / <span class="mono">salience＝重要度</span> を軸に読みます。</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem slide">
+      <div class="slide-top">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 17</div>
+      </div>
+      <div class="eyebrow">ログは増えるだけ</div>
+      <h2 class="title"><em>保存</em>の罠</h2>
+      <div class="lead">
+        単に過去ログやノートを溜めるだけだと、誤り・陳腐化が混入し、探索コストが増えて性能が下がり得ます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">Failure mode / 崩れ方</div>
+          <div class="text">無差別保存 → 記憶が古くなる・探すのに時間がかかる</div>
+        </div>
+        <div class="card">
+          <div class="label">Core fix / 核</div>
+          <div class="text">dreamingで再構成→誤り修正→将来参照しやすい形へ整理</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor slide">
+      <div class="slide-top">
+        <div class="slide-tag">Metaphor</div>
+        <div class="slide-num">04 / 17</div>
+      </div>
+      <div class="eyebrow">人間の分業に近い</div>
+      <h2 class="title">記録と<em>睡眠</em></h2>
+      <div class="lead">
+        人の脳では「その場での記録」と「睡眠中の整理（統合・修正）」が分かれます。記事も同様に、AIの長期記憶へ役割分担を持ち込みます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">Writing / 書く</div>
+          <div class="text">セッション中：重要候補をメモリに残す（ただし誤り得る）</div>
+        </div>
+        <div class="card">
+          <div class="label">Sleeping / 夢見る</div>
+          <div class="text">アイドル時間：dreamingがログ/逐語記録を照合し、整合性を上げる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture slide">
+      <div class="slide-top">
+        <div class="slide-tag">Architecture</div>
+        <div class="slide-num">05 / 17</div>
+      </div>
+      <div class="eyebrow">書く・読む・直す</div>
+      <h2 class="title"><em>memory hierarchy</em></h2>
+      <div class="lead">
+        agent memoryは階層（上位に短く・下位に詳細）を取り、上位注入は小さく抑えて、必要時に下位へ誘導します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">Up / 上位</div>
+          <div class="text">小さな“注入コンテキスト”（毎回載せる量を抑える）</div>
+        </div>
+        <div class="card">
+          <div class="label">Dreaming / 夢</div>
+          <div class="text">詳細を再整理→誤り修正→参照しやすい表現へ</div>
+        </div>
+        <div class="card">
+          <div class="label">Down / 下位</div>
+          <div class="text">トランスクリプト/逐語ログや根拠、wikiへのリンク</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="evidence slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">06 / 17</div>
+      </div>
+      <div class="eyebrow">salienceが勝負</div>
+      <h2 class="title">重要度 <em>salience</em></h2>
+      <div class="lead">
+        記憶ノートは初期に誤りや陳腐化を含み得ます。そこで、何を残すかの判断（salience）が性能を左右します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">Pokémon Red</div>
+          <div class="text">Sonnet 3.7：膨大なメモリ → 状態変化で古くなる → 探索に時間が奪われ停滞</div>
+        </div>
+        <div class="card">
+          <div class="label">Fable 5</div>
+          <div class="text">少量の戦略的記憶＋ダッシュボード（global.md）→ より先へ進めた</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="process slide">
+      <div class="slide-top">
+        <div class="slide-tag">Process</div>
+        <div class="slide-num">07 / 17</div>
+      </div>
+      <div class="eyebrow">失敗→ルールへ</div>
+      <h2 class="title">学習ループの <em>閉路化</em></h2>
+      <div class="lead">
+        記憶を単なるメモにせず、失敗の分析を検証済みルールとして保存すると、長期タスクで伸びが出ます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">CL-Bench</div>
+          <div class="text">正誤を受けて“失敗分析→ルール化→次へ再利用”したモデルほど改善</div>
+        </div>
+        <div class="card">
+          <div class="label">記録内容</div>
+          <div class="text">「なぜ判断できるか」「罠の警告」まで含めると再利用性が上がる（Opus 5系）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="distinction slide">
+      <div class="slide-top">
+        <div class="slide-tag">Distinction</div>
+        <div class="slide-num">08 / 17</div>
+      </div>
+      <div class="eyebrow">dreamingの位置づけ</div>
+      <h2 class="title"><em>予測</em>ではなく整合性</h2>
+      <div class="lead">
+        記事の趣旨は、dreamingが次の行動を直接予測するというより、アイドル時間にログ/逐語記録を再整理して誤りを直す後処理に近い、という点です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">入力</div>
+          <div class="text">セッションのトランスクリプト（逐語ログ）</div>
+        </div>
+        <div class="card">
+          <div class="label">出力</div>
+          <div class="text">誤り修正された記憶＋将来参照用の表現（wiki等）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="evidence slide">
+      <div class="slide-top">
+        <div class="slide-tag">Evidence</div>
+        <div class="slide-num">09 / 17</div>
+      </div>
+      <div class="eyebrow">ゲーム攻略の分岐</div>
+      <h2 class="title">Mt. Moonの<em>罠</em></h2>
+      <div class="lead">
+        dreamingは誤った記憶を逐語ログと照合して修正できるため、ゲーム攻略の分岐を外さない改善につながります。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">without fix</div>
+          <div class="text">誤りが残る → 次セッションで同じ罠に再突入</div>
+        </div>
+        <div class="card">
+          <div class="label">with dreaming</div>
+          <div class="text">ログ照合 → 誤記修正 → 分岐ミス回避</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="architecture slide">
+      <div class="slide-top">
+        <div class="slide-tag">Representation</div>
+        <div class="slide-num">10 / 17</div>
+      </div>
+      <div class="eyebrow">wikiが“地図”になる</div>
+      <h2 class="title">表現（wiki）を <em>育てる</em></h2>
+      <div class="lead">
+        wikiのような“記憶表現”をdreamingで段階的に構築すると、複数文書を跨ぐ質問や法務系タスクで検索単独より成績が上がることがあります。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">Stainless</div>
+          <div class="text">大量文書コーパスでwikiを育成 → セッションとともに質問回答が伸びた</div>
+        </div>
+        <div class="card">
+          <div class="label">Harvey LAB</div>
+          <div class="text">wiki利用は検索単独より有利な場面がある（複数文書結合が必要）</div>
+        </div>
+        <div class="card">
+          <div class="label">条件</div>
+          <div class="text">単一文書で足りるタスクでは効果が薄いこともある</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="comparison slide">
+      <div class="slide-top">
+        <div class="slide-tag">Comparison</div>
+        <div class="slide-num">11 / 17</div>
+      </div>
+      <div class="eyebrow">注入はトークンを食う</div>
+      <h2 class="title">上位注入 vs 根拠リンク</h2>
+      <div class="lead">
+        上位レイヤへ毎回載せる情報を増やすとトークンを消費し、誤った内容の“持続”リスクも上がります。だからdreamingで階層を調整し、上位を小さく保つのが要点です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="label">増やしすぎると</div>
+          <div class="text">探索を減らす代わりに、トークン消費↑＋誤り注入が毎セッション参照され得る</div>
+        </div>
+        <div class="card">
+          <div class="label">設計方針</div>
+          <div class="text">上位は短く（要点のみ）／詳細は下位へリンク／dreamingで誤りを下ろす</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="process slide">
+      <div class="slide-top">
+        <div class="slide-tag">Takeaways</div>
+        <div class="slide-num">12 / 17</div>
+      </div>
+      <div class="eyebrow">設計チェックリスト</div>
+      <h2 class="title">“部品”で考える</h2>
+      <div class="lead">
+        agent memoryは「書く・読む・直す・表現する・階層化する」の組み合わせで性能が決まり、dreamingはその統合を支える裏側の計算です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">i Writing / 書く</div>
+          <div class="text">何を残すか：salience判断をタスクに合わせる</div>
+        </div>
+        <div class="card">
+          <div class="label">ii Dreaming / 夢</div>
+          <div class="text">ログ照合で誤り修正し、整合性を上げる</div>
+        </div>
+        <div class="card">
+          <div class="label">iii Representation / 表現</div>
+          <div class="text">wiki等で参照しやすくし、リンクで階層を作る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing slide">
+      <div class="slide-top">
+        <div class="slide-tag">Closing</div>
+        <div class="slide-num">13 / 17</div>
+      </div>
+      <div class="eyebrow">一般化の注意</div>
+      <h2 class="title">“夢＝常勝”ではない</h2>
+      <div class="lead">
+        dreamingを入れれば常に良くなるわけではなく、タスク特性（変化しやすさ、検索で足りるか、複数文書統合が必要か）を見極める必要があります。
+      </div>
+      <div class="rule"></div>
+      <div class="closing-center">
+        <div class="small">
+          参照用のキーワード：<span class="mono">salience / memory hierarchy / dreaming / wiki / CL-Bench</span>
+        </div>
+      </div>
+      <div class="refs" aria-label="references section">
+        <div class="ref-item"><b>References（記事・関連領域の代表語）</b><br/>Anthropic: agent memory（生ログ・セッションメモ・オフラインdreaming・小さな注入の階層）/ CL-Bench / Harvey LABベンチ / Stainlessの文書コーパス / Pokémon Red（Sonnet 3.7）/ Fable 5（global.md）</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aicoder.com/news/news-20261106-anthropic-components-agent-memory-dreaming" target="_blank" rel="noreferrer noopener">Anthropic Engineering: Components of Agent Memory — Dreaming to Organize Notes, Fix Errors, and Preload Context — AICoder</a></h2>
+<p class="reference-note">View on 𝕏 ↗
+
+On 2026-11-06 Anthropic published The components of agent memory, covering in-session memory notes plus off…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ai-tldr.dev/releases/anthropic-components-of-agent-memory" target="_blank" rel="noreferrer noopener">Components of agent memory — Anthropic tests how… | AI/TLDR</a></h2>
+<p class="reference-note">## What is it?
+
+&#39;Components of agent memory&#39; is a November 6, 2026 engineering post by Anthropic&#39;s Lance Martin. It desc…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/research/components-of-agent-memory" target="_blank" rel="noreferrer noopener">The components of agent memory \ Anthropic</a></h2>
+<p class="reference-note">Agent memory can use a similar division of labor. Agents capture much of their work in logs or transcripts. Researchers …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aiweekly.co/alerts/anthropic-research-unveils-three-part-agent-memory-architecture-lifts-opus-55" target="_blank" rel="noreferrer noopener">Anthropic Research Unveils Three-Part Agent Memory Architecture, Lifts Opus 5.5 CL-Bench From 0.644 to 0.833 | AI Weekly</a></h2>
+<p class="reference-note">Anthropic&#39;s Nov 6 research post breaks agent memory into three layers: Claude writes salient memory notes during session…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/anthropic-components-of-agent-memory-dreaming-cl-bench-pokemon-wiki-stainless-2026" target="_blank" rel="noreferrer noopener">Agent Memory: Anthropic&#39;s Dreaming Tests, 13% to 48% | explainx.ai Blog | explainx.ai</a></h2>
+<p class="reference-note">The post frames the problem with a line from Kierkegaard: life is understood backward but lived forward. An agent has to…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
