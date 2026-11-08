@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDFドキュメントインジェクション対応：AI QAの多層検査</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      border-radius: 16px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      padding: 56px 72px;
+    }
+
+    /* single-card 16:9 and consistent layout */
+    @media (max-width: 720px){
+      .deck{ width: min(1120px, calc(100vw - 24px)); padding: 16px 0 48px; }
+      .slide{ padding: 36px 22px; }
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      position:absolute; top: 18px; left: 22px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink);
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding-left: 14px;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left: 0; top: 50%;
+      transform: translateY(-50%);
+      width: 2px; height: 18px;
+      background: var(--rust);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0);
+    }
+    .slide-num{
+      position:absolute; top: 18px; right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+    }
+
+    .content{
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding-top: 6px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      line-height: 1.1;
+      margin-top: 10px;
+    }
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+      font-family: "Cormorant Garamond", serif;
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      margin-top: -2px;
+    }
+
+    .rule-line{
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 6px;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.08);
+    }
+    .cell .k{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .dot{
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--rust);
+      display:inline-block;
+      box-shadow: 0 0 0 3px rgba(232,129,74,0.12);
+    }
+    .cell .v{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .grid3{
+      grid-template-columns: repeat(3, minmax(0,1fr));
+    }
+
+    .small{
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+      max-width: 760px;
+    }
+    .ref-item{
+      padding: 10px 12px;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      color: var(--ink-2);
+      font-family: "Noto Serif JP", serif;
+      font-size: 18px;
+      line-height: 1.45;
+    }
+    a{ color: var(--ink); text-decoration: none; border-bottom: 1px solid rgba(240,232,216,0.25); }
+    a:hover{ border-bottom-color: rgba(232,129,74,0.7); }
+
+    .hero-pad{
+      padding-top: 30px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="slide-tag">COVER</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="content hero-pad">
+        <div class="eyebrow">AI QA / 安全性</div>
+        <h1 class="title"><em>PDF</em> × <em>多層検査</em></h1>
+        <div class="lead">PDFの読み取り品質を「正確さ」だけでなく、<span style="color: var(--rust)"><em>攻撃耐性</em></span>（ドキュメントインジェクション）まで含めて守る発想を整理します。</div>
+        <div class="rule-line"></div>
+        <div class="small">読み取り（読み取り結果）と表示（ピクセル/レンダリング）のズレを疑い、複数のjudge（検査器）で抜け道を塞ぐ構成です。</div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Problem">
+      <div class="slide-tag">PROBLEM</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="content">
+        <div class="eyebrow">問題：見えない指示</div>
+        <h2 class="title">ドキュメント <em>インジェクション</em></h2>
+        <div class="lead">人間には気づきにくい細工（白文字、ゼロ幅文字、テキスト層と描画ピクセルの不一致、アクセシビリティ情報など）をPDFに混ぜ、AIの抽出・推論を誤らせます。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>狙い</div>
+            <div class="v">AIが「指示」や「改ざんされた数値」を学習/参照し、出力を誘導する</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>典型</div>
+            <div class="v">HiddenInk（隠しインク / 偽の可視性）や脚注型指示のような構造</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="CoreIdea">
+      <div class="slide-tag">METAPHOR</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="content">
+        <div class="eyebrow">鍵：一撃で終わらない</div>
+        <h2 class="title">スイスチーズ <em>防御</em></h2>
+        <div class="lead">単一の完全検査は破られやすいので、judgeを複数積み上げ、各検査の弱点（穴）を別の検査で埋めます。</div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>judge 01</div>
+            <div class="v">レンダリングとテキスト層の整合を確認（差分で疑う）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>judge 02</div>
+            <div class="v">不可視/隠し要素（Unicode・同形異字・ゼロ幅等）を検出</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>judge 03</div>
+            <div class="v">アクセシビリティ情報（Alt/ActualText相当）を監査する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Shift">
+      <div class="slide-tag">ARCHITECTURE</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="content">
+        <div class="eyebrow">転換：品質→安全性</div>
+        <h2 class="title">「properly parsed」 <em>の限界</em></h2>
+        <div class="lead">従来のCI回帰（パース結果の正しさ）だけでは足りず、「properly parsed（適切に解釈できた）」の判定が難しい上に、脅威想定が欠けていました。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>従来QA</div>
+            <div class="v">抽出テキストの一致・形式パースの回帰テスト中心</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>拡張QA</div>
+            <div class="v">攻撃チャネル（隠し文書/指示/数値）の検知まで含める</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Judges">
+      <div class="slide-tag">ENUMERATION</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="content">
+        <div class="eyebrow">構成：検査を分割</div>
+        <h2 class="title">judge：一点だけ <em>見る</em></h2>
+        <div class="lead">各judgeは「ある特徴」に集中して判定し、どれか1つの穴を突かれても、別のjudgeが引っかかる確率を上げます。</div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>HiddenInk</div>
+            <div class="v">隠しインク（白文字等）由来のテキスト/値を疑う</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>TextRasterDivergence</div>
+            <div class="v">テキスト層とピクセル描画の差分を突く</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>NonTextInk</div>
+            <div class="v">非テキスト要素の寄与を確認し、ピクセル差分の文脈を作る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="content">
+        <div class="eyebrow">実証：改ざんデモ</div>
+        <h2 class="title">見えない数値 <em>埋め込み</em></h2>
+        <div class="lead">既存書類からテキスト抽出し、白文字で隠した別の数値をPDFに入れて、検出しにくい形で改ざん効果を示す実験が行われました。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>観測</div>
+            <div class="v">人間の見た目と、AIの抽出/解釈に差が生まれる</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>示唆</div>
+            <div class="v">「見た目チェック」だけでは防げず、層の整合が必要</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Accessibility">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="content">
+        <div class="eyebrow">落とし穴：アクセシビリティ</div>
+        <h2 class="title">Alt / ActualText <em>も入力</em></h2>
+        <div class="lead">見えない指示がスクリーンリーダー向けに存在し、AIが拾う可能性があります。表示文字だけを信じる発想は破られます。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>攻撃チャネル</div>
+            <div class="v">スクリーンリーダー用テキスト（Alt/ActualText相当）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>防御方針</div>
+            <div class="v">アクセシビリティ情報をテキスト入力として監査する</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Limits">
+      <div class="slide-tag">EVIDENCE</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="content">
+        <div class="eyebrow">前提：検査は完璧でない</div>
+        <h2 class="title">未知と誤検知 <em>が残る</em></h2>
+        <div class="lead">HiddenInkは既知のfalse positiveがあり、TextRasterDivergenceは前提（テキスト層がある等）によってスキャンに弱い領域があります。</div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>false positive</div>
+            <div class="v">淡い背景などで誤検知しうる</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>前提依存</div>
+            <div class="v">テキスト層がないPDFでは検査が成立しにくい</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>Unicode</div>
+            <div class="v">範囲テーブル外など未対応のギャップがある</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Process">
+      <div class="slide-tag">PROCESS</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="content">
+        <div class="eyebrow">運用：検査パイプライン</div>
+        <h2 class="title">入力→検査→判断 <em>まで</em></h2>
+        <div class="lead">PDFを受けたら抽出だけで終えず、レンダリング差分・隠し要素・アクセシビリティ情報などを順にチェックし、疑わしさをスコア化します。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>Step i</div>
+            <div class="v">抽出（Text層）＋レンダリング（ピクセル）を並行取得</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>Step ii</div>
+            <div class="v">judgeを順適用し、整合性・不可視性・アクセシビリティを検査</div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top:14px;">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>Step iii</div>
+            <div class="v">閾値で「通す/止める/再検査」を決定（誤検知対策を含む）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>Step iv</div>
+            <div class="v">Golden dataset（再現性ある評価データ）で精度とコストを更新</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evaluation">
+      <div class="slide-tag">COMPARISON</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="content">
+        <div class="eyebrow">評価：何を測るか</div>
+        <h2 class="title">効いた？効いてない？ <em>を数で</em></h2>
+        <div class="lead">技術は「検査を増やすほど安全」ではなく、精度（再現性/見逃し/誤検知）とコスト（処理時間・運用負担）を定量評価して調整する必要があります。</div>
+        <div class="grid grid3">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>検出性能</div>
+            <div class="v">見逃し（false negative）と誤検知（false positive）のバランス</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>運用</div>
+            <div class="v">アラート/差し戻し基準がUXとコストに直結</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>信頼</div>
+            <div class="v">WIP（まだcatchできていない）を前提に継続改善</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Organization">
+      <div class="slide-tag">DISTINCTION</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="content">
+        <div class="eyebrow">体制：誰が守るか</div>
+        <h2 class="title">技術だけでは <em>終わらない</em></h2>
+        <div class="lead">セキュリティ対策は入力検査だけでなく、AI側のポリシー（指示優先度、ツール実行権限、分離）や出力検証（数値整合、根拠提示）と連動します。</div>
+        <div class="grid">
+          <div class="cell">
+            <div class="k"><span class="dot"></span>入力</div>
+            <div class="v">検査・無害化（怪しいPDFを扱うルール）</div>
+          </div>
+          <div class="cell">
+            <div class="k"><span class="dot"></span>モデル側</div>
+            <div class="v">指示と参照の分離、重要操作の承認・最小権限</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="References">
+      <div class="slide-tag">REFERENCES</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="content">
+        <div class="eyebrow">参考：背景知識</div>
+        <h2 class="title">関連テーマ</h2>
+        <div class="lead">本スライドは提示された文章内容を要約しつつ、背景として「外部コンテンツの間接プロンプトインジェクション」対策の一般論とも整合させています。</div>
+
+        <div class="refs" role="list">
+          <div class="ref-item" role="listitem">
+            <b style="color: var(--rust);">Indirect Prompt Injection</b>（間接プロンプトインジェクション）— 外部コンテンツ（PDF等）に混ぜた指示がAIに届くリスク
+          </div>
+          <div class="ref-item" role="listitem">
+            <b style="color: var(--rust);">Defense in Depth</b>（多層防御）— 単一検査に依存せず、異なる特徴を複数検査で突く
+          </div>
+          <div class="ref-item" role="listitem">
+            <b style="color: var(--rust);">Security for AI Outputs</b>（出力の安全性）— 数値整合・根拠提示・権限最小化などの運用設計
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:auto; padding-top:6px;">
+          ※具体的な論文/記事名は、元テキスト内に明記がなかったため一般テーマとして整理しています。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://liber-craft.co.jp/column/prompt-injection" target="_blank" rel="noreferrer noopener">プロンプトインジェクションとは。間接型の仕組みと公表事例、4層の対策を解説 | 株式会社リベルクラフト</a></h2>
+<p class="reference-note">直接型は、利用者がAIの入力欄から細工をした文章を入れる攻撃です。総務省のガイドラインは「指示の上書き」「ロールプレイ」「特殊な入力形式」「別のタスクへの置き換え」といった類型を挙げています。社外から受け取った文章を要約のために貼り付けたら…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.sentinelone.com/ja/cybersecurity-101/cybersecurity/indirect-prompt-injection-attacks" target="_blank" rel="noreferrer noopener">間接プロンプトインジェクションとは？リスクと対策</a></h2>
+<p class="reference-note">入力バリデーションは直接的なユーザープロンプトに焦点を当てており、スニペット例のような埋め込まれた指示は対象外です。高度なSOCツールが通知過多に悩まされる中、アナリストは毎日数千件の低価値通知を無視し、本当に悪意のあるプロンプトを検知した…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://group.nec/jp/ja/solutions/cybersecurity/blog/260515" target="_blank" rel="noreferrer noopener">OWASP AI Testing Guide から学ぶ、AIアプリケーションのプロンプトインジェクションテスト</a></h2>
+<p class="reference-note">### 主な攻撃手法
+
+ガイドでは、直接プロンプトインジェクションの手法が「ロールプレイ悪用」「コンテキスト乗っ取り」などの操作の手口で分類されているのに対し、間接プロンプトインジェクションの手法は命令を仕込む媒体の種類で分類されています。…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.soumu.go.jp/main_content/001035196.pdf" target="_blank" rel="noreferrer noopener">プロンプトインジェクションの事例</a></h2>
+<p class="reference-note">間接プロンプトインジェクションの事例②（論文内に秘密の命令文の場合） • 論文速報サイトarXivで掲載された論文に、査読用のAIシステム向けの秘密の命令文が仕込まれていたこと が判明(2025年)。 利用者 ユーザーインターフェース 外部…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tavily.com/knowledge/company/mOy0wL3yogpU" target="_blank" rel="noreferrer noopener">OWASP</a></h2>
+<p class="reference-note"># OWASP® Foundation
+ID: mOy0wL3yogpU
+Website: www.owasp.org
+Legal name: OWASP Foundation, Inc.
+Headquarters: Wilmington,…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
