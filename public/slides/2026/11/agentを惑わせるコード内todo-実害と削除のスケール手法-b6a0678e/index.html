@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Agentを惑わせるコード内TODO：実害と削除のスケール手法</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 0px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .frame {
+      border: 20px solid transparent;
+      outline: 1px solid var(--rule);
+      outline-offset: -20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+    }
+
+    .content {
+      padding: 56px 72px 54px 72px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .slide-topbar {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      top: 0;
+      height: 70px;
+      pointer-events: none;
+    }
+
+    .slide-tag {
+      position: absolute;
+      left: 0;
+      top: 12px;
+      padding-left: 12px;
+      padding-right: 12px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      border-left: 4px solid var(--rust);
+      line-height: 1.1;
+    }
+
+    .slide-num {
+      position: absolute;
+      right: 0;
+      top: 12px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 30px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 6px;
+      line-height: 1.05;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-size: 68px;
+      font-weight: 500;
+      line-height: 1.02;
+      margin-top: -4px;
+      color: var(--ink);
+    }
+    .title em {
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .jplead {
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.55;
+      font-weight: 300;
+    }
+
+    .divider {
+      margin-top: 6px;
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      width: 100%;
+    }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell {
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.02);
+      padding: 16px 16px 14px 16px;
+      min-height: 74px;
+    }
+    .cell .label {
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      color: var(--ink-3);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .value {
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      font-weight: 400;
+      color: var(--ink-2);
+    }
+
+    a { color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Overview</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">Agentの落とし穴（TODO）</div>
+          <div class="title"><em>TODO</em>が引き起こす</div>
+          <div class="jplead">AIエージェントは、コード内の古い注釈を“行動の根拠”として拾い、調査や修正の寄り道を増やします。結果としてコスト増と誤実装リスクが生まれます。</div>
+          <div class="divider"></div>
+          <div class="jplead" style="max-width: 760px;">本デッキでは、実害の推定方法と、スケール可能な削除（多層確認）アプローチを整理します。 </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">誤誘導の本質</div>
+          <div class="title"><em>指示</em>に見える</div>
+          <div class="jplead">人間は `// TODO(bug/...)` や `// FIXME(bug/...)` を“後で見るメモ”として読み飛ばしがちです。しかしエージェントはコメント断片を文脈として取り込み、次の作業だと解釈し得ます。</div>
+
+          <div class="divider"></div>
+          <div class="jplead" style="max-width: 760px;">
+            その誤解はノイズではなく、探索・検索・修正という追加作業（コスト）や不適切な前提を招く“意思決定のズレ”になります。<br/>
+            <span class="mono">Bilingual:</span> TODO（後回しメモ）= 迂回の種（サイドクエストの火種）
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Impact</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">統計で見る実害</div>
+          <div class="title"><em>寄り道</em>が増える</div>
+          <div class="jplead">報告では、TODO/FIXME（バグ参照）に曝されるのはセッションの約13%です。さらにそのうち約6%で、当該バグIDに対する二次アクションが起きています。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-3" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">曝露頻度</div>
+              <div class="value">約 13%（TODO/FIXMEに遭遇）</div>
+            </div>
+            <div class="cell">
+              <div class="label">二次アクション</div>
+              <div class="value">約 6%（バグIDへ追加作業）</div>
+            </div>
+            <div class="cell">
+              <div class="label">無指示寄り道</div>
+              <div class="value">約 83%（開発者プロンプト外）</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            重要なのは、無指示の寄り道が“発生しただけ”でなく、ステップ数・トークン数・待ち時間に上乗せをもたらす点です。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Mechanism</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">なぜ無指示に膨らむ？</div>
+          <div class="title"><em>二系統</em>の寄り道</div>
+          <div class="jplead">TODO/バグIDの追跡は、主に2タイプに分かれます。どちらもスコープ拡大になり、コスト増につながります。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-2" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">i</div>
+              <div class="value">クローズ済みチケットを追う（効果が薄い）</div>
+            </div>
+            <div class="cell">
+              <div class="label">ii</div>
+              <div class="value">未解決のバグを調べて作業を広げる（探索が増える）</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            どちらも“価値がある調査か”を自動で判断できると、無駄な追加作業を減らせます。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Decide</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">罠判定の鍵</div>
+          <div class="title"><em>状態</em>を突合</div>
+          <div class="jplead">TODO内の `bug/XXX` 参照先を、バグトラッカーの状態と突合します。目的は「すでに閉じているのか」「まだ開いているのか」を分けることです。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-3" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">入力</div>
+              <div class="value">コードの TODO/FIXME（例: bug/XXX）</div>
+            </div>
+            <div class="cell">
+              <div class="label">突合</div>
+              <div class="value">バグID × チケット状態（開/閉）</div>
+            </div>
+            <div class="cell">
+              <div class="label">出力</div>
+              <div class="value">寄り道の妥当性（削除候補/要確認）</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            さらに、開発者プロンプトに含まれない“無指示”の寄り道が起きているかも観測して妥当性を評価します。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Cost</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">測れる改善</div>
+          <div class="title"><em>回帰</em>で示す</div>
+          <div class="jplead">無指示のバグ寄り道は、ステップ数・トークン数・待ち時間に対して実質的な上乗せを持ちます。偶発ではなく、再現性のあるオペレーションコスト増として扱えると述べられています。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-2" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">観測</div>
+              <div class="value">無指示の寄り道（開発者指示外）</div>
+            </div>
+            <div class="cell">
+              <div class="label">効果</div>
+              <div class="value">手数増（ステップ/トークン/待ち）</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            “どれを直すべきか”を、コード衛生（TODO削除）に接続できるのがポイントです。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Risk</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">削除の注意</div>
+          <div class="title"><em>TODO</em>と安全性は別</div>
+          <div class="jplead">「TODOがあること」と「削除してよいこと」は一致しません。クローズ済みでも、TODOの意図が別の理由で残っているケースがあり得ます。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-2" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">落とし穴</div>
+              <div class="value">表面的に閉じていても、意図が陳腐化していない可能性</div>
+            </div>
+            <div class="cell">
+              <div class="label">対策方針</div>
+              <div class="value">バグ状態だけで決めず、履歴・変更文脈まで確認する</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            だからこそ多層確認（レビュー送付の前に確かめる工程）が重要になります。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Solution</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">多層の削除フロー</div>
+          <div class="title"><em>削除</em>をスケール</div>
+          <div class="jplead">コードベース全体を走査するエージェントを作り、固定済み/陳腐化したTODOを削除候補として検出します。次に、履歴やファイル変更の文脈まで確認してからレビューへ送ります。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-3" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">I</div>
+              <div class="value">走査・検出（陳腐化TODOの候補化）</div>
+            </div>
+            <div class="cell">
+              <div class="label">II</div>
+              <div class="value">履歴/文脈確認（意図が残っていないか）</div>
+            </div>
+            <div class="cell">
+              <div class="label">III</div>
+              <div class="value">レビュー送付（最終判断を人に委ねる）</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            人手では測れない“どこが罠か”を、自動判定で優先順位づけします。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Results</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">実データ</div>
+          <div class="title"><em>数千件</em>を整理</div>
+          <div class="jplead">過去6か月で“本当に不要な参照”を数千件削除したと報告されています。ヒューマンレビューの承認率は95%以上を超えたとのことです。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-2" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">スケール</div>
+              <div class="value">数千件（不要参照を整理）</div>
+            </div>
+            <div class="cell">
+              <div class="label">品質</div>
+              <div class="value">レビュー承認率：95%+（高い）</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            高い承認率は「バグ状態＋文脈確認」の組み合わせが機能している可能性を示します。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">Where to begin</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">導入の勘所</div>
+          <div class="title"><em>段階</em>で始める</div>
+          <div class="jplead">完全自動化にせず、候補検出→根拠確認→レビューの順で段階導入するのが現実的です。特にレビュー体制とTODO/バグIDの規約整備が前提になります。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-3" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">前提</div>
+              <div class="value">TODO規約（例: bug/XXX）と一意性</div>
+            </div>
+            <div class="cell">
+              <div class="label">データ</div>
+              <div class="value">バグトラッカー状態＋コード履歴の参照</div>
+            </div>
+            <div class="cell">
+              <div class="label">運用</div>
+              <div class="value">最終判断はレビュー（安全側）</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            これで“エージェント時代のコード衛生（agent-friendly）”を改善できます。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">My Opinion</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">評価と留保</div>
+          <div class="title"><em>現実的</em>だが検証が必要</div>
+          <div class="jplead">強みは、TODOという構造化された痕跡から“行動の失敗”を計測し、自動判定＋レビュー品質担保まで設計している点です。無指示寄り道をコストへ結びつけたのも意思決定に直結します。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-2" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">不確実性</div>
+              <div class="value">数値の母集団条件（言語/リポジトリ/モデル差）が抜粋だけでは追い切れない</div>
+            </div>
+            <div class="cell">
+              <div class="label">リスク残</div>
+              <div class="value">TODO運用とチケット運用がずれると誤判定し得る。さらにモデル側/指示側の改善との切り分けは要注意</div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px;">
+            結論として、段階導入と継続評価が望ましい提案だと言えます。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-topbar">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="frame">
+        <div class="content">
+          <div class="eyebrow">参照</div>
+          <div class="title">参照先</div>
+          <div class="jplead">提示情報は、ブログ投稿（Agent Distraction）と要約に含まれる統計/運用説明に基づきます。</div>
+
+          <div class="divider"></div>
+
+          <div class="grid grid-2" style="margin-top: 6px;">
+            <div class="cell">
+              <div class="label">Blog</div>
+              <div class="value">
+                Google Developers Blog: <a href="#" onclick="return false;">Agent Distraction</a><br/>
+                （TODO(bug/...)が注意を奪う・削除は履歴確認でレビュー送付）
+              </div>
+            </div>
+            <div class="cell">
+              <div class="label">Topic</div>
+              <div class="value">
+                AIエージェントの“コメント誤誘導”とコード衛生（agent-friendly）の文脈
+              </div>
+            </div>
+          </div>
+
+          <div class="jplead" style="margin-top: 12px; max-width: 760px; color: var(--ink-2);">
+            ※このHTMLはユーザー提供の要約本文を読み替えた再構成です。参照URLが不明な箇所はプレースホルダにしています。
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://developers.googleblog.com/agent-distraction" target="_blank" rel="noreferrer noopener">Agent Distraction - Google Developers Blog</a></h2>
+<p class="reference-note">to confirm that the TODO and the intent behind the TODO was obsolete did our agent send a change for review to delete it…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tldr.tech/story/b47d9ccd-cab7-4d4f-be16-82bbec96e9ef" target="_blank" rel="noreferrer noopener">Agent Distraction | TLDR</a></h2>
+<p class="reference-note">The author examines how AI coding agents are frequently distracted by outdated code comments, obsolete bug references, a…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://linkedin.com/in/sam-saccone-618a3613" target="_blank" rel="noreferrer noopener">Sam Saccone</a></h2>
+<p class="reference-note"># Sam Saccone
+
+Headline: 🐐
+Current role: Senior Staff Software Engineer
+Seniority: Senior, Engineering and Technical
+Loc…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/companies/todo-simply/__GpO9jS94DM2_n_ml2o9z0maYpoXKA-DEgHcyyANsLsA" target="_blank" rel="noreferrer noopener">Todo Simply - 2026 Company Profile &amp; Competitors - Tracxn</a></h2>
+<p class="reference-note">| 8th | Logo for Upland  Upland 2010, Austin  (United States), Acquired | Provider of cloud software for marketing, sale…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/legal-entities/norway/todo-as/__Str7nzbA8eUG4p431tULg9h9ph-KQzDPC7_KcvRGUwc" target="_blank" rel="noreferrer noopener">TODO AS - 2026 Company Profile - Tracxn</a></h2>
+<p class="reference-note">JavaScript is disabled in your browser. enable it to enjoy the full features of Tracxn.
+
+Tracxn.com
+Android
+Apple
+Chrome…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
