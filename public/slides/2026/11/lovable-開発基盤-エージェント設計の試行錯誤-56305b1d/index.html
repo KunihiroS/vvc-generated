@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lovable 開発基盤・エージェント設計の試行錯誤</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+      line-height: 1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display: block;
+    }
+    .slide{
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 18px 0;
+      position: relative;
+    }
+    .slideInner{
+      position:absolute; inset:0;
+      padding: 56px 72px;
+    }
+    .frame{
+      position:absolute; left:20px; right:20px; top:20px; bottom:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .slideTop{
+      position: absolute; left: 72px; right: 72px; top: 34px;
+      display:flex; align-items:flex-start; justify-content:space-between;
+      gap: 16px;
+    }
+    .slideTag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex; align-items:center; gap:10px;
+      padding-left: 0;
+    }
+    .slideTag::before{
+      content:"";
+      width: 22px; height: 0;
+      border-top: 2px solid var(--rust);
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.08);
+      transform: translateY(2px);
+    }
+    .slideNum{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+      opacity: 0.95;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      margin: 64px 0 0 0;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.01em;
+    }
+    .titleRow{
+      margin-top: 10px;
+      display:block;
+    }
+    .title{
+      font-size: 72px;
+      line-height: 1.03;
+      margin: 8px 0 0 0;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+      text-decoration: none;
+    }
+    .lead{
+      margin-top: 18px;
+      max-width: 760px;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+    }
+    .ruleLine{
+      position:absolute;
+      left: 72px; right: 72px; top: 138px;
+      height:0;
+      border-top: 1px solid var(--rule);
+    }
+    .content{
+      position:absolute;
+      left:72px; right:72px;
+      top: 170px; bottom: 56px;
+      overflow:hidden;
+      display:flex;
+      align-items:flex-start;
+    }
+    .grid{
+      width:100%;
+      display:grid;
+      gap: 14px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.08);
+      min-height: 66px;
+    }
+    .cellHeader{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cellBody{
+      font-family: "Noto Serif JP", serif;
+      font-size: 19px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.95em;
+    }
+    .smallnote{
+      font-size: 16px;
+      color: var(--ink-3);
+      margin-top: 8px;
+      font-weight: 300;
+      max-width: 860px;
+    }
+    .closingCenter{
+      position:absolute; left:72px; right:72px; top:170px; bottom:56px;
+      display:flex; align-items:center; justify-content:flex-start;
+    }
+    .centerText{
+      max-width: 760px;
+    }
+    .closingText{
+      font-size: 30px;
+      font-weight: 300;
+      font-family: "Noto Serif JP", serif;
+    }
+    @media (max-width: 880px){
+      .slideInner{ padding: 44px 44px; }
+      .slideTop{ left:44px; right:44px; }
+      .ruleLine{ left:44px; right:44px; }
+      .content{ left:44px; right:44px; }
+      .eyebrow{ font-size: 20px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .cellBody{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">COVER</div>
+          <div class="slideNum">01 / 12</div>
+        </div>
+        <div class="eyebrow">開発体験と実行基盤</div>
+        <div class="titleRow">
+          <div class="title">Lovable <em>設計</em></div>
+        </div>
+        <div class="lead">AIがコードを書くだけでは不十分だ。編集を繰り返しながら安定して動かすための基盤を、何度も作り替えた記録。</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">PROBLEM</div>
+          <div class="slideNum">02 / 12</div>
+        </div>
+        <div class="eyebrow">“賢さ”より“信頼”</div>
+        <div class="titleRow">
+          <div class="title"><em>迷路</em>問題</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">自律的に進めるほど不確実性が増え、技術的な行き詰まりで収束が遅くなる。結果として製品の安定性（終了時間と品質の予測可能性）が崩れる。</div>
+        <div class="content">
+          <div class="grid two">
+            <div class="cell">
+              <div class="cellHeader">症状</div>
+              <div class="cellBody">終了時間が読めない／失敗解析が難しい／不安定になる</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">要点</div>
+              <div class="cellBody">AIの能力ではなく“製品の責務”を優先して設計を引き戻す</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="architecture">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">ARCHITECTURE</div>
+          <div class="slideNum">03 / 12</div>
+        </div>
+        <div class="eyebrow">制約で学べる状態へ</div>
+        <div class="titleRow">
+          <div class="title">最初の <em>絞り込み</em></div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">最初からグリーンフィールドと“意見の固い技術スタック”に限定して、実行・検証・失敗解析を制御可能にした。</div>
+        <div class="content">
+          <div class="grid three">
+            <div class="cell">
+              <div class="cellHeader">範囲</div>
+              <div class="cellBody">多様な既存コードの負債を背負わない</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">検証</div>
+              <div class="cellBody">実行できる環境を前提に品質を確認する</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">学習</div>
+              <div class="cellBody">失敗解析を“再現可能”にして改善に繋げる</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="distinction">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">DISTINCTION</div>
+          <div class="slideNum">04 / 12</div>
+        </div>
+        <div class="eyebrow">自律より編集</div>
+        <div class="titleRow">
+          <div class="title"><em>自由度</em>と信頼性</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">エージェント化を進めたが、自由度が高すぎて技術的迷路に入り、製品が不安定になった。大半のエージェントコードを削り、予測可能な編集フローへ戻した。</div>
+        <div class="content">
+          <div class="grid two">
+            <div class="cell">
+              <div class="cellHeader">増やしたもの</div>
+              <div class="cellBody">自律エージェント（探索の余地）</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">戻したもの</div>
+              <div class="cellBody">ユーザー要求→決められたツール操作→プレビュー確認→次の変更</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="comparison">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">COMPARISON</div>
+          <div class="slideNum">05 / 12</div>
+        </div>
+        <div class="eyebrow">どの指示が効くか</div>
+        <div class="titleRow">
+          <div class="title"><em>FT</em>より知識</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">ファインチューニングより、テキストベースの <span class="mono">knowledge files</span> を導入。壊れたアプリのログから“再発防止の短い指示”を蓄積し、必要なものだけを検索して渡した。</div>
+        <div class="content">
+          <div class="grid two">
+            <div class="cell">
+              <div class="cellHeader">目的</div>
+              <div class="cellBody">文脈不足を補い、同じ失敗の再発を止める</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">効果</div>
+              <div class="cellBody">資産化・再利用で、追加するほど信頼性が上がる方向へ</div>
+            </div>
+          </div>
+        </div>
+        <div class="smallnote">※ “スケーリング”は比喩的表現。本文の主張は「再発防止の知見を資産化して効かせる」こと。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">EVIDENCE</div>
+          <div class="slideNum">06 / 12</div>
+        </div>
+        <div class="eyebrow">文脈の選別が鍵</div>
+        <div class="titleRow">
+          <div class="title">依存 <em>ファイル</em>のみ</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">無関係なファイルをモデルに見せると誤修正と無駄な変更が増える。そこで小さなLLMで“今回の変更に依存するファイル”を特定し、必要な部分だけを渡す。</div>
+        <div class="content">
+          <div class="grid two">
+            <div class="cell">
+              <div class="cellHeader">問題</div>
+              <div class="cellBody">全コードを渡せない／無関係な情報でズレる</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">対策</div>
+              <div class="cellBody">依存ファイル特定 → 必要部分だけをコンテキストへ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="process">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">PROCESS</div>
+          <div class="slideNum">07 / 12</div>
+        </div>
+        <div class="eyebrow">待ち時間が体験を決める</div>
+        <div class="titleRow">
+          <div class="title">高速 <em>フィードバック</em></div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">サンドボックスを保持し、ライブプレビューを更新し、差分的な型チェックで検証時間を短縮することで“待たされない”体験を作った。</div>
+        <div class="content">
+          <div class="grid three">
+            <div class="cell">
+              <div class="cellHeader">基盤</div>
+              <div class="cellBody">各プロジェクトの <span class="mono">sandbox</span> 維持</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">確認</div>
+              <div class="cellBody">ライブプレビューの更新</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">検証</div>
+              <div class="cellBody">差分型チェック（例：壊れる箇所を早期に検出）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="architecture">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">ARCHITECTURE</div>
+          <div class="slideNum">08 / 12</div>
+        </div>
+        <div class="eyebrow">“動いている計算機”を扱う</div>
+        <div class="titleRow">
+          <div class="title"><em>fork/merge</em>の基盤</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">サンドボックス保持に留まらず、実行環境そのものを分岐・統合する仕組み（<span class="mono">forking and merging the computer</span>）を基盤化。日をまたいで同じ状態から再開できる。</div>
+        <div class="content">
+          <div class="grid two">
+            <div class="cell">
+              <div class="cellHeader">含めるもの</div>
+              <div class="cellBody">CPU / メモリ / ディスク等の状態（チェックポイント復元）</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">得られるもの</div>
+              <div class="cellBody">中断・継続の成功率と再現性が上がる</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">METAPHOR</div>
+          <div class="slideNum">09 / 12</div>
+        </div>
+        <div class="eyebrow">探索ではなく編集</div>
+        <div class="titleRow">
+          <div class="title"><em>設計図</em>としての開発</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">AIに“探索”をさせるほど当て推量が増える。そこで“検証可能な編集ステップ”を固定し、状態を守って前に進む。</div>
+        <div class="content">
+          <div class="grid two">
+            <div class="cell">
+              <div class="cellHeader">自律探索</div>
+              <div class="cellBody">自由に進むほど迷路化し、収束と品質が崩れる</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">編集フロー</div>
+              <div class="cellBody">要求→ツール操作→確認→次の変更、という順序で安定を得る</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">TAKEAWAY</div>
+          <div class="slideNum">10 / 12</div>
+        </div>
+        <div class="eyebrow">未解決の巨大課題</div>
+        <div class="titleRow">
+          <div class="title"><em>信頼</em>を伸ばす</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">短期的に“AIソフトウェアエンジニア”を超えるには、面倒な運用の自動化・ソフト種別のシームレス化・より良いスタック継続が残る。</div>
+        <div class="content">
+          <div class="grid three">
+            <div class="cell">
+              <div class="cellHeader">i.</div>
+              <div class="cellBody">面倒な運用の自動化</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">ii.</div>
+              <div class="cellBody">あらゆる種類をシームレスに扱う</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">iii.</div>
+              <div class="cellBody">より良いソフトウェアスタックを作り続ける</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="comparison">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">VISION</div>
+          <div class="slideNum">11 / 12</div>
+        </div>
+        <div class="eyebrow">実務の強み／注意点</div>
+        <div class="titleRow">
+          <div class="title"><em>評価</em>の観点</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="lead">著者の強みは、性能だけでなく“制約・検証ループ速度・知識資産・状態管理”へ落とし込んでいる点。読者は指標や境界条件の検証余地に注意すべき。</div>
+        <div class="content">
+          <div class="grid two">
+            <div class="cell">
+              <div class="cellHeader">強み</div>
+              <div class="cellBody">予測可能性／失敗解析／再利用（knowledge）／復元（fork/merge）</div>
+            </div>
+            <div class="cell">
+              <div class="cellHeader">懸念</div>
+              <div class="cellBody">改善の定量根拠や、どこで自律が危険かの一般化が不足</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="frame"></div>
+      <div class="slideInner">
+        <div class="slideTop">
+          <div class="slideTag">CLOSING</div>
+          <div class="slideNum">12 / 12</div>
+        </div>
+        <div class="eyebrow">再現するには</div>
+        <div class="titleRow">
+          <div class="title"><em>パターン</em>で持ち帰る</div>
+        </div>
+        <div class="ruleLine"></div>
+        <div class="closingCenter">
+          <div class="centerText">
+            <div class="closingText">制約で検証可能にし、文脈を選別し、知識ファイルで再発を止め、状態を復元できる基盤を作る——これが“開発体験”の中核。</div>
+            <div class="smallnote">未解決の運用自動化・種別拡張・スタック改善は、同じ戦略がそのまま効くとは限らない。自分の前提で評価し直す必要がある。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://hk.finance.yahoo.com/news/%E6%AD%90%E6%B4%B2%E5%A2%9E%E9%80%9F%E6%9C%80%E5%BF%ABai%E4%BC%81%E6%A5%AD-%E7%87%9F%E6%94%B6%E8%87%AA0%E9%A3%86%E5%8D%87%E8%87%B31-2%E5%84%84-lovable%E5%8F%AA%E8%8A%B13%E5%80%8B%E6%9C%88-225002395.html" target="_blank" rel="noreferrer noopener">歐洲增速最快AI企業！營收自0飆升至1.2億 Lovable只花3個月</a></h2>
+<p class="reference-note">鉅亨網
+
+# 歐洲增速最快AI企業！營收自0飆升至1.2億 Lovable只花3個月
+
+鉅亨網新聞中心
+
+更新時間
+
+瑞典新創公司 Lovable 近日以其驚人的商業成長引起廣泛關注。
+
+由 Anton Osika 和 Fabian Hed…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.zenml.io/llmops-database/building-an-ai-powered-software-development-platform-with-multiple-llm-integration" target="_blank" rel="noreferrer noopener">Lovable: Building an AI-Powered Software Development Platform with Multiple LLM Integration - ZenML LLMOps Database</a></h2>
+<p class="reference-note">Lovable, formerly known as GPT Engineer, is a startup building an AI-powered platform that enables users to create full-…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://catalaize.substack.com/p/lovables-path-from-open-source-to" target="_blank" rel="noreferrer noopener">How Lovable Reached 2.3M Users - catalaize</a></h2>
+<p class="reference-note">Lovable was founded in 2023 by Anton Osika (CEO) and Fabian Hedin (CTO) to “empower the 99% who can’t code” by building …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://capacity.so/blog/lovable-ai-review-and-alternatives-2026-2" target="_blank" rel="noreferrer noopener">Lovable AI Review 2026: Honest Deep Dive + 7 Alternatives Compared</a></h2>
+<p class="reference-note">The platform originally launched as GPT Engineer in 2023, rebranded to Lovable in late 2024, and has since grown into on…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/GPT-Engineer-App" target="_blank" rel="noreferrer noopener">Lovable · GitHub</a></h2>
+<p class="reference-note">mobility-as-a-service  Public
+
+  GPT-Engineer-App/mobility-as-a-service&#39;s past year of commit activity
+
+  JavaScript   0…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
