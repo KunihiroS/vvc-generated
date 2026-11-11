@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Harbor（リーク想定）— Macで“ローカルAI”を推論サーバー化する試み</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      padding: 24px 0 64px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule-strong);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      padding: 56px 72px;
+      border-radius: 10px;
+      position: relative;
+      overflow: hidden;
+      border: 20px solid var(--rule);
+    }
+    .slide:before{
+      content:"";
+      position:absolute; inset: 18px;
+      border-radius: 6px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .tag{
+      position:absolute; left: 72px; top: 44px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: .14em;
+      font-size: 14px;
+      color: var(--rust);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .tag:before{
+      content:"";
+      display:inline-block;
+      width: 12px; height: 2px;
+      background: var(--rust);
+      margin-right: 10px;
+      transform: translateY(-4px);
+    }
+    .num{
+      position:absolute; right: 72px; top: 44px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 26px;
+      letter-spacing: .02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-bottom: 6px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1;
+      margin: 0 0 14px;
+      font-style: italic;
+      color: var(--rust);
+      letter-spacing: .01em;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink);
+      margin: 0;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 28px 0 0;
+      width: 100%;
+    }
+    .grid{
+      margin-top: 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      width: 100%;
+      max-width: 980px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: .06em;
+      font-size: 12px;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink);
+    }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .bilingual{
+      color: var(--ink-2);
+      font-size: 14px;
+      margin-top: 6px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      letter-spacing: .01em;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .fine{
+      position:absolute;
+      left: 72px;
+      bottom: 44px;
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 880px;
+    }
+    @media (max-width: 900px){
+      .slide{ padding: 44px 44px; border: 14px solid var(--rule); }
+      .tag{ left: 44px; top: 34px; }
+      .num{ right: 44px; top: 34px; }
+      .fine{ left: 44px; bottom: 34px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 19px; }
+      .grid, .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+
+    <section class="slide" aria-label="cover">
+      <div class="tag">Harbor / リーク</div>
+      <div class="num">I / 12</div>
+      <div class="eyebrow">Macで“ローカルAI”がサーバー化</div>
+      <h1 class="title">Harbor</h1>
+      <p class="lead">リーカー発の情報では、AppleがMac向けアプリ“Harbor”を準備し、ローカル実行のAIを「推論サーバー」的に運用できる可能性があります。</p>
+      <div class="rule"></div>
+      <div class="fine">注：これは公式発表ではなく、公開前の噂（リーク）に基づく要約です。</div>
+    </section>
+
+    <section class="slide" aria-label="problem">
+      <div class="tag">Problem / 障壁</div>
+      <div class="num">II / 12</div>
+      <div class="eyebrow">ローカルAIの壁</div>
+      <h1 class="title">セットアップ</h1>
+      <p class="lead">ローカルAIは可能でも、モデル管理・依存関係・実行環境・資源配分が手間になりがちです。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">運用の難しさ</div>
+          <div class="v">CLI（コマンド）中心になりやすく、継続運用が重い</div>
+        </div>
+        <div class="cell">
+          <div class="k">資源の限界</div>
+          <div class="v">大きいモデルや同時処理は、単体Macのメモリで頭打ち</div>
+        </div>
+      </div>
+      <div class="fine">Harborは、この“実装”より“運用”のハードルを下げる方向性が示唆されています。</div>
+    </section>
+
+    <section class="slide" aria-label="metaphor">
+      <div class="tag">Metaphor / 比喩</div>
+      <div class="num">III / 12</div>
+      <div class="eyebrow">ローカルを“サービス化”</div>
+      <h1 class="title">サーバー</h1>
+      <p class="lead">「推論サーバー」は、端末内でも“入力→計算→出力”を受け渡す仕組みとして設計し、アプリ連携や同時リクエストを扱いやすくします。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">推論（inference）</div>
+          <div class="v">質問/指示から回答生成</div>
+          <div class="bilingual">推論 = inference（実行）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ローカル</div>
+          <div class="v">クラウド越しにしない運用</div>
+          <div class="bilingual">ローカル = on-device</div>
+        </div>
+        <div class="cell">
+          <div class="k">サーバー化</div>
+          <div class="v">サービスとして整える</div>
+          <div class="bilingual">サーバー = service</div>
+        </div>
+      </div>
+      <div class="fine">“推論サーバー化”は、個人でもチームでもワークフローを整理する狙いと整合します。</div>
+    </section>
+
+    <section class="slide" aria-label="architecture">
+      <div class="tag">Architecture / 狙い</div>
+      <div class="num">IV / 12</div>
+      <div class="eyebrow">何をするアプリ？</div>
+      <h1 class="title">流れ</h1>
+      <p class="lead">Harborは、オープンウェイトモデルをMac上で扱い、閲覧・ダウンロード・ロード・管理までUI寄せで面倒を減らす構想です。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">(i) モデル</div>
+          <div class="v">オープンウェイト（公開された重み）を対象</div>
+          <div class="bilingual">オープンウェイト = open-weight</div>
+        </div>
+        <div class="cell">
+          <div class="k">(ii) 管理</div>
+          <div class="v">アプリ内でモデル閲覧・取得・ロード</div>
+          <div class="bilingual">管理 = management</div>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">(iii) 推論</div>
+          <div class="v">ローカル実行（推論を手元へ）</div>
+          <div class="bilingual">推論 = inference</div>
+        </div>
+        <div class="cell">
+          <div class="k">(iv) 体験</div>
+          <div class="v">セットアップは「数時間→数分」を目標</div>
+          <div class="bilingual">短縮 = faster setup</div>
+        </div>
+      </div>
+      <div class="fine">記事ではClarisブランド配下のプライベートプレビューとして触れられています。</div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="tag">Comparison / 比較</div>
+      <div class="num">V / 12</div>
+      <div class="eyebrow">クラウドとの違い</div>
+      <h1 class="title">境界</h1>
+      <p class="lead">クラウド依存を減らし、データや推論を手元寄りにすることで、プライバシーとコストの観点を改善できる可能性があります。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">クラウド</div>
+          <div class="v">サーバーで推論</div>
+          <div class="bilingual">cloud inference</div>
+        </div>
+        <div class="cell">
+          <div class="k">ローカル</div>
+          <div class="v">端末内で推論</div>
+          <div class="bilingual">on-device inference</div>
+        </div>
+        <div class="cell">
+          <div class="k">Harborの意図</div>
+          <div class="v">“外へ出にくい”運用を容易化</div>
+          <div class="bilingual">privacy-first</div>
+        </div>
+      </div>
+      <div class="fine">ただし「完全に外部通信なし」はリークの記述で、公開仕様で検証が必要です。</div>
+    </section>
+
+    <section class="slide" aria-label="enumeration">
+      <div class="tag">Enumeration / 構想</div>
+      <div class="num">VI / 12</div>
+      <div class="eyebrow">クラスター化</div>
+      <h1 class="title">束ねる</h1>
+      <p class="lead">単体Macの限界を、複数Mac接続で超える方向性が示唆されています。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">Thunderbolt 5</div>
+          <div class="v">高帯域・高速接続を前提</div>
+        </div>
+        <div class="cell">
+          <div class="k">統合メモリ</div>
+          <div class="v">CPU/GPU/メモリの密連携</div>
+          <div class="bilingual">unified memory（統合）</div>
+        </div>
+        <div class="cell">
+          <div class="k">プール</div>
+          <div class="v">“まとまった推論資源”として扱う</div>
+          <div class="bilingual">pooling（統合）</div>
+        </div>
+      </div>
+      <div class="fine">用語の整理：統合メモリはApple系SoCの設計思想として理解すると掴みやすいです。</div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="tag">Evidence / 根拠</div>
+      <div class="num">VII / 12</div>
+      <div class="eyebrow">リーカーの指摘</div>
+      <h1 class="title">Aaron Perris</h1>
+      <p class="lead">記事では、リーカーAaron PerrisがHarborの痕跡を発見したとされています（Apple側はClarisブランド配下のプライベートプレビューとして扱われる記述）。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">発見者</div>
+          <div class="v">Aaron Perris（リーク記事内で言及）</div>
+        </div>
+        <div class="cell">
+          <div class="k">ステータス</div>
+          <div class="v">プライベートプレビュー（一般提供は未確定）</div>
+        </div>
+      </div>
+      <div class="fine">この種の情報は“方向性の手がかり”にはなりますが、性能・仕様・条件は別途公開で確認が必要です。</div>
+    </section>
+
+    <section class="slide" aria-label="process">
+      <div class="tag">Process / 体験</div>
+      <div class="num">VIII / 12</div>
+      <div class="eyebrow">導入フローの理想</div>
+      <h1 class="title">数分</h1>
+      <p class="lead">記事の描写では、コマンドライン不要で自動検出によりセットアップを短縮し、GUIでモデルを管理する方向です。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">自動検出</div>
+          <div class="v">必要な環境を見つけて開始</div>
+          <div class="bilingual">auto-detect</div>
+        </div>
+        <div class="cell">
+          <div class="k">モデル管理</div>
+          <div class="v">閲覧→ダウンロード→ロード</div>
+          <div class="bilingual">model management</div>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">運用の中心</div>
+          <div class="v">インフラ知識より“使い方”へ寄せる</div>
+          <div class="bilingual">usability</div>
+        </div>
+        <div class="cell">
+          <div class="k">セットアップ時間</div>
+          <div class="v">「数時間→数分」を目標</div>
+          <div class="bilingual">shorter setup</div>
+        </div>
+      </div>
+      <div class="fine">普及に効くのは“動くこと”だけでなく“続けられること”です。</div>
+    </section>
+
+    <section class="slide" aria-label="distinction">
+      <div class="tag">Distinction / 何が違う</div>
+      <div class="num">IX / 12</div>
+      <div class="eyebrow">強い主張と弱い検証</div>
+      <h1 class="title">不確実性</h1>
+      <p class="lead">「統合メモリをプール」「クラウドへ到達しない」は魅力的ですが、公開前は仕様が不明で過大評価しやすい部分でもあります。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">プールの保証</div>
+          <div class="v">実際に同等性能かは不明（レイテンシ等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">外部通信</div>
+          <div class="v">モデル取得・更新・診断ログの通信可能性</div>
+        </div>
+        <div class="cell">
+          <div class="k">構成制約</div>
+          <div class="v">要件（OS/機種/台数上限等）が未公開</div>
+        </div>
+      </div>
+      <div class="fine">結論を急がず、公開後に通信挙動・互換性・制約条件を確認するのが安全です。</div>
+    </section>
+
+    <section class="slide" aria-label="evidence">
+      <div class="tag">FAQ / Q&amp;A</div>
+      <div class="num">X / 12</div>
+      <div class="eyebrow">まず押さえる5点</div>
+      <h1 class="title">要点</h1>
+      <p class="lead">Harborの理解に必要な前提を、質問→一言回答で整理します。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Q1 推論サーバー</div>
+          <div class="v">入力を受けて計算し、出力を返す仕組み</div>
+          <div class="bilingual">inference server</div>
+        </div>
+        <div class="cell">
+          <div class="k">Q2 データ不送信</div>
+          <div class="v">リーク記述。公開仕様で通信・ログを検証が必要</div>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">Q3 プールの利点</div>
+          <div class="v">大規模モデルや同時リクエストに有利になりうる</div>
+        </div>
+        <div class="cell">
+          <div class="k">Q4 Thunderbolt 5</div>
+          <div class="v">“プラグ＆スタート”は未確定。最低要件は不明</div>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="cell" style="grid-column: 1 / -1;">
+          <div class="k">Q5 オープンウェイト</div>
+          <div class="v">何でも動くとは限らない。互換性（量子化/推論エンジン等）要確認</div>
+        </div>
+      </div>
+      <div class="fine">用語は理解のための足場で、実装は公開情報で確定します。</div>
+    </section>
+
+    <section class="slide" aria-label="comparison">
+      <div class="tag">Opinion / 見立て</div>
+      <div class="num">XI / 12</div>
+      <div class="eyebrow">良さと注意点</div>
+      <h1 class="title">期待</h1>
+      <p class="lead">本当なら、ローカルAIの“運用ハードル”を下げる価値が大きい一方、リークゆえに通信・性能・信頼性は公開後に検証が必要です。</p>
+      <div class="grid grid3">
+        <div class="cell">
+          <div class="k">実用性</div>
+          <div class="v">数分セットアップ＋モデル管理込みは強い</div>
+        </div>
+        <div class="cell">
+          <div class="k">セキュリティ</div>
+          <div class="v">クラウド送信を減らす狙いは整合しうる</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用性</div>
+          <div class="v">複数台は再接続や故障時の挙動が鍵</div>
+        </div>
+      </div>
+      <div class="fine">“動くか”ではなく“安定して再現できるか”が最終評価になります。</div>
+    </section>
+
+    <section class="slide" aria-label="closing">
+      <div class="tag">Closing / まとめ</div>
+      <div class="num">XII / 12</div>
+      <div class="eyebrow">次に見るべきもの</div>
+      <h1 class="title">確認</h1>
+      <p class="lead">公開されたら、(i)通信挙動、(ii)互換性、(iii)複数台構成の制約と性能、(iv)故障/再接続時の挙動を重点的に確認しましょう。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">通信</div>
+          <div class="v">モデル取得/更新/ログ/テレメトリの有無</div>
+          <div class="bilingual">telemetry（計測）</div>
+        </div>
+        <div class="cell">
+          <div class="k">互換性</div>
+          <div class="v">対応アーキテクチャ・量子化形式・推論エンジン</div>
+          <div class="bilingual">compatibility</div>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">複数台</div>
+          <div class="v">台数上限・要件・レイテンシ・実効性能</div>
+          <div class="bilingual">scaling</div>
+        </div>
+        <div class="cell">
+          <div class="k">信頼性</div>
+          <div class="v">故障/再接続時に破綻しないか、負荷分散はどうなるか</div>
+          <div class="bilingual">reliability</div>
+        </div>
+      </div>
+      <div class="fine">Harborは“ローカルAIを普及させる道具”になりうるが、最終判断は公開仕様で。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/AGTPinsights/status/2120274431398322199" target="_blank" rel="noreferrer noopener">AGTP on X: &quot;Apple just surfaced a new Mac app called Harbor today. Here&#39;s what you need to know. Harbor turns a Mac into a private AI inference server. It runs open-weight models locally on Apple silicon. Data never leaves your hardware and nothing reaches the cloud. It can also cluster Macs. Con… / X</a></h2>
+<p class="reference-note">requests. Setup is meant to be easy. Harbor detects your devices over Thunderbolt 5 and forms the cluster automatically.…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://emergent.sh/news/apple-harbor-mac-app-runs-local-ai-models" target="_blank" rel="noreferrer noopener">Apple Harbor Mac App Runs Local AI Models in Clusters</a></h2>
+<p class="reference-note">Apple has not announced a public release date for Harbor. The app is rumored to release on an unspecified 2026 timeline,…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/OracleNYSE/status/2120231223301911008" target="_blank" rel="noreferrer noopener">Oracle on X: &quot;$CRWV competition from $AAPL Apple working on ability to use clusters of Macs as cloud computing replacements APPLE DEVELOPING &quot;HARBOR&quot; AI SERVER APP THAT LETS USERS CLUSTER MULTIPLE MACS VIA THUNDERBOLT 5 TO RUN LARGE AI MODELS LOCALLY WITHOUT CLOUD COMPUTING - X https://t.co/3Sx… / X</a></h2>
+<p class="reference-note">5h
+
+  Apple is working on a new app called Harbor Harbor turns your Mac into a private AI inference server. Run open-wei…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://apps.apple.com/us/app/claris-filemaker-go-2026/id6753665301" target="_blank" rel="noreferrer noopener">‎Claris FileMaker Go 2026 App - App Store</a></h2>
+<p class="reference-note">• Capture information from iOS sensors in your iPad or iPhone device.
+• Print reports and forms directly from iPad and i…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.macrumors.com/2026/06/20/apple-unveiled-these-five-new-apps" target="_blank" rel="noreferrer noopener">Apple Unveiled These Five New Apps Last Week - MacRumors</a></h2>
+<p class="reference-note">The new version of the app adds support for iOS and iPadOS 26, and brings Google Gemini to FileMaker&#39;s roster of support…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
