@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rust 標準ライブラリのメモリ安全性バグ：safe でも起きうる“信頼の置き違い”</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.45;
+    }
+    .wrap{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+    .slide{
+      background: var(--paper);
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      padding: 56px 72px;
+      margin: 16px 0;
+      overflow: hidden;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 20px; left: 22px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 20px; height: 2px;
+      background: var(--rust);
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px rgba(232,129,74,0.25);
+      transform: translateY(1px);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 18px; right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 28px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      user-select:none;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 10px 0;
+    }
+    .title{
+      margin: 0 0 14px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .title .rust{
+      color: var(--rust);
+      font-style: italic;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      margin: 0;
+      font-weight: 300;
+    }
+
+    .rule{
+      margin-top: 18px;
+      width: 100%;
+      height: 1px;
+      background: var(--rule-strong);
+      opacity: 0.9;
+    }
+
+    .content-grid{
+      margin-top: 18px;
+      display: grid;
+      gap: 16px;
+      width: 100%;
+    }
+    .grid-2{ grid-template-columns: 1fr 1fr; }
+    .grid-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      background: rgba(28,24,19,0.35);
+      min-height: 92px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.95em;
+      color: var(--ink-2);
+    }
+
+    .listlike{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-top: 18px;
+      width: 100%;
+    }
+    .li{
+      border-left: 3px solid var(--rust);
+      padding-left: 14px;
+      margin-left: 2px;
+    }
+    .li .h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      color: var(--ink-2);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .li .p{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+
+    .small-note{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 44px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- 1 -->
+    <section class="slide">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">01 / 16</div>
+      <div class="eyebrow">safe でも起きる</div>
+      <h1 class="title"><span class="rust">信頼</span>の置き違い</h1>
+      <p class="lead">
+        Rust 標準ライブラリの <span class="mono">unsafe</span> が守るべき前提（安全契約）が崩れると、ユーザの safe Rust からでも未定義動作が誘発され得ます。
+      </p>
+      <div class="rule"></div>
+      <p class="small-note">（Japanese gloss）信頼の置き違い：前提（contract）を誤って期待してしまうこと</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">なぜ“safe”で事故？</div>
+      <h1 class="title">標準の <span class="rust">unsafe</span></h1>
+      <p class="lead">
+        Rust 言語は所有権・借用・型で多くを防ぎますが、標準ライブラリ内部は性能のために <span class="mono">unsafe</span> を多用します。
+      </p>
+      <div class="content-grid grid-2">
+        <div class="cell">
+          <div class="k">言語保証</div>
+          <div class="v">safe API の安全契約が破られない前提</div>
+        </div>
+        <div class="cell">
+          <div class="k">現実</div>
+          <div class="v">unsafe が前提を守ることで成り立つ（前提破りで崩れる）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">契約＝座標</div>
+      <h1 class="title">unsafe は<span class="rust">前提</span>で走る</h1>
+      <p class="lead">
+        unsafe は「ここでは決して起きない」「必ず整合する」といった条件を信じて高速化します。信じる座標（不変条件）がズレると安全は成立しません。
+      </p>
+      <div class="content-grid grid-3">
+        <div class="cell">
+          <div class="k">信じる</div>
+          <div class="v">不変条件（invariants）</div>
+        </div>
+        <div class="cell">
+          <div class="k">崩れる</div>
+          <div class="v">panic / unwind、実装者の契約違反</div>
+        </div>
+        <div class="cell">
+          <div class="k">結果</div>
+          <div class="v">未定義動作（Undefined Behavior）誘発</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">AI が“穴”へ</div>
+      <h1 class="title">FORGE Lab の<span class="rust">探索</span></h1>
+      <p class="lead">
+        Microsoft FORGE Lab は AI 支援スキャナ（Hyenas / MDASH 系）で、Rust 標準ライブラリ内の unsafe 実装に起因するメモリ安全性バグを報告しました。
+      </p>
+      <div class="content-grid grid-2">
+        <div class="cell">
+          <div class="k">観測</div>
+          <div class="v">多くは safe Rust のみで誘発し得る</div>
+        </div>
+        <div class="cell">
+          <div class="k">示唆</div>
+          <div class="v">標準が保持する前提が崩れると保証が完全には移らない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">3パターンで整理</div>
+      <h1 class="title">“信頼”の置き違い</h1>
+      <p class="lead">
+        バグの構造は主に 3 領域に整理できます：<span class="mono">panic/unwind</span>、ユーザ提供実装（trait 等）、OS/C 境界の状態です。
+      </p>
+      <div class="content-grid grid-3">
+        <div class="cell">
+          <div class="k">i</div>
+          <div class="v">panic が起きないと信じる</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii</div>
+          <div class="v">呼び出し元の実装を正しいと信じる</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii</div>
+          <div class="v">OS / C と共有状態が維持されると信じる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">i: panic safety</div>
+      <h1 class="title">早期脱出の<span class="rust">穴</span></h1>
+      <p class="lead">
+        panic が「そのタイミングでは起きない」と信じ、不変条件を一時的に壊したままユーザコードや破棄処理が走ると危険です。
+      </p>
+      <div class="listlike">
+        <div class="li">
+          <div class="h">何が起きる？</div>
+          <div class="p">panic / unwinding により、通常経路とは別のタイミングで drop が実行される</div>
+        </div>
+        <div class="li">
+          <div class="h">なぜまずい？</div>
+          <div class="p">“壊れた状態のまま” メモリ操作や不変条件前提の処理へ進むと未定義動作になり得る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">ii: trait 契約</div>
+      <h1 class="title">safe でも<span class="rust">正しくない</span></h1>
+      <p class="lead">
+        ユーザが提供する <span class="mono">trait 実装</span>・比較関数・パターンなどが、論理契約を満たすと仮定すると破綻します（safe でも“正しさ”は保証されない）。
+      </p>
+      <div class="content-grid grid-2">
+        <div class="cell">
+          <div class="k">危険な前提例</div>
+          <div class="v">比較が整合している／返り値が契約を満たす</div>
+        </div>
+        <div class="cell">
+          <div class="k">破綻の方向</div>
+          <div class="v">unsafe 側が検証せず高速パスへ → 前提違反 → 未定義動作</div>
+        </div>
+      </div>
+      <div class="small-note">（例示の文脈：<span class="mono">sort</span> のように非整合でも未定義動作にならない領域もあり、設計差が鍵）</div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">iii: OS/C 境界</div>
+      <h1 class="title">外部状態が<span class="rust">揺れる</span></h1>
+      <p class="lead">
+        <span class="mono">sigaltstack</span>、<span class="mono">environ</span>、<span class="mono">exit</span> のクリーンアップなど、プロセス全体の状態が期待通り維持されると信じると見落としが起きます。
+      </p>
+      <div class="content-grid grid-3">
+        <div class="cell">
+          <div class="k">例1</div>
+          <div class="v">シグナルスタック無効化×メモリ解放（<span class="mono">munmap</span>）の噛み合い</div>
+        </div>
+        <div class="cell">
+          <div class="k">例2</div>
+          <div class="v"><span class="mono">exec</span> / <span class="mono">environ</span> のロック整合</div>
+        </div>
+        <div class="cell">
+          <div class="k">難所</div>
+          <div class="v">型システムが直接追跡できず、並行性・タイミング依存</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">どう設計で潰す？</div>
+      <h1 class="title">契約を<span class="rust">明文化</span>して守る</h1>
+      <p class="lead">
+        実務上の焦点は「unsafe が信じている前提を、どこで検証／保持／ガード／型で封じるか」です。
+      </p>
+      <div class="content-grid grid-2">
+        <div class="cell">
+          <div class="k">panic/unwind</div>
+          <div class="v">panic が来ても不変条件が壊れたまま drop へ渡らない設計（ガード、<span class="mono">ManuallyDrop</span> 等）</div>
+        </div>
+        <div class="cell">
+          <div class="k">trait/外部実装</div>
+          <div class="v">“safe でも正しくない” 前提を置き、必要なら検証・制限・設計で無効化</div>
+        </div>
+      </div>
+      <div class="content-grid grid-2">
+        <div class="cell">
+          <div class="k">OS/C 境界</div>
+          <div class="v">境界条件を仕様化し、探索可能な状態空間としてモデル化して継続検証</div>
+        </div>
+        <div class="cell">
+          <div class="k">全体</div>
+          <div class="v">高速化と安全契約（invariants）を切り分け、守る箇所を固定する</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide-tag-row" style="position:relative;">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="slide" style="margin-top:-16px;">
+        <div class="eyebrow">言語 vs 実装</div>
+        <h1 class="title">どこが保証される？</h1>
+        <p class="lead">
+          Rust は safe を守る言語仕様を提供しますが、標準ライブラリは unsafe 契約に依存するため「周辺コード・実装者・OS 境界」が結果を左右します。
+        </p>
+        <div class="content-grid grid-3">
+          <div class="cell">
+            <div class="k">Rust 言語</div>
+            <div class="v">安全性の枠組み（所有権・借用・型）</div>
+          </div>
+          <div class="cell">
+            <div class="k">標準ライブラリ</div>
+            <div class="v">unsafe による高速化＋不変条件の維持</div>
+          </div>
+          <div class="cell">
+            <div class="k">外部要因</div>
+            <div class="v">panic/unwind・ユーザ実装・OS/C 状態</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">学びの中心</div>
+      <h1 class="title">“危険”ではなく<span class="rust">設計前提</span></h1>
+      <p class="lead">
+        本報告の主価値は、個別 issue よりも「unsafe が置く前提がどこで破綻するか」を再発しにくい設計観として三分類した点です。
+      </p>
+      <div class="content-grid grid-2">
+        <div class="cell">
+          <div class="k">強み</div>
+          <div class="v">前提（契約）のズレを抽象化して共有可能にした</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">発火確率・影響度・回帰リスクの比較データは限定的</div>
+        </div>
+      </div>
+      <div class="small-note">結論：安全性の一般化より「前提が危うくなる領域」を学習する</div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="slide-tag">References</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">参照（概略）</div>
+      <h1 class="title">出典の<span class="rust">方向性</span></h1>
+      <p class="lead">
+        この記事の要点は、Microsoft FORGE Lab の報告（Hyenas / MDASH 系の AI 支援スキャナ）と、panic safety・OS/C 境界の補足説明に基づく要約です。
+      </p>
+      <div class="content-grid grid-2">
+        <div class="cell">
+          <div class="k">1</div>
+          <div class="v">Microsoft Security Blog：Rust 標準ライブラリ unsafe とメモリ安全性バグの報告</div>
+        </div>
+        <div class="cell">
+          <div class="k">2</div>
+          <div class="v">同解説：panic が起きうる呼び出し先（clone/drop/比較/クロージャ/イテレータ等）と教訓</div>
+        </div>
+        <div class="cell">
+          <div class="k">3</div>
+          <div class="v">同解説：<span class="mono">process::exit</span> / <span class="mono">sigaltstack</span> / <span class="mono">munmap</span> の条件依存</div>
+        </div>
+        <div class="cell">
+          <div class="k">4</div>
+          <div class="v">過去履歴の問題意識：仕様・前提の明文化で生成物品質を評価する流れ</div>
+        </div>
+      </div>
+      <div class="small-note">※本デッキはユーザ提供文の内容を読みやすく圧縮したもので、厳密な原文URLは未提示です。</div>
+    </section>
+  </div>
+
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.microsoft.com/en-us/security/blog/2026/11/09/forge-lab-uses-agentic-tools-to-identify-memory-safety-issues-in-rust" target="_blank" rel="noreferrer noopener">FORGE Lab uses agentic tools to identify memory safety issues in Rust | Microsoft Security Blog</a></h2>
+<p class="reference-note">The general lesson is to treat every call to code you don’t control, such as clone, drop, comparisons, closures, and ite…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/MsftSecIntel/status/2119890522466578648" target="_blank" rel="noreferrer noopener">Microsoft Threat Intelligence on X: &quot;Microsoft’s FORGE Lab identified several memory-safety issues in Rust&#39;s core and std libraries, including cases where code written entirely in safe Rust can trigger undefined behavior. https://t.co/2iVeFfAb0H The research examines three recurring patterns of m… / X</a></h2>
+<p class="reference-note">interactions with the operating system. Using Hyenas, FORGE&#39;s research version of codename MDASH, researchers combined A…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.csoonline.com/article/4246787/microsofts-ai-bug-hunter-finds-rust-flaw-that-went-undetected-for-nearly-11-years.html" target="_blank" rel="noreferrer noopener">Microsoft’s AI bug hunter finds Rust flaw that went undetected for nearly 11 years | CSO Online</a></h2>
+<p class="reference-note">The nearly 11-year-old bug involves Rust’s process::exit function. Microsoft’s FORGE Lab researchers found that calling …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tldr.tech/story/38704977-2090-411c-a376-967b39f564bf" target="_blank" rel="noreferrer noopener">FORGE Lab uses agentic tools to identify memory safety… | TLDR</a></h2>
+<p class="reference-note">Microsoft&#39;s FORGE Lab used agentic vulnerability-scanning tools to identify memory safety issues and soundness bugs with…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.businessinsider.com/what-is-rust-programming-language-amazon-facebook-discord-love-it-2020-6" target="_blank" rel="noreferrer noopener">Rust Programming Language: Why Amazon, Facebook, Discord Love It - Business Insider</a></h2>
+<p class="reference-note">Beyond its memory management model, developers like that Rust&#39;s type system — how programming languages assign propertie…</p>
+</article>
+</div>
+</section>
+</body>
+</html>
