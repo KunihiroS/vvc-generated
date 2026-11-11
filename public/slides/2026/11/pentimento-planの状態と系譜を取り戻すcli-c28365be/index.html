@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>pentimento - planの状態と系譜を取り戻すCLI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+    }
+
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide {
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 14px;
+      padding: 56px 72px;
+      margin: 18px 0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .slide-inner { height: 100%; display: flex; flex-direction: column; gap: 14px; }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .slide-tag {
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.14em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      padding-left: 8px;
+      border-left: 3px solid var(--rust);
+      line-height: 1;
+      margin-top: -2px;
+    }
+
+    .slide-num {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      letter-spacing: 0.04em;
+      font-size: 22px;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: -2px;
+    }
+
+    .title {
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 64px;
+      margin: 2px 0 0;
+      color: var(--ink);
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+    }
+    .jp-title {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 60px;
+      margin: 2px 0 0;
+      line-height: 1.02;
+      color: var(--ink);
+    }
+    .rust-word { color: var(--rust); font-style: italic; }
+
+    .lead {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.35;
+      margin-top: 6px;
+    }
+
+    .rule {
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px 18px;
+      margin-top: 10px;
+    }
+    .cell {
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+      min-height: 120px;
+    }
+
+    .cell-h {
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+    .cell-b {
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .list-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .tag {
+      display: inline-block;
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      color: var(--ink-2);
+      border: 1px solid var(--rule);
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(240,232,216,0.02);
+      margin: 6px 8px 0 0;
+      white-space: nowrap;
+    }
+
+    .footer-note {
+      position: absolute;
+      bottom: 18px;
+      left: 72px;
+      right: 72px;
+      color: var(--ink-4);
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 860px) {
+      .slide { padding: 44px 44px; border-width: 14px; }
+      .footer-note { left: 44px; right: 44px; }
+      .title { font-size: 50px; }
+      .jp-title { font-size: 46px; }
+      .lead { font-size: 18px; }
+    }
+    @media (max-width: 520px) {
+      .slide { padding: 34px 30px; }
+      .title { font-size: 42px; }
+      .jp-title { font-size: 40px; }
+      .lead { font-size: 16px; }
+      .grid { grid-template-columns: 1fr; }
+      .list-grid { grid-template-columns: 1fr; }
+      .slide-num { font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Cover</div>
+          <div class="slide-num">02 / 17</div>
+        </div>
+        <div class="eyebrow">planの記憶を取り戻す</div>
+        <div class="title">pentimento<span class="rust-word">。</span></div>
+        <div class="lead">AI開発支援ツールが残す plan を、本文だけでなく〈状態・意図・系譜〉として再構成するCLIです。</div>
+        <div class="rule"></div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 12px;">
+          <div class="cell">
+            <div class="cell-h">何がつらい？</div>
+            <div class="cell-b">planファイル名がランダムで、進行中・完了・不要の見分けがつきにくい。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">何をする？</div>
+            <div class="cell-b">関連するトランスクリプトも手がかりに、派生情報を補い「木構造の履歴」に戻す。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: 状態(state)・意図(intent)・系譜(lineage) / 既存plan群から推定・補完（backfill）。</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Problem</div>
+          <div class="slide-num">03 / 17</div>
+        </div>
+        <div class="eyebrow">探索コストが増える</div>
+        <div class="title">ランダムなplan</div>
+        <div class="lead">planは残っても、どれが終わりで、どれが続きで、どれが方針転換なのか判別できません。<span class="rust-word">“探す”</span>時間が積み上がります。</div>
+        <div class="rule"></div>
+        <div class="list-grid" style="margin-top: 12px;">
+          <div class="cell" style="min-height: 110px;">
+            <div class="cell-h">問題1</div>
+            <div class="cell-b">ファイル名は意味を持たない（進捗が見えない）。</div>
+          </div>
+          <div class="cell" style="min-height: 110px;">
+            <div class="cell-h">問題2</div>
+            <div class="cell-b">状態(status)は本文に書かれていないことが多い。</div>
+          </div>
+          <div class="cell" style="min-height: 110px;">
+            <div class="cell-h">問題3</div>
+            <div class="cell-b">分岐（系譜）が残らず、意思決定の文脈が消える。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: どれを追う？ / Which plan to continue? を見分けにくい。</div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Metaphor</div>
+          <div class="slide-num">04 / 17</div>
+        </div>
+        <div class="eyebrow">失われた文脈を補う</div>
+        <div class="title"><span class="rust-word">pentimento</span>の役割</div>
+        <div class="lead">画の下絵を“下から見えるようにする”ように、plan群から状態と系譜の手がかりを掘り起こします。</div>
+        <div class="rule"></div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 12px;">
+          <div class="cell">
+            <div class="cell-h">状態（status）</div>
+            <div class="cell-b">進行中・完了・不要などを派生で復元。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">意図（intent）</div>
+            <div class="cell-b">なぜその枝を切ったかを再解釈。</div>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 14px;">
+          <div class="cell">
+            <div class="cell-h">系譜（lineage）</div>
+            <div class="cell-b">parent（親）関係で履歴を木構造に。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">backfill</div>
+            <div class="cell-b">欠けた派生フィールドを補い、以後の参照を安定化。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: lineage(系譜) / intent(意図) / status(状態) 。</div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Architecture</div>
+          <div class="slide-num">05 / 17</div>
+        </div>
+        <div class="eyebrow">二層：フロント＋派生</div>
+        <div class="title">frontmatterと派生</div>
+        <div class="lead">planは手で編集できるMarkdown（frontmatter）を土台にし、status/lineage等は複数シグナルから派生（derived）して補います。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="cell-h">土台（手で編集）</div>
+            <div class="cell-b">フロントマターはプレーンなMarkdownとして残り、読み取り可能性を確保。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">派生（derived）</div>
+            <div class="cell-b">Progressのチェック、Cursorのtodos、本文の文脈などを読み取り「最初に一致した規則」を採用。</div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top: 14px;">
+          <div class="cell">
+            <div class="cell-h">補強（enrich）</div>
+            <div class="cell-b">トランスクリプトがあると精度が上がる。ない場合はフォールバックへ縮退。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">上書き（set/pin）</div>
+            <div class="cell-b">必要なら <span class="mono">set --status</span> で明示的に修正し、pinで固定も可能。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: derived(派生) / fallback(縮退) / pin(固定)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">06 / 17</div>
+        </div>
+        <div class="eyebrow">何を根拠に復元？</div>
+        <div class="title">シグナルの束</div>
+        <div class="lead">status/intent/parentは、plan本文だけでなく周辺の“痕跡”から推定します。トランスクリプトが鍵になります。</div>
+        <div class="rule"></div>
+        <div class="list-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+          <div class="cell">
+            <div class="cell-h">本文</div>
+            <div class="cell-b">他章の文脈、本文参照、supersededの扱い方。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">Progress</div>
+            <div class="cell-b">チェックボックスの状態が進捗ルールとして効く。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">Cursor/ todos</div>
+            <div class="cell-b">Cursorのtodosがstatus推定に寄与。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">トランスクリプト</div>
+            <div class="cell-b">Cursor/Antigravityの作業記録から意図を補完（backfill材料）。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">ファイル時刻</div>
+            <div class="cell-b">mtimeなどへフォールバックして運用継続。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">推定の決定</div>
+            <div class="cell-b">複数候補の中で“最初に一致した規則”が採用される。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: evidence(根拠) / heuristic(推定) / signal(シグナル)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Process</div>
+          <div class="slide-num">07 / 17</div>
+        </div>
+        <div class="eyebrow">整える道筋</div>
+        <div class="title">list → tree → check</div>
+        <div class="lead">pentimentoは「閲覧」だけでなく、検索・ツリー可視化・整合性検証・補完まで一連で行います。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="cell-h">探索（find）</div>
+            <div class="cell-b"><span class="mono">list</span> / <span class="mono">show</span> / 検索で候補を絞る。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">系譜（view）</div>
+            <div class="cell-b"><span class="mono">tree &lt;id&gt;</span> / <span class="mono">--ancestors</span> で枝をたどる。</div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top: 14px;">
+          <div class="cell">
+            <div class="cell-h">補完（backfill）</div>
+            <div class="cell-b">欠けた intent/created/project/parent を埋めて以後を安定化。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">検証（check）</div>
+            <div class="cell-b">vocabulary/lineage/status/tags の整合性を検査し、矛盾を検出。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: process(手順) / integrity check(整合性検証)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">08 / 17</div>
+        </div>
+        <div class="eyebrow">置換も捨てない</div>
+        <div class="title">supersededの思想</div>
+        <div class="lead">superseded（置換済み）をゴミとして上書きせず、意思決定の“記録”として木に残す設計です。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="cell-h">ありがちな失敗</div>
+            <div class="cell-b">過去の分岐を消してしまい、なぜ置き換えたかが追えない。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">pentimentoの方針</div>
+            <div class="cell-b">長期案件で分岐を残し、後で見返せるようにする。</div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top: 14px;">
+          <div class="cell">
+            <div class="cell-h">木の機能</div>
+            <div class="cell-b"><span class="mono">tree &lt;id&gt;</span> で置換前の枝も文脈込みで復元。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">復元の目的</div>
+            <div class="cell-b">過去の回答が“既に存在する”状態を横断検索で再発見。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: decision log(意思決定ログ) / superseded(置換済み)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Evidence</div>
+          <div class="slide-num">09 / 17</div>
+        </div>
+        <div class="eyebrow">実務で効く3点</div>
+        <div class="title">回収できる価値</div>
+        <div class="lead">pentimentoが“探索から回収へ”切り替える、具体的な効能を3つに絞ります。</div>
+        <div class="rule"></div>
+        <div class="list-grid">
+          <div class="cell" style="min-height: 130px;">
+            <div class="cell-h">1. 過去の枝</div>
+            <div class="cell-b">長期インフラ移行のサブプランなど「後で必要になる過去」を再取得。</div>
+          </div>
+          <div class="cell" style="min-height: 130px;">
+            <div class="cell-h">2. 後で戻る</div>
+            <div class="cell-b">完了したが今は追わない計画を、タグ/intentで管理して再発見。</div>
+          </div>
+          <div class="cell" style="min-height: 130px;">
+            <div class="cell-h">3. 理由の横断</div>
+            <div class="cell-b">他プロジェクトの意思決定理由まで含めて、横断検索で見つけ直す。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: discover(発見) / retrieve(再取得) / cross-project search(横断検索)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">10 / 17</div>
+        </div>
+        <div class="eyebrow">“ビューア”とは違う</div>
+        <div class="title">役割の差</div>
+        <div class="lead">cc-plan-viewerのようなリアルタイムtodo表示とは異なり、pentimentoはplan全体の系譜推定・一覧・ツリー可視化を狙います。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="cell-h">pentimento</div>
+            <div class="cell-b">plan群の状態/系譜を推定し、木構造で履歴を取り戻す。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">cc-plan-viewer</div>
+            <div class="cell-b">Claude Codeのtodo進捗をリアルタイム表示するデスクトップビューア。</div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top: 14px;">
+          <div class="cell">
+            <div class="cell-h">違い</div>
+            <div class="cell-b">“進捗の見える化”よりも、“決定の履歴を再利用”することが中心。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">今回の焦点</div>
+            <div class="cell-b">status/intent/parentを派生し、checkで矛盾も検出。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: progress(進捗) / history(履歴) / reuse(再利用)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Distinction</div>
+          <div class="slide-num">11 / 17</div>
+        </div>
+        <div class="eyebrow">うまくいく理由</div>
+        <div class="title">backfillと耐障害</div>
+        <div class="lead">トランスクリプトの形式が将来変わっても、frontmatterはプレーンMarkdownとして残り、派生はフォールバックで運用継続を狙います。</div>
+        <div class="rule"></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="cell-h">耐障害（fallback）</div>
+            <div class="cell-b">トランスクリプト不足でenrich精度が下がっても、mtimeや本文参照へ縮退。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">上書きルール</div>
+            <div class="cell-b">statusはbackfill/フックが勝手に上書きしないなど、仕様上の意図を明確化。</div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top: 14px;">
+          <div class="cell">
+            <div class="cell-h">検証（check）</div>
+            <div class="cell-b">dangling-parent / underivable-status 等の矛盾を検出し、修正へ導く。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">運用設計</div>
+            <div class="cell-b">単なる表示で終わらず、set/backfillでデータを整えられる導線。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: durability(耐障害性) / consistency(整合性) / repair(修復)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Comparison</div>
+          <div class="slide-num">12 / 17</div>
+        </div>
+        <div class="eyebrow">限界と注意点</div>
+        <div class="title">精度・共有・透明性</div>
+        <div class="lead">トランスクリプト形式への依存、並行・共有・多作者のスコープ外、派生ルールが原因究明に必要なケースがあります。</div>
+        <div class="rule"></div>
+        <div class="list-grid">
+          <div class="cell">
+            <div class="cell-h">リスク1</div>
+            <div class="cell-b">未公開トランスクリプト形式の変更で推定精度が低下する可能性。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">リスク2</div>
+            <div class="cell-b">1オペレータ・1台のローカル前提。チーム共有には別途設計が必要。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">リスク3</div>
+            <div class="cell-b">派生ルールとユーザー意図のズレで誤分類。原因追跡には診断情報が鍵。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: risk(リスク) / scope(スコープ) / troubleshooting(原因究明)。</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">Closing</div>
+          <div class="slide-num">13 / 17</div>
+        </div>
+        <div class="eyebrow">次のセッションへ</div>
+        <div class="title">state layerとして</div>
+        <div class="lead">pentimentoは harness-engineering における「状態レイヤ」として planディレクトリを位置づけ、次のセッションが参照しやすい知識の足場を作ります。</div>
+        <div class="rule"></div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 14px;">
+          <div class="cell">
+            <div class="cell-h">要点</div>
+            <div class="cell-b">status/intent/lineage を派生＋backfillで補い、treeで系譜を取り戻す。</div>
+          </div>
+          <div class="cell">
+            <div class="cell-h">実装導線</div>
+            <div class="cell-b"><span class="mono">list / tree / show / set / backfill / check / history</span> で回収→整備→検証。</div>
+          </div>
+        </div>
+        <div class="footer-note">Bilingual: takeaway(要点) / next session(次のセッション)。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/tomohiro-owada/cc-plan-viewer" target="_blank" rel="noreferrer noopener">GitHub - tomohiro-owada/cc-plan-viewer: Real-time desktop viewer for Claude Code&#39;s todo progress - Track AI coding tasks across multiple sessions · GitHub</a></h2>
+<p class="reference-note">## Screenshots
+
+スクリーンショット 2026-01-11 11 00 24
+
+## Download
+
+Download the latest release for your platform:
+
+ macOS (Appl…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/google_antigravity/comments/1q1tx8j/this_is_my_honest_review_of_antigravity_vs_cursor" target="_blank" rel="noreferrer noopener">This is my honest review of Antigravity vs Cursor vs Claude Code vs. GitHub Copilot. (Jan 2026) : r/google_antigravity</a></h2>
+<p class="reference-note">Round and round in circles, even though I heavily constrained it, and maintained a subfolder in the repo of all of the p…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://precisionpulse.co/ai-coding-tools-2026-antigravity-claude-codex-comparison" target="_blank" rel="noreferrer noopener">AI Coding Tools 2026: Antigravity vs Claude vs Codex Compared | Precision Pulse</a></h2>
+<p class="reference-note">Two years ago there was really only one AI coding tool that mattered. GitHub Copilot. You signed up for $10 a month, it …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://aibusinessweekly.net/p/claude-code-statistics" target="_blank" rel="noreferrer noopener">Claude Code Statistics 2026: Revenue, Users &amp; Share</a></h2>
+<p class="reference-note">Claude Code runs on Anthropic&#39;s current models. The lineup listed on Anthropic&#39;s API pricing page in November 2026 is Cl…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=RwYKKGdi1L4" target="_blank" rel="noreferrer noopener">Google Antigravity vs. Cursor, Copilot &amp; Claude Code: Which AI Tool Wins?</a></h2>
+<p class="reference-note">### Description
+5,212 views
+Posted: 2026-03-27
+Is Google Antigravity just another AI coding assistant, or something enti…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
