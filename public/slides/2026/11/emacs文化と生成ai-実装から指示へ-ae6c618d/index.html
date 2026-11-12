@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>Emacs文化と生成AI：実装から指示へ</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.12);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 2px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .topline{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      position: relative;
+      z-index: 1;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      position: relative;
+      padding-left: 14px;
+    }
+
+    .slide-tag:before{
+      content:"";
+      position:absolute;
+      left:0;
+      top: 2px;
+      bottom: 2px;
+      width: 3px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 22px;
+    }
+
+    .eyebrow{
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      margin-top: 18px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title{
+      margin-top: 10px;
+      font-size: 76px;
+      line-height: 1.0;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust-deep);
+      position: relative;
+      z-index: 1;
+    }
+
+    .lead{
+      margin-top: 16px;
+      font-size: 22px;
+      line-height: 1.55;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+      width: 100%;
+    }
+
+    .grid{
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 10px;
+    }
+
+    .grid2{
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      border-radius: 2px;
+      background: rgba(240,232,216,0.02);
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", sans-serif;
+      color: var(--ink-3);
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 10px;
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+
+    .hr{
+      margin-top: 16px;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 44px 40px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1: cover -->
+    <section class="slide" style="aspect-ratio:16/9;">
+      <div class="topline">
+        <div class="slide-tag">Emacs / Magic</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">文化が変わる</div>
+      <div class="title">Emacs</div>
+      <div class="lead">生成AIは「実装の大変さ」を別の形にし、開発の主戦場を“コードを書く”から“指示する”へ寄せます。</div>
+      <div class="content">
+        <div class="small">
+          English term（英語）と短い日本語 gloss（用語補足）を併記しながら、文章の主張を読みやすく圧縮します。
+        </div>
+      </div>
+    </section>
+
+    <!-- 2: problem -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Problem Shift</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">勝負が入れ替わる</div>
+      <div class="title">指示へ</div>
+      <div class="lead">従来は「書くこと」自体が創造の中心でした。生成AIでは、要望を伝えるだけで実装が進み、「優位性の前提」が揺らぎます。</div>
+      <div class="content">
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">従来</div>
+            <div class="v">実装コストが価値（設計・移植・再実装の手間）として意識される。</div>
+          </div>
+          <div class="cell">
+            <div class="k">生成AI</div>
+            <div class="v">仕様（prompt）→実装が短時間で埋まり、“書く負担”が下がる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3: architecture -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">World Model</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">一致の呪い</div>
+      <div class="title">ルール</div>
+      <div class="lead">デジタルの根は「入力と出力の厳密一致」にあり、そこから“ルール（ルールベース）で世界を記述する”発想が強まってきました。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="k">期待</div>
+            <div class="v">エキスパートシステム・初期AI（rule-based）は、人間のふるまいを模倣できると考えられた。</div>
+          </div>
+          <div class="cell">
+            <div class="k">現実</div>
+            <div class="v">複雑さが収まりきらず、厳密手続きから距離を取らざるを得ない。</div>
+          </div>
+          <div class="cell">
+            <div class="k">伏線</div>
+            <div class="v">“人間らしい振る舞い”には、従来型の手続きでは足りない。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4: metaphor -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Emacs Context</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">魔法の代替</div>
+      <div class="title">編集</div>
+      <div class="lead">Emacs文化の強みは、編集速度・カスタマイズ性・Lisp/Elispの表現力です。ですが生成AIは、その“優位の土俵”を別の軸に変えます。</div>
+      <div class="content">
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">Emacsの価値</div>
+            <div class="v">（カスタマイズ文化）＝自分の手で作り替える楽しさ。</div>
+          </div>
+          <div class="cell">
+            <div class="k">AIの価値</div>
+            <div class="v">（指示）＝書かずに進む。手作業の量が減る。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5: evidence -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Tool Example</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">次の一手</div>
+      <div class="title">Magit</div>
+      <div class="lead">GitのMagitでは、AIが“灰色（gray）の commit”のような次アクションを示し、ユーザの記述負荷を下げ得ます。</div>
+      <div class="content">
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">良い点</div>
+            <div class="v">提案により、操作の迷いと入力が減る。</div>
+          </div>
+          <div class="cell">
+            <div class="k">違和感</div>
+            <div class="v">成果物の責任・帰属（credit）が曖昧になりうる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6: distinction -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Ethics / Credit</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">共同著者？</div>
+      <div class="title">責任</div>
+      <div class="lead">AIが手数を減らすほど、「誰が責任を持つのか」「なぜそう動くのか」「共同著者クレジットは妥当か」という論点が残ります。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="k">帰属</div>
+            <div class="v">（authorship/credit）＝作った人の線引き。</div>
+          </div>
+          <div class="cell">
+            <div class="k">責任</div>
+            <div class="v">（responsibility）＝不具合・影響の所在。</div>
+          </div>
+          <div class="cell">
+            <div class="k">透明性</div>
+            <div class="v">（transparency）＝説明可能性の不足。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7: evidence -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Case Study</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">できてしまう</div>
+      <div class="title">excali-mode</div>
+      <div class="lead">excali-mode.el は新しいキャンバスAPIに合わせるため、Excalidrawのスタックを“層ごとに入れ替える”再実装が想像される例です。</div>
+      <div class="content">
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">必要性</div>
+            <div class="v">本来は慎重に判断されるべき更新（既存資産の置換リスク）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">AI副作用</div>
+            <div class="v">短時間で可能になると、過剰な作り替えへ傾きうる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8: evidence -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Case Study</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">重装備化</div>
+      <div class="title">cooked.el</div>
+      <div class="lead">cooked.el でも、端末エミュレーション改善という“軽微に見える課題”が、Rustでターミナルエミュレータ全体を作り直す方向に膨らみ得ます。</div>
+      <div class="content">
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">判断基準</div>
+            <div class="v">本来は既存部品で済む可能性がある。</div>
+          </div>
+          <div class="cell">
+            <div class="k">崩れ方</div>
+            <div class="v">“作れる”が“作る”を正当化し、再実装が拡大する。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9: process -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Mechanism</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">魔法の連鎖</div>
+      <div class="title">拡張</div>
+      <div class="lead">AIは「割に合わない」領域まで実行可能にし、再実装の連鎖を起こし得ます。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">指示で実装が進む（手作業が軽くなる）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">必要性の再評価が弱くなる（“できる”が勝つ）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">過剰な置換・依存が増え、保守の難度が上がる。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10: distinction -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Free Software Irony</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">自由の反転</div>
+      <div class="title">皮肉</div>
+      <div class="lead">“ソフトウェア自由”は本来、改変・理解・監査を含むはずです。しかしAIに任せるほど、人間が内部構造を把握しづらくなります。</div>
+      <div class="content">
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">理想</div>
+            <div class="v">理解可能性（understandability）と改変可能性。</div>
+          </div>
+          <div class="cell">
+            <div class="k">逆転</div>
+            <div class="v">（理解が抜ける）＝監査・説明が困難に。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11: evidence -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">Article Takeaways</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">恐れと利便</div>
+      <div class="title">結論</div>
+      <div class="lead">結局、AIは“魔法のように実装を進める”一方で、再実装の膨張・責任と帰属の曖昧さ・理解の欠落という副作用を残します。</div>
+      <div class="content">
+        <div class="grid">
+          <div class="cell">
+            <div class="k">副作用</div>
+            <div class="v">無限拡張（割に合わない再実装が起きる）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">社会面</div>
+            <div class="v">クレジット/責任/透明性の違和感。</div>
+          </div>
+          <div class="cell">
+            <div class="k">心理面</div>
+            <div class="v">“仕組みが分からない”不安が残る。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12: closing (References) -->
+    <section class="slide">
+      <div class="topline">
+        <div class="slide-tag">References</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">読むための手がかり</div>
+      <div class="title">参考</div>
+      <div class="lead">このスライドは、提示された要約文（Emacs In the Age Of Magic を題材）に基づく圧縮版です。用語の核は prompt、credit、responsibility、transparency、understandability です。</div>
+      <div class="content">
+        <div class="grid grid2">
+          <div class="cell">
+            <div class="k">作品/題材</div>
+            <div class="v">『Emacs In the Age Of Magic』</div>
+          </div>
+          <div class="cell">
+            <div class="k">具体例</div>
+            <div class="v">Magit / excali-mode.el / cooked.el（本文中の言及）</div>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="small" style="margin-top:14px;">
+          EN→JP gloss（短縮）：prompt＝指示、credit＝帰属（クレジット）、responsibility＝責任、transparency＝透明性、understandability＝理解可能性。
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.tangential.ch/blog/crayon-on-cardboard-scott-aaronson-on-mathematics-and-ai" target="_blank" rel="noreferrer noopener">tangential</a></h2>
+<p class="reference-note">## Introduction
+
+On 6 October 2026, OpenAI published results on 372 families of open mathematical problems in a public G…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://youtubesummary.com/summary/StluAE0HQOM" target="_blank" rel="noreferrer noopener">Video Summary - Mathocalypse! Scott Aaronson on OpenAI&#39;s flood of AI math breakthroughs</a></h2>
+<p class="reference-note">A startling volume of claimed breakthroughs: The video refers to a release of roughly 372–400 results, including work in…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://hraness.com/reading/the-mathocalypse" target="_blank" rel="noreferrer noopener">Scott Aaronson on the Mathocalypse of AI math results</a></h2>
+<p class="reference-note">## gist
+
+Scott Aaronson calls OpenAI’s release of 372 AI-generated results one of the biggest days in mathematical histo…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://scottaaronson.blog/?p=10169" target="_blank" rel="noreferrer noopener">Shtetl-Optimized » Blog Archive » The Mathocalypse</a></h2>
+<p class="reference-note">F-Team #292: With essentially all of the 372 results in OpenAI’s mathocalypse dump, what’s needed right now is to simpli…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.reddit.com/r/accelerate/comments/1x1dmkz/mathocalypse_scott_aaronson_on_openais_flood_of" target="_blank" rel="noreferrer noopener">Mathocalypse! Scott Aaronson on OpenAI&#39;s flood of AI math breakthroughs : r/accelerate</a></h2>
+<p class="reference-note">OpenAI&#39;s unreleased model solved most of the math problems from a single prompt. It did not even exist before the end of…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
