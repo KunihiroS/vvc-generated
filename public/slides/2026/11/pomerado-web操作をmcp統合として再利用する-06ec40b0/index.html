@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pomerado：Web操作をMCP統合として再利用する</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: block;
+      overflow-x: clip;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      margin: 18px auto;
+      padding: 56px 72px;
+      position: relative;
+      display: block;
+      overflow: hidden;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset: 0;
+      border: 1px solid rgba(240,232,216,0.06);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 22px;
+      left: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 26px;
+      height: 1px;
+      background: var(--rust);
+      display:inline-block;
+      box-shadow: 0 0 0 0.5px rgba(232,129,74,0.25);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 20px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      letter-spacing: 0.03em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 12px 0;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 1.02;
+      margin: 0 0 18px 0;
+      letter-spacing: -0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      margin: 0;
+      color: var(--ink);
+    }
+
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .grid.cols-2{ grid-template-columns: 1fr 1fr; }
+    .grid.cols-3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule-strong);
+      background: rgba(240,232,216,0.04);
+      border-radius: 14px;
+      padding: 16px 16px;
+      min-height: 82px;
+    }
+
+    .kicker{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 10px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .kicker::before{
+      content:"";
+      width: 10px;
+      height: 10px;
+      border: 1px solid var(--rust);
+      border-radius: 3px;
+      transform: rotate(10deg);
+    }
+
+    .card .text{
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    .note{
+      margin-top: 18px;
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 820px;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+      background: rgba(240,232,216,0.06);
+      border: 1px solid rgba(240,232,216,0.12);
+      padding: 2px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .ref-list{
+      margin-top: 18px;
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .ref-item{
+      border-top: 1px solid rgba(240,232,216,0.12);
+      padding-top: 10px;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    .muted{ color: var(--ink-3); }
+    .emph{ color: var(--rust); font-style: italic; }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.6;
+      max-width: 820px;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 40px 22px; border-width: 14px; }
+      .title{ font-size: 46px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .grid.cols-3{ grid-template-columns: 1fr; }
+      .grid.cols-2{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="slide-tag">Cover</div>
+      <div class="slide-num">02 / 17</div>
+      <p class="eyebrow">Web操作を“呼べるAPI”へ</p>
+      <h1 class="title">Pomerado <em>MCP</em></h1>
+      <p class="lead">自然言語でWebタスクを説明すると、ブラウザ操作の手順をMCP統合（integration）として生成し、後でツール呼び出しとして再利用できます。</p>
+    </section>
+
+    <section class="slide" aria-label="Problem">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 17</div>
+      <p class="eyebrow">毎回“手順をやり直す”</p>
+      <h2 class="title"><em>その場操作</em>の限界</h2>
+      <p class="lead">Playwright などで毎回ブラウザを操作すると、サイト変更に弱く、同じ手順を何度も作り直すコストが発生します。</p>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="kicker">痛み</div>
+          <div class="text">UI変更・DOM変更で壊れる / 再実装が必要</div>
+        </div>
+        <div class="card">
+          <div class="kicker">結果</div>
+          <div class="text">自動化が“再利用可能な部品”になりにくい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Metaphor">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">04 / 17</div>
+      <p class="eyebrow">探索→統合→再利用</p>
+      <h2 class="title">“台本”を作って<br><em>後で読む</em></h2>
+      <p class="lead">Pomeradoは、最初にタスクを“探索しながら”統合を作り、以後は生成物をMCPツールとして呼び出します（探索は初回寄り）。</p>
+      <div class="grid cols-3">
+        <div class="card">
+          <div class="kicker">i.探索</div>
+          <div class="text">ブラウザ上で手順を生成</div>
+        </div>
+        <div class="card">
+          <div class="kicker">ii.一般化</div>
+          <div class="text">例入力を元に統合を形成</div>
+        </div>
+        <div class="card">
+          <div class="kicker">iii.再利用</div>
+          <div class="text">MCP呼び出しで高速実行</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">05 / 17</div>
+      <p class="eyebrow">mint / run を分離</p>
+      <h2 class="title">責務を<br><em>切り分ける</em></h2>
+      <p class="lead">統合生成（mint）と統合実行（run）を分けることで、実行時の依存や負担を局所化しやすくします。</p>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="kicker">mint（生成）</div>
+          <div class="text">統合の作成・レビューに OpenAI API キーが必要（提示情報ベース）</div>
+        </div>
+        <div class="card">
+          <div class="kicker">run（呼び出し）</div>
+          <div class="text">モデル呼び出しを行わない（少なくともREADME相当の説明）</div>
+        </div>
+      </div>
+      <p class="note">鍵となる設計意図：コスト/レイテンシ/実行時モデル障害の影響を減らす。</p>
+    </section>
+
+    <section class="slide" aria-label="Architecture2">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">06 / 17</div>
+      <p class="eyebrow">統合はコードとして残る</p>
+      <h2 class="title">監査しやすい<br><em>成果物</em></h2>
+      <p class="lead">integrationはフォルダ単位で保存され、設定ファイル（例：<span class="mono">pomerado.json</span>、<span class="mono">deployment.json</span>）と合わせて管理できます。</p>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="kicker">保存されるもの</div>
+          <div class="text">src/ 配下の統合コード + 組み込み設定</div>
+        </div>
+        <div class="card">
+          <div class="kicker">運用上の利点</div>
+          <div class="text">レビュー・バージョン管理・再配布がしやすい</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Comparison">
+      <div class="slide-tag">Comparison</div>
+      <div class="slide-num">07 / 17</div>
+      <p class="eyebrow">“その場” vs “部品化”</p>
+      <h2 class="title">再利用性の<br><em>差</em></h2>
+      <p class="lead">自動化を都度実行するのではなく、統合としてMCP化しておくことで、同目的処理を高速・安定に実行しやすくなります。</p>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="kicker">Playwright型</div>
+          <div class="text">毎回手順実装 / サイト変更で手直し</div>
+        </div>
+        <div class="card">
+          <div class="kicker">Pomerado型</div>
+          <div class="text">最初に統合を生成し、以後はツール呼び出し</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">08 / 17</div>
+      <p class="eyebrow">HARなし・録画なし</p>
+      <h2 class="title"><em>低い</em>導入障壁</h2>
+      <p class="lead">自然言語によるタスク記述から統合を生成できるため、HAR（記録）やスクリーン録画の準備なしでPoCを始めやすい点が強調されています。</p>
+      <div class="grid cols-3">
+        <div class="card">
+          <div class="kicker">必要前提</div>
+          <div class="text">自然言語タスク説明</div>
+        </div>
+        <div class="card">
+          <div class="kicker">準備物</div>
+          <div class="text">HAR/録画は原則不要（提示情報）</div>
+        </div>
+        <div class="card">
+          <div class="kicker">効果</div>
+          <div class="text">作業対象サイト変更でも構築負担を抑える</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Distinction">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">09 / 17</div>
+      <p class="eyebrow">read / write の境界</p>
+      <h2 class="title">安全側に<br><em>設計</em></h2>
+      <p class="lead">Authority（権限）で read（参照）と write（変更）を区別し、writeのときはユーザー確認を挟む設計思想が示されています。</p>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="kicker">read（参照）</div>
+          <div class="text">取得・確認に限定（情報閲覧中心）</div>
+        </div>
+        <div class="card">
+          <div class="kicker">write（変更）</div>
+          <div class="text">フォーム送信/予約など。エージェントがユーザーに ask（提示情報）</div>
+        </div>
+      </div>
+      <p class="note">運用の要点：必要最小権限（least privilege）で組む。</p>
+    </section>
+
+    <section class="slide" aria-label="Process">
+      <div class="slide-tag">Process</div>
+      <div class="slide-num">10 / 17</div>
+      <p class="eyebrow">minting（生成）の流れ</p>
+      <h2 class="title">統合を作る<br><em>手順</em></h2>
+      <p class="lead">mintingでは「探索→例入力→一般化→統合生成」を経て、統合がコードとして保存されます（提示情報からの整理）。</p>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="kicker">入力</div>
+          <div class="text">自然言語のタスク記述（例入力を使う）</div>
+        </div>
+        <div class="card">
+          <div class="kicker">出力</div>
+          <div class="text">integration（MCPツール）として保存</div>
+        </div>
+      </div>
+      <p class="note">続くrunでは、この統合を呼び出して目的の処理を実行します。</p>
+    </section>
+
+    <section class="slide" aria-label="Security">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">11 / 17</div>
+      <p class="eyebrow">ログイン・2FAも想定</p>
+      <h2 class="title"><em>現実</em>のサイトへ</h2>
+      <p class="lead">ログインが必要なサイトや2要素認証があるサイトでも動作するとされています。運用では「何が保存され、何が保存されないか」を確認する必要があります。</p>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="kicker">読み取り</div>
+          <div class="text">ログイン中でも“保存しない方向”の趣旨が示唆（提示情報）</div>
+        </div>
+        <div class="card">
+          <div class="kicker">確認すべき点</div>
+          <div class="text">入力の記録範囲 / 資格情報の扱い / 再試行時の整合性</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Risks">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">12 / 17</div>
+      <p class="eyebrow">導入前に潰すべき不確実性</p>
+      <h2 class="title">“安全”の検証が鍵</h2>
+      <p class="lead">提示情報だけでは、決定性の厳密な範囲・失敗時リカバリ・DOM依存の脆弱性・コード安全性の検証強度が十分に確定できません。</p>
+      <div class="grid cols-3">
+        <div class="card">
+          <div class="kicker">決定性</div>
+          <div class="text">同一入力で同一DOM遷移か / 成功率の定義が必要</div>
+        </div>
+        <div class="card">
+          <div class="kicker">失敗復旧</div>
+          <div class="text">自己修復の限界 / 再ミント戦略 / 差分検知の有無</div>
+        </div>
+        <div class="card">
+          <div class="kicker">破壊的操作</div>
+          <div class="text">possible_commit示唆あり。ロールバック/冪等性も設計する</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="References">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 17</div>
+      <p class="eyebrow">結論</p>
+      <h2 class="title">まず小さく<br><em>検証</em></h2>
+      <p class="lead">Pomeradoは、Web操作をMCP統合へ落として再利用性と運用分界を高める方向性が強い一方、決定性・安全性・復旧戦略は対象サイトでの検証が前提です。</p>
+      <div class="ref-list" aria-label="References">
+        <div class="ref-item"><span class="emph">所与情報（提示README相当・要約本文・FAQ）</span>：mint/run分離、read/write、ログイン扱い、再ミント/修復の示唆。</div>
+        <div class="ref-item">MITライセンス / 要件：<span class="muted">Node 24.21以降</span>（Web検索で要件が明記されていた旨）。</div>
+        <div class="ref-item">getting-started ガイド：macOSまたはLinux、OpenAI APIキー、MCPクライアントのローカルstdioサーバ対応が前提として列挙（提示要旨）。</div>
+        <div class="ref-item">過去の話題：ブラウザエージェントの認証境界（タブ指定だけでは分離されない、タスク別プロファイル/最小権限が重要）。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Pomerado/pomerado" target="_blank" rel="noreferrer noopener">GitHub - Pomerado/pomerado: YC F26. Turn any website into an API / MCP in minutes. Open source core integration minting harness. MIT. · GitHub</a></h2>
+<p class="reference-note">## Repository files navigation
+
+# Pomerado
+
+Turn websites into MCP integrations your agent can rely on.
+
+License MIT npm…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Pomerado/pomerado/blob/main/docs/getting-started.md" target="_blank" rel="noreferrer noopener">pomerado/docs/getting-started.md at main · Pomerado/pomerado · GitHub</a></h2>
+<p class="reference-note">## Prerequisites
+
+ macOS or Linux.
+ Node 24.21 or a later Node 24 release. `node --version` should print `v24.21.0` or h…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://glama.ai/mcp/best/browser-automation" target="_blank" rel="noreferrer noopener">20 Best Browser Automation MCP Servers, Compared (November 2026) | Glama</a></h2>
+<p class="reference-note">CloakBrowser MCP exposes 25 browser automation and introspection tools, runs upstream Playwright MCP tools against Cloak…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/browser-use/browser-use" target="_blank" rel="noreferrer noopener">GitHub - browser-use/browser-use: Open-source Python library for AI browser agents, plus Browser Use Cloud: stealth browsers and a hosted agent API.</a></h2>
+<p class="reference-note">### Topics
+
+ai-agentsai-toolsbrowser-agentbrowser-automationbrowser-usecdpcloud-browsercomputer-useheadless-browserllmmc…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://leadiq.com/c/pomerado-pomerado-health/5a1dae042300005b00a4321f" target="_blank" rel="noreferrer noopener">Pomerado Pomerado Health Company Overview, Contact Details &amp; Competitors | LeadIQ</a></h2>
+<p class="reference-note">Minus sign iconPlus sign iconPomerado Pomerado Health&#39;s official website is palomarhealth.org and has social profiles on…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
