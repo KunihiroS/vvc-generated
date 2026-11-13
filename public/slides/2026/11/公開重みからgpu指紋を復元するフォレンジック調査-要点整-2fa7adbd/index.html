@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>公開重みからGPU指紋を復元するフォレンジック調査：要点整理</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border-radius: 8px;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      position: relative;
+      padding: 56px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 16px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      border-radius: 8px;
+      pointer-events:none;
+      border: 1px solid var(--rule-strong);
+      opacity: 0.7;
+    }
+
+    .topline{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 16px;
+      z-index: 1;
+    }
+
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      letter-spacing: 0.16em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-top: 2px solid var(--rule-strong);
+      padding-top: 8px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      margin-top: -6px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      z-index: 1;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 600;
+      font-size: 78px;
+      line-height: 0.95;
+      margin-top: -2px;
+      z-index: 1;
+      display:block;
+      color: var(--ink);
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 700;
+    }
+
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      z-index: 1;
+      margin-top: -2px;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+      z-index: 1;
+    }
+
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.10);
+      min-height: 62px;
+    }
+
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+      margin-bottom: 6px;
+    }
+    .value{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+
+    .note{
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-3);
+      font-size: 16px;
+      z-index: 1;
+    }
+
+    .kicker{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      margin-top: -6px;
+      z-index: 1;
+      letter-spacing: 0.02em;
+    }
+
+    ul{ margin:0; padding-left: 18px; }
+    li{ margin: 8px 0; color: var(--ink-2); }
+    .roman{
+      color: var(--rust);
+      font-style: italic;
+      margin-right: 8px;
+      font-family: "Cormorant Garamond", serif;
+    }
+
+    @media (max-width: 860px){
+      .slide{ padding: 40px 40px; }
+      .title{ font-size: 56px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .slide-num{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="topline">
+        <div class="slide-tag">forensic / フォレンジック</div>
+        <div class="slide-num">02 / 12</div>
+      </div>
+      <div class="eyebrow">公開重みから“初期化ハード”へ</div>
+      <div class="title">GPU <em>fingerprint</em> 推定</div>
+      <div class="lead">
+        公開されたAIモデルの重みから、学習開始前の乱数初期化（PRNG）とGPU並列配置の痕跡を辿り、
+        “どのGPU世代っぽいか”を推定する調査の要点を整理します。
+      </div>
+      <div class="note">注：これは技術的推定と法的事実（輸出規制違反など）を混同しないための読み物です。</div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="topline">
+        <div class="slide-tag">problem / もどかしさ</div>
+        <div class="slide-num">03 / 12</div>
+      </div>
+      <div class="eyebrow">結論が飛びやすい</div>
+      <div class="title">技術⇄法</div>
+      <div class="lead">
+        重みから分かるのは主に「初期化に使われたGPUの可能性」であって、
+        「学習全体をそのGPUで実行した」「調達・輸出が違反だった」を直接証明はしません。
+      </div>
+      <div class="grid two" style="margin-top: 10px;">
+        <div class="cell">
+          <div class="label">Tech / 技術</div>
+          <div class="value">initialization（初期化）由来の痕跡</div>
+        </div>
+        <div class="cell">
+          <div class="label">Law / 制度</div>
+          <div class="value">所在・手続・入手経路などの一次事実</div>
+        </div>
+      </div>
+      <div class="note">読み方の軸：推定（可能性）と認定（事実）を分ける。</div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="topline">
+        <div class="slide-tag">mechanism / メカニズム</div>
+        <div class="slide-num">04 / 12</div>
+      </div>
+      <div class="eyebrow">seedが“置き場所”を変える</div>
+      <div class="title">PRNG と配置</div>
+      <div class="lead">
+        GPUの乱数生成（例：PyTorch等のPhilox）ではseedと、GPU内部の並列実行割り当て（SM数・スレッド配置など）が
+        どの重み位置に値が入るかを左右し、学習後にも一部の痕跡が残り得ます。
+      </div>
+      <div class="grid three" style="margin-top: 10px;">
+        <div class="cell">
+          <div class="label">i</div>
+          <div class="value">seed / seed値</div>
+        </div>
+        <div class="cell">
+          <div class="label">ii</div>
+          <div class="value">PRNG / 乱数生成</div>
+        </div>
+        <div class="cell">
+          <div class="label">iii</div>
+          <div class="value">SM / スレッド配置</div>
+        </div>
+      </div>
+      <div class="note">したがって「初期化ハード推定」は“あり得る”ロジックとして成立します。</div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="topline">
+        <div class="slide-tag">claim / 主張</div>
+        <div class="slide-num">05 / 12</div>
+      </div>
+      <div class="eyebrow">6モデルにBlackwell示唆</div>
+      <div class="title">B200/B300 か GB200</div>
+      <div class="lead">
+        Unemployment Labs（Will DePue, 2026/11/12）は、公開モデルの初期化パターンから
+        NVIDIA Blackwell系（B200/B300またはGB200/GB300）に整合する“指紋”を検出したと報告しています。
+      </div>
+
+      <div class="grid two" style="margin-top: 10px;">
+        <div class="cell">
+          <div class="label">検出したモデル（例）</div>
+          <div class="value">DeepSeek（V4-Flash / V4-Pro）、Moonshot（Kimi K3 / K3.1-Pro）</div>
+        </div>
+        <div class="cell">
+          <div class="label">ほか</div>
+          <div class="value">MiniMax（M3）、Ant Group（Ling-3.1-flash）</div>
+        </div>
+      </div>
+
+      <div class="note">同一社の過去モデルがHopper指紋だった点から、Blackwellへの“切替が比較的最近”の可能性も読み解いています。</div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="evidence">
+      <div class="topline">
+        <div class="slide-tag">evidence / 証拠の形</div>
+        <div class="slide-num">06 / 12</div>
+      </div>
+      <div class="eyebrow">偶然一致を下げる工夫</div>
+      <div class="title">sigmaで評価</div>
+      <div class="lead">
+        seed・レイアウト探索の広さから偶然一致も起こり得るため、
+        期待されるランダム一致と比べてどれほど上回るかを“sigma”で示し、偶然の説明を弱めたとしています。
+      </div>
+
+      <div class="grid three" style="margin-top: 10px;">
+        <div class="cell">
+          <div class="label">最弱</div>
+          <div class="value">20 sigma 以上</div>
+        </div>
+        <div class="cell">
+          <div class="label">最大</div>
+          <div class="value">1,000 sigma 超</div>
+        </div>
+        <div class="cell">
+          <div class="label">自己評価</div>
+          <div class="value">DeepSeek-V4-Flashが“conclusiveに近い”</div>
+        </div>
+      </div>
+
+      <div class="note">ここでの強さは「初期化指紋との整合性の強さ」であり、学習全体の事実を自動的に確定するものではありません。</div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="distinction">
+      <div class="topline">
+        <div class="slide-tag">limits / 限界</div>
+        <div class="slide-num">07 / 12</div>
+      </div>
+      <div class="eyebrow">指紋＝初期化、学習全体ではない</div>
+      <div class="title">“示せる範囲”と“示せない範囲”</div>
+      <div class="lead">
+        指紋は「初期化に使われた可能性が高いハード」を示す可能性はあるが、
+        「そのGPUで学習全体が行われた」「チップの物理的所在や入手経路」「輸出規制違反」を直接は証明できません。
+      </div>
+
+      <div class="grid two" style="margin-top: 10px;">
+        <div class="cell">
+          <div class="label">示唆できる</div>
+          <div class="value">initialization（初期化）のGPU環境に整合</div>
+        </div>
+        <div class="cell">
+          <div class="label">別途必要</div>
+          <div class="value">調達・物流・監査などの一次情報（法的立証）</div>
+        </div>
+      </div>
+
+      <div class="note">この切り分けを読者が守ることが、誤読（断定の飛躍）を防ぎます。</div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="comparison">
+      <div class="topline">
+        <div class="slide-tag">alternatives / 代替案</div>
+        <div class="slide-num">08 / 12</div>
+      </div>
+      <div class="eyebrow">AMDでも“作れるか”が論点</div>
+      <div class="title">MI300X など</div>
+      <div class="lead">
+        報告書は理屈として、AMD MI300X（例：分割して152や148相当として扱う等）で
+        Blackwellに“似た配置”を人工的に再現できる可能性を検討しています。
+      </div>
+
+      <div class="grid two" style="margin-top: 10px;">
+        <div class="cell">
+          <div class="label">DeepSeek-V4-Flash</div>
+          <div class="value">差分検定でNVIDIA寄りの結果（とされる）</div>
+        </div>
+        <div class="cell">
+          <div class="label">その他5モデル</div>
+          <div class="value">同程度の決定打まで届かない可能性</div>
+        </div>
+      </div>
+
+      <div class="note">結論は“可能性が低い”止まりの部分があり、確定度には差がある、と解釈するのが妥当です。</div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="closing">
+      <div class="topline">
+        <div class="slide-tag">closing / まとめ</div>
+        <div class="slide-num">09 / 12</div>
+      </div>
+      <div class="eyebrow">読むべきポイント3つ</div>
+      <div class="title">技術は強い、法は別</div>
+      <div class="lead">
+        この調査は「公開重み→初期化条件（seed・PRNG・SM配置）→統計的整合性」という筋道を示し、
+        Blackwell系初期化の示唆を強く出していますが、輸出規制違反の断定には一次情報が別途必要です。
+      </div>
+
+      <div class="grid three" style="margin-top: 10px;">
+        <div class="cell">
+          <div class="label">i / まず</div>
+          <div class="value">推定対象は“initialization”</div>
+        </div>
+        <div class="cell">
+          <div class="label">ii / 次</div>
+          <div class="value">sigmaは整合性の強さ</div>
+        </div>
+        <div class="cell">
+          <div class="label">iii / 最後</div>
+          <div class="value">輸出・所在は一次情報で別途</div>
+        </div>
+      </div>
+
+      <div class="note">Bilingual（用語）：fingerprint=指紋 / initialization=初期化 / PRNG=乱数生成器</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">10 / 12</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aiweekly.co/alerts/nvidia-blackwell-export-ban-survives-us-china-summit" target="_blank" rel="noreferrer noopener">Nvidia Blackwell export ban survives US-China summit | AI Weekly</a></h2>
+<p class="reference-note">with US frontier AI labs. Essentially: (Nvidia, US Commerce Department) held the export control line while offering a co…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://cryptobriefing.com/chinese-ai-chip-usage-fingerprinting" target="_blank" rel="noreferrer noopener">Former OpenAI researcher says six Chinese AI models were built on banned Nvidia chips</a></h2>
+<p class="reference-note">He then tested the matches on real hardware. With the recovered seed, a Blackwell B300 reproduced DeepSeek-V4-Flash’s un…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">11 / 12</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://finance.biggo.jp/news/RMMKgp4BpwxG186NjYWS" target="_blank" rel="noreferrer noopener">米国、海外AIチップの抜け穴を封鎖、中国企業向けNvidia輸出規制を強化 — BigGo ファイナンス</a></h2>
+<p class="reference-note">この動きはまた、執行に関する疑問も提起している。複数の法域にまたがるデータセンター運営者や企業子会社の最終的な実質的所有者を追跡することは、複雑な事業である。米商務省は、コンプライアンスを確保するために、チップメーカーによる自己申告、同盟国…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.tradingkey.com/zh-hans/news/stocks/250727841-nvidia-new-china-specific-gpu-here-chinese-solution-response-us-export-restrictions-tradingkey-yulia-zeng" target="_blank" rel="noreferrer noopener">NVIDIA全新中国特供版GPU来了！美国禁令倒逼下的“中国方案”？</a></h2>
+<p class="reference-note">tradingkey.logo
+
+搜索
+
+
+
+一键诊股 让投资更聪明
+
+
+
+TradingKey
+
+作者Yulia Zeng
+
+2025年5月26日 11:33
+
+facebooktwitterlinkedin
+
+TradingKey …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">12 / 12</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/marius.comper/posts/-our-forensic-analysis-of-publicly-released-ai-models-finds-evidence-that-deepse/10165246294524621" target="_blank" rel="noreferrer noopener">Marius Comper</a></h2>
+<p class="reference-note">Deepseek Operations in Malaysia Chinese AI companies are reportedly smuggling hard drives to Malaysia in order to train …</p>
+</article>
+</div>
+</section>
+</div>
+
+  <script>
+    // Replace NN/08 on first slide with correct numbering (kept inline to satisfy single-file requirement).
+    (function(){
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const total = slides.length;
+      slides.forEach((s, idx)=>{
+        const num = s.querySelector('.slide-num');
+        if(num) num.textContent = String(idx).padStart(2,'0') + ' / ' + String(total).padStart(2,'0');
+      });
+    })();
+  </script>
+</body>
+</html>
