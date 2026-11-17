@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLMの位置埋め込み：RoPE中心の整理</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .deck {
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 20px 0 40px;
+      display: block;
+    }
+    .slide {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid transparent;
+      border-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,0)) 1;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      margin: 0 0 18px 0;
+      padding: 56px 72px;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border:20px solid var(--rule);
+      pointer-events:none;
+    }
+    .frame{
+      position: relative;
+      height: 100%;
+      width: 100%;
+    }
+    .slide-tag {
+      position: absolute;
+      left: 56px;
+      top: 40px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--rust);
+      font-size: 18px;
+      letter-spacing: 0.12em;
+      font-weight: 600;
+    }
+    .slide-num{
+      position: absolute;
+      right: 72px;
+      top: 40px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-size: 22px;
+      font-style: italic;
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0;
+      line-height: 1.15;
+    }
+    .title{
+      margin: 8px 0 14px 0;
+      font-size: 72px;
+      line-height: 1.0;
+      font-weight: 500;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 16px 0;
+    }
+    .grid2, .grid3{
+      display: grid;
+      gap: 14px 16px;
+      margin-top: 18px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule-strong);
+      border-radius: 8px;
+      padding: 14px 14px;
+      background: rgba(20,17,13,0.10);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      font-weight: 300;
+    }
+    .muted{
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1.55;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .bottom-note{
+      position: absolute;
+      left: 56px;
+      right: 72px;
+      bottom: 34px;
+      font-size: 16px;
+      color: var(--ink-3);
+      line-height: 1.4;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .nowrap{ white-space: nowrap; }
+    @media (max-width: 820px){
+      .slide{ padding: 42px 44px; }
+      .slide-tag{ left: 44px; top: 30px; font-size: 16px; }
+      .slide-num{ right: 44px; top: 30px; font-size: 20px; }
+      .title{ font-size: 54px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .bottom-note{ left: 44px; right: 44px; bottom: 26px; }
+      .cell .v{ font-size: 16px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Cover">
+      <div class="frame">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+
+        <p class="eyebrow">positional embeddings 入門</p>
+        <div class="title">LLMの<span class="jp">位置埋め込み</span></div>
+        <p class="lead">トークンの「順番」をどう表現し、self-attention（注意機構）の計算にどう効くのかを、RoPE（Rotary Position Embedding）中心に整理します。</p>
+
+        <div class="bottom-note">
+          <div class="nowrap">絶対 / 相対 / 省略の選択肢</div>
+          <div class="nowrap">RoPEが核</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Problem">
+      <div class="frame">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+
+        <p class="eyebrow">順序は弱い</p>
+        <div class="title">なぜ位置が必要？</div>
+        <p class="lead">Transformerのself-attentionはトークン同士の関係を見ますが、埋め込みだけだと「何番目か」の情報が弱くなります。結果として、語順の違いが十分に区別されないリスクが出ます。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">因果マスク</div>
+            <div class="v">見える範囲は制約できるが、位置差（1違い vs 10違い）まで強く与えにくい。</div>
+          </div>
+          <div class="cell">
+            <div class="k">位置埋め込み</div>
+            <div class="v">注意スコア計算へ「順番」を明示的に結びつけ、相対関係を学習しやすくする。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">因果 ≠ 距離感</div>
+          <div class="nowrap">明示が効く</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Architecture">
+      <div class="frame">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">04 / 16</div>
+
+        <p class="eyebrow">計算の流れ</p>
+        <div class="title">Transformerに注入</div>
+        <p class="lead">トークナイザがトークン列を作り、各トークンをベクトル（埋め込み）へ変換。そこへ位置情報を入れてから、Q/Kの注意計算で混ぜていきます。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i. トークン化</div>
+            <div class="v">文 → トークンID列。</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. 埋め込み</div>
+            <div class="v">ID → ベクトル。</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. 注意へ</div>
+            <div class="v">位置情報 → Q/K（またはスコア）に結び付け。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">入口は同じでも</div>
+          <div class="nowrap">入れ方が違う</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Comparison">
+      <div class="frame">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">05 / 16</div>
+
+        <p class="eyebrow">3つの系統</p>
+        <div class="title">絶対 / 相対 / 省略</div>
+        <p class="lead">位置情報の入れ方は大きく「絶対（足す）」「相対（注意計算に結び付け）」「省略（NoPE）」に分かれます。違いは主に“どこで”位置が効くかです。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">絶対（Abs）</div>
+            <div class="v">例：GPT-2 / 学習済み絶対位置埋め込み、Transformerの正弦・余弦。</div>
+          </div>
+          <div class="cell">
+            <div class="k">相対（Rel）</div>
+            <div class="v">例：RoPE（Q/Kを回転し、相対オフセットで変化）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">省略（NoPE）</div>
+            <div class="v">例：位置埋め込みを使わず、因果マスクなどに依存。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">鍵：効く場所</div>
+          <div class="nowrap">長文・効率にも波及</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="frame">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 16</div>
+
+        <p class="eyebrow">絶対の性質</p>
+        <div class="title">GPT-2系</div>
+        <p class="lead">位置ベクトルを埋め込みに“足す”方式では、トークンの絶対位置mに応じて表現が変わります。コンテキスト長を超えると拡張が必要になり、運用コストが増えやすいです。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">学習済み絶対位置</div>
+            <div class="v">P_m が位置ごとに学習される（拡張時に工夫が要る）。</div>
+          </div>
+          <div class="cell">
+            <div class="k">正弦・余弦</div>
+            <div class="v">固定符号化でも“絶対のカウント”に依存。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">絶対＝位置ID</div>
+          <div class="nowrap">拡張コストが論点</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Metaphor">
+      <div class="frame">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">07 / 16</div>
+
+        <p class="eyebrow">回転で相対化</p>
+        <div class="title">RoPEの直観</div>
+        <p class="lead">RoPEは「回転」によって位置を注意計算へ埋め込みます。QとKを位置m,nに応じて回転させることで、ドット積が“相対オフセット（m-n）”に感応します。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">回転</div>
+            <div class="v">Q：位置mで回転 / K：位置nで回転。</div>
+          </div>
+          <div class="cell">
+            <div class="k">内積</div>
+            <div class="v">Q·K が角度差に応じて変わる。</div>
+          </div>
+          <div class="cell">
+            <div class="k">相対性</div>
+            <div class="v">両方を同じだけずらすと差が保たれやすい。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">回転→Q·K</div>
+          <div class="nowrap">相対が前面に</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="frame">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 16</div>
+
+        <p class="eyebrow">Q·Kに入る</p>
+        <div class="title">なぜ相対になる？</div>
+        <p class="lead">回転角自体は絶対位置m,nから計算されます。ですが重要なのは最終的に注意スコアへ効く“QとKの相対的な回転差”で、ドット積は角度差（ひいてはm-n）を反映します。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">質問</div>
+            <div class="v">「絶対m,nを使うのに相対？」</div>
+          </div>
+          <div class="cell">
+            <div class="k">答え</div>
+            <div class="v">内積が保持するのは“差の成分”。両者を同量ずらすと相対角が維持される。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">絶対→回転</div>
+          <div class="nowrap">相対→内積</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Enumeration">
+      <div class="frame">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">09 / 16</div>
+
+        <p class="eyebrow">近年の分岐</p>
+        <div class="title">partial / NoPE / バイアス</div>
+        <p class="lead">RoPEが主流でも、計算・メモリ・長文安定性のバランスを狙ってバリエーションが増えています（例：partial RoPE、NoPE、相対位置バイアス）。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i. partial RoPE</div>
+            <div class="v">回転する次元を減らし、cos/sinテーブル等の節約を狙う。</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii. NoPE</div>
+            <div class="v">明示的な位置符号化を省略し、因果マスク依存で挙動を得る。</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii. 相対バイアス</div>
+            <div class="v">注意スコア（Q·K）へ学習済み相対位置バイアスを足す発想。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">同じ目的</div>
+          <div class="nowrap">入れ方だけ多様</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Process">
+      <div class="frame">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 16</div>
+
+        <p class="eyebrow">効率とトレードオフ</p>
+        <div class="title">どこが得？どこが弱い？</div>
+        <p class="lead">partial RoPEやNoPEは“削れるもの”と“削れないもの”が分かれます。特にKVキャッシュがキー/値を保持するため、節約効果が想定より小さい可能性があります。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">partial RoPE</div>
+            <div class="v">主にcos/sinテーブル等の事前計算を節約。ただしKVキャッシュの側は大きく残り得る。</div>
+          </div>
+          <div class="cell">
+            <div class="k">NoPE</div>
+            <div class="v">計算を減らせる可能性。一方で長文での挙動は条件次第で、常に“不要”とは言えない。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">節約＝一部</div>
+          <div class="nowrap">品質は要検証</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Evidence">
+      <div class="frame">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">11 / 16</div>
+
+        <p class="eyebrow">実務の見取り図</p>
+        <div class="title">主流はRoPE</div>
+        <p class="lead">俯瞰するとRoPEを全面適用するモデルが依然主流で、今後も一定期間は支配的と見られます。ただしpartial/NoPE/相対バイアスの混在も増える可能性があります。</p>
+
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">方向性</div>
+            <div class="v">RoPE中心だが最適化で分岐。</div>
+          </div>
+          <div class="cell">
+            <div class="k">理由</div>
+            <div class="v">長文耐性・注意への組み込みが強い。</div>
+          </div>
+          <div class="cell">
+            <div class="k">結論</div>
+            <div class="v">RoPEは続くが、別路線も広がり得る。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">2027頃まで？</div>
+          <div class="nowrap">ただし確率論</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Distinction">
+      <div class="frame">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 16</div>
+
+        <p class="eyebrow">理解の要点</p>
+        <div class="title">“どこで効くか”</div>
+        <p class="lead">方式の差は、位置情報が「埋め込みへ足されるのか」「Q/Kを回転させるのか」「注意スコアへバイアスとして足されるのか」「そもそも省略するのか」に現れます。ここを追うと比較が速くなります。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">Abs（絶対）</div>
+            <div class="v">埋め込みへ加算 → 絶対位置に依存。</div>
+          </div>
+          <div class="cell">
+            <div class="k">Rel（相対）</div>
+            <div class="v">RoPE/相対バイアス → m-n が注意へ。</div>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">NoPE（省略）</div>
+            <div class="v">位置埋め込みなし → 因果マスク等で成立を狙う。</div>
+          </div>
+          <div class="cell">
+            <div class="k">partial</div>
+            <div class="v">回転対象次元を限定 → 効率と品質の折衷。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">設計の観察軸</div>
+          <div class="nowrap">実験計画にも直結</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12: References -->
+    <section class="slide" aria-label="References">
+      <div class="frame">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">13 / 16</div>
+
+        <p class="eyebrow">参照元（抜粋）</p>
+        <div class="title">Sources</div>
+        <p class="lead">本スライドは、提示文の内容を整理し、Web検索の要約が同趣旨である点を補強として反映しています。</p>
+
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">MiniMax-M3文脈</div>
+            <div class="v">partial RoPE（64次元など）でcos/sinテーブル節約につながる、という要約。</div>
+          </div>
+          <div class="cell">
+            <div class="k">RoPEの限界議論</div>
+            <div class="v">「Giving LLMs too much RoPE」等の、RoPE過多のトレードオフを扱う議論。</div>
+          </div>
+          <div class="cell">
+            <div class="k">RoPE/NoPE/相対バイアス</div>
+            <div class="v">近年の位置埋め込み設計の傾向（混在が増える）を裏付ける要約。</div>
+          </div>
+          <div class="cell">
+            <div class="k">提示文（主材料）</div>
+            <div class="v">絶対→固定→回転→相対→省略、RoPEの相対性（Q·Kとm-n）を説明する段取り。</div>
+          </div>
+        </div>
+
+        <div class="bottom-note">
+          <div class="nowrap">※詳細な書誌情報は、原文/検索結果に依存</div>
+          <div class="nowrap">English terms + JP gloss</div>
+        </div>
+      </div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://daily.dev/posts/understanding-positional-embeddings-in-modern-llms-415mglzuo" target="_blank" rel="noreferrer noopener">Understanding Positional Embeddings in Modern LLMs</a></h2>
+<p class="reference-note">LLMs need explicit positional information because attention alone can&#39;t distinguish word order beyond what a causal mask…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://magazine.sebastianraschka.com/p/understanding-positional-embeddings" target="_blank" rel="noreferrer noopener">Understanding Positional Embeddings in Modern LLMs</a></h2>
+<p class="reference-note">As discussed throughout the article, regular “full” RoPE rotates all dimensions in each query and key head. Partial RoPE…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.linkedin.com/posts/sebastianraschka_understanding-positional-embeddings-in-modern-activity-7527728201582661632-qZHx" target="_blank" rel="noreferrer noopener">Understanding Positional Embeddings in Modern LLMs | Sebastian Raschka, PhD | 36 comments</a></h2>
+<p class="reference-note">1. How the original transformer architecture and early GPT models add position vectors to token embeddings. 2. How RoPE …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://bradlove.org/blog/position-embd" target="_blank" rel="noreferrer noopener">Giving LLMs too much RoPE: A limit on Sutton’s Bitter Lesson — Bradley C. Love</a></h2>
+<p class="reference-note">The shift from absolute learnable positional embeddings to RoPE in modern LLMs highlights a trade-off between Sutton’s d…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://linkedin.com/in/sebastian-raschka-b9990459" target="_blank" rel="noreferrer noopener">Sebastian Raschka</a></h2>
+<p class="reference-note"># Sebastian Raschka [...] ## Experience
+- Assistant Professor of Statistics at University of Wisconsin-Madison (Jan 2018…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
