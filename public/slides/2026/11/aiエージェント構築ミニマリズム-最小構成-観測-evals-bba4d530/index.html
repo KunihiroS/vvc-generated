@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIエージェント構築ミニマリズム：最小構成→観測→evals</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px 0;
+      display: block;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 12px;
+      margin: 18px auto;
+      position: relative;
+      overflow: hidden;
+      padding: 56px 72px;
+      display: block;
+    }
+    .slide::before{
+      content:"";
+      position:absolute; inset:20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+    .tag{
+      position:absolute; top: 18px; left: 22px;
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: .14em;
+      font-size: 14px;
+      font-weight: 600;
+      display:flex; align-items:center; gap:10px;
+      text-transform: uppercase;
+    }
+    .tag::before{
+      content:"";
+      width: 46px;
+      height: 10px;
+      border-top: 2px solid var(--rust);
+      border-bottom: 2px solid var(--rust);
+      opacity: .9;
+    }
+    .slide-num{
+      position:absolute; top: 18px; right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+      letter-spacing: .02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 6px 0;
+    }
+    .title{
+      font-size: 72px;
+      margin: 0 0 14px 0;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", "Noto Serif JP", serif;
+      line-height: 1.02;
+      letter-spacing: .01em;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.5;
+      margin: 0;
+      max-width: 760px;
+      font-weight: 300;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0 16px 0;
+    }
+    .grid{
+      margin-top: 18px;
+      display:grid;
+      gap: 14px;
+      align-items: start;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.10);
+      border-radius: 10px;
+      padding: 14px 14px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink-3);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .text{
+      font-size: 20px;
+      line-height: 1.5;
+      color: var(--ink);
+      font-weight: 300;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      font-weight: 300;
+      line-height: 1.45;
+    }
+    .twoLineTitle{
+      font-size: 64px;
+    }
+    @media (max-width: 720px){
+      .slide{ padding: 42px 18px; }
+      .slide::before{ inset: 14px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide cover" aria-label="Cover">
+      <div class="tag">AI AGENT / ミニマリズム</div>
+      <div class="slide-num">02 / 16</div>
+      <p class="eyebrow">“賢さ”より“仕事完遂”</p>
+      <h1 class="title">最小構成</h1>
+      <p class="lead">複雑なオーケストレーションや状態管理を最初から積むより、指示・文脈・スキル・ツールで「確実に動く条件」を設計し、観測とevalsで良くしていく。</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide problem" aria-label="Problem">
+      <div class="tag">PROBLEM / 逆転</div>
+      <div class="slide-num">03 / 16</div>
+      <p class="eyebrow">作るほどズレる</p>
+      <h2 class="title twoLineTitle">オーバービルド</h2>
+      <p class="lead">作者は、学習初期にフレームワーク・多段オーケストレーション・多数のサブエージェント・状態機械・ベクトルDBなどを先に整え、結果として「問題より技術を優先」したと振り返る。</p>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide metaphor" aria-label="Metaphor">
+      <div class="tag">METAPHOR / 変化</div>
+      <div class="slide-num">04 / 16</div>
+      <p class="eyebrow">削れば解像度が上がる</p>
+      <h2 class="title">削ぎ落とし</h2>
+      <p class="lead">モデル性能が上がっても「何かが足りない違和感」が残ることがあり、最終的に削ぎ落としていくことで“何が効いたか”がはっきりしてくる。</p>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide architecture" aria-label="Architecture: Minimum folder package">
+      <div class="tag">ARCHITECTURE / 最小単位</div>
+      <div class="slide-num">05 / 16</div>
+      <p class="eyebrow">フォルダ＝エージェント</p>
+      <h2 class="title">パッケージ化</h2>
+      <p class="lead">エージェントを「フォルダ」としてパッケージ化し、Markdown（例：AGENTS.md、文脈、スキル、例、指示）を同梱してLLMの役割と判断基準を明確にする。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">中身（例）</div>
+          <div class="mono">AGENTS.md / Context / Skills / Examples / Instructions</div>
+        </div>
+        <div class="card">
+          <div class="label">狙い</div>
+          <div class="text">導入・複製・バージョン管理・運用統合を“作業単位”にする。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide architecture" aria-label="Core idea: Intelligence as operating conditions">
+      <div class="tag">ARCHITECTURE / 発想</div>
+      <div class="slide-num">06 / 16</div>
+      <p class="eyebrow">ゼロから賢くしない</p>
+      <h2 class="title">稼働条件</h2>
+      <p class="lead">「インテリジェンスを作る」ではなく、指示・文脈・スキル・ツールで“既存の知能が特定の仕事を確実にこなす条件”を設計する。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">定義するもの</div>
+          <div class="text">やって良いこと／ダメなこと・判断基準・使うツール。</div>
+        </div>
+        <div class="card">
+          <div class="label">避けるもの</div>
+          <div class="text">最初に複雑な推論機構（多段計画など）を“当然”として積むこと。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide process" aria-label="Process: Headless execution + observing transcripts">
+      <div class="tag">PROCESS / 実行</div>
+      <div class="slide-num">07 / 16</div>
+      <p class="eyebrow">対話なしで回す</p>
+      <h2 class="title">ヘッドレス実行</h2>
+      <p class="lead">対話なしでコマンドを指定して作業し、結果を観測して終了するワークフローに組み込む。</p>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">入力</div>
+          <div class="text">指示・文脈・スキル・ツール</div>
+        </div>
+        <div class="card">
+          <div class="label">実行</div>
+          <div class="text">ヘッドレス（コマンド指定）</div>
+        </div>
+        <div class="card">
+          <div class="label">観測</div>
+          <div class="text">結果＋会話/ツール呼び出しログ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide evidence" aria-label="Observability: transcript logs and improvement loop">
+      <div class="tag">EVIDENCE / ループ</div>
+      <div class="slide-num">08 / 16</div>
+      <p class="eyebrow">ログで“次”を決める</p>
+      <h2 class="title">観測→改善</h2>
+      <p class="lead">会話・ツール呼び出し・結果を保存（トランスクリプト）し、逸れた箇所を根拠付きで再分析して指示・文脈・テストへ還元する。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">何が分かる</div>
+          <div class="text">見落とした指示／ツール結果の解釈ズレ／逸脱点。</div>
+        </div>
+        <div class="card">
+          <div class="label">何を変える</div>
+          <div class="text">指示・文脈・スキル・テスト（evals）を更新する。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide evidence" aria-label="Evaluations: evals with success criteria">
+      <div class="tag">EVIDENCE / 検証</div>
+      <div class="slide-num">09 / 16</div>
+      <p class="eyebrow">“良くなった？”を消す</p>
+      <h2 class="title">evals</h2>
+      <p class="lead">代表的タスクと成功基準で比較し、「良くなっている気がする」を排して、設計変更が効いたかを確かめる。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">必要</div>
+          <div class="text">成功基準／代表タスク／比較可能な形。</div>
+        </div>
+        <div class="card">
+          <div class="label">難所</div>
+          <div class="text">成功基準の明確化と、比較に含める変更範囲の整理。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide comparison" aria-label="Distinction: When to add complexity and sub-agents">
+      <div class="tag">DISTINCTION / 増やす条件</div>
+      <div class="slide-num">10 / 16</div>
+      <p class="eyebrow">分解は必要になってから</p>
+      <h2 class="title">サブエージェント</h2>
+      <p class="lead">サブエージェントは矛盾しない。導入の根拠（分業の必要性、独立に検証できる部分の存在）が固まった“必要なとき”に拡張する。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">トップ役</div>
+          <div class="text">chief of staff（参謀）が指揮する。</div>
+        </div>
+        <div class="card">
+          <div class="label">目的</div>
+          <div class="text">複雑さのためではなく、検証可能な分業のため。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide process" aria-label="Workflow applied to a real project example">
+      <div class="tag">PROCESS / 実案件</div>
+      <div class="slide-num">11 / 16</div>
+      <p class="eyebrow">公開までを回す</p>
+      <h2 class="title">Webデプロイ例</h2>
+      <p class="lead">Webサイト公開の実案件に適用し、AGENTS.md、編集ガイダンス、ビルド、デプロイ、結果確認までを“最小構成＋改善ループ”で回す。</p>
+      <div class="grid three">
+        <div class="card">
+          <div class="label">設計</div>
+          <div class="text">AGENTS.md / ガイダンス</div>
+        </div>
+        <div class="card">
+          <div class="label">実行</div>
+          <div class="text">ビルド / デプロイ</div>
+        </div>
+        <div class="card">
+          <div class="label">検証</div>
+          <div class="text">結果確認＋ログ→改善</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide distinction" aria-label="Limits and where complexity is unavoidable">
+      <div class="tag">LIMITS / 注意</div>
+      <div class="slide-num">12 / 16</div>
+      <p class="eyebrow">万能薬ではない</p>
+      <h2 class="title">追加すべき複雑さ</h2>
+      <p class="lead">ミニマリズムは強い指針だが万能ではない。領域によっては権限管理、監査可能性、長期メモリ整合性、失敗時リカバリなどの複雑さが避けられない。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">理由</div>
+          <div class="text">高リスク領域ほどログ/ evals設計の要求水準が上がる。</div>
+        </div>
+        <div class="card">
+          <div class="label">姿勢</div>
+          <div class="text">“常に削る”ではなく、成功基準とリスクから決める。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide closing" aria-label="Closing / Takeaway">
+      <div class="tag">CLOSING / 持ち帰り</div>
+      <div class="slide-num">13 / 16</div>
+      <p class="eyebrow">まず最小構成を理解</p>
+      <h2 class="title">選定判断</h2>
+      <p class="lead">最新のエージェントハーネスを急いで導入する前に、自分の最小構成がどの問題を解いているかを理解し、観測とevalsで伸ばす。</p>
+      <div class="grid two">
+        <div class="card">
+          <div class="label">最優先</div>
+          <div class="text">最小構成（指示・文脈・スキル・ツール）で成立させる。</div>
+        </div>
+        <div class="card">
+          <div class="label">次に</div>
+          <div class="text">ログ観測→evals→必要な拡張（分解/ツール）を行う。</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://alicelabs.ai/en/insights/best-ai-agent-frameworks-2026" target="_blank" rel="noreferrer noopener">Best AI Agent Frameworks 2026: Alice Labs Top 10 Ranked</a></h2>
+<p class="reference-note">If you are building AI agents from scratch in 2026, Alice Labs recommends starting with LangGraph 1.0 for stateful produ…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.langchain.com/resources/ai-agent-frameworks" target="_blank" rel="noreferrer noopener">The best AI agent frameworks in 2026</a></h2>
+<p class="reference-note">Minimal API surface: Low abstraction design makes agent execution easy to reason about and faster to debug than heavier …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.diagrid.io/blog/ai-agent-frameworks" target="_blank" rel="noreferrer noopener">AI Agent Frameworks in 2026: The 17 Best Compared</a></h2>
+<p class="reference-note">Main tradeoff
+
+Code execution needs sandboxing
+
+Microsoft Agent Framework.NETPythonGo (preview)
+
+Core approach
+
+Agents +…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2604.14228v1" target="_blank" rel="noreferrer noopener">Dive into Claude Code: The Design Space of Today’s and Future AI Agent Systems</a></h2>
+<p class="reference-note">A design principle shapes the memory system: stored context should be inspectable and editable by the user. CLAUDE.md fi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.anthropic.com/research/building-effective-agents" target="_blank" rel="noreferrer noopener">Building effective AI agents \ Anthropic</a></h2>
+<p class="reference-note">Note: Much of the tooling landscape described in this post has changed since December 2024. For our current approach, se…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
