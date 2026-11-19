@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>バグ修正エージェントが遅い理由：Gemini 4 Carbonの実測分解</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 16px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow:hidden;
+      padding: 20px;
+      inset: 0;
+    }
+    .frame{
+      height: 100%;
+      width: 100%;
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 56px 72px;
+      position: relative;
+    }
+    .slide-tag{
+      position:absolute;
+      top: 18px;
+      left: 26px;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: .18em;
+      color: var(--rust);
+      font-size: 16px;
+      font-style: italic;
+      text-transform: uppercase;
+      border-top: 2px solid var(--rust);
+      padding-top: 10px;
+      line-height: 1.1;
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 26px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-size: 18px;
+      font-style: italic;
+      letter-spacing: .02em;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 12px 0;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 72px;
+      margin: 0 0 14px 0;
+      color: var(--rust);
+      letter-spacing: .01em;
+      line-height: 1;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 62px;
+      color: var(--ink);
+    }
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.5;
+      margin: 0;
+    }
+    .rule{
+      margin-top: 18px;
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+    }
+    .content{
+      margin-top: 18px;
+      display:flex;
+      flex-direction:column;
+      gap: 14px;
+    }
+    .grid2, .grid3{
+      width: 100%;
+      display:grid;
+      gap: 12px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 14px 12px;
+      background: rgba(240,232,216,0.03);
+      min-height: 92px;
+    }
+    .card h4{
+      margin: 0 0 8px 0;
+      font-family: "Inter Tight", sans-serif;
+      letter-spacing: .04em;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink-2);
+      text-transform: uppercase;
+    }
+    .card p{
+      margin: 0;
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 1.45;
+      font-weight: 300;
+    }
+    .mono{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      color: var(--ink-2);
+      font-size: 16px;
+    }
+    .small{
+      font-size: 18px !important;
+    }
+    .listgrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+    }
+    .kpi{
+      display:flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .kpi .big{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 44px;
+      color: var(--ink);
+      line-height: 1;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .kpi .desc{
+      font-size: 20px;
+      color: var(--ink);
+      font-weight: 300;
+      line-height: 1.45;
+      margin-top: 2px;
+    }
+    .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-style: normal;
+    }
+    .footer-note{
+      position:absolute;
+      bottom: 18px;
+      left: 26px;
+      right: 26px;
+      font-size: 14px;
+      color: var(--ink-3);
+      font-family: "Inter Tight", sans-serif;
+      line-height: 1.35;
+    }
+    .bilingual{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 10px;
+      align-items: baseline;
+    }
+    .bilingual .en{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-size: 14px;
+    }
+    .bilingual .ja{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 300;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+        <p class="eyebrow">実測で見る“遅さ”の正体</p>
+        <h1 class="title">Carbon</h1>
+        <p class="lead">
+          バグ修正エージェントが遅いのは「頭の良し悪し」だけではなく、推論の遅さ・不要作業・機械的な非効率の合成で説明できる。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>主題（Summary）</h4>
+              <p>
+                Gemini 4 Carbon がバグ修正で Opus / Astra より長くかかることがあるが、根本は能力不足というより“行動の作法”に近い。
+              </p>
+            </div>
+            <div class="card">
+              <h4>読みどころ</h4>
+              <p>
+                「原因は早く名付けられるのに、編集開始が遅い」など、待ち時間が生まれる箇所を分解して示す。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">※ 本要約は提示された本文情報に基づく。モデル名や“努力設定”の前提差は比較の解釈に影響する。</div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+        <p class="eyebrow">速さ＝モデル能力？</p>
+        <h1 class="title">誤解</h1>
+        <p class="lead">
+          AIエージェントの速度差は、単に推論が速い／遅いだけではなく、余計な手順やツール運用の効率でも大きく変わる。
+        </p>
+        <div class="content">
+          <div class="listgrid">
+            <div class="card">
+              <h4>1) 推論速度</h4>
+              <p>1ステップあたりの判断・文章生成が遅い。</p>
+            </div>
+            <div class="card">
+              <h4>2) 不要作業</h4>
+              <p>タスク制約に反しがちな探索・監査・防御的修正が増える。</p>
+            </div>
+            <div class="card">
+              <h4>3) 機械的非効率</h4>
+              <p>ツール呼び出しが少ない／同じ箇所を何度も再読する。</p>
+            </div>
+            <div class="card">
+              <h4>比較の注意</h4>
+              <p>high/medium/max の“努力設定”や課金条件で差が見え方変わる。</p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">※ ここでの“ステップ”は考える・行動する単位（読み取り、実行、編集等を含む）として扱う。</div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+        <p class="eyebrow">渋滞の3レーン</p>
+        <h1 class="title">分解</h1>
+        <p class="lead">
+          遅さは“渋滞”の合成で、(i) 判断が遅いレーン、(ii) 遠回りするレーン、(iii) 信号待ちや再走のレーンが重なる。
+        </p>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <h4>推論（Thinking）</h4>
+              <p>
+                ステップごとの待ち時間が伸びると、全体の所要時間が比例して増える。
+              </p>
+            </div>
+            <div class="card">
+              <h4>作業（Work）</h4>
+              <p>
+                チケットが要求しない監査・防御が増えると、時間とコストが跳ねる。
+              </p>
+            </div>
+            <div class="card">
+              <h4>運用（Ops）</h4>
+              <p>
+                ツール呼び出しの不足や再読の多さが、同じ情報を“何度も”扱わせる。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">結果として「能力不足に見えるが、改善できるのは運用設計側」という構図になりやすい。</div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">05 / 16</div>
+        <p class="eyebrow">何が起きている？</p>
+        <h1 class="title">実測</h1>
+        <p class="lead">
+          Kernel.devのバグ修正エージェントのベンチマークで、Carbonは他モデルより1試行あたりの処理時間とコストが大きく跳ねることが観測された。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>観測</h4>
+              <p>
+                “バグ修正”は「関連コードを辿って原因特定→修正→検証」しつつ「無関係な変更を避ける」制約が強い。
+              </p>
+            </div>
+            <div class="card">
+              <h4>気づき</h4>
+              <p>
+                Carbon は速度・コストが跳ねるだけでなく、何が遅さを作っているかも追跡可能だった。
+              </p>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="kpi">
+            <div class="big">~1h</div>
+            <div class="desc">
+              難しいバグ修正では Carbon が約1時間かかる一方、Opus / Astra は数分で終わるギャップが言及されている。
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">※ 数値の細部は提示された要約文に依存し、ここでは主張の“方向性と根拠”に絞っている。</div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 16</div>
+        <p class="eyebrow">遅さは三因子</p>
+        <h1 class="title">内訳</h1>
+        <p class="lead">
+          Carbon の遅さは主に三つに分解される：推論が遅い、不要作業が多い、ツール呼び出しと再読のような機械的非効率がある。
+        </p>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <h4>i 推論速度</h4>
+              <p>
+                Astra 比で16–30%の差、Opus 比では“およそ半分程度”のギャップに相当すると推定。
+              </p>
+            </div>
+            <div class="card">
+              <h4>ii 不要作業</h4>
+              <p>
+                ステップの約半分が、チケット要求の外（監査・除外済み“穴”の防御など）に使われていた。
+              </p>
+            </div>
+            <div class="card">
+              <h4>iii 機械的非効率</h4>
+              <p>
+                ツール呼び出しが少なく、同じコードの再読が 39% 対 7% と高い。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">重要：推論の遅さ“だけ”では全体を説明できない、という主張。</div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">07 / 16</div>
+        <p class="eyebrow">不要作業の衝突</p>
+        <h1 class="title">要件</h1>
+        <p class="lead">
+          「無関係な変更をしない」制約が強いタスクほど、必要以上の監査や防御的修正は時間増につながりやすい。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>タスク制約</h4>
+              <p>
+                症状→原因→修正→検証の間、無関係領域へ踏み込みにくい行動が求められる。
+              </p>
+            </div>
+            <div class="card">
+              <h4>Carbon 偏り</h4>
+              <p>
+                関連コードの“過剰な監査”や、除外された可能性にさらに対処する動きが観測された。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">品質が上がる可能性はゼロではないが、当該ベンチ条件では時間とコストを押し上げる方向に働く。</div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 16</div>
+        <p class="eyebrow">“原因名”は早い</p>
+        <h1 class="title">編集</h1>
+        <p class="lead">
+          原因の特定（名付け）は比較的早い場合があるが、その後のコード編集開始が大幅に遅れる傾向が示された。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>観測（Wait）</h4>
+              <p>
+                「原因を言語化→編集着手」の間に待ちが生まれやすい。
+              </p>
+            </div>
+            <div class="card">
+              <h4>介入（Check-in）</h4>
+              <p>
+                5ターンごとに「修正に必要な情報は揃ったか？」を自動注入すると完了までの時間が短縮。
+              </p>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="card">
+            <h4>示唆（Implication）</h4>
+            <p>
+              遅さが“知識不足”より“行動ポリシー（いつ切り替えるか）の制御”に起因する可能性を補強する。
+            </p>
+          </div>
+        </div>
+        <div class="footer-note">＝ 推論だけでなく、行動フェーズ移行の設計がボトルネックになりうる。</div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">09 / 16</div>
+        <p class="eyebrow">機械的な非効率</p>
+        <h1 class="title">再読</h1>
+        <p class="lead">
+          ツール呼び出しの回数が少ないうえ、同じコードを読み直す割合が高いことが遅さを押し上げたと推定されている。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>ツール呼び出し</h4>
+              <p>
+                ステップあたりのツール呼び出しが少なく、必要な“外部操作”が遅れやすい。
+              </p>
+            </div>
+            <div class="card">
+              <h4>再読率</h4>
+              <p>
+                再読が 39% 対 7% と大きい。情報が更新されないまま読み戻すコストが増える。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">この領域は運用戦略・実装で改善しやすい、と本文は位置づけている。</div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">10 / 16</div>
+        <p class="eyebrow">能力差でない、合成</p>
+        <h1 class="title">ギャップ</h1>
+        <p class="lead">
+          Carbon の“約1時間”と Opus / Astra の“数分”の差は、推論の遅さに加え、不要作業と機械的非効率が重なって説明できる。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>推定</h4>
+              <p>
+                少なくとも一部（約4分の1程度）の短縮余地が、運用上の改善で生まれる可能性が示唆された。
+              </p>
+            </div>
+            <div class="card">
+              <h4>結論の形</h4>
+              <p>
+                “速いモデル”ではなく、“行動の切り替え・探索の節度・実行効率”が鍵になる。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">単純なモデル乗り換えの話で終わらず、改善ポイントが見える構造。</div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">11 / 16</div>
+        <p class="eyebrow">改善レバー</p>
+        <h1 class="title">運用</h1>
+        <p class="lead">
+          ボトルネックは推論そのものだけでなく、ツール利用・再読抑制・“いつ編集に移るか”の制御にある。
+        </p>
+        <div class="content">
+          <div class="grid3">
+            <div class="card">
+              <h4>i 推論高速化</h4>
+              <p>
+                1ステップの遅延（思考時間）を縮める（モデル側 or 設計側）。
+              </p>
+            </div>
+            <div class="card">
+              <h4>ii 不要探索抑制</h4>
+              <p>
+                “監査の深さ”や防御的修正を、チケット要件に沿って制限する。
+              </p>
+            </div>
+            <div class="card">
+              <h4>iii Ops 効率</h4>
+              <p>
+                ツール呼び出し頻度を適正化し、再読（同一コードの読み戻し）を減らす。
+              </p>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="card small">
+            <h4>行動制御（Check-in）</h4>
+            <p>
+              5ターンごと等で「編集に必要な情報は揃ったか？」を確認し、フェーズ移行の待ちを圧縮する。
+            </p>
+          </div>
+        </div>
+        <div class="footer-note">用語：Check-in（チェックイン）＝所定タイミングで進捗確認を挿入する運用。</div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 16</div>
+        <p class="eyebrow">公平性と限界</p>
+        <h1 class="title">読み替え</h1>
+        <p class="lead">
+          “努力設定”や比較条件の差は結果に影響し得るため、ベンチをそのまま能力評価として使うのは危険になりうる。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>Fairness</h4>
+              <p>
+                low努力では失敗が増えるため、最適点での比較になっていない可能性がある。
+              </p>
+            </div>
+            <div class="card">
+              <h4>不要作業の解釈</h4>
+              <p>
+                “無駄”に見える監査が、将来の品質（再発防止等）に寄与している場合もある。
+              </p>
+            </div>
+          </div>
+          <div class="rule"></div>
+          <div class="card small">
+            <h4>慎重な結論</h4>
+            <p>
+              それでも“待ちの発生ポイントを具体化し、改善余地を示せる”点が実務価値として残る。
+            </p>
+          </div>
+        </div>
+        <div class="footer-note">つまり本件は「モデルの優劣」より「運用設計で時間が変わる」示唆を重視して読むのが安全。</div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide">
+      <div class="frame">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+        <p class="eyebrow">最後に：何を持ち帰る？</p>
+        <h1 class="title">要点</h1>
+        <p class="lead">
+          Carbon の遅さは「知能の劣り」より、推論の遅さ・不要作業・再読やツール運用の非効率、そして編集への切り替え制御の問題で説明できる。
+        </p>
+        <div class="content">
+          <div class="grid2">
+            <div class="card">
+              <h4>結論</h4>
+              <p>
+                改善余地は“モデル乗り換え”だけでなく、エージェントの行動設計（Check-in、探索抑制、再読抑制）にある。
+              </p>
+            </div>
+            <div class="card">
+              <h4>実務アクション</h4>
+              <p>
+                ベンチ指標（ステップ数、ツール呼び出し、再読率、編集開始までの遅延）を監視し、ボトルネックを狙って潰す。
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="footer-note">References slide相当：本文要約情報に基づくため、明示的な一次URLはここでは省略。</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.tizora.ai/insights/ai-trends/gemini-4-carbon" target="_blank" rel="noreferrer noopener">Gemini 4 Carbon: Benchmarks, Pricing &amp; Comparison | Tizora</a></h2>
+<p class="reference-note">Carbon is not first everywhere. GPT-6 Astra keeps the lead on FrontierSWE 2 (65.5% to 61.2%), and Claude Opus 5.5 leads …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.lindy.ai/blog/gemini-4-carbon-vs-claude-opus-5-5" target="_blank" rel="noreferrer noopener">Gemini 4 Carbon vs Claude Opus 5.5: Benchmarks, Cost, and Access</a></h2>
+<p class="reference-note">Artificial Analysis puts Gemini 4 Carbon at 59 on its Intelligence Index v5, ahead of Claude Opus 5.5 at 58 and GPT-6 As…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/ArtificialAnlys/status/2115494556548599953" target="_blank" rel="noreferrer noopener">Artificial Analysis on X: &quot;Gemini 4 Carbon costs $7.76 per Intelligence Index task, ~23% less than Claude Opus 5.5 (max, $10.04) but ~1.2x GPT-6 Astra (max, $6.25). It uses 123k output tokens per task, 29% fewer than Claude Opus 5.5 (max, 173k). At the same $4/$20 standard pricing, its Cost per Tas… / X</a></h2>
+<p class="reference-note">Oct 28
+
+  Gemini 4 Carbon scores 54 on AA-Omniscience, the highest of any model, 6 points ahead of Claude Opus 5.5 (max,…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.scaler.com/topics/gemini-4-carbon-vs-gpt-6-astra-vs-claude-opus-5" target="_blank" rel="noreferrer noopener">Gemini 4 Carbon vs GPT-6 Astra vs Claude Opus 5.5 - Does Gemini Actually Win?</a></h2>
+<p class="reference-note">Learn via video courses
+
+Topics Covered
+
+Short answer: on paper, barely. Gemini 4 Carbon is #1 on the Artificial Analysi…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://artificialanalysis.ai/articles/gemini-4-carbon-new-number-1" target="_blank" rel="noreferrer noopener">Gemini 4 Carbon is the new #1 on the Artificial Analysis Intelligence Index v5 | Artificial Analysis</a></h2>
+<p class="reference-note">➤ Leading AA-Omniscience v1.1 score, with low hallucination: Gemini 4 Carbon scores 54 on our recently updated AA-Omnisc…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
