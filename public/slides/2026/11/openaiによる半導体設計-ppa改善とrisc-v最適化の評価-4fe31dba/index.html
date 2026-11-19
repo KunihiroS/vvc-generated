@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>OpenAIによる半導体設計：PPA改善とRISC‑V最適化の評価</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display: block;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      margin: 18px auto;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 1px;
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 26px;
+      left: 30px;
+      letter-spacing: .16em;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 12px;
+      color: var(--rust);
+      padding-left: 0;
+      text-transform: uppercase;
+    }
+
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left: -18px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 10px;
+      height: 18px;
+      border-top: 2px solid var(--rust);
+      border-bottom: 2px solid var(--rust);
+      opacity:.75;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 26px;
+      right: 30px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 4px 0 14px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 64px;
+      line-height: 1.02;
+      margin: 0 0 14px;
+      color: var(--ink);
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      color: var(--ink);
+      font-size: 54px;
+      letter-spacing: .01em;
+    }
+
+    .lead{
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      max-width: 760px;
+      margin-top: 6px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 18px 0 18px;
+      width: 100%;
+    }
+
+    .grid{
+      display: grid;
+      gap: 14px 14px;
+      margin-top: 16px;
+      align-content: start;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(255,255,255,0.02);
+      padding: 14px 14px;
+      border-radius: 2px;
+    }
+    .label{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink-3);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .big{
+      font-size: 20px;
+      color: var(--ink);
+      line-height: 1.35;
+      margin: 0;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+      margin: 8px 0 0;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    /* keep one-column vertical deck; slides themselves are 16:9 cards */
+    @media (max-width: 720px){
+      .slide{ padding: 40px 26px; width: 100%; }
+      .slide-tag{ top: 18px; left: 18px; }
+      .slide-num{ top: 18px; right: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .title{ font-size: 46px; }
+      .title .jp{ font-size: 40px; }
+      .lead{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide" aria-label="Cover">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">チップ設計を“加速”する</div>
+      <div class="title">OpenAI <span class="jp">半導体設計</span></div>
+      <div class="lead">
+        OpenAIのモデルが、RTL（SystemVerilog等）を軸に回路レベルの改善を提案し、PPA（Power/Performance/Area）とRISC‑V性能で評価する取り組みを整理します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">評価の中心</div>
+          <p class="big">PPA改善 &amp; スループット</p>
+          <p class="small">面積・電力・性能を同時に見る</p>
+        </div>
+        <div class="cell">
+          <div class="label">評価の舞台</div>
+          <p class="big">Jalapeño / AMD / RISC‑V</p>
+          <p class="small">特定対象と汎用コアの両方</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Problem">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">“良い案”の証明</div>
+      <div class="title">難所 <span class="jp">PPA</span></div>
+      <div class="lead">
+        半導体設計は、消費電力（Power）・処理速度（Performance）・回路規模（Area）のトレードオフが強く、改善提案は“作って終わり”ではありません。
+        つまり、振る舞いの正しさを保ちつつ、EDAで性能とコストを検証する必要があります。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">正しさ</div>
+          <p class="big">RTL改変 → 振る舞い保持</p>
+          <p class="small">検証（シミュレーション等）が必須</p>
+        </div>
+        <div class="cell">
+          <div class="label">実効性</div>
+          <p class="big">PPA &amp; トレードオフ</p>
+          <p class="small">合成・評価条件の妥当性が鍵</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Metaphor">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">提案は“回路”まで</div>
+      <div class="title">AI <span class="jp">設計者化</span></div>
+      <div class="lead">
+        目標は、文章でそれっぽく語ることではなく、計算ブロックの実装（加算器・乗算器・変換・還元・ドット積など）に踏み込むことです。
+        その上で、ツール検証を通してPPAの改善を裏取りします。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">入力</div>
+          <p class="big">RTL / 仕様</p>
+        </div>
+        <div class="cell">
+          <div class="label">変換</div>
+          <p class="big">回路レベル改善案</p>
+        </div>
+        <div class="cell">
+          <div class="label">出力</div>
+          <p class="big">PPA・性能の検証</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Architecture">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">実務フローに寄せる</div>
+      <div class="title">RTL <span class="jp">書換→EDA</span></div>
+      <div class="lead">
+        モデルがSystemVerilogのRTLを書き換え、EDAツール（例：Synopsys）で振る舞い保持とPPAトレードオフを確認する流れが重要です。
+        これにより“改変の結果を検証する器”が評価の中心になります。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">1</div>
+          <p class="big">RTL改変</p>
+          <p class="small">ベクタ/マトリクス等の実装方針を見直す</p>
+        </div>
+        <div class="cell">
+          <div class="label">2</div>
+          <p class="big">EDAで検証</p>
+          <p class="small">振る舞い保持 + 面積/電力/性能の比較</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence - Jalapeno">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">Jalapeño：面積を削る</div>
+      <div class="title">ベクタ/マトリクス <span class="jp">具体改善</span></div>
+      <div class="lead">
+        Jalapeñoの計算ブロックで、ベクタユニットは標準セル面積を約13%、マトリクスユニットは約10%削減したと述べられています。
+        改善の焦点は加算器・乗算器、変換、還元、特殊関数、ドット積回路、パイプライン配分などです。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">ベクタ</div>
+          <p class="big">標準セル面積 約13%削減</p>
+          <p class="small">加算/乗算・変換・還元・特殊関数 等</p>
+        </div>
+        <div class="cell">
+          <div class="label">マトリクス</div>
+          <p class="big">標準セル面積 約10%削減</p>
+          <p class="small">ドット積・パイプライン配分 等</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evidence - AMD">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">AMD：最大14%のPPA</div>
+      <div class="title">PPA <span class="jp">トレードオフ</span></div>
+      <div class="lead">
+        AMDとの協業では最大14%のPPA改善が観測されたとされ、さらにモデルがSystemVerilog RTLを書き換える追加改善も示されています。
+        書き換え案はEDAツールで振る舞い保持とPPAトレードオフ検証を経た点が強調されています。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">観測</div>
+          <p class="big">最大14% PPA改善</p>
+          <p class="small">既存GPU IPの最適化ベースラインに対して</p>
+        </div>
+        <div class="cell">
+          <div class="label">重要点</div>
+          <p class="big">RTL改変→EDA検証</p>
+          <p class="small">Synopsys等でPPAと振る舞いを確認</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evaluation - RISC-V tasks">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">汎化を測る設計</div>
+      <div class="title">RISC‑V <span class="jp">2タスク</span></div>
+      <div class="lead">
+        評価はオープンソースのRISC‑Vコア2つ（PicoRV32、Ibex）と、2つのタスクで実施します。
+        (1)既存RTL改良でスループット増、(2)仕様からコア設計、を比較しました。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">タスク (i)</div>
+          <p class="big">既存RTL改良</p>
+          <p class="small">スループット（実効速度）を上げる</p>
+        </div>
+        <div class="cell">
+          <div class="label">タスク (ii)</div>
+          <p class="big">仕様から設計</p>
+          <p class="small">新しいコア案を生成し評価</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Evaluation - Results">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">スコア勝負：書かれた要件側</div>
+      <div class="title">最高スコア <span class="jp">平均</span></div>
+      <div class="lead">
+        約112,000トークン規模の比較予算で、GPT‑6.2 Astraが両コアに対して最高スコアの平均を示したとされます。
+        さらに、仕様から設計する方が概ね高得点になった点が述べられています。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">比較</div>
+          <p class="big">GPT‑6.2 Astra</p>
+          <p class="small">PicoRV32 / Ibex 両方で最高平均</p>
+        </div>
+        <div class="cell">
+          <div class="label">傾向</div>
+          <p class="big">仕様→設計が優勢</p>
+          <p class="small">モデルの“自由度”が得点に影響か</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Distinction - Throughput metrics">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">評価指標：命令あたり</div>
+      <div class="title">スループット <span class="jp">軸</span></div>
+      <div class="lead">
+        RISC‑V評価でスループット（命令/秒、命令/クロック、クロック周波数推定）を使うのは、コアの“実効速度”を反映しやすいからです。
+        1クロックあたりの時間が伸びれば総性能が変わるため、単なるクロック数だけでは不十分になります。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">命令/クロック</div>
+          <p class="big">IPC寄りの見方</p>
+        </div>
+        <div class="cell">
+          <div class="label">クロック周波数</div>
+          <p class="big">タイミング推定</p>
+        </div>
+        <div class="cell">
+          <div class="label">命令/秒</div>
+          <p class="big">総合の実効速度</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Limitations - Fairness and timing">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">“勝因”の読み分け</div>
+      <div class="title">限界 <span class="jp">不確実性</span></div>
+      <div class="lead">
+        記事は限界も示唆しています。仕様から設計が高得点になった理由として、性能カウンタや追加命令など“スループットに寄与しない要素”を省略できる可能性があります。
+        また、生産設計の代表性を高めるには、タイミング（物理合成後）の確認をより厳密にする余地がある、とされています。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">公平性</div>
+          <p class="big">省略できる“自由度”</p>
+          <p class="small">テストワークロードに効かない要素の扱い</p>
+        </div>
+        <div class="cell">
+          <div class="label">代表性</div>
+          <p class="big">タイミング検証の深化</p>
+          <p class="small">物理合成後の条件をどこまで見るか</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Practice - What to do">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">導入判断の観点</div>
+      <div class="title">PoC <span class="jp">の進め方</span></div>
+      <div class="lead">
+        実務としては、既存フローにAI提案を組み込むインタフェースと、検証・承認のゲート設計が重要になります。
+        また失敗時のデバッグ再現性（どこが原因か）と、トークン/計算資源/検証時間などコストも同時に評価すべきです。
+      </div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="label">設計</div>
+          <p class="big">AI→EDA→承認ゲート</p>
+          <p class="small">振る舞い保持とPPA確認を“必須化”</p>
+        </div>
+        <div class="cell">
+          <div class="label">運用</div>
+          <p class="big">再現性 &amp; コスト管理</p>
+          <p class="small">失敗原因を追える仕組みが要る</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" aria-label="Closing - Takeaway">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">結論：回路レベルへ</div>
+      <div class="title">要点 <span class="jp">まとめ</span></div>
+      <div class="lead">
+        OpenAIの取り組みは、半導体設計の“読む”段階から、RTLを書き換え検証へつなぐ段階へ進みつつある点が核です。
+        ただし、評価条件（タイミング検証の深さや仕様側の自由度）に依存するため、「どの前提で強いか」を見極める姿勢が必要です。
+      </div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="label">できること</div>
+          <p class="big">回路実装の改善案</p>
+          <p class="small">ベクタ/マトリクスで具体化</p>
+        </div>
+        <div class="cell">
+          <div class="label">確かめ方</div>
+          <p class="big">EDAでPPA検証</p>
+          <p class="small">振る舞い保持を含む</p>
+        </div>
+        <div class="cell">
+          <div class="label">注意点</div>
+          <p class="big">条件依存を読む</p>
+          <p class="small">省略自由度・タイミング</p>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://openai.com/index/advancing-chip-design-with-our-models" target="_blank" rel="noreferrer noopener">Advancing chip design with OpenAI models | OpenAI</a></h2>
+<p class="reference-note">At about 112,000 tokens per run, all five models scored higher when they designed a core from written requirements than …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://news.synopsys.com/2026-09-30-OpenAI-and-Synopsys-Announce-GPT-Synopsys-Frontier-Intelligence-to-Revolutionize-Chip-Design" target="_blank" rel="noreferrer noopener">OpenAI and Synopsys Announce GPT-Synopsys: Frontier Intelligence to Revolutionize Chip Design - Sep 30, 2026</a></h2>
+<p class="reference-note">GPT-Synopsys brings together OpenAI frontier models with Synopsys&#39; EDA technology and domain expertise, enabling the spe…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.prnewswire.com/news-releases/openai-and-synopsys-announce-gpt-synopsys-frontier-intelligence-to-revolutionize-chip-design-302894874.html" target="_blank" rel="noreferrer noopener">OpenAI and Synopsys Announce GPT-Synopsys: Frontier Intelligence to Revolutionize Chip Design</a></h2>
+<p class="reference-note">SAN FRANCISCO and SUNNYVALE, Calif., Sept. 30, 2026 /PRNewswire/ -- Synopsys (Nasdaq: SNPS) and OpenAI today announced a…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.unite.ai/synopsys-openai-sign-multi-year-deal-to-develop-gpt-synopsys-model" target="_blank" rel="noreferrer noopener">Synopsys, OpenAI Sign Multi-Year Deal to Develop GPT-Synopsys Model – Unite.AI</a></h2>
+<p class="reference-note">Under the agreement, the companies will collaborate as preferred partners to develop and deliver GPT-Synopsys, combining…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.stocktitan.net/news/SNPS" target="_blank" rel="noreferrer noopener">Synopsys (SNPS) Stock News &amp; Updates | StockTitan</a></h2>
+<p class="reference-note">## OpenAI and Synopsys Announce GPT-Synopsys: Frontier Intelligence to Revolutionize Chip Design
+
+Synopsys (SNPS) and Op…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
