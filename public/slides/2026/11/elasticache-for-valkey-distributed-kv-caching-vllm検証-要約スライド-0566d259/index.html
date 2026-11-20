@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ElastiCache for Valkey：distributed KV caching×vLLM検証（要約スライド）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height:1.35;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 48px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 16px;
+      padding: 56px 72px;
+      box-sizing: border-box;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow:hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      pointer-events:none;
+    }
+    .meta{
+      position:absolute;
+      top: 24px;
+      left: 32px;
+      right: 32px;
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      font-size: 18px;
+      color: var(--rust);
+      text-transform: uppercase;
+      border-left: 6px solid var(--rust);
+      padding-left: 14px;
+      line-height:1;
+      margin-top: 2px;
+      max-width: 62%;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 22px;
+      color: var(--ink-2);
+      opacity: 0.95;
+      white-space: nowrap;
+      margin-top: -2px;
+    }
+    .content{
+      height: 100%;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-top: 34px;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-top: 2px;
+    }
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      margin-top: -6px;
+      margin-bottom: 2px;
+    }
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      max-width: 760px;
+      margin-top: 6px;
+    }
+    .rule{
+      margin-top: 10px;
+      height:1px;
+      background: var(--rule);
+      width: 100%;
+    }
+    .grid2{
+      margin-top: 4px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+      width: 100%;
+    }
+    .grid3{
+      margin-top: 4px;
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 14px;
+      width: 100%;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: rgba(240,232,216,0.02);
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      color: var(--ink-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      font-weight: 500;
+      line-height:1.2;
+    }
+    .cell .v{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+      line-height:1.35;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink);
+      font-weight: 400;
+    }
+    .muted{
+      color: var(--ink-3);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+    }
+    .bottombar{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 34px;
+      height: 1px;
+      background: var(--rule);
+    }
+    .footnote{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 18px;
+      display:flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--ink-3);
+      font-size: 14px;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    ul{ margin: 0; padding-left: 18px; }
+    li{ margin: 6px 0; }
+    a{ color: var(--ink); text-decoration: underline; text-decoration-color: rgba(240,232,216,0.35); }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">分散KVでTTFTは縮むか</div>
+        <div class="title">ElastiCache × vLLM<span class="jp">検証</span></div>
+        <div class="lead">
+          Amazon ElastiCache for Valkey の distributed KV caching を、vLLM（GPU2台）で試し、TTFT短縮と計算削減の実効性を比較評価します。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">比較</div>
+            <div class="v">L0/L1ローカルのみ vs L2（ElastiCache）追加</div>
+          </div>
+          <div class="cell">
+            <div class="k">焦点</div>
+            <div class="v">別サーバ割当・追い出し・再起動で「再計算」が減るか</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>対象：prefix（会話先頭）が繰り返されるマルチターンSaaS</div>
+        <div>読取：TTFT / 読取元トークン内訳</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ローカルは分断される</div>
+        <div class="title">KVの所在問題</div>
+        <div class="lead">
+          KVキャッシュは通常ローカル（GPUメモリ/ホストメモリ）に置かれるため、負荷分散で別サーバに回ると同じprefixでも再計算が起きます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">原因 i</div>
+            <div class="v">別サーバ割当</div>
+          </div>
+          <div class="cell">
+            <div class="k">原因 ii</div>
+            <div class="v">追い出し（eviction）</div>
+          </div>
+          <div class="cell">
+            <div class="k">原因 iii</div>
+            <div class="v">再起動で消失</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>結果：prefillが再実行 → TTFTが伸びる</div>
+        <div>前提：prefix共有（同一テナント等）</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">同じ辞書が欲しい</div>
+        <div class="title">L2は共有棚</div>
+        <div class="lead">
+          L0/L1は各サーバの手元の辞書、L2（ElastiCache）はネット越しに引ける共有棚です。手元で見つからない時だけ棚から回収して、TTFTを縮めます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">L0/L1（ローカル）</div>
+            <div class="v">先のprefill計算済みKVを保持</div>
+          </div>
+          <div class="cell">
+            <div class="k">L2（共有）</div>
+            <div class="v">読めないKVを再利用してprefill再計算を削減</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>狙い：再計算“発生条件”を弱める</div>
+        <div>測定：TTFTと読取元トークン</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">構成と比較軸</div>
+        <div class="title">vLLM 2台×L2</div>
+        <div class="lead">
+          vLLMの推論サーバ2台で、(1) GPUローカル（L0/L1）だけ、(2) 共有ティア（L2：ElastiCache for Valkey）追加、の2条件を比較しました。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">仮説</div>
+            <div class="v">別サーバ/追い出し/再起動でKVが再利用できずTTFTが悪化</div>
+          </div>
+          <div class="cell">
+            <div class="k">反証/確認</div>
+            <div class="v">L2から読めれば、再計算が減りTTFTが短縮</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>想定：マルチテナントSaaSで同一prefixから開始</div>
+        <div>指標：TTFT p90 / 計算トークン割合</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">06 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">長い入力で効く</div>
+        <div class="title">16kが鍵</div>
+        <div class="lead">
+          特に長いプロンプト（例：16kトークン）では、L2からの読み取りに成功し、ローカルでの再計算より大幅にTTFTが改善しました。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">観測（定性的）</div>
+            <div class="v">ローカルで読めない場面でもL2が“回収”できる</div>
+          </div>
+          <div class="cell">
+            <div class="k">観測（示唆）</div>
+            <div class="v">大きいKVほど転送/回収の差が性能に反映されやすい</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>KVサイズ例：16kで約2.4GB</div>
+        <div>エビデンス：TTFT改善と読取元内訳</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">p90で差が出た</div>
+        <div class="title">TTFT p90 -43%</div>
+        <div class="lead">
+          定常負荷（複数テナント・複数ターン会話を6分）でも、TTFT p90が約43%短縮され、計算対象トークン割合も大きく減少したと報告されています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">定常（6分）</div>
+            <div class="v">TTFT p90：約43%短縮</div>
+          </div>
+          <div class="cell">
+            <div class="k">計算の削減</div>
+            <div class="v">計算対象トークン割合を大幅に低減</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>ポイント：マイクロベンチだけでなく継続負荷で確認</div>
+        <div>評価：ヒット率“だけ”ではない</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“読取元”が語る</div>
+        <div class="title">どこから読んだか</div>
+        <div class="lead">
+          L2併用では、別サーバ割当・追い出し後・再起動後といったローカルでは読めない条件でも、ElastiCache経由のKV読取に成功し、再計算を抑えたとされています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">条件 i</div>
+            <div class="v">サーバ切替（別ノード）</div>
+          </div>
+          <div class="cell">
+            <div class="k">条件 ii</div>
+            <div class="v">追い出し後（eviction）</div>
+          </div>
+          <div class="cell">
+            <div class="k">条件 iii</div>
+            <div class="v">再起動後（キャッシュ消失）</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>測定観点：TTFTと“読取元トークン内訳”</div>
+        <div>示唆：L2が再利用経路を復元</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">09 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ネットワークの勝ち負け</div>
+        <div class="title">RDMA vs TCP</div>
+        <div class="lead">
+          投稿では、KV転送量が増えるほどRDMAの優位が広がる傾向が示され、TCPはTLS・コピー等の影響で不利になりやすいと解釈されています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">大きいKV</div>
+            <div class="v">16k（約2.4GB）で差が顕在化しやすい</div>
+          </div>
+          <div class="cell">
+            <div class="k">理由（投稿の示唆）</div>
+            <div class="v">転送方式差（RDMA/EFA）とTCP上の追加コスト</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>注意：因果は推測が混じる可能性あり</div>
+        <div>前提：ネットワーク条件に依存</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">ヒットは100%じゃない</div>
+        <div class="title">万能ではない</div>
+        <div class="lead">
+          L2を足してもキャッシュから読める割合は100%にならず、新規トークンやチャンク仕様（チャンク単位の書き込みなど）の影響が残るとされています。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">残る未ヒット</div>
+            <div class="v">新規部分（会話の続きを含む）</div>
+          </div>
+          <div class="cell">
+            <div class="k">仕様の影響</div>
+            <div class="v">chunk末尾など、書かれない領域</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>実務：期待値設計（ヒット余地の見積もり）が重要</div>
+        <div>測るべき：TTFTと計算対象比率</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">11 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">効果が出る条件</div>
+        <div class="title">出やすい場面</div>
+        <div class="lead">
+          L2が効きやすいのは「ローカルではKVが読めない」場面で、特に長いプロンプトやサーバ不一致率が高い運用で効果が出やすいと示唆されます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">長い入力</div>
+            <div class="v">例：16kトークン（大きいKV）</div>
+          </div>
+          <div class="cell">
+            <div class="k">不一致</div>
+            <div class="v">負荷分散で別サーバに当たる</div>
+          </div>
+          <div class="cell">
+            <div class="k">消失後</div>
+            <div class="v">追い出し・再起動でローカル喪失</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>逆に：短いプロンプト/新規多めだとヒット余地が小さい</div>
+        <div>前提：prefix共有</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">12 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">導入判断の進め方</div>
+        <div class="title">段階的に検証</div>
+        <div class="lead">
+          有望なエビデンスではある一方、一般化には自社条件の追加検証が必要です。まずKVTrace等でヒット率見積もり→段階的な負荷試験の順が安全です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">ヒット率の見積もり（KVTrace等）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">限定条件でTTFT測定（prefix長/会話長）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">L2容量・追い出し・ネットワーク方式を含めて評価</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>注意：GPU/モデル/並列度/負荷分布で結果は変わる</div>
+        <div>目的：TTFT→スループット→コスト回収へ</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">13 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">リスクと未検証</div>
+        <div class="title">外挿の罠</div>
+        <div class="lead">
+          内部挙動の一部は推測に依存し得て、また検証は特定構成に限定されるため、別モデルサイズ・並列度・会話分布では同じ効果が出る保証がありません。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">推測が混じる</div>
+            <div class="v">LMCache/ElastiCache内部挙動は文書化が不十分な部分あり</div>
+          </div>
+          <div class="cell">
+            <div class="k">未試験</div>
+            <div class="v">GPU3台以上、複数シャード、テンソル並列、SGLang、長出力、L2満杯など</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>追加検証：自社の“失敗モード”を再現する</div>
+        <div>観点：L2満杯時・サーバ間不一致率</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">14 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">運用・監視の注意</div>
+        <div class="title">見え方が変わる</div>
+        <div class="lead">
+          CloudWatchではヒット率が直接見えずLMCacheメトリクス参照になるなど、監視・運用設計に追加の工夫が必要です。EFA/RDMA要件やバージョン整合も導入前提になります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid3">
+          <div class="cell">
+            <div class="k">監視</div>
+            <div class="v">ヒット率はLMCacheメトリクス確認</div>
+          </div>
+          <div class="cell">
+            <div class="k">依存</div>
+            <div class="v">LMCache×vLLMのバージョン整合</div>
+          </div>
+          <div class="cell">
+            <div class="k">要件</div>
+            <div class="v">RDMA/EFA対応とインスタンス制約</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>性能はネットワーク方式に左右されやすい</div>
+        <div>コスト：クラスタ維持・通信基盤が支配要因になり得る</div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="meta">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">15 / 19</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論と次の一手</div>
+        <div class="title">有望、ただし検証</div>
+        <div class="lead">
+          ローカルでは回収できないKVをElastiCacheで回収できることが、TTFT短縮（例：p90 約43%）として示されたのは大きいです。ただし条件依存性が強いので、自社条件で段階的に評価してから導入判断するのが安全です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="cell">
+            <div class="k">期待</div>
+            <div class="v">別サーバ・追い出し・再起動での再計算を抑え、TTFTを短縮</div>
+          </div>
+          <div class="cell">
+            <div class="k">安全策</div>
+            <div class="v">KVTrace等でヒット見積もり→負荷試験→L2満杯/ネット条件まで確認</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottombar"></div>
+      <div class="footnote">
+        <div>参照：AWS What’s New「distributed KV caching…」</div>
+        <div>＋ 本文：検証・考慮点・FAQに基づく整理</div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aws-news.com/article/01a1f10f-a299-e38a-a76e-1101c7b06785" target="_blank" rel="noreferrer noopener">Announcing distributed KV caching for self-hosted LLMs with Amazon ElastiCache | The AWS News Feed</a></h2>
+<p class="reference-note">- Distributed KV caching adds a shared L2 cache tier for GPU fleets to store key-value state computed during prefill pha…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aws.amazon.com/about-aws/whats-new/2026/11/announcing-distributed-kv-caching-for-self-hosted-llms-with-amazon-elasticache" target="_blank" rel="noreferrer noopener">Amazon ElastiCache now supports distributed KV caching for self-hosted LLM inference - AWS</a></h2>
+<p class="reference-note">Distributed KV caching runs on cache.i8ge.48xlarge nodes in the same Availability Zone as the GPU fleet and connects to …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=gokEqaSZvoM" target="_blank" rel="noreferrer noopener">Durability in Amazon ElastiCache for Valkey — Microsecond Latency Meets Persistence for Agentic AI</a></h2>
+<p class="reference-note">a risk. If a node fails or a failover happens or maintenance kicks in you can lose data. So traditional in-memory caches…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/CacheMetrics.Redis.html" target="_blank" rel="noreferrer noopener">Metrics for Valkey and Redis OSS - Amazon ElastiCache</a></h2>
+<p class="reference-note">View a markdown version of this page
+
+# Metrics for Valkey and Redis OSS
+
+The `AWS/ElastiCache` namespace includes the f…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://finance.yahoo.com/news/pliops-announces-collaboration-vllm-production-140000144.html" target="_blank" rel="noreferrer noopener">Pliops Announces Collaboration with vLLM Production Stack to Enhance LLM Inference Performance</a></h2>
+<p class="reference-note">Together, Pliops and the vLLM Production Stack are delivering unparalleled performance and efficiency for LLM inference.…</p>
+</article>
+</div>
+</section>
+</div>
+
+  <div style="display:none">
+    <!-- References（読取用にdeck末尾へ直接は出さない運用） -->
+  </div>
+</body>
+</html>
