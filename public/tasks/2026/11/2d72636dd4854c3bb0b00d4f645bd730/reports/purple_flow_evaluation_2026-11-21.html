@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PurpleFlow 採用評価レポート</title>
+<style>
+:root{--ink:#20182b;--muted:#655b70;--paper:#fbf9fd;--panel:#fff;--purple:#6f3cc3;--line:#ded5e8;--high:#a61b36;--med:#9a5b00;--good:#176b45}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 system-ui,-apple-system,"Noto Sans JP",sans-serif}main{max-width:1120px;margin:auto;padding:40px 24px 80px}h1{font-size:2.05rem;line-height:1.25;margin:0 0 18px;border-bottom:4px solid var(--purple);padding-bottom:12px}h2{font-size:1.45rem;margin:48px 0 16px;padding:9px 14px;border-left:6px solid var(--purple);background:#f1eafb}h3{font-size:1.08rem;margin:25px 0 8px}.meta,.note,.evidence,.verdict{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:16px 18px;margin:14px 0}.verdict{border:2px solid #b27618;background:#fff8e9}.verdict strong{font-size:1.4rem;color:#794600}.evidence{border-left:4px solid #8b69bd;font-size:.94rem}.evidence b{color:#503078}.path{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#4e287f}.quote{display:block;margin-top:7px;color:#453b4e;background:#f7f3fa;border-radius:5px;padding:8px 10px}table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.94rem}th,td{border:1px solid var(--line);padding:10px 11px;vertical-align:top}th{background:#eee7f6;text-align:left}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#eee9f2;padding:1px 4px;border-radius:4px}ul,ol{padding-left:1.35rem}.risk-high{color:var(--high);font-weight:700}.risk-med{color:var(--med);font-weight:700}.good{color:var(--good);font-weight:700}.score{font-weight:800;font-size:1.08rem;white-space:nowrap}.small{font-size:.9rem;color:var(--muted)}.flow{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#282033;color:#faf7ff;padding:16px;border-radius:8px}.tag{display:inline-block;border-radius:999px;padding:2px 9px;background:#e9ddfa;color:#4e287f;font-weight:700;font-size:.83rem}.toc li{margin:3px 0}@media(max-width:720px){main{padding:24px 13px 50px}table{display:block;overflow-x:auto}h1{font-size:1.65rem}}
+</style>
+</head>
+<body><main>
+<h1>1) 結論（採用/見送り/条件付き採用）</h1>
+<div class="meta"><b>対象:</b> GitHub <code>leetheguy/purple_flow</code>（PurpleFlow）<br><b>読み取り基準:</b> <code>master</code> commit <code>7382862df974166f69f7bcb3c9c9c40f905160ac</code>（2026-11-13）<br><b>調査日:</b> 2026-11-21　<b>方式:</b> 静的読解のみ（実行・外部サービス検証なし）</div>
+<div class="verdict"><strong>条件付き採用</strong><p>個人・信頼済みチームの自己ホスト型自動化基盤として、隔離設計を理解した上で評価導入する価値がある。一方、相互に信頼できないテナント、第三者がワークフローを書ける SaaS、強い秘密分離を必須とする本番用途には現状のまま採用しない。最大の条件は、<b>ワークフロー編集権限を本番資格情報の利用権限と同等に扱うこと</b>、Code node を信頼境界に使わないこと、Docker Compose の本番構成から外さないことである。</p></div>
+<p><b>Go 条件:</b> (1) 単一信頼ドメイン、(2) Compose 構成・runner 内部ネットワーク・read-only/cap-drop を維持、(3) agent token/MCP 認可を強い管理対象にする、(4) 本番前に実機で隔離・復旧・負荷を再現、(5) 資格情報の送信先制約を外部統制またはコード追加で補う。</p>
+<p><b>No-Go 条件:</b> 不特定ユーザーが TOML を編集できる、資格情報名を知るだけで利用可能な状態が許容できない、Code script 同士の同一 VM 共有が許容できない、監査ログ・HA・バックアップ/RPO/RTO が必須だが別途整備しない、のいずれか。</p>
+<div class="evidence"><b>根拠 — <span class="path">README.md:205–223</span></b><span class="quote">要約: runner は外部アクセス・DB・資格情報を持たない一方、「code node code can potentially interact with other code node code within the sidecar」を最大の未解決問題と明記し、効率を優先して残している。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">specs/090_workflow_files.md:34–39</span></b><span class="quote">要約: ワークフロー作者は <code>{{ creds.ANY_NAME }}</code> を HTTP node に置いて任意送信できる。per-credential allowed-host lock は未実装。</span></div>
+
+<h2>2) 深ぼるべき理由（目的・評価対象）</h2>
+<p>PurpleFlow は「AI が編集する TOML」「強力な HTTP/SSH/Postgres/Code node」「本番資格情報」「ファイル書込可能な agent/MCP」を一体化する。したがって通常のワークフロー UI より、編集者→資格情報→任意宛先という権限連鎖と、任意 Elixir 実行の隔離境界が採否を左右する。</p>
+<ul>
+<li><b>評価対象:</b> Code runner、ワークフローローダー、dufs/MCP ファイル面、credential 暗号化・展開・redaction、run file、watchdog/heart、性能主張、spec-test-code の整合。</li>
+<li><b>評価対象外/不明:</b> 実環境の reverse proxy/TLS/WAF、運用者の token 保管、Postgres のバックアップ、ホスト/カーネル堅牢化、CI の実際の直近成功状態、依存パッケージの現時点脆弱性。静的読解だけでは保証できない。</li>
+<li><b>重要な前提:</b> リポジトリ自身も「power tool」と定義し、制約を強制せず選択肢として提供する方針。その哲学は柔軟性と引き換えに誤設定耐性を下げる。</li>
+</ul>
+<div class="evidence"><b>根拠 — <span class="path">AGENTS.md:26–38</span></b><span class="quote">要約: “PurpleFlow is a power tool”; hard-coded limits や危険用途の禁止を避け、利用者の設計判断を優先する。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">README.md:402–431</span></b><span class="quote">要約: agent token と MCP 認可は workflow files の read/write を許し、workflow は資格情報を使える。つまりファイル編集権限は間接的な秘密利用権限である。</span></div>
+
+<h2>3) アーキテクチャ設計サマリ（隔離・権限・データフロー）</h2>
+<div class="flow">Internet/User/Agent
+  └─ app (Phoenix, admin/agent/MCP auth, credentials decrypt, DB access)
+       ├─ Postgres (runs + encrypted credentials) [purple_flow network]
+       ├─ files/dufs (workflow RW, .git masked)     [internal files network]
+       └─ runner TCP :4100 (source+input+steps)     [internal runner network]
+             └─ same BEAM VM shared by all Code executions
+
+workflow host dir ─ro→ app; ─rw→ dufs; runner has no mount
+run-files volume  ─rw→ app only; deleted at run end / swept at boot</div>
+<table><thead><tr><th>境界</th><th>実装</th><th>評価</th></tr></thead><tbody>
+<tr><td>Code node → app/DB/Internet</td><td>runner は専用 internal network のみ。秘密 env、DB URL、workflow mount なし。app は runner subnet 起点の HTTP を拒否。release distribution 無効。</td><td><span class="good">強い初期設計</span>。ただし Docker/host kernel escape は対象外。dev/test の in-VM runner は隔離なし。</td></tr>
+<tr><td>Code node 間</td><td>各 script は process/group leader で終了処理されるが、同一 runner VM・同一 OS namespace を共有。</td><td><span class="risk-high">未解決</span>。BEAM 内の他 process/共有状態への干渉可能性を README/TODO が認識。</td></tr>
+<tr><td>workflow files</td><td>app は read-only、dufs は read-write、runner は未 mount。<code>.git</code> は read-only tmpfs で覆う。</td><td>ホスト git hook 脱出対策を含み良い。dufs への書込権限は強権限。</td></tr>
+<tr><td>資格情報</td><td>AES-256-GCM at rest。app のみ master key 保有。Template 展開後に node へ渡し、保存結果を値一致ベースで redact。</td><td>DB dump 対策は妥当。送信先・workflow scope は未制限。短い秘密は redact されない。</td></tr>
+<tr><td>run files</td><td>UUID/UUID 形式参照、専用 volume、終了時削除、起動時全 sweep。</td><td>一時性は明確。ただしクラッシュ後再起動まで残る。永続成果物には不向き。</td></tr>
+</tbody></table>
+<div class="evidence"><b>根拠 — <span class="path">docker-compose.yml:62–99, 163–173</span></b><span class="quote">runner は秘密なし、<code>read_only</code>、tmpfs、全 capability drop、no-new-privileges、512 MB/1 CPU/256 PID、internal network のみ。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">docker-compose.yml:100–139</span></b><span class="quote">dufs は workflow volume を RW mount する一方、実 <code>.git</code> を read-only tmpfs で隠し、専用 internal network・cap-drop を使う。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">lib/purple_flow/runner/server.ex:178–245</span></b><span class="quote">各 request を process で <code>Code.eval_string</code> し、group leader を割り当て、終了後 script/leader を kill して Reaper に残存 process の削除を依頼する。</span></div>
+
+<h2>4) 主要リスク（脅威モデル、成立条件、重大度、緩和策の有無）</h2>
+<table><thead><tr><th>リスク / 脅威モデル</th><th>成立条件</th><th>重大度</th><th>既存緩和 / 残余</th></tr></thead><tbody>
+<tr><td><b>ワークフロー作者による資格情報の持出し</b></td><td>workflow 編集権限、資格情報名、HTTP/Postgres/SSH node の利用。</td><td class="risk-high">Critical</td><td>Code runner 隔離では防げない。値はログから redact されるが送信先 allowlist、credential scope、承認フローなし。最重要採用条件。</td></tr>
+<tr><td><b>Code script 相互干渉</b></td><td>同時/近接して同一 runner VM で悪意ある script と秘密を平文 input に含む script が動く。</td><td class="risk-high">High</td><td>group leader cleanup と container isolation はあるが script ごとの VM/container ではない。README と <code>specs/999_todo.md</code> に未解決として明記。</td></tr>
+<tr><td><b>runner の DoS</b></td><td>高 concurrency、無制限 timeout、64 MB×多数 request、CPU/メモリ消費 script。</td><td class="risk-high">High</td><td>container limit、step timeout（設定時）、request limit。だが workflow は <code>timeout=0</code>、runner limit は <code>0</code> で無制限にでき、全 script が 1 runner を共有する。</td></tr>
+<tr><td><b>agent token/MCP 漏えい</b></td><td>token または OAuth 接続を奪取。</td><td class="risk-high">High</td><td>MCP 接続は disconnect 可、ファイル path 制約あり。しかし workflow 書込から資格情報の任意使用へ到達できる。最小権限ではない。</td></tr>
+<tr><td><b>資格情報のログ/保存漏えい</b></td><td>秘密が input/output/error/IO に現れる、短い値、変形・エンコードされた値。</td><td class="risk-high">High</td><td><code>Redact</code> は4 byte以上の完全一致を再帰置換。4 byte未満、分割、hash/base64/変換後、Respond webhook reply は保護対象外。runner の <code>IO.puts</code> は runner log へ転送され、Code nodeに秘密を渡さない設計が前提。</td></tr>
+<tr><td><b>path traversal / symlink escape</b></td><td>悪意ある TOML/MCP path。</td><td class="risk-med">Medium</td><td><code>:filelib.safe_relative_path</code>、絶対 path 禁止、symlink 解決、MCP の <code>.</code>/<code>..</code>/backslash/NUL 拒否。専用 tests あり。TOCTOU は静的読解だけでは排除不能。</td></tr>
+<tr><td><b>run file 残留/消失</b></td><td>app crash、長時間 run、boot sweep、実行終了後参照。</td><td class="risk-med">Medium</td><td>run 終了で削除、boot 時全削除。秘密ファイルは crash から再起動まで volume に平文残留し得る。成果物は run 終了時に消える。</td></tr>
+<tr><td><b>watchdog 誤検知/無効化</b></td><td>health path 一時遅延、loopback/endpoint 異常、interval=0、heart=false。</td><td class="risk-med">Medium</td><td>3連続失敗で halt、成功で reset。無効化時、Docker は「生きたまま hang」を復旧できない。heart 無効時は VM freeze も検出不能。</td></tr>
+<tr><td><b>単一 app/runner/DB の障害</b></td><td>host/container/volume 障害。</td><td class="risk-high">High（業務本番）</td><td>restart と interrupted marking はあるが、クラスタ/HA、backup restore、RPO/RTO の実装・手順は確認できず不明。</td></tr>
+</tbody></table>
+<div class="evidence"><b>根拠 — <span class="path">lib/purple_flow/redact.ex:11–35</span></b><span class="quote">“Secrets shorter than 4 characters are left alone”; binary 文字列の完全一致を map/list 内も置換する。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">lib/purple_flow/step_task.ex:73–79</span></b><span class="quote">Respond reply は “Not redacted: the reply is what the workflow chose to send”。これは意図的な外部送信経路。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">specs/999_todo.md:14, 32</span></b><span class="quote">per-credential allowed-host locks と、runner VM 内で script 同士が見える問題が TODO。</span></div>
+
+<h2>5) 要求仕様との整合（specs/ と test/ のカバレッジ）</h2>
+<p><code>specs/</code> は overview/living 2件、implemented 24件、superseded 2件（010–270 と 999）という構成。テストは静的集計で <b>40個の <code>*_test.exs</code>、609個の <code>test/describe</code> 宣言行</b>。CI は compile warnings-as-errors、unused deps、format、docs、coverage、Hex audit、gitleaks を実施し、coverage 設定は 90% floor。ただし、本調査ではテストを実行していないため「現在すべて pass」「実測 90%以上」とは断定しない。</p>
+<table><thead><tr><th>必須観点</th><th>spec</th><th>実装</th><th>test の担保 / 判定</th></tr></thead><tbody>
+<tr><td>Code isolation</td><td><code>070</code> は superseded、<code>100</code> implemented</td><td>Compose/network/runtime 強制、runner server/reaper</td><td><code>runner_test.exs</code> は timeout・socket close・子 process cleanup・request limit。container の秘密不在/ネットワーク遮断は spec の手動 deploy tests が中心で、通常 unit test だけでは境界全体を証明しない。</td></tr>
+<tr><td>TOML 検証/paths</td><td><code>010,090,110,120</code></td><td>型、trigger、graph cycle、template ancestor、relative path/symlink を loader で検証</td><td><code>loader_test.exs</code> に traversal、absolute/symlink、100 diamonds、upload limits。良好。ただし <code>999_todo</code> は mutate survivor 7件を既知 gap と記録。</td></tr>
+<tr><td>upload/file lifecycle</td><td><code>190,260</code></td><td>max_upload と max_file_size、UUID refs、終了/boot cleanup</td><td><code>webhook_controller_test.exs</code> と <code>run_files_test.exs</code> に境界値・超過時削除・終了時削除。</td></tr>
+<tr><td>MCP/files</td><td><code>270</code></td><td>11 tool、dufs 1 request/tool、path sanitize、OAuth/agent token</td><td><code>mcp/tools_test.exs</code> が tool schema、read/write、range、encoding、path、秘密非表示を網羅。実 stack 用 <code>test/deployed/mcp_check.py</code> も存在。</td></tr>
+<tr><td>lazy load skills</td><td>専用実装 spec なし</td><td>README の運用パターン。PurpleFlow 自体は skills DB/動的注入を提供せず、workflow+webhook と外部 DB/agent onboarding で構成する説明。</td><td><b>実装担保なし/不明</b>。MCP file tools は実装済みだが、「50+ skills」「lazy load」は製品機能というより推奨アーキテクチャ。採用時に混同しない。</td></tr>
+<tr><td>credentials</td><td><code>080,200,220,230</code></td><td>AES-GCM、OAuth renew、missing stub、types、redaction</td><td>credentials/OAuth/redact/sample tests あり。host allowlist/workflow scope は仕様上 non-goal/TODO。</td></tr>
+<tr><td>watchdog/heart</td><td><code>250</code></td><td>loopback health watchdog、release script の <code>-heart</code>、Compose <code>init:true</code></td><td><code>watchdog_test.exs</code> は失敗条件/reset/offを網羅。heart/container restart は deploy/manual test 寄り。</td></tr>
+</tbody></table>
+<div class="evidence"><b>根拠 — <span class="path">.github/workflows/ci.yml:62–99</span></b><span class="quote">CI は <code>mix hex.audit</code>、compile/format/docs、<code>mix coveralls.lcov</code>、全履歴 gitleaks を実行する。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">coveralls.json:1–8</span></b><span class="quote">minimum coverage は 90。ただし UI core components と mutation task は除外。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">specs/999_todo.md:21</span></b><span class="quote">webhook controller 3件、loader 4件の mutation survivor を既知の test gap として列挙。</span></div>
+
+<h2>6) 性能主張の妥当性（README記載ベンチの根拠確認）</h2>
+<p><b>判定: 根拠資料はあるが、マーケティング主張を一般性能として採用判断に直結させてはいけない。</b></p>
+<ul>
+<li>README の「10,000 one-second jobs / 3.2 s / runner 512 MB」「n8n は100で2 GB」は <code>docs/n8n_case_study.md</code> の test log（PF-S6/S7, N-S5/S6）へ追跡でき、sample workflow/script への参照もある。数字が完全に無根拠ではない。</li>
+<li>測定は 2026-09-27、単一 cloud VM、ほぼ各条件1回、PurpleFlow は release でなく <code>mix run</code> dev、n8n は公式 image・SQLite・non-queue mode。処理単位も PurpleFlow 1 step 対 n8n 1 workflow execution で同一ではない。</li>
+<li>「200x memory efficient」は 29 KB/script と約7 MB/execution の比に対応するが、同等機能・同等永続化・同等分離の一般比較ではない。自社 workload（HTTP、DB、ファイル、長時間処理、失敗、保存量）で再測定が必要。</li>
+<li>runner 512 MBだけでなく app peak 約334–339 MB、DB は別。README の短い表現だけを「全体512 MB」と読んではならない。</li>
+</ul>
+<div class="evidence"><b>根拠 — <span class="path">README.md:301–311</span></b><span class="quote">主張値と case study / <code>samples/testing</code> へのリンク。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">docs/n8n_case_study.md:24–41</span></b><span class="quote">4 CPU/15 GB の1台、runner 512 MB/1 CPU、PurpleFlow は dev build、n8n は SQLite、各 test は原則1回。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">docs/n8n_case_study.md:172–192</span></b><span class="quote">異なる work unit、未テストの n8n queue mode、異なる node/database、one machine/mostly one run を caveat として自ら開示。</span></div>
+
+<h2>7) 運用性（復旧・監視・事故時挙動・設定の落とし穴）</h2>
+<table><thead><tr><th>項目</th><th>観察</th><th>運用判断</th></tr></thead><tbody>
+<tr><td>復旧</td><td>Compose <code>restart: unless-stopped</code>。boot 時に running run を interrupted とし、run files を sweep。run process は再起動せず副作用の再実行を避ける。</td><td>安全側だが自動 resume はない。外部 API の部分成功・冪等性は workflow 側で設計。</td></tr>
+<tr><td>watchdog</td><td>prod appのみ。30秒ごと、10秒 timeout、3連続 error/timeout/non-200 で <code>System.halt(1)</code>。成功で count reset。</td><td>約90–120秒級の検知。<code>INTERVAL=0</code> で完全無効となり、endpoint hang は Docker healthcheckだけでは再起動されない。</td></tr>
+<tr><td>heart</td><td>app と runner の release script が <code>-heart</code>、default 60秒。<code>PURPLEFLOW_HEART=false</code> で無効。Compose <code>init:true</code> が PID 1 kill 問題を回避。</td><td>VM 全 freeze 用。watchdog と補完関係であり片方の代替ではない。Compose 外では init/restart/HEART_COMMAND を再現必須。</td></tr>
+<tr><td>監視</td><td>Phoenix telemetry と <code>/health</code> はある。Compose healthcheck もある。</td><td>外部 alert、metrics export、SLO dashboard、queue saturation、runner memory/FD、credential usage audit はリポ読解で確認できず不明。</td></tr>
+<tr><td>設定</td><td>prod は runner address/subnet、DB URL、secret key base を必須化。Compose は admin creds、agent token、credential key を必須化。</td><td>良い fail-fast。<code>PURPLEFLOW_SECRET_KEY</code> 変更/紛失で既存秘密が復号不能。rotation 手順は不明。</td></tr>
+<tr><td>devとの差</td><td>runner address がなければ app VM 内実行で完全権限。admin login 未設定なら UI open。</td><td>dev を public exposure しない。dev 成功を本番隔離試験とみなさない。</td></tr>
+<tr><td>上限</td><td>upload/file default 100 MB、runner request 64 MB、いずれも0で無制限。step timeout も0で無制限。concurrency default 1000。</td><td>AGENTS 方針どおり利用者が解除可能。reverse proxy/body limit、quota、disk monitoring、workflow review を外部統制にする。</td></tr>
+<tr><td>DB</td><td>同梱 Postgres の初期 user/password は固定 <code>purple_flow</code> だが internal network。external DB compose も存在。</td><td>ネットワーク境界に依存。backup、PITR、TLS、password rotation は別途必須。</td></tr>
+</tbody></table>
+<div class="evidence"><b>根拠 — <span class="path">lib/purple_flow/watchdog.ex:35–67, 131–177</span></b><span class="quote">default 30/10/3、interval 0 は off、失敗時は retry せず連続 count、200のみ成功。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">specs/250_watchdog.md:29–39</span></b><span class="quote">heart は default 60秒、<code>HEART_COMMAND</code> がなければ VM を kill しないため default <code>true</code> を設定し、Docker restart に渡す。<code>init:true</code> が必要。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">lib/purple_flow/application.ex:30–35, 100–107</span></b><span class="quote">boot 前に run files を sweepし、停止時 running だった run は interrupted にする。</span></div>
+
+<h2>8) 追加調査リスト（次に読むべきファイル/テスト、確認方法）</h2>
+<ol>
+<li><b>隔離の動的実証（最優先）:</b> <code>specs/100_runner_container.md</code> の deployed test を Compose 実機で実行し、runner から DNS/Internet/app/DB/files/workflow mount/<code>/proc</code> の到達不能を確認。並行 script で process dictionary、ETS、registered process、IO/group leader 等の相互観測 PoC を作る。</li>
+<li><b>credential exfiltration 制御:</b> <code>specs/080_credentials.md</code>、<code>Template</code>、HTTP/Postgres/SSH node を追跡し、credential-to-host/workflow allowlist、egress proxy、approval、利用 audit の要件を決める。現状は設計上未解決。</li>
+<li><b>TOML fuzz/property test:</b> <code>lib/purple_flow/workflow/loader.ex</code> と <code>paths.ex</code> に Unicode、symlink race、深い graph、巨大 TOML、重複 webhook を投入。<code>specs/999_todo.md</code> 記載の mutation survivors を再現。</li>
+<li><b>upload 資源枯渇:</b> <code>multipart_parser.ex</code>、<code>webhook_controller.ex</code>、<code>run_files.ex</code> を読み、同時多数 upload、client abort、disk full、app kill、長時間 run、filename/content-type 攻撃を試す。volume quota と disk alert を追加評価。</li>
+<li><b>MCP 認可:</b> <code>mcp_auth_controller.ex</code>、<code>mcp/server.ex</code>、<code>mcp_connections.ex</code> と <code>test/deployed/mcp_check.py</code> を検証。token replay、OAuth state/PKCE、disconnect 即時性、複数 Claude account の既知制約を確認。</li>
+<li><b>秘密漏えい:</b> <code>credentials/oauth.ex</code>、全 Logger 呼出し、LiveView、runner IO を検索。4 byte未満、base64、substring、multiline、OAuth refresh error、HTTP library error で DB/run/log/UI に残らないか canary secret で確認。</li>
+<li><b>復旧演習:</b> app/runner/DB を SIGSTOP/SIGKILL、health endpoint を hang、disk full、DB unavailable にし、watchdog/heart/restart、interrupted marking、外部副作用重複、run file cleanup の時間軸を測る。両機構 off の影響も明示。</li>
+<li><b>ベンチ再現:</b> <code>samples/testing/README.md</code> どおりに同 commit の release image で複数回測定。app+runner+DB の総 RSS、p95/p99、失敗率、FD/PID/queue、実 workload を記録し n8n queue mode も同条件比較。</li>
+<li><b>供給網/運用:</b> <code>mix.lock</code> の audit、Docker base/dufs/Postgres の digest pin/SBOM/signature、migration rollback、DB backup restore、<code>PURPLEFLOW_SECRET_KEY</code> rotation を確認。現状 tag pin はあるが digest pin はない。</li>
+<li><b>lazy-load skills の責任分界:</b> README の概念を製品機能とみなさず、実際の skills table、onboarding skill、access control、versioning、prompt injection 対策を採用側で設計し、E2E test を別途用意。</li>
+</ol>
+<div class="evidence"><b>根拠 — <span class="path">README.md:172–193</span></b><span class="quote">lazy-loaded skills は作者の DB table と onboarding skill の利用パターンとして語られ、PurpleFlow の組込み skills loader としては提示されていない。</span></div>
+<div class="evidence"><b>根拠 — <span class="path">specs/999_todo.md:31, 43–44</span></b><span class="quote">Claude 2 account 問題、workflow 実行等の追加 MCP tools、MCP client node は未実装/将来検討。</span></div>
+
+<h2>9) スコアリング（0〜5を各観点で。採点根拠2〜3行）</h2>
+<table><thead><tr><th>観点</th><th>点</th><th>採点根拠</th></tr></thead><tbody>
+<tr><td>アーキテクチャ明瞭性</td><td class="score">4.3 / 5</td><td>app/runner/files/DB の責務と network/mount が明確で、spec とコードの対応も良い。単一 host/kernel と runner VM 共有は意図的な限界。</td></tr>
+<tr><td>Code node 隔離</td><td class="score">3.1 / 5</td><td>秘密なし専用 container、internal network、read-only/cap-drop、app subnet reject は強い。script 間分離なし、dev は無隔離、resource limit を workflow が実質無制限にできる。</td></tr>
+<tr><td>資格情報・権限</td><td class="score">2.6 / 5</td><td>AES-GCM、app限定復号、redaction、OAuth処理は良い。一方、workflow writer が任意 credential 名を任意 host に送れるため、多人数/マルチテナントでは決定的弱点。</td></tr>
+<tr><td>TOML/path/file 安全性</td><td class="score">4.0 / 5</td><td>型/graph/template/path/symlink/upload limit と tests が充実し、<code>.git</code> mount 対策も具体的。無制限設定、TOCTOU/巨大入力/既知 mutation gap は残る。</td></tr>
+<tr><td>MCP / lazy-load skills</td><td class="score">3.0 / 5</td><td>MCP の11 file tools、path制約、OAuth/token、tests は実装済み。lazy-load skills は運用パターンであり、skills catalog/loader の組込み保証はない。</td></tr>
+<tr><td>仕様・テスト品質</td><td class="score">4.2 / 5</td><td>詳細 specs、40 test files、CI quality/security gates、90% floor、既知 gap の公開は高評価。今回未実行で pass/coverage は未確認、container境界は unit test だけで保証不能。</td></tr>
+<tr><td>性能主張の証拠力</td><td class="score">3.0 / 5</td><td>case study、test IDs、samples、caveats があり追跡可能。ただし1台・少数反復・非同一work unit・異なるDB/モードで、一般化は弱い。</td></tr>
+<tr><td>運用・復旧</td><td class="score">3.2 / 5</td><td>health/watchdog/heart/restart/interrupted/run-file sweep は実装される。HA、backup/restore、外部監視、audit、key rotation、RPO/RTO は不明。</td></tr>
+<tr><td>総合採用適合性</td><td class="score">3.3 / 5</td><td>信頼済み単一チームの自己ホスト用途なら有望。強いテナント分離・秘密の用途制限・企業運用統制が必要な用途は、追加実装/外部統制なしでは不足。</td></tr>
+</tbody></table>
+<p class="small"><b>評価尺度:</b> 0=根拠なし/使用不可、1=重大欠陥、2=不足大、3=条件付きで実用、4=良好、5=十分な実証を伴う成熟。点数は静的読解時点であり、動的検証結果により上下する。</p>
+<div class="note"><b>最終意思決定:</b> 2〜4週間の限定 PoC を承認し、上記 Go 条件と追加調査 1〜8 を exit criteria にする。credential egress 制御と Code script 間分離が必須要件なら、PoC と並行して設計・実装見積りを出し、解消できなければ見送りへ変更する。</div>
+</main></body></html>
