@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>LLM自己書き換え：推論から重み編集へ</title>
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      display:flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+    .slide{
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .tag{
+      position:absolute;
+      top: 24px;
+      left: 24px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .tag::before{
+      content:"";
+      width: 14px;
+      height: 2px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+    .tag span{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      letter-spacing: 0.14em;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--rust);
+    }
+    .slide-num{
+      position:absolute;
+      top: 18px;
+      right: 22px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      color: var(--ink-2);
+      opacity: 0.95;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 0 0 10px;
+    }
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.03;
+      color: var(--ink);
+      font-style: italic;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 74px;
+    }
+    .lead{
+      margin-top: 18px;
+      font-size: 22px;
+      color: var(--ink);
+      line-height: 1.55;
+      max-width: 760px;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule-strong);
+      margin: 20px 0 18px;
+      opacity: 0.9;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+      max-width: 900px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      color: var(--ink-3);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .cell .v{
+      margin-top: 8px;
+      font-size: 19px;
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 18px;
+      margin-top: 18px;
+      max-width: 1000px;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 820px;
+      margin-top: 18px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .closing-center{
+      position:absolute;
+      inset: 0;
+      display:flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      padding-left: 0;
+    }
+    .closing-center .title{
+      font-size: 78px;
+      margin-top: 10px;
+    }
+    .refs{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 16px;
+      max-width: 900px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      padding: 12px 14px;
+      border-radius: 10px;
+    }
+    .ref-item .name{
+      font-weight: 600;
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+    .ref-item .meta{
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-size: 16px;
+      line-height: 1.45;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="Slide 1">
+      <div class="tag"><span>COVER</span></div>
+      <div class="slide-num">02 / 18</div>
+      <p class="eyebrow">推論が、重みを書き換える</p>
+      <h1 class="title">自己書き換え</h1>
+      <p class="lead">大規模言語モデルが、推論と隠れ状態の分析を根拠に、外部学習なしで自分の重みを編集する研究方向性です。</p>
+      <div class="rule"></div>
+      <p class="small">ポイント（bilingual / 日本語）: <span class="mono">Self-rewriting</span>（自己書き換え）＝学習パイプラインではなく、限定されたPython環境でテンソル編集まで行う。</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="Slide 2">
+      <div class="tag"><span>PROBLEM</span></div>
+      <div class="slide-num">03 / 18</div>
+      <p class="eyebrow">学習は終わり、改善は外へ</p>
+      <h1 class="title">固定重み</h1>
+      <p class="lead">通常のLLMは学習が終わると重みは固定で、改善はプロンプト調整・外部ツール・再学習（勾配降下）に頼ります。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">従来</div>
+          <div class="v">性能向上 = 外部（プロンプト/再学習/ツール）</div>
+        </div>
+        <div class="cell">
+          <div class="k">新提案</div>
+          <div class="v">性能向上 = モデル自身が重みを編集</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="Slide 3">
+      <div class="tag"><span>CORE IDEA</span></div>
+      <div class="slide-num">04 / 18</div>
+      <p class="eyebrow">検証で安全に、編集を選ぶ</p>
+      <h1 class="title">診断→編集→コミット</h1>
+      <p class="lead">モデルは、失敗の原因らしき内部表現を推定し、重み行列を“方向の弱め/成分の除去”のようにコードで編集して、改善だけを採用します。</p>
+      <div class="grid3">
+        <div class="cell">
+          <div class="k">診断</div>
+          <div class="v">成功/失敗の隠れ状態差を解析</div>
+        </div>
+        <div class="cell">
+          <div class="k">編集</div>
+          <div class="v">テンソルを直接書き換え提案</div>
+        </div>
+        <div class="cell">
+          <div class="k">検証</div>
+          <div class="v">同一シードのペアテストで良否判断</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="Slide 4">
+      <div class="tag"><span>ARCHITECTURE</span></div>
+      <div class="slide-num">05 / 18</div>
+      <p class="eyebrow">“権限付きPython”が要</p>
+      <h1 class="title">限定環境</h1>
+      <p class="lead">モデルには「重みを読む・書く」権限と、隠れ状態を読み取る手段、さらにテスト評価環境が与えられます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">読み取り</div>
+          <div class="v">重み・隠れ状態（success/fail差分）</div>
+        </div>
+        <div class="cell">
+          <div class="k">書き込み</div>
+          <div class="v">重み行列（層・成分への編集）</div>
+        </div>
+      </div>
+      <p class="small">重要：勾配降下や外部オプティマイザを使わず、推論とPython実行で編集方針を回します。</p>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="Slide 5">
+      <div class="tag"><span>PROCESS</span></div>
+      <div class="slide-num">06 / 18</div>
+      <p class="eyebrow">破損を積まない設計</p>
+      <h1 class="title">ロールバック</h1>
+      <p class="lead">編集のたびに改善が確認できなければロールバックし、無限に壊してしまうリスクを抑えます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">ルール</div>
+          <div class="v">悪化した編集はコミットしない</div>
+        </div>
+        <div class="cell">
+          <div class="k">根拠</div>
+          <div class="v">同一シードのペアテスト（保持/比較）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="Slide 6">
+      <div class="tag"><span>EVIDENCE</span></div>
+      <div class="slide-num">07 / 18</div>
+      <p class="eyebrow">数字：held-outで改善</p>
+      <h1 class="title">精度向上</h1>
+      <p class="lead">27B規模のモデルで、テキスト数学のheld-out問題490問に対して精度が有意に改善したとされています。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">モデル規模</div>
+          <div class="v">27B</div>
+        </div>
+        <div class="cell">
+          <div class="k">評価</div>
+          <div class="v">held-out：490問（未見問題）</div>
+        </div>
+      </div>
+      <p class="small">また、改善が確認された編集のみを段階的に積み重ねても性能低下が起きないと主張されています。</p>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="Slide 7">
+      <div class="tag"><span>COMPARISON</span></div>
+      <div class="slide-num">08 / 18</div>
+      <p class="eyebrow">壊れたモデルも戻る</p>
+      <h1 class="title">自己修復</h1>
+      <p class="lead">一部がノイズで壊れた破損モデルでも、教師あり再学習なしで元精度の80%以上を回復できたと述べられています。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">前提</div>
+          <div class="v">重みが一部ノイズで破損</div>
+        </div>
+        <div class="cell">
+          <div class="k">回復</div>
+          <div class="v">再学習なしで元精度の80%以上</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="Slide 8">
+      <div class="tag"><span>ENUMERATION</span></div>
+      <div class="slide-num">09 / 18</div>
+      <p class="eyebrow">要点：何が“価値”か</p>
+      <h1 class="title">三つ</h1>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">i / 外部なし</div>
+          <div class="v">推論とPythonテンソル編集で重みを直接改善</div>
+        </div>
+        <div class="cell">
+          <div class="k">ii / 安全手続き</div>
+          <div class="v">診断→仮説→ペアテスト→コミット/ロールバック</div>
+        </div>
+        <div class="cell">
+          <div class="k">iii / スケール依存</div>
+          <div class="v">安定に自己修復できるのは最大規模（27B）</div>
+        </div>
+        <div class="cell">
+          <div class="k">plus / 汎化</div>
+          <div class="v">テキスト数学で見つけた修復がマルチモーダルでも回復を示唆</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="Slide 9">
+      <div class="tag"><span>METAPHOR</span></div>
+      <div class="slide-num">10 / 18</div>
+      <p class="eyebrow">重み空間の“弱め”</p>
+      <h1 class="title">方向ベクトル</h1>
+      <p class="lead">成功と失敗の隠れ状態差から、「失敗を引き起こす内部表現（方向ベクトルなど）」を仮説化し、その成分を弱めます。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">仮説</div>
+          <div class="v">失敗に関わる内部表現が特定できる</div>
+        </div>
+        <div class="cell">
+          <div class="k">編集</div>
+          <div class="v">“成分の除去/方向の弱め”をコードで実行</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="Slide 10">
+      <div class="tag"><span>DISTINCTION</span></div>
+      <div class="slide-num">11 / 18</div>
+      <p class="eyebrow">小ささは壊れやすい</p>
+      <h1 class="title">スケール則</h1>
+      <p class="lead">同一系統でも、2Bは壊しがちで、4B/9Bはランダム摂動で自壊するのに対し、27Bだけが安定に自己修復できたと報告されています。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">2B</div>
+          <div class="v">破壊的に働きやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">4B / 9B</div>
+          <div class="v">ランダム摂動で自壊しやすい</div>
+        </div>
+        <div class="cell">
+          <div class="k">27B</div>
+          <div class="v">隠れ状態分析＋検証で“安全な編集”が可能</div>
+        </div>
+        <div class="cell">
+          <div class="k">含意</div>
+          <div class="v">モデル容量・表現の厚みが閾値を作る可能性</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="Slide 11">
+      <div class="tag"><span>EVIDENCE</span></div>
+      <div class="slide-num">12 / 18</div>
+      <p class="eyebrow">数学→視覚でも回復</p>
+      <h1 class="title">汎化</h1>
+      <p class="lead">テキスト数学で得た修復ルールが、学習データに含まれていない視覚・画像マルチモーダルベンチマークでも破損性能を回復したとされています。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">主張</div>
+          <div class="v">テキスト由来の編集が別領域へ転用可能</div>
+        </div>
+        <div class="cell">
+          <div class="k">注意</div>
+          <div class="v">汎化度・ベンチマーク依存・編集再利用の条件は追加情報が必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="Slide 12">
+      <div class="tag"><span>CRITIQUE</span></div>
+      <div class="slide-num">13 / 18</div>
+      <p class="eyebrow">有望だが、確定はできない</p>
+      <h1 class="title">限界</h1>
+      <p class="lead">要約レベルでは、評価手順の完全性や統計検定、再現実験、編集範囲制約、安全性対策の形式的保証が読み取れません。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">科学的</div>
+          <div class="v">どの条件で成立するか（一般性・反証可能性）が未確認</div>
+        </div>
+        <div class="cell">
+          <div class="k">安全性</div>
+          <div class="v">精度中心の改善が、毒性・偏見・幻覚の悪化と同時に起きない保証が不足</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="Slide 13">
+      <div class="tag"><span>TAKEAWAY</span></div>
+      <div class="slide-num">14 / 18</div>
+      <p class="eyebrow">次に見るべき不足</p>
+      <h1 class="title">検証項目</h1>
+      <p class="lead">結論を“画期的で有望、ただし追加の形式的評価が必須”にするには、少なくとも次を確認する必要があります。</p>
+      <div class="grid">
+        <div class="cell">
+          <div class="k">(1) 安全性</div>
+          <div class="v">毒性・偏見・敵対耐性・権限逸脱など多面的指標</div>
+        </div>
+        <div class="cell">
+          <div class="k">(2) ロールバック</div>
+          <div class="v">判定の頑健性（悪化検知の分散・閾値）</div>
+        </div>
+        <div class="cell">
+          <div class="k">(3) 編集量/層</div>
+          <div class="v">どこまで・何層を・どれだけ変えるかの制約</div>
+        </div>
+        <div class="cell">
+          <div class="k">(4) 再現性</div>
+          <div class="v">別シード・別ベンチマークでの再現</div>
+        </div>
+        <div class="cell">
+          <div class="k">(5) 解釈</div>
+          <div class="v">何が改善要因かの可視化（内部表現の検証）</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用</div>
+          <div class="v">編集コスト・必要権限・計算時間・壊れ方の振る舞い</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="Slide 14">
+      <div class="tag"><span>CLOSING</span></div>
+      <div class="slide-num">15 / 18</div>
+      <div class="closing-center">
+        <p class="eyebrow">推論エージェントの新章</p>
+        <h1 class="title">重み空間で自己更新へ</h1>
+        <p class="lead">自己書き換えは「学習と推論の壁」を越える可能性を示しますが、スケール依存と安全性評価の厳密化が決定的です。</p>
+        <div class="rule" style="width: min(760px, 100%);"></div>
+        <p class="small">（参考）ここで扱った内容は要約中心です。論文詳細で評価手順・統計・再現性・安全性を必ず確認してください。</p>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=ebrjIK85oaE" target="_blank" rel="noreferrer noopener">Language Models Can Rewrite Their Own Weights</a></h2>
+<p class="reference-note">A language model opens its own weight files, reads its hidden states, writes a small edit to layer 8, tests the change, …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://simonwillison.net/2026/Nov/3/qwen-can-interpret-model-weights" target="_blank" rel="noreferrer noopener">Qwen 3.8 27B on my laptop can interpret model weights, too</a></h2>
+<p class="reference-note">&gt;
+&gt; Likewise, asked to make Qwen3.5-0.8B better at math without gradients, Astra identifies an issue in its weights caus…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.facebook.com/photo.php?fbid=1686202419700821&amp;set=a.158570332464045&amp;type=3" target="_blank" rel="noreferrer noopener">Md Ismail Sojal on Facebook: &quot;Can an LLM understand what changing another model&#39;s weights will do without ever running that model?…&quot;</a></h2>
+<p class="reference-note">73% balanced accuracy: Qwen 27B predicted subtle weight-edit effects using direct weight access, compared with 57.8% usi…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://latent.space/p/ainews-llms-can-read-write-neural-network-weights-weight-space-programming-cuts-autoresearch-out-of" target="_blank" rel="noreferrer noopener">LLMs can read &amp; write neural network weights: &quot;Weight Space Programming&quot; cuts Autoresearch out of the RSI loop — Latent Space</a></h2>
+<p class="reference-note">MIT researchers say GPT-6 Astra improved a small Qwen model’s math score from 7.9% to 48.1% by directly editing just 0.0…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://medium.com/@adnanmasood/when-llms-edit-other-llms-weight-space-programming-and-the-conditions-for-recursive-2dceaec05403" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">Member-only story
+
+# When LLMs Edit Other LLMs: Weight-Space Programming and the Conditions for Recursive Self-Improveme…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
