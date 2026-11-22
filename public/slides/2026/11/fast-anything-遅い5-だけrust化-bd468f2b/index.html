@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fast-anything：遅い5%だけRust化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .wrap{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 24px auto 72px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position:relative;
+      padding: 56px 72px;
+      overflow:hidden;
+    }
+
+    .slide::after{
+      content:"";
+      position:absolute;
+      inset:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topbar{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 56px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      pointer-events:none;
+    }
+
+    .tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      color: var(--rust);
+      font-weight: 600;
+      line-height:1.1;
+      text-transform: uppercase;
+      padding-left: 12px;
+      border-left: 3px solid var(--rust);
+      margin-top: 2px;
+      pointer-events:none;
+      white-space:nowrap;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      line-height:1.1;
+      pointer-events:none;
+      white-space:nowrap;
+    }
+
+    .content{
+      position:absolute;
+      left: 72px;
+      right: 72px;
+      top: 56px;
+      bottom: 56px;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      gap: 14px;
+    }
+
+    .eyebrow{
+      margin-top: 34px;
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+    }
+
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 1.0;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      font-style: italic;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 46px;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+
+    .lead{
+      margin-top: 8px;
+      font-size: 22px;
+      line-height: 1.55;
+      color: var(--ink);
+      max-width: 760px;
+    }
+
+    .grid{
+      width:100%;
+      margin-top: 10px;
+      display:grid;
+      gap: 14px;
+      align-items:start;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: rgba(240,232,216,0.02);
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+
+<body>
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+  <div class="wrap">
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover slide 1">
+      <div class="topbar">
+        <div class="tag">Cover</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">遅い一部だけ移植</div>
+        <h1 class="title">fast-anything</h1>
+        <div class="lead">大規模アプリを全面的に Rust 化せず、ボトルネックの“遅い部分”だけを部分移植します。実データで同等性（値一致）を確かめてから差し替えます。</div>
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">鍵</div>
+            <div class="v">Proof, not vibes（証拠）</div>
+          </div>
+          <div class="cell">
+            <div class="k">目的</div>
+            <div class="v">速い・安全・可逆</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem slide 2">
+      <div class="topbar">
+        <div class="tag">Problem</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">全面移行は重い</div>
+        <h2 class="title"><span class="jp">なぜ</span>難しい</h2>
+        <div class="lead">全面 Rust 化はコスト（移行・検証・運用）が大きく、回帰リスクも増えがちです。そこで狙うのは「遅い一部だけを、元と一致させて差し替える」現実解です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">よくある失敗</div>
+            <div class="v">正しそうだが遅い / 稀な入力で壊れる</div>
+          </div>
+          <div class="cell">
+            <div class="k">必要条件</div>
+            <div class="v">値一致の検証＋差し替えの可逆性</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="architecture slide 3">
+      <div class="topbar">
+        <div class="tag">Architecture</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">段階的・可逆</div>
+        <h2 class="title">scan→port→verify</h2>
+        <div class="lead">fast-anything は、時間がかかる関数を特定し、Rust クレートを生成し、記録した呼び出しをリプレイして一致確認します。有効化は `enable`、戻すのは `disable` です。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">scan</div>
+            <div class="v">プロファイルで候補をランキング</div>
+          </div>
+          <div class="cell">
+            <div class="k">port</div>
+            <div class="v">最大500件の呼び出しを記録→1関数だけ移植</div>
+          </div>
+          <div class="cell">
+            <div class="k">verify</div>
+            <div class="v">リプレイして値・境界条件・エラー一致</div>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:12px;">
+          <div class="cell">
+            <div class="k">enable</div>
+            <div class="v">条件を満たしたときだけ差し替え</div>
+          </div>
+          <div class="cell">
+            <div class="k">disable</div>
+            <div class="v">局所的に元へ戻す（リスク管理）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="enumeration slide 4">
+      <div class="topbar">
+        <div class="tag">Workflow</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">“どれを”決める</div>
+        <h2 class="title">移植対象の選定</h2>
+        <div class="lead">候補は「時間へのインパクト × 移植しやすさ」でランキングされます。コアは“外側ループを Rust 側へ運ぶ”ことで、Rust への呼び出し回数を減らす点です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">ポイント</div>
+            <div class="v">インパクトが大きい“外側のループ相当”を狙う</div>
+          </div>
+          <div class="cell">
+            <div class="k">注意</div>
+            <div class="v">内側だけ移植すると FFI 往復で遅くなり得る</div>
+          </div>
+        </div>
+        <div class="small mono" style="margin-top:auto;">scan → port [id] → verify → enable / disable</div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="evidence slide 5">
+      <div class="topbar">
+        <div class="tag">Evidence</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">値一致で判定</div>
+        <h2 class="title">“同じ結果”</h2>
+        <div class="lead">バイト列一致ではなく、計算結果としての同等性を重視します。浮動小数は許容誤差（例：1e-9）内で比較し、エラーや境界値も一致させます。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">浮動小数</div>
+            <div class="v">許容誤差 1e-9、NaN / ±infinity / -0.0 も対象</div>
+          </div>
+          <div class="cell">
+            <div class="k">境界条件</div>
+            <div class="v">エラーの種類・発生条件、非ASCII、空/最大など</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="process slide 6">
+      <div class="topbar">
+        <div class="tag">Testing</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">記録＋追加生成</div>
+        <h2 class="title">検証を厚くする</h2>
+        <div class="lead">最大500件の“実際の呼び出し”を記録します。加えて、tiny / random slices や境界入力を追加して、単なるリグレッション固定を避けます。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">実呼び出し</div>
+            <div class="v">最大 500 件（portの対象関数1つ）</div>
+          </div>
+          <div class="cell">
+            <div class="k">追加ケース</div>
+            <div class="v">tiny / random slices（入力サイズ縮小）</div>
+          </div>
+          <div class="cell">
+            <div class="k">狙い</div>
+            <div class="v">稀な落とし穴（境界・文字・例外）を拾う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="distinction slide 7">
+      <div class="topbar">
+        <div class="tag">Distinction</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">正しさだけでは不十分</div>
+        <h2 class="title">遅くなるなら無効</h2>
+        <div class="lead">移植結果が正しくても、FFI 往復コストや呼び出し回数次第で遅くなることがあります。fast-anything は「速くないポートは有効化しない」方針です。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">理屈</div>
+            <div class="v">Rust 呼び出し回数が増えると境界往復が支配</div>
+          </div>
+          <div class="cell">
+            <div class="k">運用</div>
+            <div class="v">性能逆転を検知→差し替えを見送る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="comparison slide 8">
+      <div class="topbar">
+        <div class="tag">Comparison</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">内側 vs 外側</div>
+        <h2 class="title">効果は移植単位</h2>
+        <div class="lead">ベンチマークでは、内側のレベンシュタイン“計算だけ”より、外側ループを移植した方が大きく速くなりやすいと説明されています。理由は Rust 側へ呼ぶ回数が激減するためです。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">内側だけ</div>
+            <div class="v">呼び出し頻度が高く、FFI 往復が増えがち</div>
+          </div>
+          <div class="cell">
+            <div class="k">外側ループ</div>
+            <div class="v">境界往復をまとめ、実効性能が伸びやすい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="evidence slide 9">
+      <div class="topbar">
+        <div class="tag">Results</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">実測で示す</div>
+        <h2 class="title">fuzzy dedupe</h2>
+        <div class="lead">提示例では、Python / TypeScript / PHP / Go / Ruby / C# / JavaScript などの「fuzzy dedupe」系処理で大幅な高速化が示されています。Java は JVM 起動コストの影響が出る可能性も言及されています。</div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">対象例</div>
+            <div class="v">fuzzy dedupe 系</div>
+          </div>
+          <div class="cell">
+            <div class="k">言語例</div>
+            <div class="v">Python / TS / PHP / Go / Ruby / C# / JS</div>
+          </div>
+          <div class="cell">
+            <div class="k">補足</div>
+            <div class="v">Java は起動コストが影響し得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="architecture slide 10">
+      <div class="topbar">
+        <div class="tag">FFI</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">クロス言語設計</div>
+        <h2 class="title">Cブリッジ方式</h2>
+        <div class="lead">fast-anything は FFI で Rust 側を呼びます。C の入口関数 1つを JSON の入出力で接続し、各言語から共通のブリッジ経由で呼び出す方式が採用されています。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">接続</div>
+            <div class="v">FFI → Rust ライブラリ（Cの入口 + JSON）</div>
+          </div>
+          <div class="cell">
+            <div class="k">成否要因</div>
+            <div class="v">Rust化の単位／検証条件／遅くなるケースの扱い</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="process slide 11">
+      <div class="topbar">
+        <div class="tag">Risk</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">導入時の論点</div>
+        <h2 class="title">保証の限界</h2>
+        <div class="lead">検証は強いですが、完全保証ではありません。記録期間の入力分布が代表的でない場合や、長期運用特有の並行性・タイミング依存のバグは検知しきれない可能性があります。</div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">要確認</div>
+            <div class="v">記録期間の代表性、稀入力、並行負荷、巨大データの上限</div>
+          </div>
+          <div class="cell">
+            <div class="k">設計上の注意</div>
+            <div class="v">JSON/シリアライズが支配してメリットが縮む場合も</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:auto;">（SYCL / デバイス実行はホスト関数側が対象で、期待効果が限定され得る）</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing slide 12">
+      <div class="topbar">
+        <div class="tag">Closing</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論</div>
+        <h2 class="title">5%だけRust化</h2>
+        <div class="lead">fast-anything は「部分移植＋実データ検証＋可逆な差し替え」で、雰囲気最適化を避けるアプローチです。導入では“どの関数を移植するか”と“検証の代表性”を押さえることが重要です。</div>
+        <div class="grid two" style="margin-top:auto;">
+          <div class="cell">
+            <div class="k">得られるもの</div>
+            <div class="v">同等性の根拠（値一致）と性能安全性（遅ければ無効）</div>
+          </div>
+          <div class="cell">
+            <div class="k">次の一手</div>
+            <div class="v">scanで候補を絞り、verifyログを見て enable を判断</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=iNlojWoflws&amp;vl=fr" target="_blank" rel="noreferrer noopener">rust-anything GitHub Overview: Verify Rust Ports Against Legacy Behavior</a></h2>
+<p class="reference-note">🔄 Record, Port, Check, and Lift
+🧩 Division and text-encoding semantics
+🦀 FFI bridging for incremental Rust ports
+📏 Repla…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=-wVJ2nPOtuY" target="_blank" rel="noreferrer noopener">Blazing Fast, Minimal Change - Speed up Your Code by Refactoring to Rust</a></h2>
+<p class="reference-note">you know how your system is actually performing under load alrighty so we&#39;ve gone through quite a bit in in kind of a sh…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://google.github.io/comprehensive-rust/ja/comprehensive-rust.pdf" target="_blank" rel="noreferrer noopener">Comprehensive Rust - Google</a></h2>
+<p class="reference-note">からconst i8: C 関数を呼び出すためのポインタが必要です。 • const i8 から&amp;CStr: 末尾の\0 文字を検出できるものが必要です。 • &amp;CStr から&amp;[u8]: バイトのスライスは 「不明なデータ」 用の汎用的な…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/smarr/are-we-fast-yet" target="_blank" rel="noreferrer noopener">GitHub - smarr/are-we-fast-yet: Are We Fast Yet? Comparing Language Implementations with Objects, Closures, and Arrays · GitHub</a></h2>
+<p class="reference-note">## Goal
+
+The goal of this project is to assess whether a language implementation is highly optimizing and thus able to r…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://x.com/superdoccimo/status/2120039892487221532" target="_blank" rel="noreferrer noopener">美濃加茂まむ on X: &quot;【一次情報確認済み・日本語圏で詳細解説はまだ少ない】Craft Anything：任意のソフトを調べて自分の版をAIに作らせる純Rustのクリーンルームエンジン 2026年11月10日時点で、GitHubのstorytold/craft-anythingが海外で急上昇している。公開は10月末頃、スターは約2.5万規模で、日次で数千単位の増加を記録する日もある。純Rust製のオープンソース・クリーンルーム逆解析＋再構築エンジンで、ウェブサイト・デスクトップアプリ・ゲームなどを調べ、コーディングエージェントに「自分の版」を作らせ、結果を比較して洗練するループを回す。… / X</a></h2>
+<p class="reference-note">roomで調べ、自分のスタックで再実装の出発点を得られる。evidenceが残るので「なぜそう動くか」の根拠を後から追える。 - \\エージェントワークフロー\\：MCP/CLIで既存のClaude CodeやCodexセッションから呼べる…</p>
+</article>
+</div>
+</section>
+</body>
+</html>
