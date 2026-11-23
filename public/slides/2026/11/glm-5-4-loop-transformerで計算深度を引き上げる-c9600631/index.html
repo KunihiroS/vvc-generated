@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GLM-5.4：Loop Transformerで計算深度を引き上げる</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.45;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide-tag{
+      position: absolute;
+      top: 26px;
+      left: 34px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      letter-spacing: 0.18em;
+      font-size: 14px;
+      color: var(--rust);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 34px;
+      height: 0;
+      border-top: 2px solid rgba(232,129,74,0.55);
+      transform: translateY(2px);
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 26px;
+      right: 34px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 26px;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin-bottom: 10px;
+      letter-spacing: 0.01em;
+      position: relative;
+    }
+
+    .title{
+      font-size: 70px;
+      line-height: 1.02;
+      margin: 0 0 16px;
+      font-weight: 500;
+      font-family: "Cormorant Garamond", serif;
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+
+    .jp-title{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 600;
+      font-size: 54px;
+      margin: -8px 0 16px;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      max-width: 760px;
+    }
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 16px 0 18px;
+      width: 100%;
+    }
+
+    .grid2{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 26px;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 16px 16px 14px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.06);
+    }
+    .cell h4{
+      margin: 0 0 8px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-2);
+      font-weight: 600;
+    }
+    .cell p{
+      margin: 0;
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink);
+    }
+
+    .grid3{
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      width: 100%;
+      margin-top: 14px;
+    }
+    .mini{
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+
+    .mono{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 500;
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 44px 22px; border-width: 12px; }
+      .slide-tag{ top: 18px; left: 18px; font-size: 12px; }
+      .slide-num{ top: 18px; right: 18px; font-size: 22px; }
+      .title{ font-size: 52px; }
+      .jp-title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="content">
+        <div class="eyebrow">Loopで深さを稼ぐ</div>
+        <div class="title">GLM-5.4 <em>Loop</em> Transformer</div>
+        <div class="rule"></div>
+        <div class="lead">
+          Z.aiの発表「GLM-5.4: Toward Generalized Coding with Our First Loop Transformer」は、反復で計算深度を引き上げつつ、
+          Generalized Coding（一般化されたコーディング）へ踏み出す設計を示します。
+          <span style="color: var(--ink-3); font-weight:300;">（用語：Loop Transformer＝反復実行型 / 一般化コーディング＝コード起点で多領域へ拡張）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="content">
+        <div class="eyebrow">反復は紙一重</div>
+        <div class="title">ループは万能<em>ではない</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          パラメータ数を増やさず「推論を深くする」には反復が有効ですが、
+          そのまま回すと隠れ状態の分布が崩れ、精度が落ちるリスクがあります。
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>狙い</h4>
+            <p>重み共有（同じ層ブロックを反復）で <span class="mono">計算深度</span> を増やす。</p>
+          </div>
+          <div class="cell">
+            <h4>落とし穴</h4>
+            <p>隠れ状態が暴れると、以降の層が期待分布から外れる。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="content">
+        <div class="eyebrow">同じ式を<em>推敲</em></div>
+        <div class="title">一次稿→<em>改稿</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          Loop Transformerは、同じ変換（同じ重み）を複数回通して“修正”します。<br/>
+          1回目で保守的に文脈を作り、2回目でより大きく更新する役割分担を学習させます。<br/>
+          <span style="color: var(--ink-3); font-weight:300;">（逐次更新＝Sequential update / ゲート＝Gateで更新量を調整）</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="content">
+        <div class="eyebrow">2ループの実装</div>
+        <div class="title">28層<em>×</em>2回</div>
+        <div class="rule"></div>
+        <div class="lead">
+          GLM-5 base（28層）を2回反復する構成で、単純な反復が引き起こす隠れ状態の崩れを
+          <span class="mono">ゲート付きの逐次更新</span>で抑える方針が述べられています。
+        </div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>Loop i</h4>
+            <p>文脈を <span class="mono">保守的</span> に整える。</p>
+          </div>
+          <div class="cell">
+            <h4>Gate</h4>
+            <p>トークンごとに更新量を <span class="mono">制御</span>。</p>
+          </div>
+          <div class="cell">
+            <h4>Loop i+1</h4>
+            <p>段階的に <span class="mono">より大きく</span> 更新。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="content">
+        <div class="eyebrow">“計算深度”で殴る</div>
+        <div class="title">iso-parameter比較</div>
+        <div class="rule"></div>
+        <div class="lead">
+          30Bモデルでの iso-parameter ablation により、同等パラメータ条件で性能改善が狙えることを示しつつ、
+          訓練計算は約10%増として説明されています。
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>比較軸</h4>
+            <p><span class="mono">同等パラメータ</span>（iso-parameter）</p>
+          </div>
+          <div class="cell">
+            <h4>追加コスト</h4>
+            <p>訓練計算：約 <span class="mono">+10%</span></p>
+          </div>
+        </div>
+        <div class="lead" style="margin-top:14px;">
+          改善は数学・科学的推論、そして長文コンテキストで大きいと主張されています。
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="content">
+        <div class="eyebrow">反復の副作用</div>
+        <div class="title">速度とメモリ<em>が問題</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          反復すると、通常はKVキャッシュや注意計算が重くなります。そこでGLM-5.4は2ループ目の追加コストを、
+          “フルのコンテキストキャッシュ”ではなくスライディングウィンドウ相当へ抑える設計を提示します。
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>素朴な反復</h4>
+            <p>ループごとに注意計算＆キャッシュ増加。</p>
+          </div>
+          <div class="cell">
+            <h4>GLM-5.4の工夫</h4>
+            <p>2ループ目を <span class="mono">スライディングウィンドウ</span> 相当で抑制。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="content">
+        <div class="eyebrow">KVとインデックス再利用</div>
+        <div class="title">オーバーヘッド<em>最小化</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          sparse attention前提で、2ループ目が1ループ目のインデックスを再利用できる点も、
+          オーバーヘッドを“ゼロに近づける”仕組みとして説明されています。
+        </div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>KVキャッシュ</h4>
+            <p>2ループ目の追加を抑える。</p>
+          </div>
+          <div class="cell">
+            <h4>Sparse attention</h4>
+            <p>計算対象を限定。</p>
+          </div>
+          <div class="cell">
+            <h4>Index再利用</h4>
+            <p>ループ跨ぎで再計算を減らす。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="content">
+        <div class="eyebrow">“マラソン”の警告</div>
+        <div class="title">止まらない<em>思考</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          改善があっても、反復を無制限に回すと「マラソン思考（長すぎる反省・自己修正）」に陥りやすいとされます。
+          したがって適応的計算（難しいトークンだけ反復を増やす）が課題として明示されています。
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>残る問題</h4>
+            <p>応答時間・推論コスト・暴走リスク。</p>
+          </div>
+          <div class="cell">
+            <h4>次の焦点</h4>
+            <p><span class="mono">動的に</span>反復回数を最適化。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="content">
+        <div class="eyebrow">“思考の文章”の短さ</div>
+        <div class="title">深さは内部で<em>効く</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          反復の結果、出力トークンが長くなるよりも、ループ内部の深さが効いているように見える——という評価上の見立てがあります。
+          長い自己修正が必ずしも悪ではなく、パラメータ増なしで精度を押し上げる可能性も述べられています。
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="content">
+        <div class="eyebrow">コード起点で拡張</div>
+        <div class="title">Generalized <em>Coding</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          最終的には「コードを書くことを核」として、動画生成・ゲーム・3D設計・機械設計などへ能力を広げる段階だと位置づけられています。
+          <span style="color: var(--ink-3); font-weight:300;">（一般化コーディング：コードから多領域制作へ連鎖）</span>
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>核</h4>
+            <p>コード生成（Code）</p>
+          </div>
+          <div class="cell">
+            <h4>拡張先</h4>
+            <p>動画 / ゲーム / 3D / 機械設計</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="content">
+        <div class="eyebrow">良さと不確かさ</div>
+        <div class="title">説得力は<em>ある</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          技術要素（ゲート、KV設計、インデックス再利用）は反復の副作用に筋が通っています。
+          一方で、比較の公平性（ベンチマーク、統計、推論条件）や停止制御が要約からは検証しにくく、
+          恒常的な“一般化コーディングの成立”は追加詳細次第です。
+        </div>
+        <div class="grid2">
+          <div class="cell">
+            <h4>強み</h4>
+            <p>反復の痛点を設計で潰す。</p>
+          </div>
+          <div class="cell">
+            <h4>注意点</h4>
+            <p>設定依存・停止性・安全ハードニングは不明。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="content">
+        <div class="eyebrow">次に見るべき</div>
+        <div class="title">Loopは<em>実装勝負</em></div>
+        <div class="rule"></div>
+        <div class="lead">
+          GLM-5.4は、パラメータ増なしで計算深度を上げる道筋を示しつつ、ゲート・KV・sparse index再利用で運用可能性を狙っています。
+          次は適応的反復（停止条件）と、比較の再現性・安全面の詳細が決定打になります。
+        </div>
+        <div class="grid3">
+          <div class="cell">
+            <h4>鍵01</h4>
+            <p>ゲート付き逐次更新</p>
+          </div>
+          <div class="cell">
+            <h4>鍵02</h4>
+            <p>KV / index の効率化</p>
+          </div>
+          <div class="cell">
+            <h4>鍵03</h4>
+            <p>停止性と適応的計算</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://zhuanlan.zhihu.com/p/2101021325942854222" target="_blank" rel="noreferrer noopener">Looped Transformer：发展历程、数学直觉、核心问题与研究版图 - 知乎</a></h2>
+<p class="reference-note">早期的循环模型可能为每轮保留独立 KV cache，使内存随循环深度增长。MELT 用共享 cache 和可学习更新，尝试把循环计算与缓存内存解耦。\ Shared Memory 发现，在其训练设置中，首轮写共享缓存、后轮读取并保留短局部窗…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://baike.baidu.com/ja/item/GLM-5/1154805" target="_blank" rel="noreferrer noopener">GLM-5（ジープが発表した新世代の基盤モデル）_百度百科</a></h2>
+<p class="reference-note">9
+
+2026年2月、GLM-5は既にz.aiの公式ウェブサイトで公開されており、紹介文では最新のフラッグシップ対話、プログラミング、エージェントモデルとされている。これまでの情報によれば、DeepSeek-V3/V3.2と同じ技術路線、す…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://ja.wikipedia.org/wiki/%E5%A4%A7%E8%A6%8F%E6%A8%A1%E8%A8%80%E8%AA%9E%E3%83%A2%E3%83%87%E3%83%AB" target="_blank" rel="noreferrer noopener">大規模言語モデル - Wikipedia</a></h2>
+<p class="reference-note">各パラメータは以下の通り。
+
+ {\displaystyle C_{0}=6}、すなわち、1つのトークンで訓練するにはパラメータごとに6 FLOPsの費用がかかる。自動微分において、フォワードが積和演算なので2 FLOPs、リバースが4 F…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tavily.com/knowledge/company/ns1DZenGkRsm" target="_blank" rel="noreferrer noopener">Z.ai for Startups</a></h2>
+<p class="reference-note"># Z.ai for Startups
+ID: ns1DZenGkRsm
+Website: www.startup.z.ai
+Headquarters: Silicon Valley, United States
+LinkedIn: www…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.mapquest.com/us/texas/universal-transformer-company-9122091" target="_blank" rel="noreferrer noopener">Universal Transformer Co, 411 Welch Dr, Farmersville, TX 75442-3415, US - MapQuest</a></h2>
+<p class="reference-note">Advertisement
+
+Advertisement
+
+Partial Data by Foursquare.
+
+Partial Data by Infogroup © 2026. All rights reserved. [...] …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
