@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Docker：エージェント時代の「信頼」を担保する再定義</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      line-height: 1.45;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 20px 0 80px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border: 20px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      padding: 56px 72px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute; inset:0;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute;
+      left: 72px; right: 72px; top: 26px;
+      height: 1px; background: var(--rule);
+    }
+
+    .slide-tag{
+      position:absolute;
+      left: 72px; top: 36px;
+      font-family: "Inter Tight", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--ink-2);
+      font-size: 12px;
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 18px; height: 2px;
+      background: var(--rust);
+      opacity: 0.95;
+    }
+
+    .slide-num{
+      position:absolute;
+      right: 72px; top: 36px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-2);
+      font-size: 20px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      margin-top: 42px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+    }
+
+    .title{
+      margin: 10px 0 14px 0;
+      font-family: "Cormorant Garamond", serif;
+      font-weight: 500;
+      font-size: 72px;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      line-height: 1.02;
+      font-style: italic;
+    }
+    .jp-em{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 600;
+      font-size: 56px;
+      color: var(--rust);
+      line-height: 1.06;
+      margin-right: 8px;
+      vertical-align: baseline;
+    }
+
+    .lead{
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule);
+      margin: 18px 0;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240, 232, 216, 0.03);
+      min-height: 76px;
+    }
+    .cell .k{
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: var(--ink-3);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      font-size: 13px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 16px;
+      color: var(--ink-3);
+    }
+
+    .closing-center{
+      position:absolute;
+      left: 72px; right: 72px;
+      bottom: 72px;
+      display:flex;
+      flex-direction: column;
+      gap: 16px;
+      align-items:flex-start;
+    }
+
+    .center-block{
+      max-width: 820px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" style="padding:56px 72px;">
+      <div class="slide-tag">Docker / Rebrand</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="eyebrow">Run on trust（信頼で動かす）</div>
+      <div class="title">信頼で</div>
+      <div class="lead">
+        Dockerは2026年11月19日に新ブランドをローンチし、中心テーマを「エージェント時代の信頼（trust）」として再定義します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">軸</div>
+          <div class="v">Agentic AI × Governance</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">統制を損なわず活用</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-tag">Problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="eyebrow">なぜ今「信頼」か</div>
+      <div class="title"><span class="jp-em">信頼</span>の欠如</div>
+      <div class="lead">
+        エージェントは状況を見て判断し、外部アクセスや変更を行います。だから「安全・統治・制御」を失わずに使えるかが本質になります。
+      </div>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">問い i</div>
+          <div class="v">安全を保ったまま活用できるか</div>
+        </div>
+        <div class="cell">
+          <div class="k">問い ii</div>
+          <div class="v">統治（governance）を組み込めるか</div>
+        </div>
+        <div class="cell">
+          <div class="k">問い iii</div>
+          <div class="v">信頼できる状態にできるか</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-tag">Context</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="eyebrow">コンテナの強み</div>
+      <div class="title">継承</div>
+      <div class="lead">
+        Dockerは「どこでも同じように動く」移植性・再現性で10年以上の信頼を獲得してきたと主張します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">レガシー</div>
+          <div class="v">再現性・標準化は継続</div>
+        </div>
+        <div class="cell">
+          <div class="k">宣言</div>
+          <div class="v">コンテナ中心のコミットは変えない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-tag">Core</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="eyebrow">Workloadではない</div>
+      <div class="title">Actor</div>
+      <div class="lead">
+        コンテナは従来の「処理実行（workload）」向け。エージェントは「判断・アクセス・変更」を伴う行為者（actor）です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">Workload</div>
+          <div class="v">手順どおりに回る</div>
+        </div>
+        <div class="cell">
+          <div class="k">Actor</div>
+          <div class="v">状況で振る舞いが変わる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-tag">Shift</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="eyebrow">必要なガードレール</div>
+      <div class="title">隔離 / 統制</div>
+      <div class="lead">
+        エージェントの自律性が増えるほど、セキュリティ、隔離（isolation）、ガバナンス（governance）が従来以上に重要になります。
+      </div>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">Security</div>
+          <div class="v">権限暴走・サプライチェーン対策</div>
+        </div>
+        <div class="cell">
+          <div class="k">Isolation</div>
+          <div class="v">ホストや他実行からの分離</div>
+        </div>
+        <div class="cell">
+          <div class="k">Governance</div>
+          <div class="v">ポリシー・監査・制御</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-tag">Brand</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="eyebrow">変えない約束</div>
+      <div class="title">安心</div>
+      <div class="lead">
+        レガシーを捨てない姿勢、オープン性、開発者優先、シンプルさを先に示し、ブランド変更の心理的コストを下げます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">伝えること</div>
+          <div class="v">「捨てない」「壊さない」</div>
+        </div>
+        <div class="cell">
+          <div class="k">意味</div>
+          <div class="v">既存顧客の不安を抑える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-tag">Metaphor</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="eyebrow">Moby進化</div>
+      <div class="title">Whale sized</div>
+      <div class="lead">
+        Dockerの象徴であるMobyを「whale sized（クジラ級）」として再デザインし、「Dockerはコンテナだけではない」を外へ強く示します。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">象徴</div>
+          <div class="v">Moby（愛称）再デザイン</div>
+        </div>
+        <div class="cell">
+          <div class="k">狙い</div>
+          <div class="v">領域拡張のメッセージ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-tag">Evidence</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="eyebrow">実装の入口</div>
+      <div class="title">Sandboxes</div>
+      <div class="lead">
+        Docker SandboxesはマイクロVMとして説明され、コンテナではなく「分離された実行環境」を提供する方向です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">特徴 i</div>
+          <div class="v">各サンドボックス独自カーネル</div>
+        </div>
+        <div class="cell">
+          <div class="k">特徴 ii</div>
+          <div class="v">プライベートな Docker Engine</div>
+        </div>
+        <div class="cell">
+          <div class="k">特徴 iii</div>
+          <div class="v">ホスト経路がない設計</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-tag">Architecture</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="eyebrow">統制を掛ける</div>
+      <div class="title">AI Governance</div>
+      <div class="lead">
+        Docker AI Governanceは、サンドボックスのネットワークやファイルアクセスをポリシーで統制し、監査の可視性も扱うとされています。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">統制対象</div>
+          <div class="v">Network / Fileアクセス</div>
+        </div>
+        <div class="cell">
+          <div class="k">運用要素</div>
+          <div class="v">監査可視性・MCPガバナンス</div>
+        </div>
+      </div>
+      <div class="small" style="margin-top:10px;">
+        MCP（Model Context Protocol）の組織横断統制に言及あり。
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-tag">Distinction</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="eyebrow">何が違う</div>
+      <div class="title">Trustの中身</div>
+      <div class="lead">
+        Dockerが掲げるtrustは、単なる「安全な実行」ではなく「監査・制御・サプライチェーン安全」まで含む広い概念として扱われます。
+      </div>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="cell">
+          <div class="k">セキュリティ</div>
+          <div class="v">隔離＋権限の暴走抑制</div>
+        </div>
+        <div class="cell">
+          <div class="k">ガバナンス</div>
+          <div class="v">ポリシーで許可を設計</div>
+        </div>
+        <div class="cell">
+          <div class="k">可視性</div>
+          <div class="v">監査できる（検証可能）状態</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-tag">Caution</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="eyebrow">導入時の見極め</div>
+      <div class="title">評価は別</div>
+      <div class="lead">
+        記事だけでは、境界条件・監査粒度・脅威モデルへの対応関係などが検証できません。導入判断は追加資料と実測評価が必要です。
+      </div>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="cell">
+          <div class="k">足りない可能性</div>
+          <div class="v">trustの保証範囲・限界</div>
+        </div>
+        <div class="cell">
+          <div class="k">求めるべきこと</div>
+          <div class="v">テスト設計 / 第三者検証 / 運用責任</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-tag">Closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="eyebrow">次の一歩</div>
+      <div class="title">Run on trust</div>
+      <div class="lead">
+        コンテナの価値を土台にしつつ、エージェント時代のtrustを「隔離＋ガバナンス＋監査」へ具体化するのがDockerの方向性です。
+      </div>
+      <div class="closing-center">
+        <div class="cell center-block" style="min-height:auto;">
+          <div class="k">日本語要約 / JP gloss</div>
+          <div class="v">
+            信頼（trust）＝実行の分離（isolation）<span style="color:var(--rust-deep); font-style:italic;">(隔離)</span> + 許可の設計（governance）<span style="color:var(--rust-deep); font-style:italic;">(統制)</span> + 監査の可視性
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.docker.com/blog/docker-brand-refresh" target="_blank" rel="noreferrer noopener">Blog | Docker</a></h2>
+<p class="reference-note">Toggle menu 
+
+AllProductsCommunityEngineeringCompany
+
+## Docker Blog
+
+Image 1: Docker Nov 19, 2026 #### Meet the New Doc…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.docker.com/blog/from-docker-straight-to-aws" target="_blank" rel="noreferrer noopener">From Docker Straight to AWS | Docker</a></h2>
+<p class="reference-note">Nov 18, 2026 #### The Trust Layer: Securing Agentic AI with Docker AI Governance Learn how Docker AI Governance secures …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.docker.com/blog/docker-sandboxes" target="_blank" rel="noreferrer noopener">Docker Sandboxes | Sandboxes for Coding Agents | Docker</a></h2>
+<p class="reference-note">Your developers get isolated environments to run agents freely and safely. When your team needs to go further, Docker AI…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://docker.com/blog/docker-sandboxes" target="_blank" rel="noreferrer noopener">Docker Sandboxes | Sandboxes for Coding Agents | Docker</a></h2>
+<p class="reference-note">Your developers get isolated environments to run agents freely and safely. When your team needs to go further, Docker AI…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.docker.com/blog" target="_blank" rel="noreferrer noopener">Blog | Docker</a></h2>
+<p class="reference-note">- Docker Captain Nov 18, 2026
+  
+  #### The Trust Layer: Securing Agentic AI with Docker AI Governance
+  
+  Learn how Do…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
