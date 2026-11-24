@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Taskless: AIエージェントのルールを決定的チェックにする</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      background: var(--paper);
+      border: 1px inset rgba(240, 232, 216, 0.10);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .inner{
+      padding: 56px 72px;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 0;
+      border: 1px solid rgba(240, 232, 216, 0.10);
+      pointer-events: none;
+    }
+
+    .tag{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 18px;
+      letter-spacing: 0.12em;
+      color: var(--rust);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .tag .rule{
+      width: 38px;
+      height: 1px;
+      background: var(--rust);
+      opacity: 0.9;
+    }
+
+    .num{
+      position:absolute;
+      top: 28px;
+      right: 34px;
+      font-family: "Cormorant Garamond", serif;
+      color: var(--ink-2);
+      font-style: italic;
+      font-size: 26px;
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      line-height: 1.1;
+      margin-top: 0px;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 74px;
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+      margin-top: -8px;
+      color: var(--ink);
+    }
+    .title .accent{
+      color: var(--rust);
+      font-style: italic;
+      font-weight: 600;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.55;
+      max-width: 760px;
+      color: var(--ink-2);
+    }
+
+    .divider{
+      height: 1px;
+      background: var(--rule);
+      width: 100%;
+      margin-top: auto;
+    }
+
+    .content{
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 4px;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .card{
+      border: 1px solid var(--rule);
+      background: rgba(240,232,216,0.02);
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      min-height: 86px;
+      display:flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .card .k{
+      font-family: "Inter Tight", sans-serif;
+      font-weight: 600;
+      color: var(--ink-3);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .card .v{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--ink-2);
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 17px;
+      color: var(--ink);
+    }
+
+    .refs{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .refitem{
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 10px;
+    }
+    .refitem:last-child{
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .refitem .t{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 18px;
+      color: var(--ink-2);
+      margin-bottom: 6px;
+    }
+    .refitem .d{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 17px;
+      color: var(--ink-3);
+      line-height: 1.55;
+    }
+
+    .hero{
+      margin-top: 10px;
+      display:flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="num">01 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> Taskless</div>
+        <div class="hero">
+          <div class="eyebrow">AIルールは“文章”から“検証”へ</div>
+          <div class="title">決定的 <span class="accent">チェック</span></div>
+          <div class="lead">AIエージェントの「守ってほしいルール」を、プロンプト依存ではなく毎回同じ判定として組み込む思想を整理します。</div>
+        </div>
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="num">02 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> problem</div>
+        <div class="eyebrow">解釈ゆらぎが事故になる</div>
+        <div class="title">AGENTS.md</div>
+        <div class="lead">AGENTS.mdのような文章ルールは、AIの解釈や更新タイミングでブレが起きやすく、同じ要望でも結果が変わり得ます。</div>
+
+        <div class="grid2 content" role="presentation">
+          <div class="card">
+            <div class="k">問題点 / Issue</div>
+            <div class="v">文章を読むだけ → モデル判断に依存（解釈ゆらぎ）</div>
+          </div>
+          <div class="card">
+            <div class="k">影響 / Impact</div>
+            <div class="v">PR前に失敗を潰しきれない → 属人レビュー増</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="num">03 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> metaphor</div>
+        <div class="eyebrow">お願い→テストへ</div>
+        <div class="title">ルールを <span class="accent">コンパイル</span></div>
+        <div class="lead">Tasklessは「守ってほしい」を、決定的なチェック（pass/fail）へ変換します。モデルが迷う余地を減らし、結果の再現性を狙います。</div>
+
+        <div class="grid3 content" role="presentation">
+          <div class="card">
+            <div class="k">入力 / Input</div>
+            <div class="v">要望・修正履歴（Correction）</div>
+          </div>
+          <div class="card">
+            <div class="k">変換 / Convert</div>
+            <div class="v">Rule生成（静的解析/検査用）</div>
+          </div>
+          <div class="card">
+            <div class="k">出力 / Output</div>
+            <div class="v">fixtureで自己検証 → 毎回同じ判定</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="num">04 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> architecture</div>
+        <div class="eyebrow">No model in the loop</div>
+        <div class="title">決定的 <span class="accent">判定</span></div>
+        <div class="lead">ルールはテスト（fixtures）を伴ってコンパイルされます。意図したものを捕捉し、意図しないものを誤って捕捉しないことを確認します。</div>
+
+        <div class="grid2 content" role="presentation">
+          <div class="card">
+            <div class="k">pass / 通過</div>
+            <div class="v">意図した実装だけが通る（正例を固定）</div>
+          </div>
+          <div class="card">
+            <div class="k">fail / 不通過</div>
+            <div class="v">禁止パターンは必ず止まる（負例を固定）</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="num">05 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> enumeration</div>
+        <div class="eyebrow">運用の差が明確</div>
+        <div class="title">Run 2→3→4</div>
+        <div class="lead">例では、Run 2でルールが作られ、Run 3で禁止がブロックされ、Run 4で修正が取り込まれてCleanになります。</div>
+
+        <div class="grid3 content" role="presentation">
+          <div class="card">
+            <div class="k">Run 2</div>
+            <div class="v">ルール生成（ベースライン作成）</div>
+          </div>
+          <div class="card">
+            <div class="k">Run 3</div>
+            <div class="v">禁止anyの使用などをブロック</div>
+          </div>
+          <div class="card">
+            <div class="k">Run 4</div>
+            <div class="v">修正反映 → Clean扱い</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="num">06 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> evidence</div>
+        <div class="eyebrow">禁止は具体的に切れる</div>
+        <div class="title">型安全と境界</div>
+        <div class="lead">チームの実務判断に沿ってルール化でき、例えば「anyの禁止」や「フロント/サーバ境界の誤import」を機械的に検出します。</div>
+
+        <div class="grid2 content" role="presentation">
+          <div class="card">
+            <div class="k">例: any禁止</div>
+            <div class="v"><span class="mono">any</span> を含むexportされた型を禁止（fixtureで検証）</div>
+          </div>
+          <div class="card">
+            <div class="k">例: 不正import</div>
+            <div class="v">クライアント部品がサーバ専用ヘルパーを import しない</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="distinction">
+      <div class="num">07 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> distinction</div>
+        <div class="eyebrow">“一般規約”より“実修正”</div>
+        <div class="title">あなたの <span class="accent">Correction</span></div>
+        <div class="lead">一般的テンプレではなく、過去の修正や判断を根拠にルールへ落とし込みます。運用に接続され、形骸化しにくい設計が狙いです。</div>
+
+        <div class="grid2 content" role="presentation">
+          <div class="card">
+            <div class="k">テンプレ規約</div>
+            <div class="v">“推奨”中心 → 解釈の余地が残る（ブレ要因）</div>
+          </div>
+          <div class="card">
+            <div class="k">Tasklessルール</div>
+            <div class="v">“実際の修正”起点 → 同じ条件で同じ結果へ</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="comparison">
+      <div class="num">08 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> comparison</div>
+        <div class="eyebrow">AIレビューと同じではない</div>
+        <div class="title">レビュー vs <span class="accent">検証</span></div>
+        <div class="lead">AIコードレビューはモデル判断に寄りやすい一方、Tasklessはルールを決定的チェックへ変換し、毎回同じ判定を目標にします。</div>
+
+        <div class="grid2 content" role="presentation">
+          <div class="card">
+            <div class="k">AIレビュー（従来）</div>
+            <div class="v">判断に依存しやすい → 結果の揺れ</div>
+          </div>
+          <div class="card">
+            <div class="k">Taskless（狙い）</div>
+            <div class="v">判定をルール化 → pass/fail を固定</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="process">
+      <div class="num">09 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> process</div>
+        <div class="eyebrow">どこで効かせる？</div>
+        <div class="title">コミット/PR/IDE</div>
+        <div class="lead">ルール検証を、コミット・PR・IDE実行などのタイミングに組み込みます。PRを通す前に失敗を早期に潰す設計です。</div>
+
+        <div class="grid3 content" role="presentation">
+          <div class="card">
+            <div class="k">早期 / Early</div>
+            <div class="v">PR前で fail を検出（手戻り低減）</div>
+          </div>
+          <div class="card">
+            <div class="k">再現性 / Stable</div>
+            <div class="v">同じルール → 同じ判定結果</div>
+          </div>
+          <div class="card">
+            <div class="k">運用 / Flow</div>
+            <div class="v">IDE実行でも同じガードレール</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="architecture">
+      <div class="num">10 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> architecture</div>
+        <div class="eyebrow">Cloudの統治も視野</div>
+        <div class="title">Provenance / Governance</div>
+        <div class="lead">Taskless Cloudでは、ルールの来歴（Provenance）、統治（Governance）、改ざん耐性（Authenticity）など組織運用向けの要素が説明されています。</div>
+
+        <div class="grid2 content" role="presentation">
+          <div class="card">
+            <div class="k">Provenance（来歴）</div>
+            <div class="v">どの判断・修正からルールが生まれたか</div>
+          </div>
+          <div class="card">
+            <div class="k">Authenticity（真正性）</div>
+            <div class="v">ルールの改ざんリスクを抑える設計</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="distinction">
+      <div class="num">11 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> distinction</div>
+        <div class="eyebrow">適用できる領域が鍵</div>
+        <div class="title">“決定的に判定可能”</div>
+        <div class="lead">曖昧な方針（例：「可読性を高める」）は、決定的検証に落としにくい可能性があります。逆にAST/型/ import 境界のような領域は相性が良いです。</div>
+
+        <div class="grid2 content" role="presentation">
+          <div class="card">
+            <div class="k">向く / Fit</div>
+            <div class="v">AST・lint・型・禁止importなど（機械判定しやすい）</div>
+          </div>
+          <div class="card">
+            <div class="k">難しい / Hard</div>
+            <div class="v">抽象度の高い設計指針（評価基準が揺れる）</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="closing">
+      <div class="num">12 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> closing</div>
+        <div class="eyebrow">導入前に3点確認</div>
+        <div class="title">効果と負債</div>
+        <div class="lead">ルール化の精度とカバレッジ、ルール増加に伴う誤検知/fixture更新の負担、そしてローカルとCloudでのデータ取り扱いを確認すべきです。</div>
+
+        <div class="grid3 content" role="presentation">
+          <div class="card">
+            <div class="k">1. 適用領域</div>
+            <div class="v">決定的に判定できるか（AST/型中心）</div>
+          </div>
+          <div class="card">
+            <div class="k">2. 運用コスト</div>
+            <div class="v">誤検知・リグレッション対応、fixtureメンテ</div>
+          </div>
+          <div class="card">
+            <div class="k">3. データ取り扱い</div>
+            <div class="v">ローカル/Cloudで何を送るか・権限設計</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+    <!-- Slide 13 -->
+    <section class="slide" aria-label="references">
+      <div class="num">13 / 13</div>
+      <div class="inner">
+        <div class="tag"><span class="rule"></span> References</div>
+        <div class="eyebrow">参照の方向性</div>
+        <div class="title">関連情報</div>
+        <div class="lead">本要約は、提示された本文要約・Points・FAQ・意見、および「Web/過去履歴」記述の範囲に基づき整理しています。</div>
+
+        <div class="refs content">
+          <div class="refitem">
+            <div class="t">Taskless（公式/紹介資料の要旨）</div>
+            <div class="d">ルールをAST/linters等に変換し、プロンプト依存ではなく解析で判定する点、fixturesによる安定性の主張。</div>
+          </div>
+          <div class="refitem">
+            <div class="t">比較対象：AGENTS.md / Cursor Rules</div>
+            <div class="d">文章規約はAIの解釈に依存し、再現性が揺れ得るという対比軸。</div>
+          </div>
+          <div class="refitem">
+            <div class="t">設計観点：Provenance / Governance / Authenticity</div>
+            <div class="d">Cloudでの組織運用・来歴・改ざん耐性の説明がある、という要約記述。</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">02 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/taskless" target="_blank" rel="noreferrer noopener">Taskless · GitHub</a></h2>
+<p class="reference-note">Markdown instructions like `AGENTS.md`, `skills/`, and `.cursor/rules` are injected into prompts and followed inconsiste…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/taskless/cli" target="_blank" rel="noreferrer noopener">GitHub - taskless/cli: Taskless CLI and Agent Skills · GitHub</a></h2>
+<p class="reference-note">Taskless turns the corrections you give your coding agent into rules that run on every change. Correct once. Enforced fo…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">03 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.taskless.io/" target="_blank" rel="noreferrer noopener">Taskless | Rules for Agents.</a></h2>
+<p class="reference-note">## Markdown Rules Don’t Work
+
+`AGENTS.md`, `skills/`, `.cursor/rules`. They all inject markdown into the AI’s prompt and…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/semgrep/skills" target="_blank" rel="noreferrer noopener">GitHub - semgrep/skills: A collection of skills for AI coding agents from Semgrep · GitHub</a></h2>
+<p class="reference-note">```
+# Install dependencies # # Validate all skills ## Build AGENTS.md for all skills # # Create distribution packages # …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">04 / 17</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://docs.coderabbit.ai/changelog" target="_blank" rel="noreferrer noopener">Changelog - CodeRabbit</a></h2>
+<p class="reference-note">20, 2026`,tags:[`Tools`],rss:{title:`ast-grep language support | Tools`,description:`CodeRabbit now runs ast-grep 0.43.0…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
