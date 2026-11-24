@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>jcode 要点まとめ（多エージェント並列・低コスト・協調運用）</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px 0;
+      display: block;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      margin: 18px 0;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow: hidden;
+      border-radius: 2px;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      pointer-events:none;
+      border-radius: 2px;
+      opacity: .9;
+    }
+
+    .slide-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-2);
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 22px;
+      height: 2px;
+      background: var(--rust);
+      opacity: .95;
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 20px;
+      white-space: nowrap;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin: 2px 0 10px 0;
+      line-height: 1.15;
+    }
+
+    .title{
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+      font-size: 74px;
+      letter-spacing: 0.01em;
+      line-height: 0.95;
+    }
+
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      color: var(--rust);
+      font-size: 66px;
+      font-weight: 500;
+      letter-spacing: .02em;
+    }
+
+    .lead{
+      margin: 18px 0 0 0;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin: 26px 0 18px 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .grid{
+      display:grid;
+      gap: 14px 14px;
+      position: relative;
+      z-index: 1;
+      margin-top: 16px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .cell{
+      border: 1px solid var(--rule);
+      background: rgba(0,0,0,0.06);
+      padding: 14px 16px;
+      border-radius: 2px;
+      min-height: 78px;
+    }
+
+    .cell .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+      white-space: nowrap;
+    }
+
+    .cell .v{
+      font-size: 20px;
+      line-height: 1.35;
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+      font-weight: 400;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-weight: 500;
+      font-size: 18px;
+      color: var(--ink-2);
+    }
+
+    .small{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+      font-weight: 300;
+    }
+
+    .bilingual{
+      display:block;
+      margin-top: 6px;
+      color: var(--ink-3);
+      font-weight: 300;
+      font-size: 16px;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 42px 42px; }
+      .title{ font-size: 56px; }
+      .title.jp{ font-size: 50px; }
+      .lead{ font-size: 18px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">jcode / summary</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">多エージェントを「現実運用」へ</div>
+        <h1 class="title">jcode</h1>
+        <div class="lead">
+          jcode（Rust製）は、LLMを使うコーディング・エージェントを並列に動かしても
+          <span style="color: var(--ink-2); font-weight:400;">PCのコストが破綻しない</span>ことを狙うハーネス（運用基盤）です。
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">problem</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">並列＝すぐ重い</div>
+        <h2 class="title">ボトルネック</h2>
+        <div class="lead">
+          多エージェント並列では、メモリ使用量（RAM）と遅延（待ち時間）が急に支配的になります。
+          さらに同一リポジトリ編集では、整合性（衝突）管理が必須になります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Efficiency（効率）</div>
+            <div class="v">RAM削減 / 初回応答高速化 / 遅延抑制</div>
+            <span class="bilingual">効率（RAM・遅延）を守る</span>
+          </div>
+          <div class="cell">
+            <div class="k">Consistency（整合）</div>
+            <div class="v">同時編集の衝突解消 / 通知と差分確認</div>
+            <span class="bilingual">整合性（衝突）を運用で扱う</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">設計思想</div>
+        <h2 class="title">低コスト並列</h2>
+        <div class="lead">
+          README断片からは、jcodeは「多数のコーディング・エージェント並列」を現実にするため、
+          Rust中心の実装でリソース効率を高める方針が見えます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">Rust / ハーネス</div>
+            <div class="v">運用基盤としての役割が明確</div>
+            <span class="bilingual">基盤（harness）</span>
+          </div>
+          <div class="cell">
+            <div class="k">Multi-agent</div>
+            <div class="v">並列実行を前提</div>
+            <span class="bilingual">並列（parallel）</span>
+          </div>
+          <div class="cell">
+            <div class="k">Swarm / 協調</div>
+            <div class="v">役割分担で開発プロセスへ</div>
+            <span class="bilingual">協調（swarm）</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">追加が効く</div>
+        <h2 class="title">RAM</h2>
+        <div class="lead">
+          README断片では、初回セッションが<span class="mono">71.3MB</span>、追加セッションが約<span class="mono">3.3MB</span>という趣旨のベンチが示されています。
+          多エージェントほど増分が支配的になるため、低メモリ化は実務で効きやすいです。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Initial（初回）</div>
+            <div class="v"><span class="mono">71.3MB</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">Increment（追加）</div>
+            <div class="v">約 <span class="mono">3.3MB</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">evidence</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">体感を直撃</div>
+        <h2 class="title">Latency</h2>
+        <div class="lead">
+          「Time to first input（画面に現れるまでの時間）」として、jcodeは<span class="mono">19.1ms</span>という比較が挙げられています。
+          ベンチ以上に、待ち時間のストレス低減と試行回数の増加に直結し得ます。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">jcode</div>
+            <div class="v"><span class="mono">19.1ms</span></div>
+          </div>
+          <div class="cell">
+            <div class="k">Other（他）</div>
+            <div class="v">大幅に遅いと比較</div>
+            <span class="bilingual">相対傾向として提示</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">衝突を前提化</div>
+        <h2 class="title">Notify</h2>
+        <div class="lead">
+          Swarmの説明では、エージェントAが編集し、Bが読み取っていた場合にサーバがBへ通知します。
+          Bは関連があれば差分を確認し、競合を避ける運用イメージです（詳細ルールは断片依存）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">Step i</div>
+            <div class="v">Aが編集</div>
+            <span class="bilingual">編集（edit）</span>
+          </div>
+          <div class="cell">
+            <div class="k">Step ii</div>
+            <div class="v">サーバがBへ通知</div>
+            <span class="bilingual">通知（notify）</span>
+          </div>
+          <div class="cell">
+            <div class="k">Step iii</div>
+            <div class="v">差分確認 / 判断</div>
+            <span class="bilingual">確認（diff check）</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">分解して回す</div>
+        <h2 class="title">Swarm</h2>
+        <div class="lead">
+          エージェントが自律的にスウォームを立ち上げ、メイン（コーディネータ）とスポーン先（ワーカー）で並行処理できます。
+          調査・実装・テスト・レビューなど、開発プロセスを役割分担しやすい設計です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Coordinator</div>
+            <div class="v">全体を束ねる</div>
+            <span class="bilingual">調整（coordinate）</span>
+          </div>
+          <div class="cell">
+            <div class="k">Worker(s)</div>
+            <div class="v">タスクを並行実行</div>
+            <span class="bilingual">実行（execute）</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">process</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">自己改善ループ</div>
+        <h2 class="title">self-dev</h2>
+        <div class="lead">
+          self-devは「自身のコードを編集→ビルド→テスト→リロード」を回し、継続的に改善し続ける仕組みとして説明されています。
+          実運用では安全策の確認が不可欠です（断片情報ではガードレールが不明）。
+        </div>
+        <div class="rule"></div>
+        <div class="grid four" style="grid-template-columns: 1fr 1fr; display:grid;">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">Edit（編集）</div>
+            <span class="bilingual">変更（edit）</span>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">Build（ビルド）</div>
+            <span class="bilingual">コンパイル（build）</span>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">Test（テスト）</div>
+            <span class="bilingual">検証（test）</span>
+          </div>
+          <div class="cell">
+            <div class="k">iv</div>
+            <div class="v">Reload（再読み込み）</div>
+            <span class="bilingual">反映（reload）</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">architecture</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">多プロバイダ対応</div>
+        <h2 class="title">OAuth</h2>
+        <div class="lead">
+          README断片では、Claude OAuth / OpenAI Codex OAuthなど、複数LLMプロバイダ連携に対応する旨が述べられています。
+          目的は認可（authorization）で、運用では認可情報・ログ管理が要点になります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">連携例</div>
+            <div class="v">Claude OAuth / OpenAI Codex OAuth</div>
+            <span class="bilingual">認可（authorization）</span>
+          </div>
+          <div class="cell">
+            <div class="k">運用論点</div>
+            <div class="v">権限制御・ログ・コストの見える化</div>
+            <span class="bilingual">監査（audit）</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">comparison</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">比較で見える差</div>
+        <h2 class="title">他ツール</h2>
+        <div class="lead">
+          README断片では、追加メモリと初回入力時間の観点で、OpenCode / pi / Claude Code / Codex CLI等より優位だと比較されています。
+          ただし評価条件が不明なため、数値は参考にとどめるべきです。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">OpenCode</div>
+            <div class="v">追加分が大きい可能性（比較の趣旨）</div>
+          </div>
+          <div class="cell">
+            <div class="k">Claude Code</div>
+            <div class="v">初回入力が遅いと比較</div>
+          </div>
+          <div class="cell">
+            <div class="k">Codex CLI</div>
+            <div class="v">追加コストが相対的に増えがち</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:14px;">
+          ※ベンチの「公平性・再現条件」は断片情報から確定できません。
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">distinction</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">差別化の軸</div>
+        <h2 class="title">4要素</h2>
+        <div class="lead">
+          jcodeの全体像は「多エージェント並列 × 低コスト × 低遅延 × 協調管理」をセットで押し出している点にあります。
+          これに self-dev と OAuth が拡張要素として加わります。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">i</div>
+            <div class="v">並列実行（Multi-agent）</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii</div>
+            <div class="v">低コスト（RAM増分が小さい）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii</div>
+            <div class="v">低遅延（Time to first input）</div>
+          </div>
+          <div class="cell">
+            <div class="k">iv</div>
+            <div class="v">協調管理（衝突通知・差分確認）</div>
+          </div>
+          <div class="cell">
+            <div class="k">+1</div>
+            <div class="v">self-dev（自己改善ループ）</div>
+          </div>
+          <div class="cell">
+            <div class="k">+2</div>
+            <div class="v">OAuth（多プロバイダ連携）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">risk</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">導入前の不確実性</div>
+        <h2 class="title">要確認</h2>
+        <div class="lead">
+          README断片だけでは、self-devの安全性ガード・衝突解消の具体ルール・自己改変の停止条件が十分に分かりません。
+          またベンチ比較の再現条件も不明です。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">self-dev</div>
+            <div class="v">権限制御 / 変更範囲 / 監査 / 失敗時復旧</div>
+            <span class="bilingual">安全策（safety）</span>
+          </div>
+          <div class="cell">
+            <div class="k">評価比較</div>
+            <div class="v">計測環境・タスク・公平性（再現性）</div>
+            <span class="bilingual">再現（reproducibility）</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">closing</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">意思決定</div>
+        <h2 class="title">結論</h2>
+        <div class="lead">
+          jcodeは、並列運用の本質（低RAM・低遅延・整合性）に軸足を置き、swarm・self-dev・OAuthで拡張する方向性が読み取れます。
+          ただし導入前に、(1) ベンチ条件、(2) 衝突解消の仕様、(3) self-devの安全策、(4) 連携運用要件を追加確認すべきです。
+        </div>
+        <div class="rule"></div>
+        <div class="grid three">
+          <div class="cell">
+            <div class="k">01</div>
+            <div class="v">ベンチ条件</div>
+          </div>
+          <div class="cell">
+            <div class="k">02</div>
+            <div class="v">衝突解消仕様</div>
+          </div>
+          <div class="cell">
+            <div class="k">03+</div>
+            <div class="v">self-dev安全 / OAuth運用</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 / 14 -->
+    <section class="slide">
+      <div class="slide-top">
+        <div class="slide-tag">references</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">参照範囲</div>
+        <h2 class="title">Sources</h2>
+        <div class="lead">
+          この要約は、ユーザー提示の「README断片」および併記されたWeb検索・過去履歴の要点（第三者集計を含む）に基づきます。
+          数値（例：<span class="mono">71.3MB</span>、<span class="mono">3.3MB</span>、<span class="mono">19.1ms</span>）の厳密な再現条件は提示文から確定できません。
+        </div>
+        <div class="rule"></div>
+        <div class="grid two">
+          <div class="cell">
+            <div class="k">Primary</div>
+            <div class="v">jcode README断片（提示された範囲）</div>
+            <span class="bilingual">一次情報</span>
+          </div>
+          <div class="cell">
+            <div class="k">Secondary</div>
+            <div class="v">Web検索要約 / 過去履歴（指摘点のみ）</div>
+            <span class="bilingual">補助情報</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://explainx.ai/blog/jcode-agent-harness-swarm-memory-performance-july-2026" target="_blank" rel="noreferrer noopener">jcode Rust Agent Harness — Swarm &amp; Memory 2026 | explainx.ai Blog | explainx.ai</a></h2>
+<p class="reference-note">table · 3 cols
+
+| Tool | Time | vs jcode |
+ --- 
+| jcode | 14.0 ms | baseline |
+| pi | 590.7 ms | 42.2× slower |
+| Codex…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://github.com/chenhg5/cc-connect/issues/1638" target="_blank" rel="noreferrer noopener">[Agent] Add support for jcode (1jehuang/jcode) · Issue #1638 · chenhg5/cc-connect · GitHub</a></h2>
+<p class="reference-note">jcode is gaining traction as a RAM-efficient alternative to Claude Code / Codex / OpenCode (its benchmark claims ~6× low…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://pub.towardsai.net/i-ran-4-claude-code-agents-in-1-repo-on-18-tasks-jcodes-14ms-boot-killed-my-sequential-workflow-cc32509ab67c" target="_blank" rel="noreferrer noopener">I Ran 4 Claude Code Agents in 1 Repo on 18 Tasks — jcode’s 14ms Boot Killed My Sequential Workflow</a></h2>
+<p class="reference-note">, or run two terminals and pray that they didn’t both edit `users.go` at the same minute. Last Thursday I ran into `jcod…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youtube.com/watch?v=kC8NMSS5Nac" target="_blank" rel="noreferrer noopener">jcode (Fully Tested) + Free APIs: RIP Codex &amp; Claude, I THINK I&#39;LL SWITCH! IT&#39;S CRAZY GOOD!</a></h2>
+<p class="reference-note">🚀 jcode is a new open-source AI coding agent harness written fully in Rust.
+⚡ It is extremely lightweight, using only ar…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://valueaddvc.com/pulse/anthropic-claude-code-market-share-2026" target="_blank" rel="noreferrer noopener">Anthropic&#39;s Claude Code Reigns Despite Codex Rise</a></h2>
+<p class="reference-note">But the competitive picture is shifting underneath that lead. OpenAI has made Codex CLI fully open-source under a permis…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
