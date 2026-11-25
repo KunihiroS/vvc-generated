@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LLM時代の「遅いソフト」再考 — ワークロード特化最適化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .slide{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      position: relative;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      overflow:hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .slide-tag{
+      position:absolute;
+      top: 28px;
+      left: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      font-style: italic;
+    }
+    .slide-tag::before{
+      content:"";
+      position:absolute;
+      left: -16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 10px;
+      height: 26px;
+      border-left: 3px solid var(--rust);
+      border-radius: 2px;
+      opacity: 0.9;
+    }
+
+    .slide-num{
+      position:absolute;
+      top: 24px;
+      right: 28px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 18px;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 8px 0;
+    }
+
+    .title{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 72px;
+      font-weight: 500;
+      margin: 0 0 14px 0;
+      line-height: 1.0;
+    }
+
+    .title .jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 54px;
+      color: var(--rust);
+      display:inline;
+      margin-left: 10px;
+      letter-spacing: 0.02em;
+    }
+
+    .lead{
+      font-family: "Noto Serif JP", serif;
+      font-weight: 300;
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.35;
+      margin: 0;
+    }
+
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin: 22px 0 18px;
+      opacity: 0.7;
+    }
+
+    .grid{
+      display:grid;
+      gap: 12px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.05);
+    }
+    .card .k{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 8px;
+    }
+    .card .v{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .mini{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .enum{
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .enumItem{
+      display:flex;
+      gap: 12px;
+      align-items:flex-start;
+      padding: 12px 12px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.04);
+    }
+    .enumItem .n{
+      min-width: 64px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-top: 2px;
+    }
+    .enumItem .txt{
+      font-size: 18px;
+      line-height: 1.35;
+      color: var(--ink-2);
+    }
+
+    .bilingual{
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .bilingual .jp{
+      color: var(--ink-3);
+      font-size: 15px;
+      margin-top: 6px;
+    }
+
+    .refs{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .ref{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.04);
+    }
+    .ref .t{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .ref .u{
+      margin-top: 8px;
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      color: var(--ink-3);
+      word-break: break-word;
+    }
+
+    @media (max-width: 900px){
+      .slide{ padding: 46px 44px; }
+      .title{ font-size: 56px; }
+      .title .jp{ font-size: 44px; }
+      .lead{ font-size: 19px; }
+      .slide-tag{ left: 18px; }
+      .slide-num{ right: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="slide-tag">cover</div>
+      <div class="slide-num">02 / 15</div>
+      <p class="eyebrow">LLMで「遅さ」が変わる</p>
+      <h1 class="title">ワークロード特化<span class="jp">最適化</span></h1>
+      <p class="lead">
+        性能改善が“専門家の大案件”から“少人数でも試せる反復”へ移りつつある。  
+        その結果、どんな最適化をやるべきか——意思決定の基準も変わってきた。
+      </p>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="slide-tag">problem</div>
+      <div class="slide-num">03 / 15</div>
+      <p class="eyebrow">試すのが高コスト</p>
+      <h2 class="title">遅い理由は工数</h2>
+      <p class="lead">
+        従来の性能最適化は、実装だけでなくベンチ設計・検証・バグ調査にも時間が必要だった。  
+        そのため小規模案件では、2%〜数%の改善を試す合理性が弱くなりがちだった。
+      </p>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="metaphor">
+      <div class="slide-tag">metaphor</div>
+      <div class="slide-num">04 / 15</div>
+      <p class="eyebrow">速さは「探検」</p>
+      <h2 class="title">ベンチは地図</h2>
+      <p class="lead">
+        LLM/エージェントはコード生成だけでなく、計測・テスト環境整備・反復実験を圧縮する。  
+        つまり「地図（評価設計）」が書きやすくなり、探検回数が増える——そこで差が出る。
+      </p>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture">
+      <div class="slide-tag">architecture</div>
+      <div class="slide-num">05 / 15</div>
+      <p class="eyebrow">勝ち筋の変化</p>
+      <h2 class="title">閉じて試す</h2>
+      <p class="lead">
+        重要なのは最適化を“永遠の総当たり”にしないこと。  
+        反復実験×ホールドアウト（未知データ）で、効く範囲を切り出すのが鍵になる。
+      </p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">Approach</div>
+          <div class="v">反復（小さく試す）＋評価設計（再現性）</div>
+        </div>
+        <div class="card">
+          <div class="k">Guardrail</div>
+          <div class="v">ホールドアウトで過適合を疑う（Hold-out / 未観測）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">06 / 15</div>
+      <p class="eyebrow">FREとホールドアウト</p>
+      <h2 class="title">“見たベンチ”封じ</h2>
+      <p class="lead">
+        正規表現エンジンFREでは、rebarベンチのような過適合しやすさをホールドアウトベンチで是正する。  
+        全体の劇的改善は自明ではないが、条件次第で速度向上が観測される。
+      </p>
+
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">対象</div>
+          <div class="v">正規表現エンジンFRE</div>
+        </div>
+        <div class="card">
+          <div class="k">対策</div>
+          <div class="v">ホールドアウトベンチ</div>
+        </div>
+        <div class="card">
+          <div class="k">示唆</div>
+          <div class="v">“当たったように見える”を減らす</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="comparison">
+      <div class="slide-tag">comparison</div>
+      <div class="slide-num">07 / 15</div>
+      <p class="eyebrow">改善は一様でない</p>
+      <h2 class="title">条件で差が出る</h2>
+      <p class="lead">
+        改善率が小さく見えるケースもある一方で、ホールドアウト条件や長い検索クエリでは効きやすい。  
+        例として、AOT対象で約7%程度、長いクエリで2〜4倍の改善が語られる。
+      </p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">AOT対象</div>
+          <div class="v">ホールドアウト条件で 約7% 程度</div>
+        </div>
+        <div class="card">
+          <div class="k">長いクエリ</div>
+          <div class="v">2〜4倍：検索パターン依存</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="slide-tag">enumeration</div>
+      <div class="slide-num">08 / 15</div>
+      <p class="eyebrow">ワークロード特化とは</p>
+      <h2 class="title">自分の検索に寄せる</h2>
+      <p class="lead">
+        “クラス汎用”より“ワークロード特化”が現実的になるのは、手元の実データで方向性を絞れるからだ。  
+        ripgrep（rg）の自分のクエリ履歴のように、負荷の形が分かっているほど実験が回る。
+      </p>
+
+      <div class="enum">
+        <div class="enumItem">
+          <div class="n">i</div>
+          <div class="txt">利用パターン（例：検索クエリ、長さ分布）を把握する</div>
+        </div>
+        <div class="enumItem">
+          <div class="n">ii</div>
+          <div class="txt">エンジン（例：regexエンジン）の設計/最適化をその形に合わせる</div>
+        </div>
+        <div class="enumItem">
+          <div class="n">iii</div>
+          <div class="txt">ホールドアウトで「見たデータ」勝ちを疑い、得する範囲を確定する</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="distinction">
+      <div class="slide-tag">distinction</div>
+      <div class="slide-num">09 / 15</div>
+      <p class="eyebrow">反論への向き合い</p>
+      <h2 class="title">インデックス先でも意味はある</h2>
+      <p class="lead">
+        「最適化より先にインデックスを作るべき」という反論はもっともだ。  
+        ただ本稿の価値は、“専門的で高コストな技術作業が低コストで試せるようになった”という実験報告にある。
+      </p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">正論</div>
+          <div class="v">インデックス優先は多くの場面で合理的</div>
+        </div>
+        <div class="card">
+          <div class="k">本稿の主張</div>
+          <div class="v">それでも“試すコスト低下”が意思決定を変える</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="process">
+      <div class="slide-tag">process</div>
+      <div class="slide-num">10 / 15</div>
+      <p class="eyebrow">積み上げで差が広がる</p>
+      <h2 class="title">反復が強い</h2>
+      <p class="lead">
+        マルチスレッド化や高度な実験設計のように従来は工数が重い領域も、反復と検証で勝ち筋が増える。  
+        LLM/エージェントが得意なのは「閉じた最適化問題」ほどだ、という限界も同時に認められている。
+      </p>
+
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <div class="k">得意</div>
+          <div class="v">閉じた評価（明確な勝ち負け）</div>
+        </div>
+        <div class="card">
+          <div class="k">効果</div>
+          <div class="v">反復回数が増え、積み上げ差が出る</div>
+        </div>
+        <div class="card">
+          <div class="k">限界</div>
+          <div class="v">オープンエンドでは人間の枠組みが必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="evidence">
+      <div class="slide-tag">evidence</div>
+      <div class="slide-num">11 / 15</div>
+      <p class="eyebrow">あなたの見立て</p>
+      <h2 class="title">“万能に速くなる”ではない</h2>
+      <p class="lead">
+        私見では、本文の結論は「遅いソフトが許容されなくなる方向」だと捉えるのが妥当だ。  
+        ただし一般化にはデータ条件と評価設計が要り、運用面（回帰検知・段階導入・副作用）は別途設計が必要。
+      </p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">強み</div>
+          <div class="v">評価設計・ホールドアウト・条件依存で議論が検証可能</div>
+        </div>
+        <div class="card">
+          <div class="k">注意</div>
+          <div class="v">改善率が小さい場合や、環境/負荷の差で効きが変わる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="closing">
+      <div class="slide-tag">closing</div>
+      <div class="slide-num">12 / 15</div>
+      <p class="eyebrow">要点まとめ</p>
+      <h2 class="title">遅さの運命が変わる</h2>
+      <p class="lead">
+        「最適化の民主化（参入障壁低下）」は進むが、“万能に速くなる”ではなく「検証可能な形で改善しやすくなる」がより正確。  
+        そしてワークロード特化には、過適合・レジーム変化・運用リスクへの補完が要る。
+      </p>
+
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <div class="k">結論（英）</div>
+          <div class="v">Verified improvement, not guaranteed speedup.</div>
+          <div class="bilingual jp">改善は検証で得る（保証ではない）</div>
+        </div>
+        <div class="card">
+          <div class="k">結論（JP）</div>
+          <div class="v">速さは評価設計とデータ依存で決まる。</div>
+          <div class="bilingual jp">過適合対策と運用設計がセット</div>
+        </div>
+      </div>
+
+      <div class="refs" aria-label="references">
+        <div class="ref">
+          <div class="t"><span style="font-style: italic; color: var(--rust);">References</span>（Web）</div>
+          <div class="u">
+            Agentic Code Optimization via Compiler-LLM Cooperation<br/>
+            LLMs in Compiler Optimization: Challenges and Future Direction<br/>
+            Analyzing and Acting Upon Compiler Optimization Reports using LLMs<br/>
+            Performance-portable parallel programming（検索キーワード由来）
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">13 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2604.04238v1" target="_blank" rel="noreferrer noopener">Agentic Code Optimization via Compiler-LLM Cooperation</a></h2>
+<p class="reference-note">Generating performant executables from high level languages is critical to software performance across a wide range of d…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://www.embs.org/pulse/articles/llms-in-compiler-optimization-challenges-and-future-direction" target="_blank" rel="noreferrer noopener">LLMs in Compiler Optimization: Challenges and Future Direction - IEEE Pulse</a></h2>
+<p class="reference-note">In our future work, we focus on utilizing dynamic runtime data, such as execution time and memory usage, in both trainin…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://dr.lib.iastate.edu/server/api/core/bitstreams/ecc857c1-4d14-4b21-bdf4-b82918bcfdc2/content" target="_blank" rel="noreferrer noopener">Performance-portable parallel programming through compiler directives, machine learning, and agentic optimization</a></h2>
+<p class="reference-note">This dissertation considers performance, portability, and productivity, but energy efficiency is also increasingly impor…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 15</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.osti.gov/servlets/purl/2587881" target="_blank" rel="noreferrer noopener">Analyzing and Acting Upon Compiler Optimization Reports using LLMs</a></h2>
+<p class="reference-note">This section summarizes notable results. Complete conversation histories of the best runs are available on  c3po-preconf…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://shenjiasi.com/papers.html" target="_blank" rel="noreferrer noopener">Jiasi Shen: Papers | HKUST CSE</a></h2>
+<p class="reference-note">via sampling remains challenging, especially when applied to fully optimized binaries. Such inaccurate profile data can …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
