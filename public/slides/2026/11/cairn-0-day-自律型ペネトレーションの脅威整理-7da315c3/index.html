@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cairn × 0-day：自律型ペネトレーションの脅威整理</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      border-radius: 10px;
+      background: var(--paper);
+      padding: 56px 72px;
+      border: 1px solid var(--rule);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 8px;
+      pointer-events:none;
+    }
+    .slide-inner{
+      position: relative;
+      height: 100%;
+      width: 100%;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      gap: 14px;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-top: 2px;
+      white-space:nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-size: 24px;
+      color: var(--ink-2);
+      font-style: italic;
+      margin-top: -2px;
+      white-space:nowrap;
+    }
+    .eyebrow{
+      font-size: 22px;
+      color: var(--rust);
+      font-style: italic;
+      font-family: "Cormorant Garamond", serif;
+      margin-top: 6px;
+      letter-spacing: 0.01em;
+    }
+    .title{
+      margin: 0;
+      font-size: 64px;
+      line-height: 1.02;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+    }
+    .title.jp{
+      font-family: "Noto Serif JP", serif;
+      font-style: normal;
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink);
+      max-width: 760px;
+      margin-top: 2px;
+    }
+    .divider{
+      height: 1px;
+      width: 100%;
+      background: var(--rule);
+      margin-top: 8px;
+    }
+    .grid-2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .grid-3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px 12px;
+      background: rgba(0,0,0,0.06);
+      min-height: 90px;
+    }
+    .cell .k{
+      font-family:"Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-size: 13px;
+      color: var(--rust);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .cell .v{
+      font-size: 18px;
+      line-height: 1.38;
+      color: var(--ink);
+    }
+    .notes{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 880px;
+      margin-top: 6px;
+    }
+    .refs{
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink-2);
+    }
+    .nowrap{ white-space:nowrap; }
+    @media (max-width: 720px){
+      .slide{ padding: 28px 20px; }
+      .title{ font-size: 44px; }
+      .lead{ font-size: 18px; }
+      .grid-2{ grid-template-columns: 1fr; }
+      .grid-3{ grid-template-columns: 1fr; }
+      .slide-num{ font-size: 20px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 Cover -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">cover</div>
+          <div class="slide-num">02 / 16</div>
+        </div>
+        <div class="eyebrow">自律攻撃の到達点</div>
+        <h1 class="title">Cairn</h1>
+        <div class="lead">
+          AIエージェントが「目標」を与えられると、探索・実行・持続化（persistency）まで自動で進み得ます。
+        </div>
+        <div class="divider"></div>
+        <div class="notes">
+          ここでは「0-dayが短時間で悪用される」脅威を、攻撃連鎖の流れと防御の論点に分解して整理します（日本語：<span class="nowrap">英語用語</span>＋最小の和訳）。
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 Problem -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">problem</div>
+          <div class="slide-num">03 / 16</div>
+        </div>
+        <div class="eyebrow">人手の間に合わない</div>
+        <h2 class="title">時間圧縮</h2>
+        <div class="lead">
+          0-day（未修正・未公開の脆弱性）は、検知から封じ込めまでの時間が短いほど被害が広がります。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">0-day</div>
+            <div class="v">防御側に先行情報が届きにくい</div>
+          </div>
+          <div class="cell">
+            <div class="k">自律エージェント</div>
+            <div class="v">探索〜実行を短時間で繰り返す</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 Metaphor -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">metaphor</div>
+          <div class="slide-num">04 / 16</div>
+        </div>
+        <div class="eyebrow">手順は奪われる</div>
+        <h2 class="title">指示器</h2>
+        <div class="lead">
+          従来は人が攻撃手順を考えて実行しますが、Cairnのような枠組みは「目標」から推論・分解・ツール実行を反復します。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">Goal / 目標</div>
+            <div class="v">例：rootシェル獲得</div>
+          </div>
+          <div class="cell">
+            <div class="k">Plan / 分解</div>
+            <div class="v">タスクを細分化</div>
+          </div>
+          <div class="cell">
+            <div class="k">Act / 実行</div>
+            <div class="v">探索・試行・悪用</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 Architecture -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">architecture</div>
+          <div class="slide-num">05 / 16</div>
+        </div>
+        <div class="eyebrow">連鎖が速い</div>
+        <h2 class="title">11分連鎖</h2>
+        <div class="lead">
+          記事では、約11分で「APIマッピング → 任意ファイル書き込み → 永続化 → rootシェル」まで到達したとされています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">1</div>
+            <div class="v">API探索（マッピング）</div>
+          </div>
+          <div class="cell">
+            <div class="k">2</div>
+            <div class="v">任意ファイル書き込み</div>
+          </div>
+          <div class="cell">
+            <div class="k">3</div>
+            <div class="v">永続化：Pythonの自動読み込み（sitecustomize.py）</div>
+          </div>
+          <div class="cell">
+            <div class="k">4</div>
+            <div class="v">rootのリバースシェル（Reverse Shell）確立</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 Evidence -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">06 / 16</div>
+        </div>
+        <div class="eyebrow">狙いは一つ</div>
+        <h2 class="title">Goal指示</h2>
+        <div class="lead">
+          攻撃側は「対象IP」と「シェルを得る」程度の目標指示で、細かな手順の逐次投入は最小限だったと述べられています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">投入した情報</div>
+            <div class="v">目標（例：root access）＋対象（IP）</div>
+          </div>
+          <div class="cell">
+            <div class="k">モデルの仕事</div>
+            <div class="v">探索→試行→ツール実行を自律反復</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 Distinction -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">07 / 16</div>
+        </div>
+        <div class="eyebrow">0-dayの“連結点”</div>
+        <h2 class="title">悪用連鎖</h2>
+        <div class="lead">
+          重要なのは脆弱性の種類だけでなく、「悪用→成果物→継続制御」までの到達が短時間で起き得る点です。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">脆弱性例</div>
+            <div class="v">パストラバーサル（Path Traversal）</div>
+          </div>
+          <div class="cell">
+            <div class="k">到達成果</div>
+            <div class="v">任意ファイル書き込み</div>
+          </div>
+          <div class="cell">
+            <div class="k">持続性</div>
+            <div class="v">自動読み込み（sitecustomize.py）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 Comparison -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">comparison</div>
+          <div class="slide-num">08 / 16</div>
+        </div>
+        <div class="eyebrow">検知より止める</div>
+        <h2 class="title">運用ボトルネック</h2>
+        <div class="lead">
+          SOCがアラートを人手でトリアージ（triage：優先度判定）する間に、エージェントが攻撃工程を完了し得ます。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">従来</div>
+            <div class="v">調査・判断に時間がかかる</div>
+          </div>
+          <div class="cell">
+            <div class="k">AI時代</div>
+            <div class="v">短時間に探索・試行・悪用が進む</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 Enumeration -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">enumeration</div>
+          <div class="slide-num">09 / 16</div>
+        </div>
+        <div class="eyebrow">自動化の三要素</div>
+        <h2 class="title">速度×持続</h2>
+        <div class="lead">
+          Amazonは、エージェント型ツールの武器として「速度（speed）」と「持続性（persistency）」が防御側の対応ウィンドウを圧縮すると強調しています。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">i 速度</div>
+            <div class="v">短時間で複数の探索・試行</div>
+          </div>
+          <div class="cell">
+            <div class="k">ii 持続性</div>
+            <div class="v">再侵入・継続制御を狙う</div>
+          </div>
+          <div class="cell">
+            <div class="k">iii 粘り強さ</div>
+            <div class="v">失敗時も別手段を試行し得る</div>
+          </div>
+          <div class="cell">
+            <div class="k">iv 影響</div>
+            <div class="v">root奪取→横展開の足場に</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 Evidence -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">evidence</div>
+          <div class="slide-num">10 / 16</div>
+        </div>
+        <div class="eyebrow">万能ではない</div>
+        <h2 class="title">成功条件</h2>
+        <div class="lead">
+          一方で別ターゲットでは、16時間以上試行しても成功しなかった例があり、「常に成功する」わけではありません。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">示唆</div>
+            <div class="v">対象の露出状態・設定・防御の強さが影響</div>
+          </div>
+          <div class="cell">
+            <div class="k">現場の解釈</div>
+            <div class="v">確率は低くても、成功時の損害は大きい</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 Process -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">process</div>
+          <div class="slide-num">11 / 16</div>
+        </div>
+        <div class="eyebrow">防御の再設計</div>
+        <h2 class="title">検知→封じ込め</h2>
+        <div class="lead">
+          記事中の方向性としては、自律ツールの兆候を見つけ、被害の封じ込め（止める）を早め、永続化の痕跡に備えることが実務的です。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-3">
+          <div class="cell">
+            <div class="k">1 検知</div>
+            <div class="v">短時間の大量API呼び出し、ファイル書き込み試行、異常プロセス生成</div>
+          </div>
+          <div class="cell">
+            <div class="k">2 封じ込め</div>
+            <div class="v">検知後すぐ遮断（隔離・停止）し、連鎖を途中で止める</div>
+          </div>
+          <div class="cell">
+            <div class="k">3 監視</div>
+            <div class="v">sitecustomize等の永続化、権限昇格（privilege escalation）痕跡</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 Distinction -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">distinction</div>
+          <div class="slide-num">12 / 16</div>
+        </div>
+        <div class="eyebrow">現実の判断材料</div>
+        <h2 class="title">定性警鐘</h2>
+        <div class="lead">
+          成功・失敗の比較に必要な前提（露出面、ネットワーク経路、認証、レート制限、SOCの遮断性能）が不足しており、確率の定量化は難しいです。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">できること</div>
+            <div class="v">「起き得る連鎖」を前提にログ粒度と封じ込め手順を棚卸し</div>
+          </div>
+          <div class="cell">
+            <div class="k">できないこと</div>
+            <div class="v">自組織への直結確率を、この情報だけで断定</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 Closing + References -->
+    <section class="slide">
+      <div class="slide-inner">
+        <div class="topbar">
+          <div class="slide-tag">closing</div>
+          <div class="slide-num">13 / 16</div>
+        </div>
+        <div class="eyebrow">結論</div>
+        <h2 class="title">備えるべき点</h2>
+        <div class="lead">
+          AIエージェントは「速度」と「持続性」で対応ウィンドウを縮めます。防御は検知だけでなく、連鎖の途中で止める設計に寄せる必要があります。
+        </div>
+        <div class="divider"></div>
+        <div class="grid-2">
+          <div class="cell">
+            <div class="k">リスク姿勢</div>
+            <div class="v">確率×影響で、最悪シナリオ（root・永続化・横展開）を抑える</div>
+          </div>
+          <div class="cell">
+            <div class="k">ガバナンス</div>
+            <div class="v">防御用OSSが攻撃へ転用される前提で、検証環境と本番分離を徹底</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="refs">
+          <span style="font-family:'Inter Tight',sans-serif; color:var(--rust); letter-spacing:0.08em; text-transform:uppercase; font-size:13px;">References</span>
+          <div style="margin-top:8px;">
+            ・Amazon Threat Intelligence（Cairnの悪用に関する調査言及：公開情報ベース）<br/>
+            ・記事要約（提示本文・Web検索結果および過去履歴の記述に基づく）
+          </div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://aws.amazon.com/jp/blogs/news/chinese-nexus-actors-cairn-ai-agents-found-a-zero-day-on-their-own" target="_blank" rel="noreferrer noopener">中国と関連のある脅威アクターが使用した Cairn の AI エージェントがゼロデイ脆弱性を自律的に発見した事例 | Amazon Web Services ブログ</a></h2>
+<p class="reference-note">## 発見の経緯
+
+2026 年 9 月 10 日、Amazon Threat Intelligence は、オープンソースの自律型 AI ペネトレーションテストフレームワークである Cairn のインスタンスが認証なしで稼働し、一般に公開…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://news.yahoo.co.jp/articles/d55ffc74151f11c845021744044aed60a450cb28" target="_blank" rel="noreferrer noopener">AIが自力でゼロデイ発見、大学サーバのroot奪取 アマゾンが明かす中国系攻撃者の手口（ビジネス＋IT） - Yahoo!ニュース</a></h2>
+<p class="reference-note">アマゾンは11月20日（米国時間）、同社の脅威インテリジェンスチームが、中国系とみられる攻撃者による自律型AIエージェントを使ったハッキング作戦を調査した結果を公表した。AIエージェントがオープンソースの医用画像AIアプリケーション「MON…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.helpnetsecurity.com/2026/11/23/cairn-ai-agents-autonomous-attacks" target="_blank" rel="noreferrer noopener">Open-source AI pentesting framework Cairn keeps turning up in real-world attacks - Help Net Security</a></h2>
+<p class="reference-note">The agents ran on Cairn, an open-source AI penetration testing framework, with little human direction, Amazon Threat Int…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tavily.com/knowledge/company/iB6hx4PLn9Iy" target="_blank" rel="noreferrer noopener">Palo Alto Networks</a></h2>
+<p class="reference-note"># Palo Alto Networks
+ID: iB6hx4PLn9Iy
+Website: www.paloaltonetworks.com
+Legal name: Palo Alto Networks, Inc.
+Headquarter…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tracxn.com/d/companies/cairn/__w-vNl0dvgifnabu9IwSXMCOLh6us3P5p1vvUyPxA-Zg" target="_blank" rel="noreferrer noopener">Cairn - 2026 Company Profile &amp; Competitors - Tracxn</a></h2>
+<p class="reference-note">5th
+
+Sia Partners
+
+1999, Brussels (Belgium), Late Stage [...] Our Google Chrome extension lets you view company details …</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
