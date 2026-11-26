@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tabc & unkernel: ブラウザを“コンテナランタイム”にする</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 52px;
+      display:flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      aspect-ratio: 16 / 9;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::before{
+      content:"";
+      position:absolute;
+      left:20px; right:20px; top:20px; bottom:20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+    .topbar{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      position: relative;
+      z-index: 1;
+    }
+    .slide-tag{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.22em;
+      color: var(--rust);
+      text-transform: uppercase;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      margin-top: -2px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 6px 0 10px;
+      position: relative;
+      z-index: 1;
+    }
+    .title{
+      font-size: 64px;
+      font-weight: 500;
+      font-family: "Noto Serif JP", serif;
+      margin: 0 0 12px;
+      line-height: 1.02;
+      position: relative;
+      z-index: 1;
+    }
+    .title em{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 500;
+    }
+    .lead{
+      font-size: 22px;
+      color: var(--ink);
+      max-width: 760px;
+      line-height: 1.55;
+      margin: 0;
+      position: relative;
+      z-index: 1;
+    }
+    .rule{
+      height: 1px;
+      width: 100%;
+      background: var(--rule-strong);
+      margin: 18px 0;
+      position: relative;
+      z-index: 1;
+    }
+    .grid{
+      width: 100%;
+      display:grid;
+      gap: 14px;
+      position: relative;
+      z-index: 1;
+      margin-top: 18px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.08);
+      border-radius: 10px;
+    }
+    .cell .kicker{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+      white-space: nowrap;
+    }
+    .cell .text{
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    .cell .jp{
+      color: var(--ink-3);
+      font-size: 16px;
+      margin-top: 6px;
+      line-height: 1.35;
+    }
+    .smallnote{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.5;
+      max-width: 760px;
+      position: relative;
+      z-index: 1;
+      margin-top: 16px;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.98em;
+      color: var(--ink-2);
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 36px 22px; }
+      .title{ font-size: 40px; }
+      .lead{ font-size: 18px; }
+      .eyebrow{ font-size: 18px; }
+      .slide-tag{ font-size: 12px; }
+      .grid.two, .grid.three{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 19</div>
+      </div>
+      <div class="eyebrow">tabc × unkernel</div>
+      <h1 class="title"><em>ブラウザ</em>で“コンテナ”を動かす</h1>
+      <p class="lead">Dockerのような体験（OCI互換）を、ホストLinuxのカーネルに頼らず「Chromiumのタブ」とWasmで実現する狙いを整理します。</p>
+    </section>
+
+    <!-- 2 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 19</div>
+      </div>
+      <div class="eyebrow">Linux VM問題</div>
+      <h2 class="title">macOSの“必須”</h2>
+      <p class="lead">Dockerは本来、Linuxカーネル機能（名前空間やcgroupsなど）で隔離します。macOSではそれを補うためにLinux VMが必要になりがちです。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">従来</div>
+          <div class="text">隔離：<span class="mono">host Linux kernel</span></div>
+          <div class="jp">隔離の主役がカーネル</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">macOS</div>
+          <div class="text">補完：<span class="mono">Linux VM</span></div>
+          <div class="jp">開発体験のオーバーヘッド</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 19</div>
+      </div>
+      <div class="eyebrow">隔離の主役交代</div>
+      <h2 class="title">隔離は“カーネル”→<em>ブラウザ</em></h2>
+      <p class="lead">著者の発想は、最終的な隔離レイヤーをホストOSからブラウザのサンドボックスへ寄せることです。ホストにLinuxが不要になる方向を狙います。</p>
+    </section>
+
+    <!-- 4 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 19</div>
+      </div>
+      <div class="eyebrow">tabcの立ち位置</div>
+      <h2 class="title"><em>tabc</em>＝OCI互換ランタイム</h2>
+      <p class="lead">tabcは「コンテナをChromiumのタブ（タブ内の環境）で動かす」OCI互換のコンテナランタイムです。既存イメージ運用を崩しにくいのがポイントです。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">互換性</div>
+          <div class="text"><span class="mono">docker run --runtime tabc</span></div>
+          <div class="jp">導入イメージが作りやすい</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">実行場所</div>
+          <div class="text">Chromiumのタブ</div>
+          <div class="jp">“隔離の土台”がブラウザへ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">06 / 19</div>
+      </div>
+      <div class="eyebrow">unkernelが鍵</div>
+      <h2 class="title"><em>unkernel</em>でLinuxカーネルをWasmへ</h2>
+      <p class="lead">核心は、LinuxカーネルをWasmとしてブラウザ上で起動できる点です。これにより「ゲストとしてのLinux」を成立させます。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="kicker">入る</div>
+          <div class="text">Wasm（WebAssembly）</div>
+          <div class="jp">実行基盤</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">動く</div>
+          <div class="text">Linuxカーネル（unkernel）</div>
+          <div class="jp">隔離下でOS起動</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">最後に</div>
+          <div class="text">その中で“コンテナ”</div>
+          <div class="jp">通常のコンテナ運用へ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 19</div>
+      </div>
+      <div class="eyebrow">タブで動く</div>
+      <h2 class="title">“ブラウザのタブ＝コンテナ”</h2>
+      <p class="lead">タブを開けば、その中でプロセス（例：<span class="mono">nginx:alpine</span>）を動かし、ポート公開して別タブからアクセスできます。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">操作</div>
+          <div class="text"><span class="mono">--open</span></div>
+          <div class="jp">コンテナ画面をブラウザで開く</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">体験</div>
+          <div class="text">タブ分離で“環境を持つ”</div>
+          <div class="jp">UI/UXが運用に直結</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">08 / 19</div>
+      </div>
+      <div class="eyebrow">体験の流れ</div>
+      <h2 class="title">起動→公開→操作</h2>
+      <p class="lead">コンテナを開き、ポートを公開し、必要なら対話（PTY）で操作する、という“タブ中心の運用”を想定しています。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="kicker">i</div>
+          <div class="text">コンテナ起動</div>
+          <div class="jp">OCIイメージを実行</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">ii</div>
+          <div class="text">ポート公開</div>
+          <div class="jp">別タブから到達</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">iii</div>
+          <div class="text">対話（PTY）</div>
+          <div class="jp">ブラウザ内でインタラクティブ</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">09 / 19</div>
+      </div>
+      <div class="eyebrow">運用周辺も再設計</div>
+      <h2 class="title">dashboard / tocker</h2>
+      <p class="lead">単発実行だけでなく、<span class="mono">--dashboard</span>でタブをペイン表示し、compose相当の軽量仕組みを<span class="mono">tocker</span>として扱えると述べています。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">UI</div>
+          <div class="text"><span class="mono">--dashboard</span></div>
+          <div class="jp">タブを同時観測</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">まとめ役</div>
+          <div class="text"><span class="mono">tocker</span></div>
+          <div class="jp">compose相当</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 19</div>
+      </div>
+      <div class="eyebrow">隔離の境界が違う</div>
+      <h2 class="title">Docker：カーネル、tabc：ブラウザ</h2>
+      <p class="lead">従来はLinuxの名前空間やcgroups（＋seccomp等）が中心です。tabcは主にブラウザ（Chromium）のサンドボックスが隔離の責務を担う発想です。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">Docker/OCI</div>
+          <div class="text">Linux隔離（例：namespace/cgroups）</div>
+          <div class="jp">カーネルモデルに依存</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">tabc/ブラウザ</div>
+          <div class="text">Chromiumサンドボックス</div>
+          <div class="jp">ブラウザの安全性が前提</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 19</div>
+      </div>
+      <div class="eyebrow">unkernelの意味</div>
+      <h2 class="title">“全部エミュレート”回避</h2>
+      <p class="lead">過去の「ブラウザでLinuxを動かす」試みは、性能や不完全さが壁になったとされます。unkernelはカーネルをWasmとして起動し、コンテナ側は近い速度で成立させる設計で可能性を現実寄りにします。</p>
+    </section>
+
+    <!-- 11 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">12 / 19</div>
+      </div>
+      <div class="eyebrow">コストは残る</div>
+      <h2 class="title">起動・メモリがボトルネック</h2>
+      <p class="lead">ブラウザ起動が支配的になり、Wasmによる遅延やメモリオーバーヘッドも無視できません。アイドルで数百MiBの消費があると述べられています。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">起動</div>
+          <div class="text">ブラウザ起動が支配</div>
+          <div class="jp">コンテナ自体は速い可能性</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">メモリ</div>
+          <div class="text">アイドルで“数百MiB”</div>
+          <div class="jp">多数同時で効いてくる</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">13 / 19</div>
+      </div>
+      <div class="eyebrow">どこで勝つ？</div>
+      <h2 class="title">対話的利用に向く</h2>
+      <p class="lead">著者は、ネイティブ比の遅さやオーバーヘッドがあっても、対話的な用途では許容される場面があると結論づけています。ワークロード次第です。</p>
+      <div class="grid three">
+        <div class="cell">
+          <div class="kicker">向く</div>
+          <div class="text">開発・検証</div>
+          <div class="jp">少数タブ</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">条件</div>
+          <div class="text">リソース設計</div>
+          <div class="jp">数・常駐を管理</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">要注意</div>
+          <div class="text">大量同時</div>
+          <div class="jp">タブ共有/統合が必要かも</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">14 / 19</div>
+      </div>
+      <div class="eyebrow">導入判断の視点</div>
+      <h2 class="title">“万能置換”ではない</h2>
+      <p class="lead">強みはDocker互換（OCI）と、macOSでLinux VMなしを狙う現実的な設計です。注意点は、隔離がブラウザ依存になることと、長期運用要件（監査・障害時）を追加確認する必要があることです。</p>
+      <div class="grid two">
+        <div class="cell">
+          <div class="kicker">強み</div>
+          <div class="text">OCI互換＋VM削減</div>
+          <div class="jp">導入イメージが描ける</div>
+        </div>
+        <div class="cell">
+          <div class="kicker">注意</div>
+          <div class="text">セキュリティ/運用境界の確認</div>
+          <div class="jp">ブラウザ脆弱性・設定差・コスト</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 / 14 -->
+    <section class="slide">
+      <div class="topbar">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">15 / 19</div>
+      </div>
+      <div class="eyebrow">結論</div>
+      <h2 class="title">カーネル隔離を“ブラウザ”へ</h2>
+      <p class="lead">tabcはWasmとChromiumのサンドボックスを使い、コンテナの隔離レイヤーを組み替えることで、Linux VM必須という不合理を崩せる可能性を示します。</p>
+      <div class="smallnote">次のアクション：自分の負荷で「起動時間・メモリ・同時数・セキュリティ境界」を小さく測り、対話的用途で適合するか評価するのが現実的です。</div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://kubernetes.recipes/recipes/configuration/crun-vs-runc-container-runtime" target="_blank" rel="noreferrer noopener">crun vs runc: Memory and Performance Benchmarks 2026</a></h2>
+<p class="reference-note">| Feature | runc | crun |
+---
+| Language | Go | C |
+| Cold start | ~100ms | ~50ms |
+| Memory per container | ~10MB RSS |…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://safeguard.sh/resources/blog/container-runtime-runc-vs-crun-vs-gvisor-2026" target="_blank" rel="noreferrer noopener">Container Runtime Showdown: runc vs crun vs gVisor in 2026</a></h2>
+<p class="reference-note">runc and crun share essentially the same threat model: they rely on Linux namespaces, cgroups, and seccomp for isolation…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/pdf/2411.03344" target="_blank" rel="noreferrer noopener">https://arxiv.org/pdf/2411.03344</a></h2>
+<p class="reference-note">bei lang laufenden Berech-nungen vernachlässigbar sein könnten. WebAssembly setzt jedoch die Grundideen der Con-taineris…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.youngju.dev/blog/culture/2026-05-16-container-runtime-alternatives-2026-containerd-cri-o-podman-runc-gvisor-kata-youki-wasmedge-firecracker-deep-dive.en" target="_blank" rel="noreferrer noopener">Container Runtime Alternatives 2026 Deep Dive - containerd, CRI-O, Podman, runc, gVisor, Kata Containers, youki, WasmEdge, and Firecracker — LabHub Blog</a></h2>
+<p class="reference-note">Container start time: about 50 percent faster than runc.
+ Memory footprint: roughly one third.
+ Dependencies: only glibc…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">19 / 19</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://anshul-jindal.me/publication/perfm_containers/perfm_containers.pdf" target="_blank" rel="noreferrer noopener">Performance Evaluation of Container Runtimes</a></h2>
+<p class="reference-note">Typical OCI runtimes like runc limit system access using different capability models integrated into the Linux kernel li…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
