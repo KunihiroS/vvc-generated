@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>evalkitで学ぶ：AIエージェント改善の再現可能ループ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Times New Roman", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+      display:flex;
+      flex-direction:column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid rgba(240, 232, 216, 0.06);
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      border-radius: 2px;
+      padding: 56px 72px;
+      position: relative;
+      overflow:hidden;
+      inset: auto;
+    }
+    .slide:before{
+      content:"";
+      position:absolute;
+      inset: 18px;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      pointer-events:none;
+    }
+    .slide-header{
+      position: relative;
+      z-index: 1;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .slide-tag{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 18px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--ink-3);
+      font-size: 22px;
+      margin-top: -6px;
+      white-space: nowrap;
+    }
+    .eyebrow{
+      position: relative;
+      z-index: 1;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      color: var(--rust);
+      font-size: 22px;
+      margin-bottom: 4px;
+    }
+    .title{
+      position: relative;
+      z-index: 1;
+      font-family: "Cormorant Garamond", serif;
+      font-size: 76px;
+      font-weight: 500;
+      line-height: 0.95;
+      margin: 0 0 14px 0;
+      color: var(--ink);
+      letter-spacing: 0.01em;
+    }
+    .title em{
+      font-style: italic;
+      color: var(--rust);
+    }
+    .lead{
+      position: relative;
+      z-index: 1;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+      margin: 0;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule-strong);
+      margin: 22px 0;
+      position: relative;
+      z-index: 1;
+    }
+    .grid{
+      position: relative;
+      z-index: 1;
+      display:grid;
+      gap: 14px;
+    }
+    .grid.two{
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid.three{
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 16px 16px;
+      background: rgba(0,0,0,0.12);
+      min-height: 86px;
+    }
+    .card h4{
+      margin: 0 0 8px 0;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-weight: 600;
+      font-size: 16px;
+      color: var(--ink-3);
+      letter-spacing: 0.02em;
+      text-transform: none;
+    }
+    .card p{
+      margin:0;
+      font-size: 19px;
+      line-height: 1.4;
+      color: var(--ink-2);
+    }
+    .mini{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 14px;
+      color: var(--ink-4);
+      margin-top: 8px;
+      letter-spacing: 0.02em;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 16px;
+      color: var(--ink-2);
+    }
+    .ref-list{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+      margin-top: 8px;
+    }
+    .ref-item{
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.10);
+    }
+    .ref-item .k{
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-weight: 600;
+      color: var(--rust);
+      letter-spacing: 0.02em;
+      font-size: 14px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .ref-item .v{
+      font-size: 18px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- Slide 1 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 16</div>
+      </div>
+      <div class="eyebrow">自己ホスト×評価ループ</div>
+      <h2 class="title">evalkitで作る <em>再現</em> 可能な改善</h2>
+      <p class="lead">実運用の失敗を“評価ケース”へ変換し、専門家の承認のもとで再実行・比較することで、AIエージェント改善を証拠と根拠に寄せます。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <h4>対象</h4>
+          <p>AIエージェントの品質向上（プロンプト/ツール/スキル/データ）</p>
+        </div>
+        <div class="card">
+          <h4>着目</h4>
+          <p>Trajectory（軌跡）とベースライン比較で回帰を守る</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 16</div>
+      </div>
+      <div class="eyebrow">ブラックボックス問題</div>
+      <h2 class="title">調整が <em>当たり</em> か外れか分からない</h2>
+      <p class="lead">エージェント改善が経験則の“当てずっぽう”になると、なぜ良くなった／壊れたのかを追跡できません。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <h4>起きがち</h4>
+          <p>LLMの採点だけで満足し、現場の失敗パターンが評価に入りにくい</p>
+          <div class="mini">right定義が曖昧だと、改善がズレる</div>
+        </div>
+        <div class="card">
+          <h4>必要</h4>
+          <p>失敗の再現・比較・回帰ガード（regression guard）が一連で回ること</p>
+          <div class="mini">改善の説明責任（trajectory）が要る</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">04 / 16</div>
+      </div>
+      <div class="eyebrow">失敗を“テスト化”</div>
+      <h2 class="title">失敗を <em>事件</em> にする</h2>
+      <p class="lead">ログに残った失敗を、専門家が“正解の条件”として承認することで、再実行可能なテストケースへ昇格させます。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <h4>実運用</h4>
+          <p>production/staging/manualの実行ログ抽出</p>
+        </div>
+        <div class="card">
+          <h4>ケース化</h4>
+          <p>失敗パターン→質問＋rubrics（ルーブリック）</p>
+        </div>
+        <div class="card">
+          <h4>検証</h4>
+          <p>trajectory＋スコアで再実行し、差分を比較</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">05 / 16</div>
+      </div>
+      <div class="eyebrow">改善ループの骨格</div>
+      <h2 class="title">右の定義を固定して <em>回す</em></h2>
+      <p class="lead">evalkitは「失敗収集→ケース下書き→専門家承認→再実行→修正案→再比較」を、証拠付きで連結します。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <h4>ループ（i）</h4>
+          <p><span class="mono">collect</span>：低スコア/失敗をログから集める → パターン抽出</p>
+          <div class="mini">現場起点</div>
+        </div>
+        <div class="card">
+          <h4>ループ（ii）</h4>
+          <p><span class="mono">author</span>：コーディングエージェントが eval cases を下書き → 専門家が承認/修正</p>
+          <div class="mini">rightを業務へ寄せる</div>
+        </div>
+        <div class="card">
+          <h4>ループ（iii）</h4>
+          <p><span class="mono">run & trace</span>：ケースを実行し、trajectory（メッセージ/ツール/推論/コスト/遅延など）を保持</p>
+          <div class="mini">透明性</div>
+        </div>
+        <div class="card">
+          <h4>ループ（iv）</h4>
+          <p><span class="mono">fix & compare</span>：失敗時に file-cited fixes で修正候補 → baseline比較で差分確認</p>
+          <div class="mini">回帰ガード</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 16</div>
+      </div>
+      <div class="eyebrow">ケースの役割</div>
+      <h2 class="title">“ケース”が <em>評価単位</em></h2>
+      <p class="lead">ケースは「入力（質問）」だけでなく、専門家が承認できる“正解の条件”をルーブリックとして持ちます。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <h4>入力</h4>
+          <p>質問（input）</p>
+          <div class="mini">ケース実行の起点</div>
+        </div>
+        <div class="card">
+          <h4>rubrics</h4>
+          <p>正解に含まれるべき事実・条件</p>
+          <div class="mini">自然言語（プレーン）で理解</div>
+        </div>
+        <div class="card">
+          <h4>判定</h4>
+          <p>スコア＋trajectoryで評価</p>
+          <div class="mini">単なる“モデル採点”で終わらない</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 16</div>
+      </div>
+      <div class="eyebrow">証拠の残る評価</div>
+      <h2 class="title">Trajectoryで <em>追跡可能</em> に</h2>
+      <p class="lead">ケース実行のたびに、メッセージ・推論・ツール呼び出し・トークン・コスト/遅延などを保存し、失敗を再確認できます。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <h4>記録される軌跡</h4>
+          <p>メッセージ／ツール呼び出し／推論プロセス</p>
+          <div class="mini">観測可能な挙動</div>
+        </div>
+        <div class="card">
+          <h4>運用指標</h4>
+          <p>トークン・コスト・タイミング・遅延</p>
+          <div class="mini">品質×コストの同時評価</div>
+        </div>
+      </div>
+      <div class="mini" style="margin-top:14px; position:relative; z-index:1;">
+        さらに失敗時、修正候補は “どのプロンプト/ツール/スキル/データソース”を変えるべきかを提示する設計です。
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">08 / 16</div>
+      </div>
+      <div class="eyebrow">LLM採点だけじゃない</div>
+      <h2 class="title">判定の“根拠”を多層化</h2>
+      <p class="lead">ドキュメント上は LLM-judged rubrics に加えて、ツール呼び出しチェックや自前 evaluators も使えるとされています。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <h4>i：LLM判定</h4>
+          <p>ルーブリックに基づく評価</p>
+          <div class="mini">rightの言語化と相性が良い</div>
+        </div>
+        <div class="card">
+          <h4>ii：挙動チェック</h4>
+          <p>ツール呼び出しなど観測可能要素</p>
+          <div class="mini">“行為”も評価に含む</div>
+        </div>
+        <div class="card">
+          <h4>iii：自前評価</h4>
+          <p>チームの evaluator を組み込み</p>
+          <div class="mini">要件に合わせて拡張</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">09 / 16</div>
+      </div>
+      <div class="eyebrow">ベースライン比較</div>
+      <h2 class="title">改善を“差分”で <em>確認</em></h2>
+      <p class="lead">baseline比較（例：<span class="mono">evalkit summary <new-id> --baseline <old-id></span>）で、ケース単位の改善と副作用を切り分けます。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <h4>改善を見る</h4>
+          <p>どのケースでスコアが上がったか</p>
+          <div class="mini">“直った”の特定</div>
+        </div>
+        <div class="card">
+          <h4>壊れを見る</h4>
+          <p>どのケースでスコアが下がったか</p>
+          <div class="mini">“副作用”の検出</div>
+        </div>
+      </div>
+      <div class="mini" style="margin-top:14px; position:relative; z-index:1;">
+        これにより回帰ガードとしてケースが後続の変更にも効きます。
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">10 / 16</div>
+      </div>
+      <div class="eyebrow">導入時の現実解</div>
+      <h2 class="title">最初は“重大×頻度”から</h2>
+      <p class="lead">ケースが増えるほど管理コストも増えるため、最初から全失敗をケース化せず、まずは重要な失敗に絞るのが現実的です。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <h4>優先度</h4>
+          <p>頻度 × 重大度 × 再発性</p>
+          <div class="mini">評価資源の配分</div>
+        </div>
+        <div class="card">
+          <h4>観測</h4>
+          <p>LLMジャッジのブレ・再評価の必要性を計測</p>
+          <div class="mini">採点安定性の確認</div>
+        </div>
+        <div class="card">
+          <h4>固める</h4>
+          <p>ケース粒度、外部依存（データ/ツール）の扱いを運用へ落とす</p>
+          <div class="mini">再現性の戦略</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">11 / 16</div>
+      </div>
+      <div class="eyebrow">強み：業務妥当性</div>
+      <h2 class="title">rightを“専門家が承認”<em>（承認・レビュー）</em></h2>
+      <p class="lead">rightの定義を業務側に寄せることで、開発者都合の“正しさ”に引っ張られにくくなります。</p>
+      <div class="rule"></div>
+      <div class="grid two">
+        <div class="card">
+          <h4>Practical（実務）</h4>
+          <p>実運用ログ→ケース→再実行→比較の導線が一貫</p>
+        </div>
+        <div class="card">
+          <h4>Ethical（妥当性）</h4>
+          <p>誤った改善が業務上の誤判断につながるリスクを下げる方向</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">RISK</div>
+        <div class="slide-num">12 / 16</div>
+      </div>
+      <div class="eyebrow">弱点：運用設計の不足</div>
+      <h2 class="title">揺らぎ・肥大・非再現が課題</h2>
+      <p class="lead">提示内容だけでは、LLMジャッジの信頼性（揺らぎ）やケース統合/削減方針、外部依存による再現性破綻への戦略が読み取れません。</p>
+      <div class="rule"></div>
+      <div class="grid three">
+        <div class="card">
+          <h4>i：判定の揺らぎ</h4>
+          <p>同一入力でも判定が変わり得る</p>
+          <div class="mini">コンセンサス等のガードが必要</div>
+        </div>
+        <div class="card">
+          <h4>ii：ケース肥大</h4>
+          <p>増加＝管理コスト増</p>
+          <div class="mini">統合・優先度付けが要検討</div>
+        </div>
+        <div class="card">
+          <h4>iii：外部依存</h4>
+          <p>外部データ/ツールで再現性が崩れる</p>
+          <div class="mini">対策方針が必要</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide">
+      <div class="slide-header">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">13 / 16</div>
+      </div>
+      <div class="eyebrow">要点まとめ</div>
+      <h2 class="title">改善は“証拠付き”の <em>再実行</em> へ</h2>
+      <p class="lead">evalkitは、実運用の失敗を専門家承認の評価ケースに変え、trajectoryとベースライン比較で回帰ガードを作る土台です。</p>
+      <div class="rule"></div>
+      <div class="ref-list">
+        <div class="ref-item">
+          <div class="k">Takeaway（主張）</div>
+          <div class="v">最初は「重大で頻度の高い失敗」に絞り、採点ブレと再現性を観測しながらケース運用を固める。</div>
+        </div>
+        <div class="ref-item">
+          <div class="k">Next (行動)</div>
+          <div class="v">ログ→ケース→承認→再実行→差分比較の導線を、まず小さなセットで回し切る。</div>
+        </div>
+        <div class="ref-item">
+          <div class="k">Bilingual（用語）</div>
+          <div class="v"><span style="color:var(--ink-2)">eval cases（評価ケース）</span>：正解条件を言語化したテスト単位。<span style="color:var(--ink-2)">trajectory（軌跡）</span>：推論とツール呼び出し、コスト等の記録。<span style="color:var(--ink-2)">(軌跡：きせき)</span></div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://www.morphllm.com/ai-agent-evaluation-frameworks" target="_blank" rel="noreferrer noopener">AI Agent Evaluation Frameworks (2026): 7 Compared</a></h2>
+<p class="reference-note">| Your priority | Best choice | Runner-up |
+ --- 
+| Open-source, code-first evals in CI | DeepEval (by Confident AI) | R…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://vap1231.medium.com/phoenix-open-source-langsmith-alternative-platform-for-ai-agent-observability-and-evaluation-b22618219e3d" target="_blank" rel="noreferrer noopener">Medium</a></h2>
+<p class="reference-note">If you’re building AI agents and need production-grade open-source observability and evaluation without vendor lock-in, …</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/Arize-ai/openinference" target="_blank" rel="noreferrer noopener">GitHub - Arize-ai/openinference: OpenTelemetry Instrumentation for AI Observability · GitHub</a></h2>
+<p class="reference-note">OpenInference builds on OpenTelemetry to trace AI agents: their LLM calls, tool use, retrieval and reasoning steps. It i…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://tavily.com/knowledge/company/A86TkRJaeuQg" target="_blank" rel="noreferrer noopener">InferEdge</a></h2>
+<p class="reference-note"># InferEdge
+ID: A86TkRJaeuQg
+Website: www.inferedge.com
+LinkedIn: www.linkedin.com/company/inferedge-ai · 101 followers
+…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://tavily.com/knowledge/company/0viQLo56tq82" target="_blank" rel="noreferrer noopener">Braintrust</a></h2>
+<p class="reference-note"># Braintrust
+ID: 0viQLo56tq82
+Website: www.usebraintrust.com
+Legal name: Freelance Labs, Inc.
+Headquarters: San Francisc…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
