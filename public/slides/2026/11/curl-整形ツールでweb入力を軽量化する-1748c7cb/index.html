@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>curl + 整形ツールでWeb入力を軽量化する</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", "Cormorant Garamond", serif;
+    }
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 24px 0 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 20px solid transparent;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+      padding: 0;
+    }
+    .card{
+      position:absolute;
+      inset: 0;
+      padding: 56px 72px;
+      border: 1px solid var(--rule-strong);
+      background: var(--paper);
+    }
+    .frame{
+      position:absolute;
+      inset: 0;
+      pointer-events:none;
+      border: 20px solid rgba(240, 232, 216, 0.00);
+    }
+    .tag{
+      position:absolute;
+      top: 34px;
+      left: 36px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 16px;
+      letter-spacing: .18em;
+      color: var(--rust);
+      text-transform: uppercase;
+    }
+    .tag::before{
+      content:"";
+      display:inline-block;
+      width: 18px;
+      height: 0;
+      border-top: 2px solid var(--rust);
+      margin-right: 14px;
+      transform: translateY(-6px);
+    }
+    .slide-num{
+      position:absolute;
+      top: 34px;
+      right: 40px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 20px;
+      letter-spacing: .06em;
+      color: var(--ink-2);
+    }
+    .eyebrow{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--rust);
+      margin: 0 0 14px 0;
+    }
+    .title{
+      margin: 0 0 16px 0;
+      font-family: "Noto Serif JP", serif;
+      font-weight: 500;
+      font-size: 72px;
+      line-height: 1.02;
+      letter-spacing: -0.02em;
+    }
+    .title i{
+      font-style: italic;
+      color: var(--rust);
+      font-weight: 600;
+    }
+    .lead{
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 760px;
+    }
+    .rule{
+      height:1px;
+      background: var(--rule);
+      margin: 18px 0 18px;
+      max-width: 900px;
+    }
+    .grid{
+      width: 100%;
+      display: grid;
+      gap: 14px 16px;
+      margin-top: 18px;
+    }
+    .grid.two{ grid-template-columns: 1fr 1fr; }
+    .grid.three{ grid-template-columns: 1fr 1fr 1fr; }
+    .cell{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(240,232,216,0.02);
+    }
+    .cell .h{
+      font-family: "Inter Tight", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+      font-size: 16px;
+      color: var(--ink-2);
+      margin-bottom: 6px;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .cell .p{
+      font-size: 20px;
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .small{
+      font-size: 18px;
+      color: var(--ink-3);
+      line-height: 1.4;
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+      color: var(--ink);
+      background: rgba(240,232,216,0.05);
+      border: 1px solid var(--rule);
+      padding: 2px 8px;
+      border-radius: 8px;
+      display: inline-block;
+      margin: 6px 0 0;
+      white-space: nowrap;
+    }
+    @media (max-width: 820px){
+      .card{ padding: 34px 28px; }
+      .tag{ left: 18px; top: 18px; }
+      .slide-num{ right: 18px; top: 18px; }
+      .title{ font-size: 52px; }
+      .lead{ font-size: 18px; }
+      .cell .p{ font-size: 16px; }
+      .small{ font-size: 15px; }
+      .eyebrow{ font-size: 18px; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+    <!-- Slide 1 -->
+    <section class="slide" aria-label="Slide 1">
+      <div class="tag">cover</div>
+      <div class="slide-num">02 / 16</div>
+      <div class="card">
+        <p class="eyebrow">LLM入力の“軽量化”</p>
+        <h1 class="title"><i>curl</i> + 整形ツール</h1>
+        <p class="lead">Web参照のたびに巨大HTMLを丸ごと入れると、不要情報でトークンが膨らみ、エージェントが鈍く見える。入力生成パイプラインを最小化する実務方針を整理する。</p>
+        <div class="rule"></div>
+        <div class="small">対象: コーディング/分析エージェント（LLMコード用エージェント）</div>
+      </div>
+    </section>
+
+    <!-- Slide 2 -->
+    <section class="slide" aria-label="Slide 2">
+      <div class="tag">problem</div>
+      <div class="slide-num">03 / 16</div>
+      <div class="card">
+        <p class="eyebrow">賢さ低下の正体</p>
+        <h2 class="title">丸ごと投入</h2>
+        <p class="lead">巨大なHTML（CSS/JS/タグ/関連リンク等）をそのまま読み込むと、トークン消費が増えて“処理能力（賢さ）が落ちた”ように観測される。これはモデル問題ではなく、整形失敗が引き金になり得る。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="h">原因</div>
+            <div class="p">HTMLノイズ増大</div>
+          </div>
+          <div class="cell">
+            <div class="h">影響</div>
+            <div class="p">トークン膨張</div>
+          </div>
+          <div class="cell">
+            <div class="h">結果</div>
+            <div class="p">集中できず鈍る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3 -->
+    <section class="slide" aria-label="Slide 3">
+      <div class="tag">architecture</div>
+      <div class="slide-num">04 / 16</div>
+      <div class="card">
+        <p class="eyebrow">入力生成の型</p>
+        <h2 class="title">Web→整形→投入</h2>
+        <p class="lead">Web入力は「取得（curl等）→整形（テキスト/Markdown化）→コンテキスト投入」の連鎖。最初に余計な情報を削るほど、LLMの注意配分が有用箇所へ寄りやすい。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="h">取得</div>
+            <div class="p">curl/lynx（静的） or ブラウザ（CSR/ブロック）</div>
+          </div>
+          <div class="cell">
+            <div class="h">整形</div>
+            <div class="p">HTML→テキスト/Markdownを“損失少なく”抽出</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4 -->
+    <section class="slide" aria-label="Slide 4">
+      <div class="tag">distinction</div>
+      <div class="slide-num">05 / 16</div>
+      <div class="card">
+        <p class="eyebrow">最優先ルート</p>
+        <h2 class="title">raw Markdown</h2>
+        <p class="lead">サイトが <span class="mono">Accept: text/markdown</span> 等でMarkdownを返すなら、変換ツールよりraw markdownが最小トークンで最適になりやすい。損失が少なく“ノイズ無し”に近い。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="h">条件</div>
+            <div class="p">Markdownが機械可読で取得可能</div>
+          </div>
+          <div class="cell">
+            <div class="h">方針</div>
+            <div class="p">まず raw markdown を投入</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5 -->
+    <section class="slide" aria-label="Slide 5">
+      <div class="tag">comparison</div>
+      <div class="slide-num">06 / 16</div>
+      <div class="card">
+        <p class="eyebrow">HTML→抽出比較</p>
+        <h2 class="title">lynx を既定に</h2>
+        <p class="lead">raw markdownが取れない場合、HTML→テキスト変換の候補を比較し、総合的に <span class="mono">lynx -dump -nolist</span> をデフォルト案に採用。理由はトークン削減が大きく、見落としがサイレントに起きにくい評価に寄せたため。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="h">候補</div>
+            <div class="p">lynx / trafilatura / その他</div>
+          </div>
+          <div class="cell">
+            <div class="h">主軸</div>
+            <div class="p">削減率 + 欠落の検知しやすさ</div>
+          </div>
+          <div class="cell">
+            <div class="h">採用</div>
+            <div class="p"><i>lynx -dump -nolist</i></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6 -->
+    <section class="slide" aria-label="Slide 6">
+      <div class="tag">distinction</div>
+      <div class="slide-num">07 / 16</div>
+      <div class="card">
+        <p class="eyebrow">“欠落”の扱い</p>
+        <h2 class="title">サイレント欠落回避</h2>
+        <p class="lead">trafilaturaは見た目の抽出がきれいでも、重要情報がサイレントに欠落し得るため相対的リスクを高く見た。運用では“ノイズより欠落の方が気づきにくい”場面がある。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="h">優先</div>
+            <div class="p">欠落の発生確率を下げる（検知しやすさ重視）</div>
+          </div>
+          <div class="cell">
+            <div class="h">トレード</div>
+            <div class="p">多少のメニュー混入は許容</div>
+          </div>
+        </div>
+        <div class="small">※リンクURLなどは欠落し得るので必要時に再取得する。</div>
+      </div>
+    </section>
+
+    <!-- Slide 7 -->
+    <section class="slide" aria-label="Slide 7">
+      <div class="tag">process</div>
+      <div class="slide-num">08 / 16</div>
+      <div class="card">
+        <p class="eyebrow">コスト分割</p>
+        <h2 class="title">必要時に再取得</h2>
+        <p class="lead">lynx -nolistはURL情報が欠けやすい。URLが必要なときだけ <span class="mono">nolist</span> を外して取り直し、<span class="mono">rg</span>等で必要箇所だけ抽出する。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="h">常時</div>
+            <div class="p">削減優先（nolistで軽く）</div>
+          </div>
+          <div class="cell">
+            <div class="h">局所</div>
+            <div class="p">URL要件が出たら再取得 → 絞り込み</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8 -->
+    <section class="slide" aria-label="Slide 8">
+      <div class="tag">distinction</div>
+      <div class="slide-num">09 / 16</div>
+      <div class="card">
+        <p class="eyebrow">動的ページの現実</p>
+        <h2 class="title">CSR/Cloudflare</h2>
+        <p class="lead">CSR（JavaScript動的ページ）やアクセス制限（Cloudflare等）は、curl/lynxの静的取得だけでは突破が難しい前提を置く。無理に粘らず、ヘッドレスブラウザへ切り替える。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="h">対象</div>
+            <div class="p">CSR / ブロック / 本文がJSで生成</div>
+          </div>
+          <div class="cell">
+            <div class="h">方針</div>
+            <div class="p">Chromium / Camofox / Playwrightへ切替</div>
+          </div>
+        </div>
+        <div class="small">失敗モードを前提化して運用の安定性を上げる。</div>
+      </div>
+    </section>
+
+    <!-- Slide 9 -->
+    <section class="slide" aria-label="Slide 9">
+      <div class="tag">evidence</div>
+      <div class="slide-num">10 / 16</div>
+      <div class="card">
+        <p class="eyebrow">比較の軸</p>
+        <h2 class="title">トークン削減</h2>
+        <p class="lead">筆者は複数ツールをバイト数・トークン数の観点で計測し、総合的に最適解を決めている。トークン削減率が大きいほど入力コストが下がる。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="h">測定</div>
+            <div class="p">バイト数</div>
+          </div>
+          <div class="cell">
+            <div class="h">測定</div>
+            <div class="p">トークン数（推定）</div>
+          </div>
+          <div class="cell">
+            <div class="h">判断</div>
+            <div class="p">削減率 + 欠落リスク</div>
+          </div>
+        </div>
+        <div class="small">※tiktokenによる推定であり、厳密さは保証されない。</div>
+      </div>
+    </section>
+
+    <!-- Slide 10 -->
+    <section class="slide" aria-label="Slide 10">
+      <div class="tag">enumeration</div>
+      <div class="slide-num">11 / 16</div>
+      <div class="card">
+        <p class="eyebrow">実務チェック</p>
+        <h2 class="title">導入手順</h2>
+        <p class="lead">失敗を局所化しながら安定運用するため、分岐と再取得を前提に手順化する。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="h">i. 取得</div>
+            <div class="p">Markdown返却ならraw markdown狙い／難しければ静的取得</div>
+          </div>
+          <div class="cell">
+            <div class="h">ii. 整形</div>
+            <div class="p">基本は <i>lynx -dump -nolist</i>（欠落が怖いので安全側）</div>
+          </div>
+          <div class="cell">
+            <div class="h">iii. 再取得</div>
+            <div class="p">URL等が必要ならnolistを外して取り直し → 絞り込み</div>
+          </div>
+          <div class="cell">
+            <div class="h">iv. 切替</div>
+            <div class="p">CSR/ブロックはヘッドレスブラウザへ</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 11 -->
+    <section class="slide" aria-label="Slide 11">
+      <div class="tag">distinction</div>
+      <div class="slide-num">12 / 16</div>
+      <div class="card">
+        <p class="eyebrow">限界と注意</p>
+        <h2 class="title">万能ではない</h2>
+        <p class="lead">提案は実務的だが、因果の完全証明や“欠落の致命度分類”までは本文からは確定できない。導入後は損失検知（重要項目の存在チェック）を別途組み込むのが望ましい。</p>
+        <div class="grid three">
+          <div class="cell">
+            <div class="h">計測限界</div>
+            <div class="p">tiktoken推定・モデル依存</div>
+          </div>
+          <div class="cell">
+            <div class="h">事故要因</div>
+            <div class="p">欠落の種類を分けないと事故り得る</div>
+          </div>
+          <div class="cell">
+            <div class="h">改善</div>
+            <div class="p">重要項目チェックで損失を検知</div>
+          </div>
+        </div>
+        <div class="small">また、権利面・保存/再配布ポリシーの確認も別途必要。</div>
+      </div>
+    </section>
+
+    <!-- Slide 12 -->
+    <section class="slide" aria-label="Slide 12">
+      <div class="tag">closing</div>
+      <div class="slide-num">13 / 16</div>
+      <div class="card">
+        <p class="eyebrow">結論</p>
+        <h2 class="title">入力は設計する</h2>
+        <p class="lead">raw markdownが取れるなら即それ。無理なら <i>lynx -dump -nolist</i> を安全側の既定にし、URLなど必要情報は必要時だけ再取得、CSR/ブロックはブラウザへ切替する。これで“賢さ低下”を抑えやすい。</p>
+        <div class="grid two">
+          <div class="cell">
+            <div class="h">優先順位</div>
+            <div class="p">raw Markdown → lynx → 再取得</div>
+          </div>
+          <div class="cell">
+            <div class="h">分岐</div>
+            <div class="p">CSR/ブロックはヘッドレスブラウザ</div>
+          </div>
+        </div>
+        <div class="small">参考語: “整形（せいけい / formatting）” “欠落（けつらく / omission）”</div>
+      </div>
+    </section>
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">14 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://trafilatura.readthedocs.io/en/latest/evaluation.html" target="_blank" rel="noreferrer noopener">Benchmarks and evaluation — Trafilatura 2.3.1 documentation</a></h2>
+<p class="reference-note">| Python Package | Precision | Recall | Accuracy | F-Score | Time |
+| raw HTML | 0.519 | 0.885 | 0.535 | 0.654 | 0 |
+| b…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://dev.to/rosgluk/html-preprocessing-for-llms-3mk8" target="_blank" rel="noreferrer noopener">HTML Preprocessing for LLMs - DEV Community</a></h2>
+<p class="reference-note">Quick Selection Guide:
+
+## Recommendations by Scenario
+
+Still unsure which library to choose?  
+Here is a guide based on…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">15 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://arxiv.org/html/2511.16397v2" target="_blank" rel="noreferrer noopener">AICC: Parse HTML Finer, Make Models Better —— A 7.3T AI-Ready Corpus Built by a Model-Based HTML Parser</a></h2>
+<p class="reference-note">1. 1\.
+   
+   Extraction Quality Matters: On WebMainBench, our newly constructed benchmark of 7,887 annotated web pages,…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://browser-use.com/posts/ai-browser-agent-benchmark" target="_blank" rel="noreferrer noopener">Browser Agent Benchmark: Comparing LLM Models for Web Automation</a></h2>
+<p class="reference-note">Every task was run many times with different LLMs, agent settings, and frameworks. Too-easy tasks were removed. Tasks ma…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 16</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://github.com/opendatalab/MinerU-HTML" target="_blank" rel="noreferrer noopener">GitHub - opendatalab/MinerU-HTML: MinerU-HTML: An SLM-powered HTML main content extractor that outputs clean HTML bodies. Perfect for Deep Research Agents, RAG applications, and training data generation. · GitHub</a></h2>
+<p class="reference-note">Built on top of vLLM for efficient LLM inference
+ Uses Trafilatura for fallback extraction
+ Finetuned on Hunyuan
+ Inspir…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
