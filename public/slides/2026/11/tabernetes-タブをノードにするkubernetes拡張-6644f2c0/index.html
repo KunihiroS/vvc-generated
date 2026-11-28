@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tabernetes：タブをノードにするKubernetes拡張</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream: #14110d;
+      --paper: #1c1813;
+      --ink: #f0e8d8;
+      --ink-2: #d4ccbc;
+      --ink-3: #948b7c;
+      --ink-4: #645c50;
+      --rust: #e8814a;
+      --rust-deep: #c9683a;
+      --rule: rgba(240, 232, 216, 0.10);
+      --rule-strong: rgba(240, 232, 216, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body{
+      margin:0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "Noto Serif JP", serif;
+    }
+
+    .deck{
+      width: min(1120px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 18px 0 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .slide{
+      aspect-ratio: 16 / 9;
+      width: 100%;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 56px 72px;
+      box-shadow: 0 24px 64px -24px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before{
+      content:"";
+      position:absolute;
+      inset: 20px;
+      border: 1px solid var(--rule);
+      pointer-events:none;
+    }
+
+    .topline{
+      position:absolute;
+      top: 24px;
+      left: 56px;
+      right: 72px;
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .slide-tag{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      font-family: "Inter Tight", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.18em;
+      color: var(--ink-2);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .slide-tag::before{
+      content:"";
+      width: 8px;
+      height: 22px;
+      border-left: 2px solid var(--rust);
+    }
+
+    .slide-num{
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .eyebrow{
+      margin-top: 38px;
+      color: var(--rust);
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.01em;
+    }
+
+    .title{
+      margin: 10px 0 10px;
+      font-family: "Cormorant Garamond", serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--rust);
+      font-size: 72px;
+      line-height: 1.02;
+    }
+
+    .lead{
+      margin-top: 8px;
+      max-width: 760px;
+      font-size: 22px;
+      font-weight: 300;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    .content{
+      position: relative;
+      z-index: 1;
+      margin-top: 10px;
+      height: calc(100% - 90px);
+      display:flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 18px;
+    }
+
+    .rule{
+      height: 1px;
+      background: var(--rule-strong);
+      margin-top: 8px;
+      width: 100%;
+    }
+
+    .grid2, .grid3{
+      width: 100%;
+      display: grid;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .grid2{ grid-template-columns: 1fr 1fr; }
+    .grid3{ grid-template-columns: 1fr 1fr 1fr; }
+
+    .card{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,0.10);
+    }
+
+    .label{
+      font-family: "Inter Tight", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .label::before{
+      content:"";
+      width: 6px;
+      height: 6px;
+      border-radius: 99px;
+      background: var(--rust);
+      display:inline-block;
+    }
+
+    .value{
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 18px;
+    }
+
+    .bilingual{
+      color: var(--ink-2);
+      font-size: 18px;
+      font-weight: 300;
+      margin-top: 6px;
+    }
+
+    .note{
+      color: var(--ink-2);
+      font-size: 20px;
+      font-weight: 300;
+      line-height: 1.45;
+      max-width: 820px;
+    }
+
+    .refs{
+      margin-top: 6px;
+      display:flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .refitem{
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.08);
+      color: var(--ink-2);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 720px){
+      .slide{ padding: 44px 18px; }
+      .topline{ left: 18px; right: 18px; top: 18px; }
+      .eyebrow{ font-size: 20px; margin-top: 34px; }
+      .title{ font-size: 48px; }
+      .lead{ font-size: 18px; }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+    }
+  </style>
+
+<style id="vvc-slide-layout-guard">
+/* voicevox-calling slide layout guard: KUN-345 */
+.deck,
+.slides,
+.slide-deck {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: 1fr !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+.slide {
+  width: min(1120px, calc(100vw - 48px)) !important;
+  max-width: 1120px !important;
+  aspect-ratio: 16 / 9 !important;
+  min-height: unset !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden;
+}
+</style>
+</head>
+<body>
+  <div class="deck">
+<section class="slide visual-summary-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 2.5%; overflow: hidden;">
+  <figure class="visual-summary-figure" style="margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;"><img src="deck-image.png" alt="Visual summary of this deck" style="width:100%;height:100%;object-fit:contain;"/></figure>
+</section>
+
+
+    <!-- 1 -->
+    <section class="slide" aria-label="cover">
+      <div class="topline">
+        <div class="slide-tag">COVER</div>
+        <div class="slide-num">02 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">Kubernetesをタブへ</div>
+        <div class="title">tabernetes</div>
+        <div class="lead">
+          ブラウザのタブ（スマホのタブ含む）を <span class="mono">node</span> と見なし、Pod（プログラム実行）をタブ内の小さなLinuxゲストへ流す分散実行方式です。
+          タブが消えるとノードも消え、Kubernetesが別タブへ再配置します。<span class="bilingual">タブ＝ノード（node）／Pod実行基盤</span>
+        </div>
+        <div class="rule"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="label">要点</div>
+            <div class="value">タブをJoin→実行開始／閉じる→再スケジュール</div>
+          </div>
+          <div class="card">
+            <div class="label">読みどころ</div>
+            <div class="value">起動秒・レイテンシ秒・タイル並列・離脱前提</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" aria-label="problem">
+      <div class="topline">
+        <div class="slide-tag">PROBLEM</div>
+        <div class="slide-num">03 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">クラウドは安定</div>
+        <div class="title">不安定を前提に</div>
+        <div class="lead">
+          Kubernetesの強み（スケジューリングと再配置）を、ブラウザタブという離脱しやすい環境に当てはめると、ノードが突然消えます。
+          それでもPod実行を成立させる設計と評価が必要になります。<span class="bilingual">不安定性＝タブ終了・バックグラウンド制限・端末差</span>
+        </div>
+        <div class="grid3">
+          <div class="card">
+            <div class="label">障害源</div>
+            <div class="value">タブ閉じる／端末スリープ／回線断</div>
+          </div>
+          <div class="card">
+            <div class="label">結果</div>
+            <div class="value">Pod中断・再起動・遅延のばらつき</div>
+          </div>
+          <div class="card">
+            <div class="label">論点</div>
+            <div class="value">状態保持（継続）とSLO（体感）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" aria-label="architecture">
+      <div class="topline">
+        <div class="slide-tag">ARCHITECTURE</div>
+        <div class="slide-num">04 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">タブがノード</div>
+        <div class="title">map</div>
+        <div class="lead">
+          通常のKubernetesではノード＝サーバ（物理/VM）ですが、tabernetesではノード相当が「ブラウザタブ上のLinuxゲスト」です。
+          KubernetesスケジューラがPodを割り当てると、そのタブで実行が始まります。<span class="bilingual">タブ＝node／Pod＝ワークロード</span>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">制御プレーン</div>
+            <div class="value">クラスタ（cluster）運用：制御プレーン＋スケジューラ</div>
+            <div class="bilingual">Control Plane / Scheduler</div>
+          </div>
+          <div class="card">
+            <div class="label">実行基盤</div>
+            <div class="value">タブ内Linuxゲスト（小さなゲスト）でPod実行</div>
+            <div class="bilingual">tab as node</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label">離脱の扱い</div>
+          <div class="value">タブを閉じるとノード消滅→Podを別タブへ再スケジュール</div>
+          <div class="bilingual">pods moved off a closed tab</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" aria-label="architecture2">
+      <div class="topline">
+        <div class="slide-tag">PROCESS</div>
+        <div class="slide-num">05 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">参加の流れ</div>
+        <div class="title">Join→Run</div>
+        <div class="lead">
+          Join（参加）すると、約<span class="mono">5MB</span>をダウンロードして小さなLinuxゲストがタブ内で起動します。
+          その後、スケジューラがPodを割り当てることで実行が開始されます。<span class="bilingual">Join＝ノード参加</span>
+        </div>
+
+        <div class="grid3">
+          <div class="card">
+            <div class="label">i</div>
+            <div class="value">Joinする</div>
+            <div class="bilingual">参加（タブがクラスターに接続）</div>
+          </div>
+          <div class="card">
+            <div class="label">ii</div>
+            <div class="value">ゲスト起動</div>
+            <div class="bilingual">約5MB／1コア相当（小さな実行環境）</div>
+          </div>
+          <div class="card">
+            <div class="label">iii</div>
+            <div class="value">Pod割当</div>
+            <div class="bilingual">Pod→タブ内で実行</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label">退場</div>
+          <div class="value">タブが閉じる→ノードgone→別タブへ再配置して再起動</div>
+          <div class="bilingual">離脱を前提に回す</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" aria-label="enumeration">
+      <div class="topline">
+        <div class="slide-tag">ENUMERATION</div>
+        <div class="slide-num">06 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">K8s用語の対応</div>
+        <div class="title">Terms</div>
+        <div class="lead">
+          tabernetesを理解する鍵は、Kubernetesの基本語が「タブ側の実体」に置き換わる点です。
+          Podが「どこで走るか」＝タブ（ノード）を指します。<span class="bilingual">Pod＝タブ内実行</span>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">node（ノード）</div>
+            <div class="value">ブラウザタブ上のLinuxゲスト</div>
+            <div class="bilingual">node disappears with tab</div>
+          </div>
+          <div class="card">
+            <div class="label">Pod（ポッド）</div>
+            <div class="value">スケジューラが割り当てる実行単位</div>
+            <div class="bilingual">runs inside that tab</div>
+          </div>
+          <div class="card">
+            <div class="label">Service</div>
+            <div class="value">通信の窓口（Pod間/外部との接続）</div>
+            <div class="bilingual">“入口”の役</div>
+          </div>
+          <div class="card">
+            <div class="label">Scheduler</div>
+            <div class="value">Podをどのタブ（node）へ載せるか決める</div>
+            <div class="bilingual">再配置も担う</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" aria-label="evidence">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">07 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">今の稼働</div>
+        <div class="title">Happening now</div>
+        <div class="lead">
+          提示データでは、ノード数は<span class="mono">27</span>（最大<span class="mono">401</span>）で、Podは<span class="mono">23 running</span>、<span class="mono">4 starting</span>です。
+          端末・OS・ブラウザ（Linux/macOS/iPhone/Windows、Firefox/Chrome/Safari/HeadlessChrome等）が混在しています。<span class="bilingual">node参加が動的</span>
+        </div>
+
+        <div class="grid3">
+          <div class="card">
+            <div class="label">node</div>
+            <div class="value"><span class="mono">27</span>（最大 <span class="mono">401</span>）</div>
+          </div>
+          <div class="card">
+            <div class="label">Pod</div>
+            <div class="value"><span class="mono">23</span> running／<span class="mono">4</span> starting</div>
+          </div>
+          <div class="card">
+            <div class="label">多様性</div>
+            <div class="value">国・OS・ブラウザが混在</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" aria-label="performance">
+      <div class="topline">
+        <div class="slide-tag">EVIDENCE</div>
+        <div class="slide-num">08 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">体感を決める</div>
+        <div class="title">秒オーダ</div>
+        <div class="lead">
+          起動時間（直近<span class="mono">240</span>回）は中央値<span class="mono">約 5.0秒</span>、最速<span class="mono">約 1.0秒</span>です。
+          応答レイテンシ（直近<span class="mono">240</span>リクエスト）は中央値<span class="mono">1.1秒</span>、最遅<span class="mono">7.8秒</span>とされます。<span class="bilingual">起動と待ち時間が評価軸</span>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">起動（startup）</div>
+            <div class="value">median <span class="mono">5.0s</span>／min <span class="mono">1.0s</span></div>
+          </div>
+          <div class="card">
+            <div class="label">応答（latency）</div>
+            <div class="value">median <span class="mono">1.1s</span>／max <span class="mono">7.8s</span></div>
+          </div>
+        </div>
+
+        <div class="note">
+          参加型としては成立していることを示唆しますが、Pod数や利用動向で体感は変わり得ます。
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" aria-label="example">
+      <div class="topline">
+        <div class="slide-tag">METAPHOR</div>
+        <div class="slide-num">09 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">分割して当てる</div>
+        <div class="title">tiles</div>
+        <div class="lead">
+          Mandelbrot集合の例では、画像を<span class="mono">64タイル</span>に分割し、複数ノードが各タイルを並列計算して合成します。
+          64タイルを<span class="mono">17デバイス</span>で<span class="mono">3.3秒</span>描画したとされています。<span class="bilingual">独立計算×並列＝相性◎</span>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">入力の分割</div>
+            <div class="value"><span class="mono">64</span> tiles</div>
+          </div>
+          <div class="card">
+            <div class="label">並列の分散</div>
+            <div class="value"><span class="mono">17</span> devices → <span class="mono">3.3s</span></div>
+          </div>
+        </div>
+
+        <div class="note">
+          タイルのように独立性が高いワークロードは、参加型の動的ノードに合いやすいです。
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="slide" aria-label="distinction">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">10 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">向く/向かない</div>
+        <div class="title">Workload Fit</div>
+        <div class="lead">
+          tabernetesは「独立に並列化できる処理」ほど伸びやすい設計です。
+          一方、強い同期が必要な処理や長時間の状態維持は、タブ離脱でリスクが増えます。<span class="bilingual">ステートレス寄りが有利</span>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">向く</div>
+            <div class="value">タイル分割画像／バッチ計算／独立タスク</div>
+          </div>
+          <div class="card">
+            <div class="label">向かない</div>
+            <div class="value">強同期／長時間ステートフル／依存が濃い処理</div>
+          </div>
+        </div>
+
+        <div class="note">
+          どの条件ならKPIを満たすかは、実測（成功率・失敗率・再試行）で詰める必要があります。
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="slide" aria-label="comparison">
+      <div class="topline">
+        <div class="slide-tag">COMPARISON</div>
+        <div class="slide-num">11 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">クラウドではなく参加型</div>
+        <div class="title">Different Assumptions</div>
+        <div class="lead">
+          tabernetesは「無限に安定したクラウド資源」ではなく、利用者のタブが増減する参加型資源です。
+          だからこそ、タブ消滅→再スケジュールが運用の前提になっています。<span class="bilingual">離脱＝設計に織り込む</span>
+        </div>
+
+        <div class="grid3">
+          <div class="card">
+            <div class="label">クラウド</div>
+            <div class="value">ノードは基本的に安定</div>
+          </div>
+          <div class="card">
+            <div class="label">tabernetes</div>
+            <div class="value">ノードが突然消える（タブ終了）</div>
+          </div>
+          <div class="card">
+            <div class="label">結果</div>
+            <div class="value">再起動・再配置が常態化し得る</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="slide" aria-label="security">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">12 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">安全性は未確定</div>
+        <div class="title">Security</div>
+        <div class="lead">
+          入力データには、サンドボックス強度・ネットワーク/ファイル制限・権限分離・署名検証などの詳細がありません。
+          WASMやブラウザ隔離の可能性はあっても、安全性を断定するには仕様確認が必要です。<span class="bilingual">仕様が見えない＝要検証</span>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">必要な確認</div>
+            <div class="value">分離境界／アクセス制御／外部通信の制御</div>
+          </div>
+          <div class="card">
+            <div class="label">責任の所在</div>
+            <div class="value">誰がPodを提供し、どのタブへ載せるか</div>
+          </div>
+        </div>
+
+        <div class="note">
+          tabernetesは面白い一方で、「安全に動く根拠」を別途詰める段階が残っています。
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section class="slide" aria-label="state">
+      <div class="topline">
+        <div class="slide-tag">DISTINCTION</div>
+        <div class="slide-num">13 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">再起動の代償</div>
+        <div class="title">State</div>
+        <div class="lead">
+          Pod移動時に「各 started again」とはあるものの、中断前の途中結果をどう引き継ぐかは入力からは不明です。
+          結果の整合性は、アプリ側がステートレス設計か、チェックポイント/外部保存を用意できるかに依存します。<span class="bilingual">途中結果の保証は未記載</span>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">不明点</div>
+            <div class="value">途中結果の引継ぎ（checkpoint / persistence）</div>
+          </div>
+          <div class="card">
+            <div class="label">必要な設計</div>
+            <div class="value">ステートレス化／外部保存／再試行方針</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="slide" aria-label="closing opinion">
+      <div class="topline">
+        <div class="slide-tag">CLOSING</div>
+        <div class="slide-num">14 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">結論（私見）</div>
+        <div class="title">参加型の価値</div>
+        <div class="lead">
+          tabernetesは、Kubernetesのオーケストレーション能力を「ブラウザタブという変動要素」に適用した、実測付きの面白い事例です。
+          一方で安全性・状態整合性・公平性・失敗時挙動は入力だけでは判断できず、追加検証が重要です。<span class="bilingual">価値＝条件付きで高い</span>
+        </div>
+
+        <div class="grid3">
+          <div class="card">
+            <div class="label">Tech</div>
+            <div class="value">制御プレーン＋スケジューリングの接続が挑戦的</div>
+          </div>
+          <div class="card">
+            <div class="label">Practical</div>
+            <div class="value">5MB・秒オーダの指標があり評価しやすい</div>
+          </div>
+          <div class="card">
+            <div class="label">Risk</div>
+            <div class="value">離脱・端末差・バックグラウンド制限でばらつく</div>
+          </div>
+        </div>
+
+        <div class="note">
+          “クラウドの代替”ではなく、向くワークロードに絞ってKPIを満たすか評価する基盤として価値が高い可能性があります。
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section class="slide" aria-label="references">
+      <div class="topline">
+        <div class="slide-tag">REFERENCES</div>
+        <div class="slide-num">15 / 18</div>
+      </div>
+      <div class="content">
+        <div class="eyebrow">参照（要点）</div>
+        <div class="title">Sources</div>
+        <div class="lead">
+          追加で確認する際の参照先（一般に公開されている説明・技術記事）です。
+          ※本スライドはユーザ入力の要約に基づくため、詳細仕様は原典で確かめてください。<span class="bilingual">仕様は原典で確認</span>
+        </div>
+
+        <div class="refs">
+          <div class="refitem">Kubernetesの基本概念（クラスタ／制御プレーン／ノード／Pod／Service／スケジューラ）— 公式ドキュメント</div>
+          <div class="refitem">tabernetes / Browser-based Kubernetesの説明（タブでコンテナやLinuxゲストを動かす発想）— 技術ブログ・解説記事</div>
+          <div class="refitem">Kubernetes制御プレーンのブラウザ内WASM化（etcd置換など）に関する記述— 関連技術記事</div>
+          <div class="refitem">参加型分散（離脱を前提にPodを再スケジュールする発想）— 分散システム一般の整理記事</div>
+        </div>
+      </div>
+    </section>
+
+  
+<section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">16 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://fzakaria.com/2026/11/25/browser-tabs-as-a-container-runtime" target="_blank" rel="noreferrer noopener">Browser tabs as a container runtime | Farid Zakaria’s Blog</a></h2>
+<p class="reference-note">Whereas the default Docker runtime, runc, starts your program as a process on the host’s kernel, tabc leverages the brow…</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://x.com/_pi0_/status/2125923361763008709" target="_blank" rel="noreferrer noopener">Pooya Parsa on X: &quot;wow this is crazy!! highly recommend reading the article.&quot;</a></h2>
+<p class="reference-note">&gt; Quoting @fmzakari (Farid Zakaria):
+&gt;
+&gt; I ran a #linux container on a #mac with no Linux VM and no hypervisor.
+&gt; 
+&gt; The…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">17 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://lockergnome.com/tabernetes-runs-a-real-kubernetes-control-plane-inside-a-browser-tab" target="_blank" rel="noreferrer noopener">A free website runs Kubernetes in your browser and turns extra tabs into cluster nodes | LockerGnome</a></h2>
+<p class="reference-note">The tabs can also run container images through an emulator. Tabernetes pulls image layers, builds an initial filesystem …</p>
+</article>
+<article class="reference-item">
+<h2><a href="https://jkroepke.de/tabernetes" target="_blank" rel="noreferrer noopener">Tabernetes: Kubernetes in your browser tab - Jan-Otto Kröpke</a></h2>
+<p class="reference-note">Your tab runs real container images, too. Type `kubectl run nginx --image=nginx:alpine`. Without a node from `join`, the…</p>
+</article>
+</div>
+</section><section class="slide references-slide" style="aspect-ratio: 16 / 9; min-height: unset; box-sizing: border-box;">
+  <div class="slide-tag">REFERENCES</div>
+  <div class="slide-num">18 / 18</div>
+  <h1>References</h1>
+  <div class="reference-list">
+<article class="reference-item">
+<h2><a href="https://finance.yahoo.com/news/fermyon-contributes-spinkube-cncf-making-081500677.html" target="_blank" rel="noreferrer noopener">Fermyon Contributes SpinKube to CNCF, Making WebAssembly a First-Class Workload in Kubernetes</a></h2>
+<p class="reference-note">WebAssembly (Wasm) is uniquely poised to enable the third wave of cloud computing as an ultra-efficient runtime with sup…</p>
+</article>
+</div>
+</section>
+</div>
+</body>
+</html>
